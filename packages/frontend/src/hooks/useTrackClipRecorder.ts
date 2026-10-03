@@ -1,6 +1,7 @@
 import { useCallback } from 'react';
 import { useEditorStore } from '../store/editorStore';
-import { api } from '../api/client';
+import { displayPlayhead } from '@vspark/shared/clipPlayback';
+import { commitKeyframe, commitLaneCreate } from '../mesh/clipWrites';
 import type {
   TrackClipKeyframeRecord,
   TrackClipLaneRecord,
@@ -28,27 +29,18 @@ export function useTrackClipRecorder(): {
   const bottomTab = useEditorStore((s) => s.bottomTab);
   const selectedClipId = useEditorStore((s) => s.selectedTrackClipId);
   const trackClips = useEditorStore((s) => s.trackClips);
-  const playback = useEditorStore((s) => s.trackClipPlayback);
-  const addTrackClipLane = useEditorStore((s) => s.addTrackClipLane);
-  const replaceTrackClipLaneKeyframes = useEditorStore(
-    (s) => s.replaceTrackClipLaneKeyframes
-  );
+  const playback = useEditorStore((s) => s.clipPlayback);
 
   const selectedClip = trackClips.find((c) => c.id === selectedClipId) ?? null;
   const canRecord = bottomTab === 'clips' && selectedClip != null;
 
   const currentPlayhead = useCallback((): number => {
     if (!selectedClip) return 0;
-    const entry = playback[selectedClip.id];
-    if (!entry) return 0;
-    if (entry.kind === 'paused') return entry.pausedAtT;
-    if (selectedClip.duration <= 0) return 0;
-    const tRaw = (Date.now() + entry.clockOffsetMs - entry.startedAt) / 1000;
-    if (entry.loop) {
-      const w = tRaw % selectedClip.duration;
-      return w < 0 ? w + selectedClip.duration : w;
-    }
-    return Math.max(0, Math.min(selectedClip.duration, tRaw));
+    // Derived from the synced document, same as everywhere else — recording a
+    // keyframe at "now" has to mean the same instant the viewport is showing.
+    return (
+      displayPlayhead(playback[selectedClip.id], selectedClip.duration) ?? 0
+    );
   }, [selectedClip, playback]);
 
   /** Find an existing lane for (targetKind, targetId, paramPath), or create it. */
@@ -73,16 +65,14 @@ export function useTrackClipRecorder(): {
           l.paramPath === opts.paramPath
       );
       if (existing) return existing;
-      const lane = await api.createTrackClipLane(clipId, {
+      return commitLaneCreate(clipId, {
         targetKind: opts.targetKind,
         targetId: opts.targetId,
         paramPath: opts.paramPath,
         defaultValue: opts.defaultValue,
       });
-      addTrackClipLane(clipId, lane);
-      return lane;
     },
-    [addTrackClipLane]
+    []
   );
 
   /** Insert (or update at same t) a keyframe on the given lane and persist.
@@ -113,27 +103,12 @@ export function useTrackClipRecorder(): {
         };
         next = { ...draft, ...defaultBezierHandles(draft) };
       }
-      const merged = existing
-        ? lane.keyframes.map((k) => (k.id === existing.id ? next : k))
-        : [...lane.keyframes, next].sort((a, b) => a.t - b.t);
-      replaceTrackClipLaneKeyframes(lane.id, merged);
-      await api
-        .replaceTrackClipKeyframes(
-          lane.id,
-          merged.map((k) => ({
-            id: k.id,
-            t: k.t,
-            value: k.value,
-            easing: k.easing,
-            inHandleTFraction: k.inHandleTFraction,
-            inHandleVFraction: k.inHandleVFraction,
-            outHandleTFraction: k.outHandleTFraction,
-            outHandleVFraction: k.outHandleVFraction,
-          }))
-        )
-        .catch(() => {});
+      // One keyframe, one write: recording a take used to re-send the lane's
+      // whole keyframe list per sample, which on a 60Hz record is the entire
+      // lane on the wire every frame — and one undo entry per sample.
+      commitKeyframe(lane.clipId, lane.id, next);
     },
-    [replaceTrackClipLaneKeyframes]
+    []
   );
 
   const recordKeyframe = useCallback(

@@ -10,7 +10,6 @@ import { Router } from 'express';
 import { randomUUID } from 'crypto';
 import { getDb } from '../db/index.js';
 import { getMeshCollection } from '../mesh/index.js';
-import { refreshAllBehaviorManagers } from './shared.js';
 import { getAllBehaviorKindMeta } from '../behaviors/registry.js';
 
 const router: ReturnType<typeof Router> = Router();
@@ -82,7 +81,6 @@ router.post('/scene-nodes/:nodeId/behaviors', async (req, res) => {
   }).ack;
   if (outcome.status === 'rejected')
     return res.status(500).json({ ok: false, error: { message: outcome.reason } });
-  refreshAllBehaviorManagers();
   res.status(201).json({
     ok: true,
     data: {
@@ -127,7 +125,6 @@ router.put('/behaviors/:id', async (req, res) => {
   }).ack;
   if (outcome.status === 'rejected')
     return res.status(500).json({ ok: false, error: { message: outcome.reason } });
-  refreshAllBehaviorManagers();
   res.json({ ok: true, data: { id: req.params.id } });
 });
 
@@ -149,7 +146,6 @@ router.delete('/behaviors/:id', async (req, res) => {
       .status(500)
       .json({ ok: false, error: { message: 'store not ready' } });
   await col.remove(req.params.id).ack;
-  refreshAllBehaviorManagers();
   res.json({ ok: true, data: {} });
 });
 

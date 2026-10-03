@@ -1,6 +1,13 @@
 # Plan: Automated testing strategy (unit, API, UI regression + control coverage)
 
-> Branch: `claude/automated-testing-strategy-zlryx4` · Status: in progress
+> **Status:** in progress — the three tiers, both coverage signals and the `vs-` targeting
+> convention are shipped and are now repo policy (see
+> [`../modules/testing.md`](../modules/testing.md) and CLAUDE.md). What is open is
+> breadth, not mechanism: control instrumentation stands at 185 / 562 (`node
+e2e/scripts/controls.mjs report`), and CI wiring is still deferred to the user.
+> **Executed in part by:** [`batch-4a-phase67.md`](./batch-4a-phase67.md).
+
+> _(Historical.)_ Branch: `claude/automated-testing-strategy-zlryx4`
 > This plan is the seed context for an implementation session. It is a starting point,
 > not an airtight spec — refine it interactively as gaps surface.
 >

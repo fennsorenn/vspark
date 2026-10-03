@@ -1,5 +1,14 @@
 # Phase 3 — Generic Data Channels + Template Feed Layer (chat overlay as first use)
 
+> **Status:** shipped — `backend/src/data_channels/manager.ts`, the
+> `overlive_chat_feed` / `set_data` signal nodes, and the template feed compose layer.
+> Module doc: [`../modules/data-channels.md`](../modules/data-channels.md).
+> Open debt (not in this plan): `data_channel_set`/`data_channel_clear` plus the
+> `data_channel_snapshot` replay to each freshly-connected client
+> (`data_channels/manager.ts:132-141`) are exactly the retained-state pattern a retained
+> mesh channel provides for free. See [`README.md`](./README.md) — "still on a non-mesh
+> transport".
+
 ## Context
 
 vspark can react to chat events in the signal graph (`overlive_chat_message` emits an event +

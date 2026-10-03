@@ -13,10 +13,7 @@
  *  - revokeUnauthorized (evicts denied subscriptions + sends UNSHARED)
  *  - handleEnvelope ADVERTISE → broadcast mp_shares
  *  - handleEnvelope UNSHARED → broadcast mp_shared_unshared
- *  - handleEnvelope OVERRIDE → broadcast mp_shared_override
- *  - handleEnvelope DATACHANNEL → broadcast mp_shared_datachannel
  *  - handleStreamFrame → broadcast mp_shared_stream
- *  - forwardOverride / forwardDataChannel (global-scope is a no-op)
  *  - handleEnvelope WRITE_NAK → broadcast mp_shared_write_nak
  *
  * handleEnvelope SUBSCRIBE → gatherObjectSnapshot (DB) and
@@ -209,37 +206,9 @@ describe('SharingManager handleEnvelope UNSHARED', () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// handleEnvelope OVERRIDE / DATACHANNEL.
-// ---------------------------------------------------------------------------
-
-describe('SharingManager handleEnvelope OVERRIDE / DATACHANNEL', () => {
-  it('broadcasts mp_shared_override', () => {
-    const { sm, broadcasts } = makeSm();
-    sm.handleEnvelope('peer-G', {
-      rtype: '_share_override',
-      op: 'event',
-      key: 'scene_node:node-1',
-      data: { op: 'set', targetKind: 'scene_node', targetId: 'node-1', value: 1 },
-    });
-    expect(
-      broadcasts.some((b) => b.kind === 'mp_shared_override' && (b.payload as { peerId: string }).peerId === 'peer-G')
-    ).toBe(true);
-  });
-
-  it('broadcasts mp_shared_datachannel', () => {
-    const { sm, broadcasts } = makeSm();
-    sm.handleEnvelope('peer-H', {
-      rtype: '_share_datachannel',
-      op: 'event',
-      key: 'scene_node:node-2',
-      data: { op: 'set', scope: 'node-2', key: 'visible', value: false },
-    });
-    expect(
-      broadcasts.some((b) => b.kind === 'mp_shared_datachannel')
-    ).toBe(true);
-  });
-});
+// _share_override and _share_datachannel are gone: overrides and published data
+// fields are retained mesh documents parented to their target/scope, so an
+// object-share subtree grant already routes them — see mesh/runtime.ts.
 
 // ---------------------------------------------------------------------------
 // handleEnvelope WRITE_NAK → mp_shared_write_nak broadcast.
@@ -291,27 +260,6 @@ describe('SharingManager handleStreamFrame', () => {
     const { sm, broadcasts } = makeSm();
     sm.handleStreamFrame('peer-K', { rtype: '_other', objectId: 'x', kind: 'y', payload: {} });
     expect(broadcasts.filter((b) => b.kind === 'mp_shared_stream')).toHaveLength(0);
-  });
-});
-
-// ---------------------------------------------------------------------------
-// forwardOverride / forwardDataChannel (global scope → no-op).
-// ---------------------------------------------------------------------------
-
-describe('SharingManager forwardOverride / forwardDataChannel', () => {
-  it('forwardOverride skips non-scene_node targetKind', () => {
-    const { sm, sent } = makeSm();
-    const sentBefore = sent.length;
-    sm.forwardOverride('set', { targetKind: 'compose_layer', targetId: 'cl-1', value: 1 });
-    expect(sent.length).toBe(sentBefore);
-  });
-
-  it('forwardDataChannel skips a global (empty) scope', () => {
-    const { sm } = makeSm();
-    // No participants subscribed, but if the scope check were bypassed we'd see
-    // a router.publish call. With scope '' it must silently return.
-    // Just confirm it doesn't throw.
-    expect(() => sm.forwardDataChannel('set', { scope: '', key: 'x', value: 1 })).not.toThrow();
   });
 });
 

@@ -37,7 +37,6 @@ const chatOverlayLayer = composeLayerPreset(
       height: 480,
       anchorH: 'left',
       anchorV: 'bottom',
-      sceneOrder: -1,
     }),
   ],
   {

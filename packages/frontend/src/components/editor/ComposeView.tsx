@@ -24,6 +24,7 @@ import {
   layerFrame,
 } from './composeHitTest';
 import { api } from '../../api/client';
+import { commitLayerCreate, commitLayerPath } from '../../mesh/layerWrites';
 import { uniqueName } from './createKinds';
 import { Magnet, Bone } from 'lucide-react';
 
@@ -156,10 +157,6 @@ export function ComposeView() {
   const assets = useEditorStore((s) => s.assets);
   const projectId = useEditorStore((s) => s.projectId);
   const addAsset = useEditorStore((s) => s.addAsset);
-  const addComposeLayer = useEditorStore((s) => s.addComposeLayer);
-  const updateComposeLayerLocal = useEditorStore(
-    (s) => s.updateComposeLayerLocal
-  );
   const selectComposeLayer = useEditorStore((s) => s.selectComposeLayer);
   const snapEnabled = useEditorStore((s) => s.composeSnapEnabled);
   const setSnapEnabled = useEditorStore((s) => s.setComposeSnapEnabled);
@@ -305,8 +302,7 @@ export function ComposeView() {
         // Replace the target image layer's asset with the first dropped file.
         const asset = await api.uploadAsset(projectId, files[0]);
         addAsset(asset);
-        await api.updateComposeLayer(target, { assetId: asset.id });
-        updateComposeLayerLocal(target, { assetId: asset.id });
+        commitLayerPath(target, 'assetId', asset.id);
         selectComposeLayer(target);
       } else {
         // Create a new image layer per dropped file, at (and cascading from)
@@ -323,20 +319,16 @@ export function ComposeView() {
               )
               .map((l) => l.name)
           );
-          const created = await api.createComposeSceneLayer(
-            activeComposeSceneId,
-            {
-              name: uniqueName('Image Layer', taken),
-              kind: 'image',
-              assetId: asset.id,
-              anchorH: 'left',
-              anchorV: 'top',
-              x: Math.round(drop.x) + i * 24,
-              y: Math.round(drop.y) + i * 24,
-              config: {},
-            }
-          );
-          addComposeLayer(created);
+          const created = await commitLayerCreate(activeComposeSceneId, {
+            name: uniqueName('Image Layer', taken),
+            kind: 'image',
+            assetId: asset.id,
+            anchorH: 'left',
+            anchorV: 'top',
+            x: Math.round(drop.x) + i * 24,
+            y: Math.round(drop.y) + i * 24,
+            config: {},
+          });
           lastId = created.id;
         }
         if (lastId) selectComposeLayer(lastId);

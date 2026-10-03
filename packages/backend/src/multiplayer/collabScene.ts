@@ -15,7 +15,9 @@
 import { randomUUID } from 'crypto';
 import { basename } from 'path';
 import { getDb } from '../db/index.js';
-import { sync } from '../sync/index.js';
+import { getMeshCollection, getMeshPeer } from '../mesh/index.js';
+import { getIdentity } from './identity.js';
+import type { IdMap } from '@vspark/shared/idMap';
 import { type SyncEnvelope } from '@vspark/shared/sync';
 import {
   type ObjectSnapshot,
@@ -48,22 +50,53 @@ export function registerCollabScene(
   sceneId: string,
   peerId: string,
   role: CollabRole,
-  projectId: string
+  projectId: string,
+  /** ms epoch of the mount, for 'mounted' rows. See migration 038 and
+   *  `MeshPeer.mount`: documents in a mounted scope reconcile against
+   *  max(write stamp, mount stamp), so this peer's older tombstones cannot
+   *  swallow the tree it just mounted (and then propagate that back to its
+   *  author). Local metadata on the share — never written to the documents. */
+  mountedAt?: number
 ): void {
   getDb()
     .prepare(
-      `INSERT INTO collab_scenes (scene_id, peer_id, role, project_id)
-       VALUES (?, ?, ?, ?)
+      `INSERT INTO collab_scenes (scene_id, peer_id, role, project_id, mounted_at)
+       VALUES (?, ?, ?, ?, ?)
        ON CONFLICT(scene_id, peer_id)
-       DO UPDATE SET role = excluded.role, project_id = excluded.project_id`
+       DO UPDATE SET role = excluded.role, project_id = excluded.project_id,
+         mounted_at = COALESCE(excluded.mounted_at, collab_scenes.mounted_at)`
     )
-    .run(sceneId, peerId, role, projectId);
+    .run(sceneId, peerId, role, projectId, mountedAt ?? null);
+  if (mountedAt !== undefined) applyMountStamp(sceneId, mountedAt);
+}
+
+/** Tell the mesh peer about a mount, so the scope reconciles against it. */
+function applyMountStamp(sceneId: string, mountedAt: number): void {
+  getMeshPeer()?.mount(sceneId, {
+    t: mountedAt,
+    c: 0,
+    n: getIdentity().peerId,
+  });
+}
+
+/** Re-apply every persisted mount stamp. Called at boot: the links persist, the
+ *  peer's in-memory mount table does not, and a receiver that restarts must not
+ *  quietly go back to reconciling a mounted scene as if it had always had it. */
+export function restoreMountStamps(): void {
+  const rows = getDb()
+    .prepare(
+      "SELECT scene_id, mounted_at FROM collab_scenes WHERE role = 'mounted' AND mounted_at IS NOT NULL"
+    )
+    .all() as { scene_id: string; mounted_at: number }[];
+  for (const r of rows) applyMountStamp(r.scene_id, r.mounted_at);
 }
 
 export function removeCollabScene(sceneId: string, peerId: string): void {
   getDb()
     .prepare('DELETE FROM collab_scenes WHERE scene_id = ? AND peer_id = ?')
     .run(sceneId, peerId);
+  // Nothing mounts this scene here any more, so it reconciles by ordinary LWW.
+  if (!isCollabScene(sceneId)) getMeshPeer()?.unmount(sceneId);
 }
 
 /** Whether a scene id participates in any collaboration (drives whether a local
@@ -130,6 +163,9 @@ export function listAllCollabScenes(): CollabLink[] {
 
 interface SnapshotNode {
   id: string;
+  /** The AUTHOR's values. Kept verbatim on mount — see mountSharedScene. */
+  projectId?: string;
+  rootSceneNodeId?: string;
   parentId: string | null;
   boneAttachment: string | null;
   name: string;
@@ -190,11 +226,26 @@ export async function persistCollabAssets(
       n.filePath = localByAuthorPath.get(n.filePath);
 }
 
-/** Mount a received scene snapshot as a real, persisted scene in `projectId`,
- *  preserving the author's node ids (shared id space) and the scene id as the
- *  `root_scene_node_id`. Idempotent: an existing node is upserted, so a re-mount
- *  (resubscribe) refreshes rather than duplicates. Records the 'mounted' link.
- *  Nodes arrive BFS-ordered (root first) so parent rows exist before children. */
+/** A project we hold but do not own, so a mounted tree can be stored exactly as
+ *  its author wrote it (migration 039). Idempotent; never overwrites one of
+ *  ours, so a peer claiming an id we already use cannot take it over. */
+export function ensurePeerProject(projectId: string, peerId: string): void {
+  getDb()
+    .prepare(
+      `INSERT INTO projects (id, name, owner_peer_id, created_at, updated_at)
+       VALUES (?, ?, ?, datetime('now'), datetime('now'))
+       ON CONFLICT(id) DO NOTHING`
+    )
+    .run(projectId, `Peer ${peerId.slice(0, 8)}`, peerId);
+}
+
+/** Mount a received scene snapshot as a real, persisted scene, keeping the
+ *  author's documents EXACTLY as they wrote them — their node ids, their
+ *  `project_id`, their parent links. `projectId` is the local project the mount
+ *  is recorded against on the share link; it is not written into the documents.
+ *  Idempotent: an existing node is upserted, so a re-mount (resubscribe)
+ *  refreshes rather than duplicates. Nodes arrive BFS-ordered (root first) so
+ *  parent rows exist before children. */
 export function mountSharedScene(
   snapshot: ObjectSnapshot,
   projectId: string,
@@ -202,6 +253,13 @@ export function mountSharedScene(
 ): void {
   const db = getDb();
   const sceneId = snapshot.objectId; // the scene root node id
+  // The author's project has to exist here for the FK to hold. Taken from the
+  // documents themselves rather than passed in, because it is THEIR value —
+  // that is the whole point of not rewriting it.
+  const authorProjectId = (snapshot.nodes as unknown as SnapshotNode[]).find(
+    (n) => typeof n.projectId === 'string'
+  )?.projectId;
+  if (authorProjectId) ensurePeerProject(authorProjectId, peerId);
   const SQL = `INSERT INTO scene_nodes
        (id, project_id, root_scene_node_id, parent_id, bone_attachment,
         name, kind, file_path, components, properties, hidden)
@@ -215,8 +273,8 @@ export function mountSharedScene(
   for (const n of snapshot.nodes as unknown as SnapshotNode[]) {
     db.prepare(SQL).run(
       n.id,
-      projectId,
-      sceneId,
+      n.projectId ?? projectId,
+      n.rootSceneNodeId ?? sceneId,
       n.parentId,
       n.boneAttachment ?? null,
       n.name,
@@ -232,7 +290,9 @@ export function mountSharedScene(
     sceneId,
     (snapshot.cameraEffects ?? []) as unknown as CameraEffectDto[]
   );
-  registerCollabScene(sceneId, peerId, 'mounted', projectId);
+  // Stamp the mount BEFORE the documents land, so the scope is already in force
+  // when they reconcile against this peer's history.
+  registerCollabScene(sceneId, peerId, 'mounted', projectId, Date.now());
 }
 
 /** nodeId → sceneId, so a `remove` (whose row is already gone) still resolves
@@ -310,7 +370,7 @@ interface ClipLaneDto {
   targetId: string;
   paramPath: string;
   defaultValue: number;
-  keyframes: ClipKeyframeDto[];
+  keyframes: IdMap<ClipKeyframeDto>;
 }
 interface ClipEventDto {
   id: string;
@@ -329,8 +389,9 @@ interface ClipDto {
   loop: boolean;
   mode: string;
   autoplay: boolean;
-  lanes: ClipLaneDto[];
-  events: ClipEventDto[];
+  // Id-keyed, matching the document the sender loaded (@vspark/shared/idMap).
+  lanes: IdMap<ClipLaneDto>;
+  events: IdMap<ClipEventDto>;
 }
 
 /** Resolve a clip's collab scene (its owner node's root scene), cache-first. */
@@ -359,62 +420,14 @@ function indexCollabSceneClips(sceneId: string): void {
   for (const r of rows) clipScene.set(r.id, sceneId);
 }
 
-/** Write a full clip from its DTO (delete + reinsert clip/lanes/keyframes/events).
- *  Children are cleared EXPLICITLY rather than via FK cascade — migrations toggle
- *  `foreign_keys`, and a re-mount/re-apply must be idempotent regardless. Without
- *  this, re-applying a clip hits a UNIQUE constraint on the stale lane ids.
- *  started_at is dropped (playback anchors are peer-local, synced separately) and
- *  the re-emit updates our own clients. */
+/** Write a full clip from its DTO through the mesh store: the onCommitted tap's
+ *  `save` does the same delete-then-reinsert of clip/lanes/keyframes/events (so
+ *  a re-mount/re-apply is idempotent) and emits the canonical `sync.document`
+ *  upsert; the store write also applies to the replica and fans out to mesh
+ *  subscribers with one stamp. started_at is dropped (playback anchors are
+ *  peer-local, synced separately). */
 function applyClipDto(dto: ClipDto): void {
-  const db = getDb();
-  const oldLanes = db
-    .prepare('SELECT id FROM track_clip_lanes WHERE clip_id = ?')
-    .all(dto.id) as { id: string }[];
-  for (const l of oldLanes)
-    db.prepare('DELETE FROM track_clip_keyframes WHERE lane_id = ?').run(l.id);
-  db.prepare('DELETE FROM track_clip_lanes WHERE clip_id = ?').run(dto.id);
-  db.prepare('DELETE FROM track_clip_events WHERE clip_id = ?').run(dto.id);
-  db.prepare('DELETE FROM track_clips WHERE id = ?').run(dto.id);
-  db.prepare(
-    `INSERT INTO track_clips
-       (id, owner_node_id, owner_layer_id, name, duration, loop, mode, autoplay, started_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL)`
-  ).run(
-    dto.id,
-    dto.ownerNodeId ?? null,
-    dto.ownerLayerId ?? null,
-    dto.name,
-    dto.duration,
-    dto.loop ? 1 : 0,
-    dto.mode,
-    dto.autoplay ? 1 : 0
-  );
-  for (const lane of dto.lanes ?? []) {
-    db.prepare(
-      `INSERT INTO track_clip_lanes (id, clip_id, target_kind, target_id, param_path, default_value)
-       VALUES (?, ?, ?, ?, ?, ?)`
-    ).run(lane.id, dto.id, lane.targetKind, lane.targetId, lane.paramPath, lane.defaultValue);
-    for (const kf of lane.keyframes ?? [])
-      db.prepare(
-        `INSERT INTO track_clip_keyframes
-           (id, lane_id, t, value, easing, in_handle_t_fraction, in_handle_v_fraction,
-            out_handle_t_fraction, out_handle_v_fraction)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
-      ).run(
-        kf.id, lane.id, kf.t, kf.value, kf.easing,
-        kf.inHandleTFraction, kf.inHandleVFraction,
-        kf.outHandleTFraction, kf.outHandleVFraction
-      );
-  }
-  for (const ev of dto.events ?? [])
-    db.prepare(
-      `INSERT INTO track_clip_events (id, clip_id, t, action, target_kind, target_id, payload)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`
-    ).run(
-      ev.id, dto.id, ev.t, ev.action, ev.targetKind, ev.targetId,
-      ev.payload ? JSON.stringify(ev.payload) : null
-    );
-  sync.document.upsert('track_clip', dto.id);
+  getMeshCollection('track_clip')?.set(dto.id, '', dto);
 }
 
 /** Write a collab scene's clips at mount/reconcile time, indexing them. A bad
@@ -450,21 +463,10 @@ interface CameraEffectDto {
 }
 
 function applyCameraEffectDto(dto: CameraEffectDto): void {
-  getDb()
-    .prepare(
-      `INSERT INTO camera_effects (id, node_id, kind, enabled, config)
-       VALUES (?, ?, ?, ?, ?)
-       ON CONFLICT(id) DO UPDATE SET
-         kind = excluded.kind, enabled = excluded.enabled, config = excluded.config`
-    )
-    .run(
-      dto.id,
-      dto.nodeId,
-      dto.kind,
-      dto.enabled ? 1 : 0,
-      JSON.stringify(dto.config ?? {})
-    );
-  sync.document.upsert('camera_effect', dto.id);
+  // Through the mesh store: the tap's `save` is the same idempotent upsert and
+  // emits the canonical sync.document upsert; the write also lands in the
+  // replica + fans out to mesh subscribers.
+  getMeshCollection('camera_effect')?.set(dto.id, '', dto);
 }
 
 /** Write a collab scene's camera effects at mount time (in the snapshot). */

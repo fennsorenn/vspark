@@ -126,6 +126,31 @@ function ensureLoop() {
   rafHandle = requestAnimationFrame(tick);
 }
 
+/** Whether a tween is currently animating this layer.
+ *
+ *  The mesh feeder uses this to decide how a COMMITTED value should land: mid
+ *  gesture it retargets the running tween so the layer glides into its final
+ *  position, but a value arriving cold (page load, a remote panel edit) applies
+ *  immediately rather than animating in from wherever the store happened to be. */
+export function hasLayerTween(id: string): boolean {
+  for (const t of scalarTweens.values())
+    if (t.scope === 'layer' && t.id === id) return true;
+  return false;
+}
+
+/** Whether a tween is currently animating this node. Same job as
+ *  {@link hasLayerTween}, but it must check BOTH maps: node position and scale
+ *  are scalar tweens, while rotation is only ever a quaternion tween (see
+ *  `retargetQuat`). A layer-style scan of `scalarTweens` alone would report "no
+ *  tween" for a rotate-only drag, so the committed value would snap the node
+ *  instead of gliding it in. */
+export function hasNodeTween(id: string): boolean {
+  if (quatTweens.has(id)) return true;
+  for (const t of scalarTweens.values())
+    if (t.scope === 'node' && t.id === id) return true;
+  return false;
+}
+
 /** Retarget a scalar tween, re-baselining from the current displayed value. */
 function retargetScalar(
   scope: Scope,
@@ -214,6 +239,24 @@ export function smoothNodeTransform(
     const to = transform[f];
     if (typeof to !== 'number') continue;
     retargetScalar('node', nodeId, f, to, cur?.[f] ?? to);
+  }
+
+  // Anything else on the component (opacity, shadow flags) applies immediately
+  // — same as smoothComposeLayer's `immediate` set. Without this an opacity
+  // drag would fan out and be silently dropped by every receiver, since it is
+  // neither a tweened scalar nor part of the rotation quaternion.
+  const rotationFields = new Set(['rx', 'ry', 'rz']);
+  const immediate: Record<string, unknown> = {};
+  for (const [f, v] of Object.entries(transform))
+    if (!scalarFields.includes(f) && !rotationFields.has(f) && f !== 'type')
+      immediate[f] = v;
+  if (Object.keys(immediate).length > 0) {
+    store.updateNode(nodeId, {
+      components: {
+        ...node.components,
+        transform: { type: 'transform', ...(cur ?? {}), ...immediate },
+      },
+    });
   }
 
   // Rotation: if any of rx/ry/rz is present, target the full rotation as a

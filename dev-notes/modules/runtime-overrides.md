@@ -10,30 +10,29 @@ Track clips animate fixed paramPaths along a timeline. Stream-overlay flows need
 
 ## Architecture
 
-**Backend:** `packages/backend/src/runtime_overrides/manager.ts`. **Scene-scoped** — the in-memory map is keyed first by `sceneId` and within that by `(targetKind, targetId, paramPath)`. Mirrors `broadcastBus` conceptually.
+**Backend:** `packages/backend/src/runtime_overrides/manager.ts`. The manager validates and coerces; the overrides themselves live in the mesh `runtime_override` collection (`packages/backend/src/mesh/runtime.ts`), one document per overridden path, keyed `${targetKind}:${targetId}:${paramPath}` and parented to the target. It holds no map of its own.
 
 Public surface:
 
-- `set(targetKind, targetId, paramPath, value, opts?: { persist?: boolean })` — store in the in-memory bus, broadcast `runtime_override_set`. With `persist: true` the manager calls the injected persist hook so the write also reaches SQLite via the appropriate REST/manager path.
-- `clear(targetKind, targetId, paramPath?)` — clear one path or all paths for a target; broadcasts `runtime_override_clear`.
+- `set(targetKind, targetId, paramPath, value, opts?: { persist?: boolean })` — validate against the paramPath registry, coerce, and commit the document. With `persist: true` the manager also calls the injected persist hook so the write reaches SQLite via the appropriate REST/manager path.
+- `clear(targetKind, targetId, paramPath?)` — remove one document, or every document for a target.
 - `clearAllForTarget(targetKind, targetId)` — convenience used by the spawn manager on cleanup.
-- `registerTarget(sceneId, targetKind, targetId)` — pre-registers a target's scene so subsequent `set` calls don't need to look it up in SQLite. The spawn manager calls this for ephemeral tmp ids that don't exist in the DB.
-- `sendSnapshotTo(ws)` — emits `runtime_override_snapshot` on client connect, mirroring the track-clip snapshot pattern.
+- `registerTarget(targetId, sceneId)` — pre-registers a target's scene so subsequent `set` calls don't need to look it up in SQLite. The spawn manager calls this for ephemeral tmp ids that don't exist in the DB.
 
 **Persist hook.** Initialised via `init({ persist })` from `packages/backend/src/index.ts`. The hook is currently injected as `null`; when `persist: true` is requested on a `set` call, the manager keeps the in-bus value and logs a warning. Implementing the hook (write-through to scene-nodes / compose-layers routes) is left as a follow-up; no graph or sample relies on it today.
 
-**WS messages** (in `WSMessageKind`):
+**Transport.** One retained mesh channel, no WS kinds. See [mesh.md](mesh.md) for the channel; the short version:
 
-- `runtime_override_set { sceneId, targetKind, targetId, paramPath, value }`
-- `runtime_override_clear { sceneId, targetKind, targetId, paramPath? }`
-- `runtime_override_snapshot { entries }` — sent on client connect.
+- The `runtime` channel is reliable + stamped + **retained**, with **no ack**. Retained because an override is durable state — a tab that connects later must see the current value, which is what the deleted `runtime_override_snapshot` message used to arrange by hand. No ack because an acked write is a logged one, and a graph firing overrides would otherwise consume the user's undo stack.
+- Containment parent is the target, so overrides ride the existing scene-subtree grants to collab peers and object-share subscribers. The `_share_override` envelope and the collab `runtime_control` tap that used to carry them are deleted.
+- A clear is a document **remove**, including the whole-target form — which the receiver sees as one remove per path, not a single message with an optional `paramPath`.
 
 **Frontend:** `editorStore.ts` exposes two parallel slices:
 
 - `runtimeNodeOverrides: Record<nodeId, Partial<Record<paramPath, scalar>>>`
 - `runtimeLayerOverrides: Record<layerId, Partial<Record<paramPath, scalar>>>`
 
-Actions: `setRuntimeOverride`, `clearRuntimeOverride`, `replaceRuntimeOverrides` (snapshot replace). `useWsSync.ts` dispatches the three new WS message kinds into these actions.
+Actions: `setRuntimeOverride`, `clearRuntimeOverride`. `sync/meshStoreFeeder.ts` drives them from the `runtime_override` collection — an upsert sets, a remove clears. On remove the target is parsed out of the document id, since there is no document left to read it from.
 
 ## Read paths
 
@@ -48,7 +47,7 @@ Opacity application uses the new `useApplyOpacity(groupRef, opacity)` hook (per-
 
 ## Open behaviours (chosen)
 
-- **Scope.** Scene-scoped at the manager level. All set/clear/snapshot operations carry `sceneId`.
+- **Scope.** An override is addressed to its target, not to a scene: the document's containment parent is the entity, and the scene falls out of that entity's own parent chain. The manager still resolves a scene id, but only to refuse an override on an entity that is in no scene.
 - **Persist-mode failure.** If `persist: true` is requested but the write-through path fails (or the hook isn't wired), the in-bus value is kept and a `console.warn` is logged. No automatic rollback — logic that need a persisted edit should treat this as best-effort.
 
 ## Cross-references
@@ -62,8 +61,9 @@ Opacity application uses the new `useApplyOpacity(groupRef, opacity)` hook (per-
 
 - `packages/backend/src/runtime_overrides/manager.ts` — manager
 - `packages/backend/src/index.ts` — `init({ persist: null })` at boot; passed into signal-node setup
-- `packages/shared/src/types.ts` — `runtime_override_set/clear/snapshot` `WSMessageKind` variants
+- `packages/backend/src/mesh/runtime.ts` — the `runtime` channel + the `runtime_override` collection, keying and containment
 - `packages/frontend/src/store/editorStore.ts` — `runtimeNodeOverrides`, `runtimeLayerOverrides` slices + actions
-- `packages/frontend/src/hooks/useWsSync.ts` — handlers
+- `packages/frontend/src/sync/meshStoreFeeder.ts` — the `runtime_override` observer
+- `packages/frontend/src/mesh/peer.ts` — the tab's channel + rtype registration
 - `packages/frontend/src/components/editor/Viewport.tsx` — `useTransformWithOverride`, `useApplyOpacity`
 - `packages/frontend/src/components/editor/ComposeLayerStack.tsx` — `LayerView` merge

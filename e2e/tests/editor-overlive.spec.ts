@@ -6,7 +6,7 @@ import type { APIRequestContext } from '@playwright/test';
  * Editor-flow E2E (Phase 8): Overlive accounts modal.
  *
  * Flow 1 — modal render & reachability
- *   Seed a project, open the editor, click the "🟣 Accounts" TopBar button, and
+ *   Seed a project, open the editor, click the Accounts TopBar button, and
  *   assert the OverliveAccountsModal renders with its title ("Stream Accounts"),
  *   both section headings ("TWITCH APPS", "ACCOUNTS"), and the empty-state text
  *   for each section.  Close the modal via the × button and assert it disappears.
@@ -44,7 +44,10 @@ import type { APIRequestContext } from '@playwright/test';
 // Helper: open the Accounts modal (assumes the editor is already loaded)
 // ---------------------------------------------------------------------------
 async function openAccountsModal(page: import('@playwright/test').Page) {
-  const btn = page.getByRole('button', { name: /🟣\s*Accounts/i });
+  // Its handle, not its label: the button's purple dot used to be a 🟣 in the
+  // text (which this matched on) and is now an SVG icon, so the accessible name
+  // is plain "Accounts".
+  const btn = page.locator('.vs-topbar-accounts');
   await expect(btn).toBeVisible();
   await btn.click();
 

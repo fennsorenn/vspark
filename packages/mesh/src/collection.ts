@@ -27,6 +27,15 @@ export interface WriteHandle {
 
 export interface WriteOpts {
   channel?: string;
+  /** Set `false` to keep a committed write OFF the authoring peer's undo stack.
+   *
+   *  Undo logs every committed retained-channel write by default, which is right
+   *  for document edits and wrong for actions that merely change what the user
+   *  is looking at. Transport controls are the motivating case: pressing Play
+   *  would otherwise make the next Ctrl+Z un-pause instead of undoing the last
+   *  edit. Such a write still replicates, persists and acks exactly as normal —
+   *  the only thing it skips is the undo entry. */
+  undo?: boolean;
 }
 
 export interface CollectionConfig<T extends object> {
@@ -56,6 +65,8 @@ export interface LocalWrite {
   path?: string;
   data?: unknown;
   channel: string;
+  /** false = do not log an undo entry for this write (see WriteOpts.undo). */
+  undo?: boolean;
   /** hydration: apply with this restored stamp; never acked; taps skip it. */
   hydrateV?: HLC;
 }
@@ -71,6 +82,8 @@ export interface PeerCore {
   subtreeIds(rootId: string): string[];
   parentIdOf(id: string): string | null;
   isDescendant(childId: string, ancestorId: string): boolean;
+  /** `v`, raised to the mount stamp when this doc sits in a mounted scope. */
+  effectiveStamp(id: string, v: HLC, parentHint?: string | null): HLC;
   indexUpsert(rtype: string, id: string, parentId: string | null): void;
   indexRemove(id: string): void;
 }
@@ -133,6 +146,7 @@ export class Collection<T extends object> {
       id: this.idOf(doc),
       data: doc,
       channel: this.writeChannel(opts),
+      undo: opts?.undo,
     });
   }
 
@@ -143,6 +157,7 @@ export class Collection<T extends object> {
       id,
       data: partial,
       channel: this.writeChannel(opts),
+      undo: opts?.undo,
     });
   }
 
@@ -154,6 +169,7 @@ export class Collection<T extends object> {
       path: path === '' ? undefined : path,
       data: value,
       channel: this.writeChannel(opts),
+      undo: opts?.undo,
     });
   }
 
@@ -162,6 +178,7 @@ export class Collection<T extends object> {
       op: 'remove',
       id,
       channel: this.writeChannel(opts),
+      undo: opts?.undo,
     });
   }
 
@@ -240,6 +257,21 @@ export class Collection<T extends object> {
       this.notify(change);
       return change;
     }
+    // A mount is not a reconnect: inside a mounted scope a document reconciles
+    // against max(its own stamp, the mount stamp), so this peer's older
+    // tombstones cannot out-stamp the tree it just deliberately mounted. Local
+    // metadata only — what we relay onward still carries the origin's stamp.
+    // See MeshPeer.mount.
+    v = this.peer.effectiveStamp(
+      id,
+      v,
+      // The parent the incoming doc declares: the index cannot place a document
+      // whose subtree this peer deleted, and that is the case the mount exists
+      // for.
+      op === 'upsert' && data
+        ? (this.cfg.parent?.(data as T)?.id ?? null)
+        : null
+    );
     let change: AppliedChange<T> | null;
     let preChain: string[] | undefined;
     if (op === 'remove') {

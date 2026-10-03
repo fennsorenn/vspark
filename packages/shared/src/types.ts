@@ -1,3 +1,5 @@
+import type { IdMap } from './idMap.js';
+
 // Core identity types
 export type NodeKind =
   | 'scene'
@@ -215,10 +217,6 @@ export type ComposeLayerKind =
 export type ComposeAnchorH = 'left' | 'right';
 export type ComposeAnchorV = 'top' | 'bottom';
 
-/** scene_order = 0 is the 3D render slot. Negative paints above the 3D, positive paints behind.
- *  Camera-specific layers carry a non-zero camera_order to interleave within a scene_order slot. */
-export const SCENE_RENDER_SLOT = 0;
-
 export interface ComposeLayer {
   id: string;
   projectId: string;
@@ -241,8 +239,10 @@ export interface ComposeLayer {
   rotation: number;
   anchorH: ComposeAnchorH;
   anchorV: ComposeAnchorV;
-  sceneOrder: number;
-  cameraOrder: number;
+  /** Sibling order: a string fractional key, sorted lexicographically and
+   *  tie-broken by `id`. Ascending = back→front. Scoped to the sibling set
+   *  (rootComposeSceneId, parentId). See fracIndex. */
+  orderKey: string;
   visible: boolean;
   createdAt: string;
   updatedAt: string;
@@ -287,6 +287,9 @@ export type TrackClipEasing = 'linear' | 'step' | 'bezier';
  *  Compose layer: 'x' | 'y' | 'rotation' */
 export type TrackClipParamPath = string;
 
+/** The clip document's child collections are id-keyed, not arrays: an array is
+ *  a single path, so two peers editing different keyframes would clobber each
+ *  other. See idMap.ts for the reasoning and the read helpers. */
 export interface TrackClipKeyframe {
   id: string;
   t: number; // seconds from clip start
@@ -316,7 +319,10 @@ export interface TrackClipLane {
   paramPath: TrackClipParamPath;
   /** "Rest" value the keyframes are offsets from when the clip is in relative mode. */
   defaultValue: number;
-  keyframes: TrackClipKeyframe[];
+  /** Keyed by keyframe id so each one is its own mesh path — two people can
+   *  drag different keyframes on the same lane without one losing. Read with
+   *  `sortedBy(kfs, k => k.t)`; the map itself has no order. */
+  keyframes: IdMap<TrackClipKeyframe>;
 }
 
 /** A discrete marker on a track clip that fires a fire-and-forget media command
@@ -345,38 +351,14 @@ export interface TrackClip {
   duration: number; // seconds
   loop: boolean;
   mode: TrackClipMode;
-  /** When true AND loop=true, playback auto-resumes on backend boot using the persisted startedAt. */
+  /** When true AND loop=true, playback resumes at boot — the anchor lives on
+   *  the clip's `clip_playback` document, not here. */
   autoplay: boolean;
-  /** ms-epoch anchor for an active loop+autoplay playhead; null when not autoplaying. */
-  startedAt: number | null;
   createdAt: string;
-  lanes: TrackClipLane[];
-  /** Timed media-command markers (event lane). */
-  events: TrackClipEvent[];
-}
-
-/** WS payload broadcast when a clip begins playback. Clients compute their own clock offset
- *  from (serverNow - Date.now()) on the first such message and evaluate locally thereafter. */
-export interface TrackClipStartedMessage {
-  clipId: string;
-  startedAt: number;
-  loop: boolean;
-  serverNow: number;
-}
-
-export interface TrackClipPlaybackEntry {
-  clipId: string;
-  loop: boolean;
-  /** ms epoch anchor when playing; null when paused. */
-  startedAt?: number;
-  /** seconds-into-clip when paused; null when playing. */
-  pausedAtT?: number;
-}
-
-/** Snapshot of currently-active playback, sent to each freshly-connected WS client. */
-export interface TrackClipPlaybackSnapshot {
-  entries: TrackClipPlaybackEntry[];
-  serverNow: number;
+  /** Keyed by lane id — see the note on `TrackClipLane.keyframes`. */
+  lanes: IdMap<TrackClipLane>;
+  /** Timed media-command markers (event lane), keyed by event id. */
+  events: IdMap<TrackClipEvent>;
 }
 
 // Player/identity
@@ -538,29 +520,10 @@ export type WSMessageKind =
   | 'tracking_status'
   | 'pose_ik_targets'
   | 'server_update'
-  | 'behavior_added'
   | 'compose_layer_added'
-  | 'compose_layer_updated'
   | 'compose_layer_removed'
-  | 'compose_layer_reordered'
-  | 'node_transform_preview'
-  | 'compose_layer_preview'
   | 'track_clip_added'
-  | 'track_clip_updated'
   | 'track_clip_removed'
-  | 'track_clip_lane_added'
-  | 'track_clip_lane_updated'
-  | 'track_clip_lane_removed'
-  | 'track_clip_keyframes_replaced'
-  | 'track_clip_events_replaced'
-  | 'track_clip_started'
-  | 'track_clip_paused'
-  | 'track_clip_stopped'
-  | 'track_clip_playback_snapshot'
-  | 'data_channel_set'
-  | 'data_channel_clear'
-  | 'data_channel_snapshot'
-  | 'media_control'
   // OBS. client_hello / client_status carry render-client lifecycle;
   // obs_connection_status reports the backend's obs-websocket link.
   | 'client_hello'

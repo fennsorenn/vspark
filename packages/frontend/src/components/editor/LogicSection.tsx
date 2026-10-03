@@ -1,7 +1,12 @@
 import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import {
+  commitLogicCreate,
+  commitLogicDelete,
+  commitLogicPatch,
+} from '../../mesh/logicWrites';
 import { useEditorStore } from '../../store/editorStore';
-import { api, type LogicRecord } from '../../api/client';
+import { type LogicRecord } from '../../api/client';
 import { copyToClipboard, pasteFromClipboard } from '../../clipboard';
 import { ContextMenu, type ContextMenuItem } from './ContextMenu';
 import { HelpButton } from '../../help/HelpButton';
@@ -34,30 +39,25 @@ export function LogicSection({
   const setClipboard = useEditorStore((s) => s.setClipboard);
   const canPasteLogic = clipboardPayload?.kind === 'graph';
 
-  const [logic, setLogic] = useState<LogicRecord[]>([]);
+  // Fed from the mesh replica. This used to be local state refreshed by a
+  // 3-second REST poll, which is why another tab's edit took up to 3s to show
+  // and two people editing one graph silently overwrote each other.
+  const logic = useEditorStore((s) =>
+    Object.values(s.logic)
+      .filter(
+        (g) =>
+          g.ownerKind ===
+            (owner.kind === 'node' ? 'scene_node' : 'compose_layer') &&
+          g.ownerId === owner.id
+      )
+      .sort((a, b) => (a.createdAt ?? '').localeCompare(b.createdAt ?? ''))
+  );
   /** Open context menu state. Null when no menu is currently up. */
   const [ctxMenu, setCtxMenu] = useState<{
     x: number;
     y: number;
     graph: LogicRecord;
   } | null>(null);
-
-  const fetch = () => {
-    const call =
-      owner.kind === 'node'
-        ? api.getNodeLogic(owner.id)
-        : api.getLayerLogic(owner.id);
-    call.then(setLogic).catch(() => {});
-  };
-
-  // Refresh on owner change + every few seconds (cheap, matches the
-  // LogicListPanel polling cadence).
-  useEffect(() => {
-    fetch();
-    const iv = setInterval(fetch, 3000);
-    return () => clearInterval(iv);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [owner.kind, owner.id]);
 
   const handleAdd = async () => {
     const name = await prompt({
@@ -67,11 +67,13 @@ export function LogicSection({
     });
     if (!name?.trim()) return;
     try {
-      const created =
-        owner.kind === 'node'
-          ? await api.createNodeLogic(owner.id, name.trim())
-          : await api.createLayerLogic(owner.id, name.trim());
-      setLogic((prev) => [...prev, created]);
+      const created = await commitLogicCreate(
+        {
+          kind: owner.kind === 'node' ? 'scene_node' : 'compose_layer',
+          id: owner.id,
+        },
+        name.trim()
+      );
       openLogic(created.id);
     } catch (e) {
       alert(e instanceof Error ? e.message : t('logic.failCreate'));
@@ -97,8 +99,7 @@ export function LogicSection({
     )
       return;
     try {
-      await api.deleteLogic(g.id);
-      setLogic((prev) => prev.filter((x) => x.id !== g.id));
+      await commitLogicDelete(g.id);
       if (activeLogicId === g.id) setActiveLogic(null);
     } catch (e) {
       alert(e instanceof Error ? e.message : t('logic.failDelete'));
@@ -107,8 +108,7 @@ export function LogicSection({
 
   const handleToggleEnabled = async (g: LogicRecord) => {
     try {
-      const updated = await api.updateLogic(g.id, { enabled: !g.enabled });
-      setLogic((prev) => prev.map((x) => (x.id === g.id ? updated : x)));
+      commitLogicPatch(g.id, { enabled: !g.enabled });
     } catch (e) {
       alert(e instanceof Error ? e.message : t('logic.failToggle'));
     }
@@ -138,18 +138,17 @@ export function LogicSection({
     const payload = await pasteFromClipboard(clipboardPayload);
     if (!payload || payload.kind !== 'graph') return;
     try {
-      const created =
-        owner.kind === 'node'
-          ? await api.createNodeLogic(owner.id, payload.name)
-          : await api.createLayerLogic(owner.id, payload.name);
-      // Push the descriptor onto the new graph in a follow-up PUT — the
-      // create endpoint only takes a name.
-      const updated = await api.updateLogic(created.id, {
-        descriptor: payload.descriptor,
-        enabled: true,
-      });
-      setLogic((prev) => [...prev, updated]);
-      openLogic(updated.id);
+      // Name and descriptor land in one committed write, so a paste is a
+      // single undoable action rather than the create + PUT pair it used to be.
+      const created = await commitLogicCreate(
+        {
+          kind: owner.kind === 'node' ? 'scene_node' : 'compose_layer',
+          id: owner.id,
+        },
+        payload.name,
+        payload.descriptor
+      );
+      openLogic(created.id);
     } catch (e) {
       alert(e instanceof Error ? e.message : t('logic.failPaste'));
     }

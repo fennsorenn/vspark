@@ -2,6 +2,9 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import request from 'supertest';
 import type { Express } from 'express';
 import { makeTestApp } from './helpers/testApp.js';
+import { getDb } from '../src/db/index.js';
+import { getMeshCollection } from '../src/mesh/index.js';
+import { logicManager } from '../src/logic/manager.js';
 
 /**
  * Preset API tests. The presets table is direct-DB (no mesh collection), but
@@ -225,6 +228,120 @@ describe('presets API – /presets/instantiate', () => {
     expect(res.body.data).toBeDefined();
     expect(res.body.data.idMap).toBeDefined();
     expect(typeof res.body.data.idMap).toBe('object');
+  });
+
+  /**
+   * An import is a write like any other, so it goes through the store.
+   *
+   * It used to INSERT its rows and then ask the route to announce them from a
+   * hardcoded table list — a list that never grew a `logic` entry, so imported
+   * graphs reached SQLite and nothing else: every open tab showed the preset
+   * without its logic until it reloaded. Rather than extend the list, the
+   * deserializer commits each document and the tap does the announcing, which
+   * is the arrangement that cannot fall behind by one rtype again.
+   *
+   * So what these pin is REACHABILITY per rtype — the replica is what tabs
+   * read — plus the row, since a document that doesn't persist would pass a
+   * replica-only check.
+   */
+  it('lands every imported entity in the mesh store, not just SQLite', async () => {
+    // A preset worth importing: the node carries a behavior, a logic graph and
+    // a track clip with a lane, so each collection is exercised.
+    await request(app)
+      .post(`/api/scene-nodes/${nodeId}/behaviors`)
+      .send({ kind: 'breathing', config: {} });
+    await request(app)
+      .post(`/api/scene-nodes/${nodeId}/logic`)
+      .send({ name: 'G' });
+    const clipId = (
+      await request(app)
+        .post(`/api/scene-nodes/${nodeId}/track-clips`)
+        .send({ name: 'C', duration: 2 })
+    ).body.data.id as string;
+    await request(app).post(`/api/track-clips/${clipId}/lanes`).send({
+      targetKind: 'scene_node',
+      targetId: nodeId,
+      paramPath: 'position.x',
+      defaultValue: 0,
+    });
+
+    const payload = (
+      await request(app)
+        .post('/api/presets/serialize')
+        .send({ rootKind: 'scene_node', rootId: nodeId })
+    ).body.data;
+    expect(payload.trackClips?.[0]?.lanes).toHaveLength(1);
+
+    const res = await request(app)
+      .post('/api/presets/instantiate')
+      .send({ payload, projectId, rootSceneNodeId: sceneId });
+    expect(res.status).toBe(200);
+    const created = new Set<string>(
+      Object.values(res.body.data.idMap as Record<string, string>)
+    );
+
+    for (const [table, rtype] of [
+      ['scene_nodes', 'scene_node'],
+      ['behaviors', 'behavior'],
+      ['logic', 'logic'],
+      ['track_clips', 'track_clip'],
+    ] as const) {
+      const ids = (
+        getDb().prepare(`SELECT id FROM ${table}`).all() as { id: string }[]
+      )
+        .map((r) => r.id)
+        .filter((id) => created.has(id));
+      expect(ids, `${rtype} row was created`).toHaveLength(1);
+      expect(
+        getMeshCollection(rtype)!.get(ids[0]),
+        `${rtype} reached the replica`
+      ).toBeDefined();
+    }
+
+    // Lanes and keyframes are keyed children of the clip document, not
+    // documents of their own — they ride the aggregate into the replica and
+    // the tap writes their rows.
+    const clip = getMeshCollection('track_clip')!.get(
+      (getDb().prepare('SELECT id FROM track_clips').all() as { id: string }[])
+        .map((r) => r.id)
+        .find((id) => created.has(id))!
+    ) as { lanes: Record<string, { paramPath: string } | null> };
+    expect(Object.values(clip.lanes).map((l) => l?.paramPath)).toEqual([
+      'position.x',
+    ]);
+    expect(
+      getDb().prepare('SELECT COUNT(*) AS n FROM track_clip_lanes').all() as {
+        n: number;
+      }[]
+    ).toEqual([{ n: 2 }]);
+  });
+
+  it('starts an imported logic graph without waiting for a restart', async () => {
+    // The descriptor IS the program: committing one reconciles the running
+    // instance through the tap. The old code called logicManager.reconcile by
+    // hand after its INSERT, which is the same effect reached the long way.
+    await request(app)
+      .post(`/api/scene-nodes/${nodeId}/logic`)
+      .send({ name: 'G' });
+    const payload = (
+      await request(app)
+        .post('/api/presets/serialize')
+        .send({ rootKind: 'scene_node', rootId: nodeId })
+    ).body.data;
+
+    const res = await request(app)
+      .post('/api/presets/instantiate')
+      .send({ payload, projectId, rootSceneNodeId: sceneId });
+    expect(res.status).toBe(200);
+
+    const importedId = Object.values(
+      res.body.data.idMap as Record<string, string>
+    ).find((id) =>
+      getDb().prepare('SELECT 1 FROM logic WHERE id = ?').get(id)
+    )!;
+    expect(logicManager.getRunningDescriptors().map((g) => g.id)).toContain(
+      importedId
+    );
   });
 });
 

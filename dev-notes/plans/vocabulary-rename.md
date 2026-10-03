@@ -1,6 +1,12 @@
 # Plan: Vocabulary / naming refactor
 
-> Branch: `claude/compassionate-bell-Eo89L` · Status: in-progress
+> **Status:** in progress — phases 1, 2 and 2.5 are done; **phase 3 (persisted `kind`
+> renames) is deliberately deferred** and is the only part left, because it is the only
+> part needing data migrations. The rule that outlived the plan and still binds: the UI
+> word is **Object**, the code identifier stays `scene_node`/`SceneNode`. Other plans
+> cite this file for that rule.
+
+> *(Historical.)* Branch: `claude/compassionate-bell-Eo89L`
 > Goal: make the words the end user reads describe what things *do*, and remove
 > jargon / ambiguous overloads, without destabilising the persisted data model.
 

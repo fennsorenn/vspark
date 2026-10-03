@@ -20,7 +20,19 @@ import {
 } from '@vspark/shared/paramPaths';
 import { CAMERA_EFFECT_KINDS } from '@vspark/shared/cameraEffects';
 import { validateFeedTemplate } from '@vspark/shared/feedValidation';
+import { toGraphDescriptor } from '@vspark/shared/signal';
 import type { VsparkClient } from './client.js';
+
+/** Logic graphs are stored with nodes/edges keyed by id (so concurrent mesh
+ *  edits merge), but the MCP hands the model the list form — the same shape
+ *  set_logic_descriptor takes, so a read-modify-write round-trips unchanged.
+ *  **Decided:** the MCP surface deliberately differs from REST here. */
+function withListDescriptor(record: unknown): unknown {
+  if (!record || typeof record !== 'object') return record;
+  const r = record as { descriptor?: unknown };
+  if (r.descriptor === undefined) return record;
+  return { ...r, descriptor: toGraphDescriptor(r.descriptor as Parameters<typeof toGraphDescriptor>[0]) };
+}
 
 /** scene_node → /api/scene-nodes/:id, compose_layer → /api/compose-layers/:id */
 function ownerBase(ownerKind: unknown): string {
@@ -579,7 +591,10 @@ export function buildToolSpecs(): ToolSpec[] {
       description:
         'List the project-scoped logic graphs (each with its full descriptor).',
       inputShape: { projectId: z.string() },
-      handler: (c, a) => c.get(`/api/projects/${a.projectId}/logic`),
+      handler: async (c, a) => {
+        const rows = await c.get(`/api/projects/${a.projectId}/logic`);
+        return Array.isArray(rows) ? rows.map(withListDescriptor) : rows;
+      },
     },
     {
       name: 'create_project_logic',
@@ -594,7 +609,8 @@ export function buildToolSpecs(): ToolSpec[] {
       name: 'get_logic',
       description: 'Read back a logic graph (descriptor + metadata) by id.',
       inputShape: { id: z.string() },
-      handler: (c, a) => c.get(`/api/logic/${a.id}`),
+      handler: async (c, a) =>
+        withListDescriptor(await c.get(`/api/logic/${a.id}`)),
     },
     {
       name: 'delete_logic',
@@ -624,8 +640,8 @@ export function buildToolSpecs(): ToolSpec[] {
         'Replace a logic graph descriptor (the nodes + edges). Shape:\n' +
         '{ id, label, readonly:false,\n' +
         '  nodes:[{ id, kind, position:{x,y}, defaultConfig:{...} }],\n' +
-        '  edges:[{ fromNodeId, fromPort, toNodeId, toPort, kind:"event"|"value" }] }\n' +
-        'Trigger/event ports connect with kind "event"; data ports with kind "value". Node `kind` must be a real ' +
+        '  edges:[{ fromNodeId, fromPort, toNodeId, toPort }] }\n' +
+        'Same shape get_logic returns. Node `kind` must be a real ' +
         'signal-node kind and port names must match lookup_node_kind exactly — neither is validated server-side, so ' +
         'verify them or the graph silently no-ops.',
       inputShape: {

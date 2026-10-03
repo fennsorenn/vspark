@@ -1,5 +1,11 @@
 # Unified sync layer — illustrated
 
+> **Status:** superseded by [`mesh-sync-refactor.md`](./mesh-sync-refactor.md) — the
+> diagrams draw the `SyncEnvelope` layer, not the mesh. They are still the clearest
+> picture of *why* four resource classes and an override compositor were wanted, but no
+> diagram here matches the running transport.
+> **Companion to:** [`unified-sync-layer.md`](./unified-sync-layer.md) (same status).
+
 Companion to [`unified-sync-layer.md`](./unified-sync-layer.md). Diagrams (Mermaid) +
 end-to-end use cases. Read the main doc for rationale and decisions.
 

@@ -4,9 +4,38 @@ import { validateFeedConfig } from '@vspark/shared/feedValidation';
 import { getDb } from '../db/index.js';
 import { _ws } from './shared.js';
 import { getMeshCollection } from '../mesh/index.js';
-import { runtimeOverrideManager } from '../runtime_overrides/manager.js';
+import { keyAfter } from '@vspark/shared/fracIndex';
 
 const router: ReturnType<typeof Router> = Router();
+
+/** Highest order_key among a layer's siblings — the set is scoped to
+ *  (root_compose_scene_id, parent_id), so nesting a layer restarts the range.
+ *  Null when the group is empty, which `keyAfter` reads as "first key". */
+function lastSiblingKey(
+  composeSceneId: string,
+  parentId: string | null
+): string | null {
+  const row = getDb()
+    .prepare(
+      `SELECT MAX(order_key) AS k FROM compose_layers
+        WHERE root_compose_scene_id = ?
+          AND parent_id IS ?`
+    )
+    .get(composeSceneId, parentId) as { k: string | null } | undefined;
+  return row?.k ?? null;
+}
+
+/** Same, for the top-level compose_scene rows of a project (their own group:
+ *  both root_compose_scene_id and parent_id are null). */
+function lastComposeSceneKey(projectId: string): string | null {
+  const row = getDb()
+    .prepare(
+      `SELECT MAX(order_key) AS k FROM compose_layers
+        WHERE project_id = ? AND kind = 'compose_scene'`
+    )
+    .get(projectId) as { k: string | null } | undefined;
+  return row?.k ?? null;
+}
 
 // Write-through (§10): routes keep their validation + ordering computation,
 // then write full canonical DTOs into the mesh collection; the onCommitted
@@ -33,8 +62,7 @@ export type LayerRow = {
   rotation: number;
   anchor_h: string;
   anchor_v: string;
-  scene_order: number;
-  camera_order: number;
+  order_key: string;
   visible: number;
   created_at: string;
   updated_at: string;
@@ -58,8 +86,7 @@ export function rowToLayer(r: LayerRow) {
     rotation: r.rotation,
     anchorH: r.anchor_h,
     anchorV: r.anchor_v,
-    sceneOrder: r.scene_order,
-    cameraOrder: r.camera_order,
+    orderKey: r.order_key,
     visible: r.visible === 1,
     createdAt: r.created_at,
     updatedAt: r.updated_at,
@@ -144,8 +171,7 @@ router.post('/projects/:projectId/compose-scenes', async (req, res) => {
     rotation: 0,
     anchorH: 'left',
     anchorV: 'top',
-    sceneOrder: 0,
-    cameraOrder: 0,
+    orderKey: keyAfter(lastComposeSceneKey(projectId)),
     visible: visible !== false,
   } as LayerDto).ack;
   if (outcome.status === 'rejected')
@@ -177,7 +203,7 @@ router.post('/projects/:projectId/compose-scenes', async (req, res) => {
 router.get('/compose-scenes/:composeSceneId/layers', (req, res) => {
   const rows = getDb()
     .prepare(
-      'SELECT * FROM compose_layers WHERE root_compose_scene_id = ? ORDER BY scene_order DESC, camera_order ASC'
+      'SELECT * FROM compose_layers WHERE root_compose_scene_id = ? ORDER BY order_key ASC, id ASC'
     )
     .all(req.params.composeSceneId) as LayerRow[];
   res.json({ ok: true, data: rows.map(rowToLayer) });
@@ -233,8 +259,7 @@ router.post('/compose-scenes/:composeSceneId/layers', async (req, res) => {
     rotation,
     anchorH,
     anchorV,
-    sceneOrder,
-    cameraOrder,
+    orderKey,
     visible,
   } = req.body ?? {};
   if (!kind || !name) {
@@ -256,21 +281,12 @@ router.post('/compose-scenes/:composeSceneId/layers', async (req, res) => {
   }
   const layerId = id ?? randomUUID();
 
-  // Default ordering: append to the back of the stack so new layers don't unexpectedly cover existing content.
-  // sceneOrder is signed; "back" means the largest positive value currently in use, +1.
-  let resolvedSceneOrder = sceneOrder;
-  let resolvedCameraOrder = cameraOrder;
-  if (resolvedSceneOrder == null) {
-    const max = db
-      .prepare(
-        'SELECT MAX(scene_order) AS m FROM compose_layers WHERE root_compose_scene_id = ?'
-      )
-      .get(composeSceneId) as { m: number | null };
-    resolvedSceneOrder = (max?.m ?? 0) + 1;
-  }
-  if (resolvedCameraOrder == null) {
-    resolvedCameraOrder = cameraNodeId ? 1 : 0;
-  }
+  // A new layer lands at the FRONT of its sibling group (ascending order_key =
+  // back→front), which is what a layer editor is expected to do.
+  const resolvedOrderKey =
+    typeof orderKey === 'string' && orderKey.length > 0
+      ? orderKey
+      : keyAfter(lastSiblingKey(composeSceneId, parentId ?? null));
 
   const col = layersCol();
   if (!col)
@@ -294,8 +310,7 @@ router.post('/compose-scenes/:composeSceneId/layers', async (req, res) => {
     rotation: rotation ?? 0,
     anchorH: anchorH ?? 'left',
     anchorV: anchorV ?? 'top',
-    sceneOrder: resolvedSceneOrder,
-    cameraOrder: resolvedCameraOrder,
+    orderKey: resolvedOrderKey,
     visible: visible !== false,
   } as LayerDto).ack;
   if (outcome.status === 'rejected')
@@ -327,7 +342,7 @@ router.post('/compose-scenes/:composeSceneId/layers', async (req, res) => {
  *         application/json:
  *           schema: { $ref: '#/components/schemas/UpdateComposeLayer' }
  *     responses:
- *       200: { description: Updated; broadcast as compose_layer_updated }
+ *       200: { description: Updated }
  */
 router.put('/compose-layers/:id', async (req, res) => {
   const id = req.params.id;
@@ -359,8 +374,7 @@ router.put('/compose-layers/:id', async (req, res) => {
     'rotation',
     'anchorH',
     'anchorV',
-    'sceneOrder',
-    'cameraOrder',
+    'orderKey',
   ]) {
     if (patch[k] !== undefined) {
       next[k] = patch[k];
@@ -415,7 +429,6 @@ router.put('/compose-layers/:id', async (req, res) => {
     .prepare('SELECT * FROM compose_layers WHERE id = ?')
     .get(id) as LayerRow;
   const data = rowToLayer(row);
-  _ws?.broadcast('compose_layer_updated', data);
   res.json({ ok: true, data });
 });
 
@@ -424,7 +437,7 @@ router.put('/compose-layers/:id', async (req, res) => {
  * /api/compose-layers/{id}:
  *   delete:
  *     tags: [compose_layers]
- *     summary: Delete a compose layer (re-anchors dependent camera layers if scene-wide)
+ *     summary: Delete a compose layer
  *     parameters:
  *       - { in: path, name: id, required: true, schema: { type: string } }
  *     responses:
@@ -432,115 +445,16 @@ router.put('/compose-layers/:id', async (req, res) => {
  */
 router.delete('/compose-layers/:id', async (req, res) => {
   const id = req.params.id;
-  const db = getDb();
   const col = layersCol();
   if (!col)
     return res
       .status(500)
       .json({ ok: false, error: { message: 'store not ready' } });
 
-  const row = db
-    .prepare('SELECT * FROM compose_layers WHERE id = ?')
-    .get(id) as LayerRow | undefined;
-  if (!row) return res.json({ ok: true, data: {} });
-
+  // Runtime overrides are cleared by the mesh persistence tap, so a remove
+  // authored by a tab or a collab peer is cleaned up the same way.
   await col.remove(id).ack;
-
-  // If this was a scene-wide layer, re-anchor camera layers that sat in its scene_order slot.
-  const reanchored: { id: string; sceneOrder: number; cameraOrder: number }[] =
-    [];
-  if (row.camera_node_id == null && row.root_compose_scene_id != null) {
-    const camRows = db
-      .prepare(
-        `SELECT id, camera_order FROM compose_layers
-       WHERE root_compose_scene_id = ? AND camera_node_id IS NOT NULL AND scene_order = ?`
-      )
-      .all(row.root_compose_scene_id, row.scene_order) as {
-      id: string;
-      camera_order: number;
-    }[];
-    if (camRows.length > 0) {
-      const lower = db
-        .prepare(
-          `SELECT MAX(scene_order) AS s FROM compose_layers
-         WHERE root_compose_scene_id = ? AND camera_node_id IS NULL AND scene_order < ?`
-        )
-        .get(row.root_compose_scene_id, row.scene_order) as {
-        s: number | null;
-      };
-      const higher = db
-        .prepare(
-          `SELECT MIN(scene_order) AS s FROM compose_layers
-         WHERE root_compose_scene_id = ? AND camera_node_id IS NULL AND scene_order > ?`
-        )
-        .get(row.root_compose_scene_id, row.scene_order) as {
-        s: number | null;
-      };
-      const newSceneOrder = lower?.s ?? higher?.s ?? 0; // 0 = SCENE_RENDER_SLOT fallback
-      for (const cr of camRows) {
-        const cur = col.get(cr.id) as LayerDto | undefined;
-        if (cur) await col.set(cr.id, '', { ...cur, sceneOrder: newSceneOrder }).ack;
-        reanchored.push({
-          id: cr.id,
-          sceneOrder: newSceneOrder,
-          cameraOrder: cr.camera_order,
-        });
-      }
-    }
-  }
-
-  runtimeOverrideManager.clearAllForTarget('compose_layer', id);
-  if (reanchored.length > 0)
-    _ws?.broadcast('compose_layer_reordered', { updates: reanchored });
-  res.json({ ok: true, data: { id, reanchored } });
-});
-
-/**
- * @openapi
- * /api/compose-layers/reorder:
- *   post:
- *     tags: [compose_layers]
- *     summary: Bulk-update (sceneOrder, cameraOrder) for multiple layers
- *     requestBody:
- *       required: true
- *       content:
- *         application/json:
- *           schema: { $ref: '#/components/schemas/ReorderComposeLayers' }
- *     responses:
- *       200: { description: Updated; broadcast as compose_layer_reordered }
- */
-router.post('/compose-layers/reorder', async (req, res) => {
-  const updates = (req.body?.updates ?? []) as {
-    id: string;
-    sceneOrder: number;
-    cameraOrder: number;
-  }[];
-  if (!Array.isArray(updates) || updates.length === 0) {
-    return res.status(400).json({
-      ok: false,
-      error: {
-        status: 400,
-        message: 'updates required',
-        code: 'VALIDATION_ERROR',
-      },
-    });
-  }
-  const col = layersCol();
-  if (!col)
-    return res
-      .status(500)
-      .json({ ok: false, error: { message: 'store not ready' } });
-  for (const u of updates) {
-    const cur = col.get(u.id) as LayerDto | undefined;
-    if (!cur) continue; // unknown id — skip, mirroring the old UPDATE no-op
-    await col.set(u.id, '', {
-      ...cur,
-      sceneOrder: u.sceneOrder,
-      cameraOrder: u.cameraOrder,
-    }).ack;
-  }
-  _ws?.broadcast('compose_layer_reordered', { updates });
-  res.json({ ok: true, data: { updates } });
+  res.json({ ok: true, data: { id } });
 });
 
 export default router;

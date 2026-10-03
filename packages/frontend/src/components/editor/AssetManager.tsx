@@ -1,7 +1,19 @@
 import { useState, useRef, useEffect } from 'react';
+import {
+  commitBehaviorCreate,
+} from '../../mesh/behaviorWrites';
 import { useTranslation } from 'react-i18next';
+import {
+  commitEffectCreate,
+} from '../../mesh/effectWrites';
 import { useEditorStore } from '../../store/editorStore';
 import { api } from '../../api/client';
+import {
+  commitNodeCreate,
+  commitNodePatch,
+  commitNodePath,
+} from '../../mesh/writes';
+import { commitLayerCreate, commitLayerPath } from '../../mesh/layerWrites';
 import type { AssetFile } from '../../api/client';
 import type { BottomDockTab, Behavior } from '../../store/editorStore';
 import { newBehaviorId, CAMERA_EFFECT_KINDS } from '../../store/editorStore';
@@ -46,16 +58,12 @@ export function AssetManager() {
     addAsset,
     deleteAsset,
     activeSceneId,
-    addNode,
     projectId,
     selectedNodeId,
     nodes,
-    updateNode: storeUpdateNode,
-    addBehavior,
     behaviors,
     behaviorKinds,
     cameraEffects,
-    addCameraEffect,
   } = useEditorStore();
   const selectedNode = nodes.find((n) => n.id === selectedNodeId) ?? null;
   const canApplyAnim =
@@ -72,7 +80,6 @@ export function AssetManager() {
   const setTab = useEditorStore((s) => s.setBottomTab);
   const leftTab = useEditorStore((s) => s.leftTab);
   const activeComposeSceneId = useEditorStore((s) => s.activeComposeSceneId);
-  const addComposeLayer = useEditorStore((s) => s.addComposeLayer);
   const selectComposeLayer = useEditorStore((s) => s.selectComposeLayer);
   const selectedComposeLayerId = useEditorStore(
     (s) => s.selectedComposeLayerId
@@ -247,7 +254,7 @@ export function AssetManager() {
     const ext = asset.name.split('.').pop()?.toLowerCase();
     const nodeKind = ext === 'vrm' ? 'avatar' : 'model';
     try {
-      const node = await api.createNode(activeSceneId, {
+      await commitNodeCreate(activeSceneId, {
         parentId: null,
         name: asset.name,
         kind: nodeKind,
@@ -267,8 +274,6 @@ export function AssetManager() {
           },
         },
       });
-      if (useEditorStore.getState().nodes.every((n) => n.id !== node.id))
-        addNode(node);
     } catch (e: unknown) {
       alert(e instanceof Error ? e.message : t('alerts.addSceneFailed'));
     }
@@ -280,7 +285,7 @@ export function AssetManager() {
       return;
     }
     try {
-      const node = await api.createNode(activeSceneId, {
+      await commitNodeCreate(activeSceneId, {
         parentId: null,
         name: asset.name,
         kind: 'billboard',
@@ -308,8 +313,6 @@ export function AssetManager() {
           },
         },
       });
-      if (useEditorStore.getState().nodes.every((n) => n.id !== node.id))
-        addNode(node);
     } catch (e: unknown) {
       alert(e instanceof Error ? e.message : t('alerts.addBillboardFailed'));
     }
@@ -334,7 +337,7 @@ export function AssetManager() {
       return;
     }
     try {
-      const node = await api.createNode(activeSceneId, {
+      await commitNodeCreate(activeSceneId, {
         parentId: null,
         name: asset.name,
         kind: 'video',
@@ -358,8 +361,6 @@ export function AssetManager() {
           },
         },
       });
-      if (useEditorStore.getState().nodes.every((n) => n.id !== node.id))
-        addNode(node);
     } catch (e: unknown) {
       alert(e instanceof Error ? e.message : t('alerts.addVideoFailed'));
     }
@@ -371,7 +372,7 @@ export function AssetManager() {
       return;
     }
     try {
-      const node = await api.createNode(activeSceneId, {
+      await commitNodeCreate(activeSceneId, {
         parentId: null,
         name: asset.name,
         kind: 'audio',
@@ -397,8 +398,6 @@ export function AssetManager() {
           },
         },
       });
-      if (useEditorStore.getState().nodes.every((n) => n.id !== node.id))
-        addNode(node);
     } catch (e: unknown) {
       alert(e instanceof Error ? e.message : t('alerts.addAudioFailed'));
     }
@@ -427,8 +426,7 @@ export function AssetManager() {
       live2d: { type: 'live2d', ...existing, modelUrl: asset.url },
     };
     try {
-      await api.updateNode(selectedNode.id, { components, filePath: asset.url });
-      storeUpdateNode(selectedNode.id, { components, filePath: asset.url });
+      commitNodePatch(selectedNode.id, { components, filePath: asset.url });
     } catch (e: unknown) {
       alert(e instanceof Error ? e.message : 'Failed to set Live2D model');
     }
@@ -455,13 +453,12 @@ export function AssetManager() {
           }
         : { objectFit: 'contain' };
     try {
-      const created = await api.createComposeSceneLayer(activeComposeSceneId, {
+      const created = await commitLayerCreate(activeComposeSceneId, {
         name: asset.name,
         kind,
         assetId: asset.id,
         config,
       });
-      addComposeLayer(created);
       selectComposeLayer(created.id);
     } catch (e: unknown) {
       alert(e instanceof Error ? e.message : t('alerts.addLayerFailed'));
@@ -482,11 +479,7 @@ export function AssetManager() {
       [key]: { ...existing, assetId: asset.id, sourceUrl: asset.url },
     };
     try {
-      await api.updateNode(selectedNode.id, {
-        components,
-        filePath: asset.url,
-      });
-      storeUpdateNode(selectedNode.id, { components, filePath: asset.url });
+      commitNodePatch(selectedNode.id, { components, filePath: asset.url });
     } catch (e: unknown) {
       alert(e instanceof Error ? e.message : t('alerts.applyMediaFailed'));
     }
@@ -498,7 +491,7 @@ export function AssetManager() {
     const layer = selectedComposeLayer;
     if (!layer) return;
     try {
-      await api.updateComposeLayer(layer.id, { assetId: asset.id });
+      commitLayerPath(layer.id, 'assetId', asset.id);
       updateComposeLayerLocal(layer.id, { assetId: asset.id });
     } catch (e: unknown) {
       alert(e instanceof Error ? e.message : t('alerts.applyMediaFailed'));
@@ -517,8 +510,7 @@ export function AssetManager() {
       [key]: { ...existing, textureUrl: asset.url },
     };
     try {
-      await api.updateNode(selectedNode.id, { components });
-      storeUpdateNode(selectedNode.id, { components });
+      commitNodePath(selectedNode.id, 'components', components);
     } catch (e: unknown) {
       alert(e instanceof Error ? e.message : t('alerts.applyTextureFailed'));
     }
@@ -535,8 +527,7 @@ export function AssetManager() {
       camera: { ...existing, backgroundImage: asset.url },
     };
     try {
-      await api.updateNode(selectedNode.id, { components });
-      storeUpdateNode(selectedNode.id, { components });
+      commitNodePath(selectedNode.id, 'components', components);
     } catch (e: unknown) {
       alert(e instanceof Error ? e.message : t('alerts.applyCameraBgFailed'));
     }
@@ -545,8 +536,7 @@ export function AssetManager() {
   const handleApplyModel = async (asset: AssetFile) => {
     if (!selectedNode) return;
     try {
-      await api.updateNode(selectedNode.id, { filePath: asset.url });
-      storeUpdateNode(selectedNode.id, { filePath: asset.url });
+      commitNodePath(selectedNode.id, 'filePath', asset.url);
     } catch (e: unknown) {
       alert(e instanceof Error ? e.message : t('alerts.applyModelFailed'));
     }
@@ -574,8 +564,7 @@ export function AssetManager() {
     };
     const properties = { ...prevProps, animation: { ...prevAnim, idle: undefined } };
     try {
-      await api.updateNode(selectedNode.id, { components, properties });
-      storeUpdateNode(selectedNode.id, { components, properties });
+      commitNodePatch(selectedNode.id, { components, properties });
     } catch (e: unknown) {
       alert(e instanceof Error ? e.message : t('alerts.applyAnimFailed'));
     }
@@ -597,8 +586,7 @@ export function AssetManager() {
       animation: { ...prevAnim, base: { url: asset.url, speed: prevSpeed } },
     };
     try {
-      await api.updateNode(selectedNode.id, { properties });
-      storeUpdateNode(selectedNode.id, { properties });
+      commitNodePath(selectedNode.id, 'properties', properties);
     } catch (e: unknown) {
       alert(e instanceof Error ? e.message : t('alerts.applyAnimFailed'));
     }
@@ -624,12 +612,7 @@ export function AssetManager() {
       enabled: true,
       config: { ...ct.defaultConfig },
     };
-    addBehavior(comp);
-    try {
-      await api.createBehavior(selectedNode.id, comp);
-    } catch {
-      /* non-fatal */
-    }
+    await commitBehaviorCreate(selectedNode.id, comp);
   };
 
   const handleAddEffect = async (kind: string) => {
@@ -643,12 +626,7 @@ export function AssetManager() {
       enabled: true,
       config: { ...ek.defaultConfig },
     };
-    addCameraEffect(effect);
-    try {
-      await api.createCameraEffect(selectedNode.id, effect);
-    } catch {
-      /* non-fatal */
-    }
+    await commitEffectCreate(selectedNode.id, effect);
   };
 
   const tabBtn = (tabId: BottomDockTab): React.CSSProperties => {

@@ -1,11 +1,33 @@
 import { useState, useRef, useEffect, useMemo } from 'react';
+import {
+  commitBehaviorCreate,
+  commitBehaviorDelete,
+  commitBehaviorPatch,
+} from '../../mesh/behaviorWrites';
 import { useParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
+import {
+  commitEffectCreate,
+  commitEffectDelete,
+  commitEffectPatch,
+} from '../../mesh/effectWrites';
+import { commitClipCreate } from '../../mesh/clipWrites';
+import {
+  commitLogicCreate,
+  commitLogicDelete,
+  commitLogicPatch,
+  commitLogicPath,
+} from '../../mesh/logicWrites';
 import { useEditorStore } from '../../store/editorStore';
 import { api } from '../../api/client';
 import type { StageObject, Behavior } from '../../store/editorStore';
 import { newBehaviorId } from '../../store/editorStore';
 import { CAMERA_EFFECT_KINDS } from '../../store/editorStore';
+import {
+  commitNodeDelete,
+  commitNodeDeleteKeepChildren,
+  commitNodePatch,
+} from '../../mesh/writes';
 import { ComposeTree } from './ComposeTree';
 import { ClipsSection } from './ClipsSection';
 import { LogicSection } from './LogicSection';
@@ -100,9 +122,6 @@ function MergedSections({
   const nodeKind = useEditorStore(
     (s) => s.nodes.find((n) => n.id === nodeId)?.kind ?? ''
   );
-  const addBehavior = useEditorStore((s) => s.addBehavior);
-  const addCameraEffect = useEditorStore((s) => s.addCameraEffect);
-  const addTrackClip = useEditorStore((s) => s.addTrackClip);
   const selectTrackClip = useEditorStore((s) => s.selectTrackClip);
   const setBottomTab = useEditorStore((s) => s.setBottomTab);
 
@@ -128,12 +147,7 @@ function MergedSections({
       enabled: true,
       config: { ...ct.defaultConfig },
     };
-    addBehavior(comp);
-    try {
-      await api.createBehavior(nodeId, comp);
-    } catch {
-      /* non-fatal */
-    }
+    await commitBehaviorCreate(nodeId, comp);
   };
   const addEffectKind = async (ek: (typeof CAMERA_EFFECT_KINDS)[number]) => {
     if (effects.some((e) => e.kind === ek.kind)) return;
@@ -144,20 +158,14 @@ function MergedSections({
       enabled: true,
       config: { ...ek.defaultConfig },
     };
-    addCameraEffect(effect);
-    try {
-      await api.createCameraEffect(nodeId, effect);
-    } catch {
-      /* non-fatal */
-    }
+    await commitEffectCreate(nodeId, effect);
   };
   const addClip = async () => {
     try {
-      const clip = await api.createTrackClipForNode(nodeId, {
-        name: 'Clip',
-        duration: 2,
-      });
-      addTrackClip(clip);
+      const clip = await commitClipCreate(
+        { kind: 'scene_node', id: nodeId },
+        { name: 'Clip', duration: 2 }
+      );
       selectTrackClip(clip.id);
       setBottomTab('clips');
     } catch {
@@ -967,9 +975,6 @@ function BehaviorsSection({
   const nodeKind = useEditorStore(
     (s) => s.nodes.find((n) => n.id === nodeId)?.kind ?? ''
   );
-  const addBehavior = useEditorStore((s) => s.addBehavior);
-  const updateBehavior = useEditorStore((s) => s.updateBehavior);
-  const removeBehavior = useEditorStore((s) => s.removeBehavior);
   const selectedBehaviorId = useEditorStore((s) => s.selectedBehaviorId);
   const selectBehavior = useEditorStore((s) => s.selectBehavior);
   const vmcStatus = useEditorStore((s) => s.vmcStatus);
@@ -1006,12 +1011,7 @@ function BehaviorsSection({
       enabled: payload.component.enabled,
       config: { ...payload.component.config },
     };
-    addBehavior(comp);
-    try {
-      await api.createBehavior(nodeId, comp);
-    } catch {
-      /* non-fatal */
-    }
+    await commitBehaviorCreate(nodeId, comp);
   };
   const [showAddMenu, setShowAddMenu] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -1035,31 +1035,16 @@ function BehaviorsSection({
       enabled: true,
       config: { ...ct.defaultConfig },
     };
-    addBehavior(comp);
-    try {
-      await api.createBehavior(nodeId, comp);
-    } catch {
-      /* non-fatal — state already updated locally */
-    }
+    await commitBehaviorCreate(nodeId, comp);
   };
 
   const handleToggleEnabled = async (comp: Behavior) => {
     const next = !comp.enabled;
-    updateBehavior(comp.id, { enabled: next });
-    try {
-      await api.updateBehavior(comp.id, { enabled: next });
-    } catch {
-      /* non-fatal */
-    }
+    commitBehaviorPatch(comp.id, { enabled: next });
   };
 
   const handleRemove = async (comp: Behavior) => {
-    removeBehavior(comp.id);
-    try {
-      await api.deleteBehavior(comp.id);
-    } catch {
-      /* non-fatal */
-    }
+    await commitBehaviorDelete(comp.id);
   };
 
   return (
@@ -1365,9 +1350,6 @@ function CameraEffectsSection({
 }) {
   const { t } = useTranslation('sceneGraph');
   const cameraEffectsFor = useEditorStore((s) => s.cameraEffectsFor);
-  const addCameraEffect = useEditorStore((s) => s.addCameraEffect);
-  const updateCameraEffect = useEditorStore((s) => s.updateCameraEffect);
-  const removeCameraEffect = useEditorStore((s) => s.removeCameraEffect);
   const selectedEffect = useEditorStore((s) => s.selectedEffect);
   const selectEffect = useEditorStore((s) => s.selectEffect);
   const clearSelectedEffect = useEditorStore((s) => s.clearSelectedEffect);
@@ -1410,12 +1392,7 @@ function CameraEffectsSection({
       enabled: payload.effect.enabled,
       config: { ...payload.effect.config },
     };
-    addCameraEffect(effect);
-    try {
-      await api.createCameraEffect(nodeId, effect);
-    } catch {
-      /* non-fatal */
-    }
+    await commitEffectCreate(nodeId, effect);
   };
   const [showAddMenu, setShowAddMenu] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -1440,40 +1417,25 @@ function CameraEffectsSection({
       enabled: true,
       config: { ...ek.defaultConfig },
     };
-    addCameraEffect(effect);
-    try {
-      await api.createCameraEffect(nodeId, effect);
-    } catch {
-      /* non-fatal */
-    }
+    await commitEffectCreate(nodeId, effect);
   };
 
   const handleToggleEnabled = async (
     effect: import('../../store/editorStore').CameraEffectRecord
   ) => {
     const next = !effect.enabled;
-    updateCameraEffect(effect.id, { enabled: next });
-    try {
-      await api.updateCameraEffect(effect.id, { enabled: next });
-    } catch {
-      /* non-fatal */
-    }
+    commitEffectPatch(effect.id, { enabled: next });
   };
 
   const handleRemove = async (
     effect: import('../../store/editorStore').CameraEffectRecord
   ) => {
-    removeCameraEffect(effect.id);
     if (
       selectedEffect?.nodeId === nodeId &&
       selectedEffect.kind === effect.kind
     )
       clearSelectedEffect();
-    try {
-      await api.deleteCameraEffect(effect.id);
-    } catch {
-      /* non-fatal */
-    }
+    await commitEffectDelete(effect.id);
   };
 
   return (
@@ -1751,8 +1713,6 @@ function LogicListPanel() {
   const prompt = usePrompt();
   const { activeLogicId, setActiveLogic } = useEditorStore();
   const [behaviorLogic, setBehaviorLogic] = useState<GraphDescriptor[]>([]);
-  const [projectLogic, setProjectLogic] = useState<LogicRecord[]>([]);
-  const [scopedLogic, setScopedLogic] = useState<ScopedLogicRecord[]>([]);
   const [scopedLogicOpen, setScopedLogicOpen] = useState(true);
   const [behaviorLogicOpen, setBehaviorLogicOpen] = useState(false);
   const clipboardPayload = useEditorStore((s) => s.clipboardPayload);
@@ -1764,42 +1724,80 @@ function LogicListPanel() {
     graph: LogicRecord;
   } | null>(null);
 
-  const refresh = () => {
+  // Graph documents come from the mesh replica. This panel used to re-poll all
+  // three lists every 3 seconds, which is why another tab's rename showed up
+  // late and two people editing one graph overwrote each other silently.
+  const storeLogic = useEditorStore((s) => s.logic);
+  const storeBehaviors = useEditorStore((s) => s.behaviors);
+
+  const projectLogic = useMemo(
+    () =>
+      Object.values(storeLogic)
+        .filter((g) => g.ownerKind === 'project' && g.ownerId === projectId)
+        .sort((a, b) => (a.createdAt ?? '').localeCompare(b.createdAt ?? '')),
+    [storeLogic, projectId]
+  );
+
+  // The scoped list shows each graph's OWNER name, a join the store cannot do:
+  // it is project-wide, while only the open scene's nodes are loaded. So the
+  // join alone is fetched (and re-fetched when the mesh reports an owned graph
+  // we have no name for); every doc field still comes from the store, so
+  // renames and enable-toggles are live between fetches. A graph whose owner
+  // lives in another project never appears in the response — `tried` keeps that
+  // from re-firing the fetch on every store change.
+  const [ownerNames, setOwnerNames] = useState<
+    Record<string, { ownerName: string; ownerNodeKind?: string }>
+  >({});
+  const triedOwnerNames = useRef(new Set<string>());
+  const ownedLogic = useMemo(
+    () => Object.values(storeLogic).filter((g) => g.ownerKind !== 'project'),
+    [storeLogic]
+  );
+  useEffect(() => {
+    if (!projectId) return;
+    const unknown = ownedLogic.filter(
+      (g) => !ownerNames[g.id] && !triedOwnerNames.current.has(g.id)
+    );
+    if (unknown.length === 0) return;
+    for (const g of unknown) triedOwnerNames.current.add(g.id);
+    api
+      .getProjectScopedLogic(projectId)
+      .then((rows) =>
+        setOwnerNames((prev) => ({
+          ...prev,
+          ...Object.fromEntries(
+            rows.map((r) => [
+              r.id,
+              { ownerName: r.ownerName, ownerNodeKind: r.ownerNodeKind },
+            ])
+          ),
+        }))
+      )
+      .catch(() => {});
+  }, [ownedLogic, ownerNames, projectId]);
+  const scopedLogic: ScopedLogicRecord[] = useMemo(
+    () =>
+      ownedLogic
+        .filter((g) => ownerNames[g.id])
+        .map((g) => ({ ...g, ...ownerNames[g.id] }))
+        .sort((a, b) => (a.createdAt ?? '').localeCompare(b.createdAt ?? '')),
+    [ownedLogic, ownerNames]
+  );
+
+  const handleToggleScopedEnabled = (g: ScopedLogicRecord) => {
+    commitLogicPatch(g.id, { enabled: !g.enabled });
+  };
+
+  // Behavior graphs are runtime state, not documents: the descriptors are built
+  // by the behavior managers, so there is nothing to sync. Their set changes
+  // only when a behavior or a graph document does, which is the trigger here —
+  // a timer would only re-fetch the same answer.
+  useEffect(() => {
     api
       .getSignalGraphs()
       .then(setBehaviorLogic)
       .catch(() => {});
-    if (projectId) {
-      api
-        .getProjectLogic(projectId)
-        .then(setProjectLogic)
-        .catch(() => {});
-      api
-        .getProjectScopedLogic(projectId)
-        .then(setScopedLogic)
-        .catch(() => {});
-    }
-  };
-
-  const handleToggleScopedEnabled = async (g: ScopedLogicRecord) => {
-    try {
-      const updated = await api.updateLogic(g.id, { enabled: !g.enabled });
-      setScopedLogic((prev) =>
-        prev.map((x) =>
-          x.id === g.id ? { ...x, enabled: updated.enabled } : x
-        )
-      );
-    } catch (e) {
-      alert(e instanceof Error ? e.message : t('logic.failToggle'));
-    }
-  };
-
-  useEffect(() => {
-    refresh();
-    const iv = setInterval(refresh, 3000);
-    return () => clearInterval(iv);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [projectId]);
+  }, [storeBehaviors, storeLogic]);
 
   const rowStyle = (active: boolean): React.CSSProperties => ({
     padding: '7px 12px',
@@ -1823,8 +1821,10 @@ function LogicListPanel() {
     });
     if (!name?.trim()) return;
     try {
-      const created = await api.createProjectLogic(projectId, name.trim());
-      setProjectLogic((prev) => [...prev, created]);
+      const created = await commitLogicCreate(
+        { kind: 'project', id: projectId },
+        name.trim()
+      );
       setActiveLogic(created.id);
     } catch (e) {
       alert(e instanceof Error ? e.message : t('logic.failCreate'));
@@ -1838,23 +1838,11 @@ function LogicListPanel() {
       confirmLabel: t('common:actions.rename'),
     });
     if (!name?.trim() || name.trim() === g.name) return;
-    try {
-      const updated = await api.updateLogic(g.id, { name: name.trim() });
-      setProjectLogic((prev) => prev.map((x) => (x.id === g.id ? updated : x)));
-    } catch (e) {
-      alert(e instanceof Error ? e.message : t('logic.failRename'));
-    }
+    commitLogicPath(g.id, 'name', name.trim());
   };
 
-  const handleToggleEnabled = async (g: LogicRecord) => {
-    try {
-      const updated = await api.updateLogic(g.id, {
-        enabled: !g.enabled,
-      });
-      setProjectLogic((prev) => prev.map((x) => (x.id === g.id ? updated : x)));
-    } catch (e) {
-      alert(e instanceof Error ? e.message : t('logic.failToggle'));
-    }
+  const handleToggleEnabled = (g: LogicRecord) => {
+    commitLogicPath(g.id, 'enabled', !g.enabled);
   };
 
   const handleDelete = async (g: LogicRecord) => {
@@ -1867,8 +1855,7 @@ function LogicListPanel() {
     )
       return;
     try {
-      await api.deleteLogic(g.id);
-      setProjectLogic((prev) => prev.filter((x) => x.id !== g.id));
+      await commitLogicDelete(g.id);
       if (activeLogicId === g.id) setActiveLogic(null);
     } catch (e) {
       alert(e instanceof Error ? e.message : t('logic.failDelete'));
@@ -1892,13 +1879,14 @@ function LogicListPanel() {
     const payload = await pasteFromClipboard(clipboardPayload);
     if (!payload || payload.kind !== 'graph') return;
     try {
-      const created = await api.createProjectLogic(projectId, payload.name);
-      const updated = await api.updateLogic(created.id, {
-        descriptor: payload.descriptor,
-        enabled: true,
-      });
-      setProjectLogic((prev) => [...prev, updated]);
-      setActiveLogic(updated.id);
+      // Name and descriptor land in one committed write, so a paste is a single
+      // undoable action rather than the create + PUT pair it used to be.
+      const created = await commitLogicCreate(
+        { kind: 'project', id: projectId },
+        payload.name,
+        payload.descriptor
+      );
+      setActiveLogic(created.id);
     } catch (e) {
       alert(e instanceof Error ? e.message : t('logic.failPaste'));
     }
@@ -2251,7 +2239,6 @@ export function SceneGraph() {
     selectedNodeId,
     selectNode,
     deleteNode: storeDeleteNode,
-    updateNode: storeUpdateNode,
     behaviors,
     vrmBonesByNode,
     assets,
@@ -2430,8 +2417,7 @@ export function SceneGraph() {
           }))
         )
           return;
-        await api.deleteNode(nodeId);
-        storeDeleteNode(nodeId);
+        await commitNodeDelete(nodeId);
         return;
       }
 
@@ -2449,27 +2435,13 @@ export function SceneGraph() {
       if (!choice) return;
 
       if (choice === 'with') {
-        // Backend cascades on parent_id; mirror it in the store so the subtree
-        // doesn't linger in the UI until reload.
-        const subtree: string[] = [];
-        const stack = [nodeId];
-        while (stack.length) {
-          const id = stack.pop()!;
-          subtree.push(id);
-          for (const c of sceneNodes.filter((n) => n.parentId === id))
-            stack.push(c.id);
-        }
-        await api.deleteNode(nodeId);
-        for (const id of subtree) storeDeleteNode(id);
+        // Removes the subtree explicitly (deepest first) as ONE undo action —
+        // see mesh/writes.ts on why the FK cascade alone isn't enough.
+        await commitNodeDelete(nodeId);
       } else {
-        // Keep children: reparent them onto this node's parent, then delete.
-        for (const c of directChildren) {
-          const patch = { parentId: node.parentId ?? null };
-          storeUpdateNode(c.id, patch);
-          await api.updateNode(c.id, patch).catch(() => {});
-        }
-        await api.deleteNode(nodeId);
-        storeDeleteNode(nodeId);
+        // Keep children: detach them onto this node's parent, then delete —
+        // also one action, so the reparents don't unwind separately.
+        await commitNodeDeleteKeepChildren(nodeId, node.parentId ?? null);
       }
     } catch (e: unknown) {
       alert(e instanceof Error ? e.message : t('nodes.failDelete'));
@@ -2537,11 +2509,11 @@ export function SceneGraph() {
     const payload = await pasteFromClipboard(clipboardPayload);
     if (!payload || payload.kind !== 'graph') return;
     try {
-      const created = await api.createNodeLogic(nodeId, payload.name);
-      await api.updateLogic(created.id, {
-        descriptor: payload.descriptor,
-        enabled: true,
-      });
+      await commitLogicCreate(
+        { kind: 'scene_node', id: nodeId },
+        payload.name,
+        payload.descriptor
+      );
     } catch (e) {
       alert(e instanceof Error ? e.message : t('logic.failPaste'));
     }
@@ -2553,18 +2525,14 @@ export function SceneGraph() {
     newBoneAttachment?: string | null
   ) => {
     try {
-      const patch: Parameters<typeof api.updateNode>[1] = {
-        parentId: newParentId,
-      };
+      const patch: Partial<StageObject> = { parentId: newParentId };
       if (newBoneAttachment !== undefined)
         patch.boneAttachment = newBoneAttachment;
-      await api.updateNode(nodeId, patch);
-      storeUpdateNode(nodeId, {
-        parentId: newParentId,
-        ...(newBoneAttachment !== undefined
-          ? { boneAttachment: newBoneAttachment }
-          : {}),
-      });
+      // One op, so a drag is a single undo step even when it also moves the
+      // bone attachment. Containment is a plain field here — no server-side
+      // effects — which is why reparent can go through the mesh while create
+      // and delete still can't (see mesh/writes.ts).
+      commitNodePatch(nodeId, patch);
       if (newParentId)
         setCollapsedNodes((s) => {
           const n = new Set(s);

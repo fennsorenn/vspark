@@ -7,13 +7,17 @@ import { makeTestApp } from './helpers/testApp.js';
  * API integration tests for assets and logic routes.
  * Both routes are tested with list, create, read-back, update, delete,
  * validation (400), and not-found (404) paths where supported.
+ *
+ * The mesh is booted because the logic routes write through its collection —
+ * they answer 500 "store not ready" without it, which is the honest answer:
+ * persisting behind the replica's back would leave every connected tab stale.
  */
 describe('assets + logic API', () => {
   let app: Express;
   let projectId: string;
 
   beforeEach(async () => {
-    ({ app } = await makeTestApp());
+    ({ app } = await makeTestApp({ mesh: true }));
     // Seed a project for all tests
     const res = await request(app).post('/api/projects').send({ name: 'TestProject' });
     projectId = res.body.data.id as string;

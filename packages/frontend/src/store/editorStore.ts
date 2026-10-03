@@ -8,8 +8,10 @@ import type {
   TrackClipLaneRecord,
   TrackClipKeyframeRecord,
   TrackClipEventRecord,
+  LogicRecord,
 } from '../api/client';
 import type { UpdateChannel } from '@vspark/shared';
+import type { ClipPlaybackDoc } from '@vspark/shared/clipPlayback';
 import { useHelpStore } from '../help/helpStore';
 import { useAssistantStore } from './assistantStore';
 import { highlightControl } from '../lib/uiHighlight';
@@ -24,6 +26,17 @@ export interface ScheduledAnimation {
   speed: number;
   loop: boolean;
 }
+
+/** A track clip's transport state (a clip_playback doc), keyed by clip id.
+ *
+ *  The playhead is DERIVED, not stored: while playing it is
+ *  `(now - startEpoch) * speed / 1000`, and while paused it is `pausedAtT`.
+ *  Nothing streams evaluated frames — every peer holds the clip and this, and
+ *  evaluates for itself (principle 1 in dev-notes/modules/mesh.md).
+ *
+ *  `state: 'stopped'` is a real entry, not an absent one; a clip that has never
+ *  been played simply has no entry at all. */
+export type ClipPlayback = ClipPlaybackDoc;
 
 /** A content-addressed animation clip (an animation_clip doc). The avatar
  *  animation driver resolves a timeline/idle `clipId` to its source asset URL
@@ -54,24 +67,6 @@ export type OutputWindowStatus =
   | { state: 'ready' }
   | { state: 'error'; message: string }
   | { state: 'unavailable' };
-
-/** Active playback for one track clip — either playing (wall clock advances from
- *  `startedAt`) or paused at a fixed `pausedAtT` seconds.
- *  `clockOffsetMs = serverNow − clientNow` sampled when the anchor was received,
- *  used to keep evaluation in phase with the backend-authoritative playhead. */
-export type TrackClipPlayback =
-  | {
-      kind: 'playing';
-      startedAt: number; // ms epoch in server clock
-      loop: boolean;
-      clockOffsetMs: number;
-    }
-  | {
-      kind: 'paused';
-      pausedAtT: number; // seconds into the clip
-      loop: boolean;
-      clockOffsetMs: number;
-    };
 
 /** Per-node ephemeral transform overrides produced by the track-clip evaluator.
  *  Never persisted; cleared each frame the evaluator decides to stop driving a param.
@@ -289,6 +284,11 @@ interface EditorState {
    *  Fed from the mesh replica; the avatar's animation effect reads the entries
    *  for its node, ordered by startEpoch. */
   scheduledAnimations: Record<string, ScheduledAnimation>;
+  /** clip_playback docs, keyed by CLIP id (not doc id) — callers look up by clip. */
+  clipPlayback: Record<string, ClipPlayback>;
+  /** logic (signal graph) docs, keyed by id. Fed from the mesh replica; the
+   *  panels used to re-poll REST every 3 seconds for this. */
+  logic: Record<string, LogicRecord>;
   /** Animation clips (animation_clip docs), keyed by clip id. Resolves a
    *  timeline/idle clipId to its source asset URL + duration. */
   animationClips: Record<string, AnimationClipMeta>;
@@ -361,7 +361,6 @@ interface EditorState {
   trackClips: TrackClipRecord[];
   selectedTrackClipId: string | null;
   /** clipId → active playback anchor */
-  trackClipPlayback: Record<string, TrackClipPlayback>;
   /** nodeId → ephemeral transform override produced by the evaluator (never persisted) */
   nodeTransformOverrides: Record<string, NodeTransformOverride>;
   /** composeLayerId → ephemeral DOM-space override produced by the evaluator */
@@ -372,7 +371,7 @@ interface EditorState {
   /** composeLayerId → paramPath → value, same as above for compose layers. */
   runtimeLayerOverrides: Record<string, RuntimeOverrideMap>;
   /** scope → (field → last-published value), fed by the data-channel bus
-   *  (`set_data` node → WS `data_channel_*`). Consumed by `feed` compose layers
+   *  (`set_data` node → the mesh `data_field` collection). Consumed by `feed` compose layers
    *  (and the 3D billboard), which expose every in-scope field to a user template
    *  by its bare name. scope `''` is GLOBAL; other scopes are a consumer's own id
    *  (a layer/node id). A consumer reads `global ∪ its-own-id`. */
@@ -418,6 +417,10 @@ interface EditorState {
   setVmcTracking: (behaviorId: string, tracking: boolean) => void;
   upsertScheduledAnimation: (entry: ScheduledAnimation) => void;
   removeScheduledAnimation: (id: string) => void;
+  upsertClipPlayback: (entry: ClipPlayback) => void;
+  removeClipPlayback: (docId: string) => void;
+  upsertLogic: (entry: LogicRecord) => void;
+  removeLogicLocal: (id: string) => void;
   upsertAnimationClip: (entry: AnimationClipMeta) => void;
   removeAnimationClip: (id: string) => void;
   setVrmBonesForNode: (nodeId: string, bones: string[]) => void;
@@ -522,14 +525,7 @@ interface EditorState {
     clipId: string,
     events: TrackClipEventRecord[]
   ) => void;
-  setTrackClipPlayback: (
-    clipId: string,
-    entry: TrackClipPlayback | null
-  ) => void;
   /** Bulk replace (used by playback snapshot on (re)connect). */
-  replaceTrackClipPlayback: (
-    entries: Record<string, TrackClipPlayback>
-  ) => void;
   setNodeTransformOverride: (
     nodeId: string,
     override: NodeTransformOverride | null
@@ -552,15 +548,6 @@ interface EditorState {
     targetId: string,
     paramPath?: string
   ) => void;
-  /** Bulk apply a snapshot (used on WS (re)connect). Replaces both maps. */
-  replaceRuntimeOverrides: (
-    entries: Array<{
-      targetKind: 'scene_node' | 'compose_layer';
-      targetId: string;
-      paramPath: string;
-      value: RuntimeOverrideValue;
-    }>
-  ) => void;
   /** Mark a (target, param) as user-edited so the evaluator stops overwriting it
    *  until the next clip event. `paramPath` matches the lane's param path. */
   suppressOverride: (
@@ -572,14 +559,10 @@ interface EditorState {
   clearOverrideSuppressions: () => void;
 
   // Data channels (generic graph → frontend publish surface)
-  /** Merge a published field-set into a scope (data-channel bus broadcast). */
+  /** Merge a published field-set into a scope. */
   mergeDataChannels: (scope: string, fields: Record<string, unknown>) => void;
   /** Clear one field in a scope, or the whole scope when `field` is omitted. */
   clearDataChannels: (scope: string, field?: string) => void;
-  /** Bulk apply a snapshot (used on WS (re)connect). Replaces the whole map. */
-  replaceDataChannels: (
-    entries: Array<{ scope: string; fields: Record<string, unknown> }>
-  ) => void;
 
   // Presets
   presets: PresetSummary[];
@@ -616,6 +599,8 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   vmcStatus: {},
   vmcTracking: {},
   scheduledAnimations: {},
+  clipPlayback: {},
+  logic: {},
   animationClips: {},
   vrmBonesByNode: {},
   vrmExpressionsByNode: {},
@@ -653,7 +638,6 @@ export const useEditorStore = create<EditorState>((set, get) => ({
 
   trackClips: [],
   selectedTrackClipId: null,
-  trackClipPlayback: {},
   nodeTransformOverrides: {},
   composeLayerOverrides: {},
   runtimeNodeOverrides: {},
@@ -796,6 +780,30 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       const next = { ...s.scheduledAnimations };
       delete next[id];
       return { scheduledAnimations: next };
+    }),
+  // Keyed by CLIP id: every reader has a clip in hand and wants its transport,
+  // never the other way round. The doc's own id only matters for removes, which
+  // arrive carrying it and nothing else.
+  upsertClipPlayback: (entry) =>
+    set((s) => ({ clipPlayback: { ...s.clipPlayback, [entry.clipId]: entry } })),
+  upsertLogic: (entry) =>
+    set((s) => ({ logic: { ...s.logic, [entry.id]: entry } })),
+  removeLogicLocal: (id) =>
+    set((s) => {
+      if (!(id in s.logic)) return {};
+      const next = { ...s.logic };
+      delete next[id];
+      return { logic: next };
+    }),
+  removeClipPlayback: (docId) =>
+    set((s) => {
+      const key = Object.keys(s.clipPlayback).find(
+        (clipId) => s.clipPlayback[clipId].id === docId
+      );
+      if (key === undefined) return {};
+      const next = { ...s.clipPlayback };
+      delete next[key];
+      return { clipPlayback: next };
     }),
   upsertAnimationClip: (entry) =>
     set((s) => ({
@@ -1109,7 +1117,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     })),
   removeTrackClip: (id) =>
     set((s) => {
-      const nextPlayback = { ...s.trackClipPlayback };
+      const nextPlayback = { ...s.clipPlayback };
       delete nextPlayback[id];
 
       // Drop any overrides/suppressions this clip's lanes left behind so the
@@ -1132,7 +1140,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
         trackClips: s.trackClips.filter((c) => c.id !== id),
         selectedTrackClipId:
           s.selectedTrackClipId === id ? null : s.selectedTrackClipId,
-        trackClipPlayback: nextPlayback,
+        clipPlayback: nextPlayback,
         composeLayerOverrides: nextLayerOverrides,
         nodeTransformOverrides: nextNodeOverrides,
         ...(suppressionsTouched ? { suppressedOverrides: nextSuppressed } : {}),
@@ -1181,14 +1189,6 @@ export const useEditorStore = create<EditorState>((set, get) => ({
         c.id === clipId ? { ...c, events } : c
       ),
     })),
-  setTrackClipPlayback: (clipId, entry) =>
-    set((s) => {
-      const next = { ...s.trackClipPlayback };
-      if (entry == null) delete next[clipId];
-      else next[clipId] = entry;
-      return { trackClipPlayback: next };
-    }),
-  replaceTrackClipPlayback: (entries) => set({ trackClipPlayback: entries }),
   setNodeTransformOverride: (nodeId, override) =>
     set((s) => {
       const next = { ...s.nodeTransformOverrides };
@@ -1252,17 +1252,6 @@ export const useEditorStore = create<EditorState>((set, get) => ({
         ? { runtimeNodeOverrides: next }
         : { runtimeLayerOverrides: next };
     }),
-  replaceRuntimeOverrides: (entries) =>
-    set(() => {
-      const nodes: Record<string, RuntimeOverrideMap> = {};
-      const layers: Record<string, RuntimeOverrideMap> = {};
-      for (const e of entries) {
-        const bucket = e.targetKind === 'scene_node' ? nodes : layers;
-        const prev = bucket[e.targetId] ?? {};
-        bucket[e.targetId] = { ...prev, [e.paramPath]: e.value };
-      }
-      return { runtimeNodeOverrides: nodes, runtimeLayerOverrides: layers };
-    }),
   mergeDataChannels: (scope, fields) =>
     set((s) => ({
       dataChannels: {
@@ -1283,12 +1272,6 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       const next = { ...s.dataChannels };
       if (Object.keys(restFields).length === 0) delete next[scope];
       else next[scope] = restFields;
-      return { dataChannels: next };
-    }),
-  replaceDataChannels: (entries) =>
-    set(() => {
-      const next: Record<string, Record<string, unknown>> = {};
-      for (const e of entries) next[e.scope] = { ...e.fields };
       return { dataChannels: next };
     }),
 

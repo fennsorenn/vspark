@@ -71,7 +71,6 @@ function alertPreset(spec: AlertSpec): BuiltinPreset {
         y: 0,
         width: 320,
         height: 240,
-        sceneOrder: -1,
       })
     : composeLayer('l2', 'l1', 'Badge', 'image', {
         config: { objectFit: 'contain', opacity: 1 },
@@ -80,7 +79,6 @@ function alertPreset(spec: AlertSpec): BuiltinPreset {
         y: 0,
         width: 240,
         height: 240,
-        sceneOrder: -1,
       });
 
   // The fade clip's event/marker lane drives playback: restart the sound (and,
@@ -101,7 +99,6 @@ function alertPreset(spec: AlertSpec): BuiltinPreset {
         config: { opacity: 0 },
         width: 320,
         height: 350,
-        sceneOrder: -1,
       }),
       badge,
       // Caption sits directly beneath the badge, centred across the overlay.
@@ -119,7 +116,6 @@ function alertPreset(spec: AlertSpec): BuiltinPreset {
         y: 250,
         width: 320,
         height: 100,
-        sceneOrder: -1,
       }),
       // l4 — the sound source. Invisible (visible:false still mounts + plays,
       // since the stack uses visibility:hidden), command-driven (autoplay off).
@@ -127,7 +123,6 @@ function alertPreset(spec: AlertSpec): BuiltinPreset {
         config: { autoplay: false, loop: false, muted: false, volume: 1 },
         width: 10,
         height: 10,
-        sceneOrder: -1,
         visible: false,
       }),
     ],

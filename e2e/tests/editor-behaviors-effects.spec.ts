@@ -23,6 +23,13 @@ import { seedProjectScene, seedNode } from '../fixtures/seed';
  * React onClick without enforcing viewport containment.
  */
 
+/** Open the merged section's shared "+ Add…" menu (`vs-merged-add`). */
+async function openAddMenu(page: import('@playwright/test').Page) {
+  const add = page.locator('.vs-merged-add').first();
+  await expect(add).toBeVisible({ timeout: 5_000 });
+  await add.click();
+}
+
 // ---------------------------------------------------------------------------
 // 1. Behavior: adding "Breathing" to an avatar node
 // ---------------------------------------------------------------------------
@@ -43,15 +50,12 @@ test('behaviors: adding Breathing to a node persists via REST', async ({
   const compToggle = page.locator('button[title="Show components"]').first();
   await compToggle.click();
 
-  // Wait for the behaviors section to appear (the "+ Add Behavior" button).
-  const addBehaviorBtn = page.getByRole('button', {
-    name: '+ Add Behavior',
-    exact: true,
-  });
-  await expect(addBehaviorBtn).toBeVisible({ timeout: 5_000 });
-  await addBehaviorBtn.click();
+  // Behaviors, effects, clips and logic share one "+ Add…" menu now (the
+  // merged section) — there is no per-group add button in the scene tree.
+  await openAddMenu(page);
+  await page.getByText('Behaviors', { exact: true }).first().click();
 
-  // The add-menu opens listing behavior kinds. "Breathing" is in the list.
+  // The submenu lists the behavior kinds. "Breathing" is in the list.
   // The menu may render outside the viewport (opens upward); use dispatchEvent
   // to fire the React onClick without viewport containment enforcement.
   const breathingItem = page.getByText('Breathing', { exact: true }).first();
@@ -94,15 +98,10 @@ test('effects: adding Bloom to a camera node persists via REST', async ({
   const compToggle = page.locator('button[title="Show components"]').first();
   await compToggle.click();
 
-  // The camera effects section's "+ Add Effect" button is now visible.
-  const addEffectBtn = page.getByRole('button', {
-    name: '+ Add Effect',
-    exact: true,
-  });
-  await expect(addEffectBtn).toBeVisible({ timeout: 5_000 });
-  await addEffectBtn.click();
+  await openAddMenu(page);
+  await page.getByText('Effects', { exact: true }).first().click();
 
-  // "Bloom" appears in the dropdown. May be above the viewport; use
+  // "Bloom" appears in the submenu. May be above the viewport; use
   // dispatchEvent to bypass viewport containment.
   const bloomItem = page.getByText('Bloom', { exact: true }).first();
   await expect(bloomItem).toBeVisible({ timeout: 5_000 });
@@ -142,12 +141,8 @@ test('behaviors: Stylized Tracking panel edits persist via REST', async ({
   });
 
   await page.locator('button[title="Show components"]').first().click();
-  const addBehaviorBtn = page.getByRole('button', {
-    name: '+ Add Behavior',
-    exact: true,
-  });
-  await expect(addBehaviorBtn).toBeVisible({ timeout: 5_000 });
-  await addBehaviorBtn.click();
+  await openAddMenu(page);
+  await page.getByText('Behaviors', { exact: true }).first().click();
 
   const item = page.getByText('Stylized Tracking', { exact: true }).first();
   await expect(item).toBeVisible({ timeout: 5_000 });
@@ -232,6 +227,10 @@ test('behaviors: Stylized Tracking panel edits persist via REST', async ({
 
   // --- A rig bone override --------------------------------------------------
   await page.getByText('Response rig', { exact: false }).first().click();
+  // The rig has two modes and opens in `simple`, which shows a grid rather than
+  // per-bone rows; the bone rows only exist in `detailed`. (Local component
+  // state, not server state, so selectOption is safe here.)
+  await page.locator('.vs-stylize-rigmode').selectOption('detailed');
   await page.locator('.vs-stylize-bone-head').click();
   // VecInput renders three NumInputs (text fields) — X / Y / Z; Y is the yaw column.
   const headYaw = page.locator('.vs-stylize-drv-head-headYaw input').nth(1);

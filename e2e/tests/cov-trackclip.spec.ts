@@ -40,9 +40,13 @@ async function listNodeClips(
 }
 
 // ---------------------------------------------------------------------------
-// 1. vs-clip-add — "+ Add Clip" button in ClipsSection
+// 1. vs-merged-add — the scene tree's shared add menu ("New clip")
+//
+// vs-clip-add still exists, but only on the compose tree, where ClipsSection
+// renders with its own footer; under a scene node the section renders flat and
+// the merged "+ Add…" menu owns creation.
 // ---------------------------------------------------------------------------
-test('cov-trackclip: vs-clip-add creates a clip and persists it via REST', async ({
+test('cov-trackclip: the add menu creates a clip and persists it via REST', async ({
   page,
   request,
 }) => {
@@ -59,10 +63,13 @@ test('cov-trackclip: vs-clip-add creates a clip and persists it via REST', async
   const compToggle = page.locator('button[title="Show components"]').first();
   await compToggle.click();
 
-  // Click the "+ Add Clip" button — this is vs-clip-add.
-  const addClipBtn = page.locator('.vs-clip-add');
-  await expect(addClipBtn).toBeVisible({ timeout: 5_000 });
-  await addClipBtn.click();
+  const addBtn = page.locator('.vs-merged-add').first();
+  await expect(addBtn).toBeVisible({ timeout: 5_000 });
+  await addBtn.click();
+  await page
+    .getByText('New clip', { exact: true })
+    .first()
+    .dispatchEvent('click');
 
   // REST read-back: clip was created.
   await expect

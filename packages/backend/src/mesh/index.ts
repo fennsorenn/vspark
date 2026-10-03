@@ -35,6 +35,25 @@ import {
   queueAnimationAssetFollowUp,
   setAnimationClipCollection,
 } from './assets.js';
+import {
+  guardClientSceneNode,
+  guardClientComposeLayer,
+  guardClientNodeChild,
+} from './docGuards.js';
+import { runtimeOverrideManager } from '../runtime_overrides/manager.js';
+import { initMeshRuntime, resetMeshRuntime } from './runtime.js';
+import { refreshAllBehaviorManagers } from '../behaviors/refresh.js';
+import { logicLifecycle } from '../logic/lifecycle.js';
+import {
+  ensurePeerProject,
+  isCollabScene,
+} from '../multiplayer/collabScene.js';
+import { validateDescriptor } from '../logic/manager.js';
+import {
+  toGraphDescriptor,
+  type GraphDescriptorDoc,
+} from '@vspark/shared/signal';
+import { isClientParticipant } from '@vspark/shared/sync';
 import '../sync/resources.js'; // side effect: register the descriptors
 
 type Dto = Record<string, unknown>;
@@ -51,10 +70,21 @@ interface RtypeBinding {
    *  a remote projection riding a placed-object subscription (replica-only:
    *  fans out to our tabs, never touches SQLite). §9 step D. */
   persists?: (dto: Dto) => boolean;
+  /** Refuse a committed doc: throw and the write is nacked and rolled back on
+   *  its author. Runs on the COMPOSED doc in the persistence tap, so unlike
+   *  `validate` it sees dotted-path writes as well as whole-doc ones — use it
+   *  for anything that has to hold however the write was shaped. */
+  guard?: (dto: Dto) => void;
 }
 
 const rowExists = (table: string, id: unknown): boolean =>
   !!getDb().prepare(`SELECT 1 FROM ${table} WHERE id = ?`).get(id as string);
+
+/** A project of OURS — not one we merely hold for a peer (migration 039). */
+const ownProject = (id: unknown): boolean =>
+  !!getDb()
+    .prepare('SELECT 1 FROM projects WHERE id = ? AND owner_peer_id IS NULL')
+    .get(id as string);
 
 const childOfNode = (d: Dto) =>
   typeof d.nodeId === 'string' ? { rtype: 'scene_node', id: d.nodeId } : null;
@@ -71,21 +101,28 @@ const BINDINGS: RtypeBinding[] = [
         : typeof d.rootSceneNodeId === 'string' && d.rootSceneNodeId !== d.id
           ? { rtype: 'scene_node', id: d.rootSceneNodeId }
           : null,
-    // Incoming collab docs carry the SENDER's project id (FK fail here) and
-    // the sender's local file path (unusable here until its blob is cached).
-    // Re-scope the project to our collab link and queue an asset follow-up
-    // (mesh/assets.ts) for any path we can't resolve — whether it's a swap
-    // from a prior path OR a first model assignment to a node that had none.
-    // The follow-up fetches the content over the blob protocol and re-points
-    // the row to our local /uploads/_shared URL once it lands. We keep our
-    // existing local path in the interim if we have one (so a converged
-    // _shared URL isn't clobbered); a node with no prior path takes the owner
-    // path verbatim until the follow-up corrects it. Fires ONLY for foreign
-    // docs (projectId ≠ our link's project): local writes pass through this
-    // validate too now that REST routes write through the store (§10 hazard
-    // e), and a local model swap must not be reverted.
-    validate: (data) => {
-      const d = { ...(data as Dto) };
+    // Incoming collab docs carry the AUTHOR's project id, and they KEEP it: a
+    // document has exactly one truth, so re-scoping it here would give one id
+    // different content on two peers (mesh.md principle 2). What used to force
+    // the rewrite was the foreign key — we hold a row for the author's project
+    // now instead (migration 039).
+    //
+    // The file path is a different matter and is still localized: it names a
+    // file on the SENDER's disk, which is not a fact about the document so much
+    // as a pointer into a store we do not share. The follow-up
+    // (mesh/assets.ts) fetches the content over the blob protocol and re-points
+    // the row at our /uploads/_shared URL once it lands; we keep our existing
+    // local path in the interim (so a converged _shared URL isn't clobbered),
+    // and a node with no prior path takes the owner path verbatim until the
+    // follow-up corrects it.
+    validate: (data, originId) => {
+      let d = { ...(data as Dto) };
+      // Whole-doc writes from a browser tab are creates (or undo-restores of
+      // one). They bypass the REST route, so its server-authoritative checks
+      // run here instead — a throw nacks the write and the client rolls its
+      // optimistic copy back. Collab peers are servers, not clients, and their
+      // docs are re-scoped below rather than validated against our data.
+      if (originId && isClientParticipant(originId)) d = guardClientSceneNode(d);
       const rootId =
         typeof d.rootSceneNodeId === 'string' ? d.rootSceneNodeId : undefined;
       if (!rootId) return d;
@@ -95,7 +132,10 @@ const BINDINGS: RtypeBinding[] = [
         )
         .get(rootId) as { project_id: string } | undefined;
       if (!link || d.projectId === link.project_id) return d;
-      d.projectId = link.project_id;
+      // A collab doc from the author's project: hold a row for that project so
+      // the FK holds, and leave the document alone.
+      if (originId && typeof d.projectId === 'string')
+        ensurePeerProject(d.projectId, originId);
       const incoming = typeof d.filePath === 'string' ? d.filePath : null;
       if (incoming) {
         // queueCollabAssetFollowUp skips when we already hold the content
@@ -109,18 +149,40 @@ const BINDINGS: RtypeBinding[] = [
       }
       return d;
     },
-    // Placed-share projections keep the OWNER's projectId (no collab link to
-    // re-scope it) — that marks them foreign, so they stay replica-only.
-    persists: (d) => rowExists('projects', d.projectId),
+    // What we persist is our own data, plus the collab scenes we deliberately
+    // keep (authored or mounted — a mount is stored so it survives the author
+    // going offline). Everything else is a projection: replica-only, fanned out
+    // to tabs, never touching SQLite.
+    //
+    // This cannot be "does a projects row exist" any more. Peer-owned project
+    // rows exist now (migration 039), and a placed-share projection from a peer
+    // whose scene we also mount would have one — it must still not persist.
+    persists: (d) =>
+      ownProject(d.projectId) ||
+      (typeof d.rootSceneNodeId === 'string' && isCollabScene(d.rootSceneNodeId)),
   },
   {
     rtype: 'behavior',
+    // Tabs author behaviors directly now, so the route's owner check runs here
+    // — and it matters more than for effects, because a committed behavior doc
+    // makes the onCommitted tap instantiate its signal graph.
+    validate: (data, originId) =>
+      originId && isClientParticipant(originId)
+        ? guardClientNodeChild(data as Dto, 'behavior')
+        : (data as Dto),
     table: 'behaviors',
     parent: childOfNode,
     persists: (d) => rowExists('scene_nodes', d.nodeId),
   },
   {
     rtype: 'camera_effect',
+    // Tabs author effects directly now, so the route's owner check has to run
+    // here too — see guardClientNodeChild. Collab peers are servers, not
+    // clients, and their docs are gated by `persists` instead.
+    validate: (data, originId) =>
+      originId && isClientParticipant(originId)
+        ? guardClientNodeChild(data as Dto, 'camera_effect')
+        : (data as Dto),
     table: 'camera_effects',
     parent: childOfNode,
     persists: (d) => rowExists('scene_nodes', d.nodeId),
@@ -139,6 +201,13 @@ const BINDINGS: RtypeBinding[] = [
             d.rootComposeSceneId !== d.id
           ? { rtype: 'compose_layer', id: d.rootComposeSceneId }
           : null,
+    // Tabs author layer creates directly (so they land on the authoring tab's
+    // undo stack), bypassing the REST route — so its server-owned fields are
+    // re-derived here instead. Collab peers are servers, not clients.
+    validate: (data, originId) =>
+      originId && isClientParticipant(originId)
+        ? guardClientComposeLayer({ ...(data as Dto) })
+        : (data as Dto),
     persists: (d) => rowExists('projects', d.projectId),
   },
   {
@@ -228,8 +297,10 @@ const BINDINGS: RtypeBinding[] = [
     // foreign doc is translated onto ours via the mesh peer-clock API (identity
     // for our own writes, where originId is our own peer). Our tabs then read
     // it against their local clock exactly like a locally-authored timeline.
-    // (Clocks are a synchronized-clocks stub today, so this is numerically a
-    // no-op — the call site is final, per dev-notes/plans/avatar-animation.md.)
+    // (The peer runs real NTP-style offset tracking — a ping burst plus a
+    // steady-state interval per link, folded into a best-RTT offset window —
+    // so this subtracts a genuinely measured offset. Only the first sample
+    // window is zero. A previous comment here called it a no-op stub; it is not.)
     parent: (d) =>
       typeof d.avatarNodeId === 'string'
         ? { rtype: 'scene_node', id: d.avatarNodeId }
@@ -242,6 +313,68 @@ const BINDINGS: RtypeBinding[] = [
       return d;
     },
     persists: (d) => rowExists('scene_nodes', d.avatarNodeId),
+  },
+  {
+    rtype: 'logic',
+    table: 'logic',
+    // Owned polymorphically: by a project, a scene node, or a compose layer.
+    // The two entity kinds parent normally so a scene-subtree grant covers a
+    // node's graphs. A project-owned graph gets a NULL parent — there is no
+    // `project` rtype in the mesh, and grants use entityRtype '*' anyway, so
+    // routing does not consult it. The cost is that project graphs cannot be
+    // subtree-scoped (shared or collab-scoped) until a project rtype exists.
+    parent: (d) =>
+      d.ownerKind === 'scene_node' && typeof d.ownerId === 'string'
+        ? { rtype: 'scene_node', id: d.ownerId }
+        : d.ownerKind === 'compose_layer' && typeof d.ownerId === 'string'
+          ? { rtype: 'compose_layer', id: d.ownerId }
+          : null,
+    // The descriptor IS the program, so an unrunnable one is refused rather
+    // than persisted and left to fail at reconcile. This is the mesh
+    // equivalent of the 400 the PUT route used to return, and now the only
+    // place the check lives, since REST and tabs both write through here.
+    //
+    // A `guard`, not `validate`: the canvas commits `set(id, 'descriptor', …)`,
+    // which is a PATCH op, and patches skip validate entirely — the hook would
+    // be handed the descriptor with no doc around it and wave it through.
+    guard: (d) => {
+      if (d.descriptor)
+        validateDescriptor(
+          toGraphDescriptor(d.descriptor as GraphDescriptorDoc),
+          String(d.ownerKind)
+        );
+    },
+    persists: (d) =>
+      d.ownerKind === 'project'
+        ? rowExists('projects', d.ownerId)
+        : d.ownerKind === 'scene_node'
+          ? rowExists('scene_nodes', d.ownerId)
+          : rowExists('compose_layers', d.ownerId),
+  },
+  {
+    rtype: 'clip_playback',
+    table: 'clip_playback',
+    // Transport state → its clip, which itself parents to the owning node or
+    // compose layer — so a scene-subtree grant covers playback transitively,
+    // without this needing to know anything about nodes.
+    //
+    // Note the parent is `clipId`, NOT `id`: the mesh ContainmentIndex keys by
+    // id alone across every rtype, so a playback doc sharing its clip's id
+    // would collide with the clip's own index entry.
+    parent: (d) =>
+      typeof d.clipId === 'string'
+        ? { rtype: 'track_clip', id: d.clipId }
+        : null,
+    // startEpoch is anchored on the AUTHOR's clock; translate it onto ours so
+    // every peer derives the same playhead. Identity for our own writes.
+    validate: (data, originId) => {
+      const d = { ...(data as Dto) };
+      const peer = getMeshPeer();
+      if (peer && originId && typeof d.startEpoch === 'number')
+        d.startEpoch = Math.round(peer.toLocalTime(originId, d.startEpoch));
+      return d;
+    },
+    persists: (d) => rowExists('track_clips', d.clipId),
   },
 ];
 
@@ -317,6 +450,12 @@ export function initBackendMesh(): MeshPeer {
   });
 
   for (const b of BINDINGS) bindCollection(peer, peerId, b);
+  // Runtime state (graph-driven param overrides) lives on its own retained
+  // channel rather than in BINDINGS: it never touches SQLite, so it has no
+  // table, no resource and no persistence tap. Registered here rather than at
+  // the call site so a mesh peer cannot exist without it — a missing runtime
+  // collection is silent, and the overrides simply stop arriving.
+  initMeshRuntime(peer);
   // The animation-clip asset follow-up re-points sourceFilePath through the
   // store once a fetched blob lands.
   const animCol = COLLECTIONS.get('animation_clip');
@@ -353,6 +492,7 @@ export function resetBackendMesh(): void {
   _peer = null;
   _transport = null;
   COLLECTIONS.clear();
+  resetMeshRuntime();
 }
 
 /** Epoch reset: forget deletion markers for the given ids — replica AND the
@@ -404,15 +544,39 @@ function bindCollection(
     applyingFromMesh.add(key);
     try {
       if (c.op === 'remove') {
+        // Runtime overrides target a doc by id and outlive its row, so they are
+        // cleared here rather than in the DELETE route: a remove authored by a
+        // tab (undoable deletes) or a collab peer must clear them too. Only
+        // these two rtypes can carry overrides (ParamTargetKind).
+        if (b.rtype === 'scene_node' || b.rtype === 'compose_layer')
+          runtimeOverrideManager.clearAllForTarget(b.rtype, c.id);
         if (b.persists && !rowExists(b.table, c.id)) return; // never persisted
         r.remove?.(c.id);
         if (c.v) saveTombstone(b.rtype, c.id, c.v);
         sync.document.remove(b.rtype, c.id);
+        // Detaching a behavior tears down its signal graph. This has to happen
+        // HERE, not in the DELETE route: a remove authored by a tab, an undo, or
+        // a collab peer never passes through a route, and would otherwise leave
+        // the graph running for a behavior that no longer exists. After the row
+        // is gone, so the refresh re-reads without it.
+        if (b.rtype === 'behavior') refreshAllBehaviorManagers();
+        // A graph's descriptor IS its program: committing one has to start,
+        // restart or stop the running instance, exactly as a behavior's does.
+        if (b.rtype === 'logic') logicLifecycle.onRemoved(c.id);
       } else if (c.doc) {
         if (b.persists && !b.persists(c.doc)) return;
+        // Before persisting: a throw here nacks the write and restores the
+        // pre-write state on the author.
+        b.guard?.(c.doc);
         r.save?.(c.doc);
         clearTombstone(b.rtype, c.id);
         sync.document.upsert(b.rtype, c.id);
+        // Attaching or reconfiguring a behavior instantiates its signal graph —
+        // same reasoning as the remove branch above. The refresh hands each
+        // manager the full row set, so it is idempotent and needs no knowledge
+        // of what changed.
+        if (b.rtype === 'behavior') refreshAllBehaviorManagers();
+        if (b.rtype === 'logic') logicLifecycle.onCommitted(c.id);
       }
     } finally {
       applyingFromMesh.delete(key);

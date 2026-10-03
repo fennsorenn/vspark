@@ -1,10 +1,23 @@
 import { Router } from 'express';
 import { randomUUID } from 'crypto';
 import { getDb } from '../db/index.js';
+import { loadClip } from './track-clips.js';
 import { broadcastBus } from '../broadcast/bus.js';
+import { keyAfter } from '@vspark/shared/fracIndex';
 import { _ws } from './shared.js';
-import { sync } from '../sync/index.js';
+import { getMeshCollection } from '../mesh/index.js';
+import { getResource } from '../sync/registry.js';
 import { multiplayerManager } from '../multiplayer/manager.js';
+
+/** Mirror a freshly-persisted row into the mesh store (§10 write-through): the
+ *  onCommitted tap re-persists (idempotent upsert) + emits the canonical
+ *  sync.document upsert, and the write fans out to mesh subscribers (tabs,
+ *  collab peers) with one HLC stamp. Replaces the old `sync.document.touch`. */
+function mirrorRow(rtype: string, id: string): void {
+  const col = getMeshCollection(rtype);
+  const dto = getResource(rtype)?.load?.(id);
+  if (col && dto) col.set(id, '', dto);
+}
 
 const router: ReturnType<typeof Router> = Router();
 
@@ -40,12 +53,27 @@ router.get('/projects/:projectId/scenes', (req, res) => {
   const db = getDb();
   const projectId = req.params.projectId;
 
-  // Scenes are now scene_nodes with kind='scene'
+  // Scenes are now scene_nodes with kind='scene'.
+  //
+  // Two sources, deliberately: this project's own scenes, and the scenes
+  // MOUNTED into it. A mounted scene keeps its author's project_id — the
+  // documents are theirs and are not rewritten (mesh.md principle 2, migration
+  // 039) — so "project_id = mine" no longer finds it. The share link is what
+  // says it belongs here, which is the honest relationship: we render it, we do
+  // not own it.
   const sceneRows = db
     .prepare(
-      "SELECT * FROM scene_nodes WHERE project_id = ? AND kind = 'scene'"
+      `SELECT * FROM scene_nodes
+       WHERE kind = 'scene'
+         AND (project_id = ?
+              OR id IN (SELECT scene_id FROM collab_scenes
+                        WHERE project_id = ? AND role = 'mounted'))`
     )
-    .all(projectId) as { id: string; name: string; properties: string }[];
+    .all(projectId, projectId) as {
+    id: string;
+    name: string;
+    properties: string;
+  }[];
 
   // Map scene_node rows to the shape the frontend expects (id, name, runtime_settings)
   const scenes = sceneRows.map((s) => ({
@@ -85,58 +113,34 @@ router.get('/projects/:projectId/scenes', (req, res) => {
   // Track clips are owned by a scene node or a compose layer (project-wide, no
   // longer scene-scoped). Gather all clips whose owner belongs to this project.
   {
+    // Owner nodes of a mounted scene carry the author's project id, so match on
+    // the scenes gathered above rather than on project_id alone.
+    const sceneIds = sceneRows.map((r) => r.id);
+    const placeholders = sceneIds.map(() => '?').join(',') || "''";
     const clips = db
       .prepare(
         `SELECT tc.* FROM track_clips tc
          LEFT JOIN scene_nodes sn ON sn.id = tc.owner_node_id
          LEFT JOIN compose_layers cl ON cl.id = tc.owner_layer_id
          WHERE sn.project_id = ? OR cl.project_id = ?
+            OR sn.root_scene_node_id IN (${placeholders})
          ORDER BY tc.created_at`
       )
-      .all(projectId, projectId) as { id: string }[];
+      .all(projectId, projectId, ...sceneIds) as { id: string }[];
+    // One clip shape, one mapping: loadClip is what the mesh document and the
+    // per-owner GET routes are built from, and it is what the frontend mappers
+    // expect (id-keyed lanes/keyframes/events). This used to re-query the rows
+    // by hand, which is how the bundle came to drop clip events once already.
     for (const c of clips) {
-      const lanes = db
-        .prepare('SELECT * FROM track_clip_lanes WHERE clip_id = ?')
-        .all(c.id) as { id: string }[];
-      const lanesWithKfs = lanes.map((lane) => ({
-        ...lane,
-        keyframes: db
-          .prepare(
-            'SELECT * FROM track_clip_keyframes WHERE lane_id = ? ORDER BY t'
-          )
-          .all(lane.id),
-      }));
-      // Event/marker lane (media-command triggers) — without this the scene
-      // bundle would drop clip events, so an instantiated alert preset's
-      // play/restart markers would silently vanish on the post-import refetch.
-      const events = (
-        db
-          .prepare(
-            'SELECT * FROM track_clip_events WHERE clip_id = ? ORDER BY t'
-          )
-          .all(c.id) as Record<string, unknown>[]
-      ).map((e) => {
-        let payload: Record<string, unknown> | null = null;
-        if (e.payload) {
-          try {
-            payload = JSON.parse(e.payload as string) as Record<
-              string,
-              unknown
-            >;
-          } catch {
-            payload = null;
-          }
-        }
-        return { ...e, payload };
-      });
-      trackClips.push({ ...c, lanes: lanesWithKfs, events });
+      const clip = loadClip(c.id);
+      if (clip) trackClips.push(clip);
     }
   }
 
   // Compose layers are now project-scoped, not scene-scoped
   const composeLayers = db
     .prepare(
-      'SELECT * FROM compose_layers WHERE project_id = ? ORDER BY scene_order DESC, camera_order ASC'
+      'SELECT * FROM compose_layers WHERE project_id = ? ORDER BY order_key ASC, id ASC'
     )
     .all(projectId);
 
@@ -313,22 +317,24 @@ router.post('/projects/:projectId/scenes', (req, res) => {
     createdLayerIds.push(composeSceneId, cameraViewId);
     db.prepare(
       `INSERT INTO compose_layers (id, project_id, root_compose_scene_id, camera_node_id, parent_id, name, kind, config,
-         x, y, width, height, rotation, anchor_h, anchor_v, scene_order, camera_order, visible)
-       VALUES (?, ?, NULL, NULL, NULL, ?, 'compose_scene', '{}', 0, 0, 1920, 1080, 0, 'left', 'top', 0, 0, 1)`
-    ).run(composeSceneId, projectId, name + ' Output');
+         x, y, width, height, rotation, anchor_h, anchor_v, order_key, visible)
+       VALUES (?, ?, NULL, NULL, NULL, ?, 'compose_scene', '{}', 0, 0, 1920, 1080, 0, 'left', 'top', ?, 1)`
+    ).run(composeSceneId, projectId, name + ' Output', keyAfter(null));
 
     // Default camera_view layer inside the compose scene
     db.prepare(
       `INSERT INTO compose_layers (id, project_id, root_compose_scene_id, camera_node_id, parent_id, name, kind, config,
-         x, y, width, height, rotation, anchor_h, anchor_v, scene_order, camera_order, visible)
-       VALUES (?, ?, ?, ?, NULL, 'Camera View', 'camera_view', '{}', 0, 0, 1920, 1080, 0, 'left', 'top', 0, 0, 1)`
-    ).run(cameraViewId, projectId, composeSceneId, camId);
+         x, y, width, height, rotation, anchor_h, anchor_v, order_key, visible)
+       VALUES (?, ?, ?, ?, NULL, 'Camera View', 'camera_view', '{}', 0, 0, 1920, 1080, 0, 'left', 'top', ?, 1)`
+    ).run(cameraViewId, projectId, composeSceneId, camId, keyAfter(null));
   }
 
-  // Mirror the created rows into the unified sync layer (mesh bridge + share
-  // fan-out). `touch` skips the local WS broadcast — clients load via REST.
-  for (const nid of createdNodeIds) sync.document.touch('scene_node', nid);
-  for (const lid of createdLayerIds) sync.document.touch('compose_layer', lid);
+  // Write the created rows through the mesh store so they fan out to tabs +
+  // collab/share subscribers and the containment index/collab routing stay
+  // current. Scene root is first in createdNodeIds, so its containment entry
+  // exists before the camera/lights that hang off it.
+  for (const nid of createdNodeIds) mirrorRow('scene_node', nid);
+  for (const lid of createdLayerIds) mirrorRow('compose_layer', lid);
 
   res
     .status(201)
@@ -408,10 +414,17 @@ router.put('/scenes/:sceneId', (req, res) => {
       .get(sceneId) as { properties: string };
     patch.runtimeSettings = JSON.parse(updated.properties || '{}');
   }
+  // Load-bearing, and NOT a smoothing lane (useWsSync's `scene_updated` branch
+  // is a plain updateSceneItem). A Scene is a scene_nodes row, so the mesh
+  // mirror below does reach every tab — but meshStoreFeeder's scene_node
+  // observer writes only the `nodes` slice, and nothing feeds the `scenes`
+  // slice at runtime (setScenes/updateSceneItem are otherwise only called from
+  // REST loads and this handler). Dropping this broadcast would leave
+  // scenes[].runtimeSettings stale on other tabs until a reload.
   _ws?.broadcast('scene_updated', patch);
-  // Mirror into the unified sync layer (mesh bridge + share fan-out) without
-  // re-broadcasting locally — clients already got scene_updated above.
-  sync.document.touch('scene_node', sceneId);
+  // Mirror the canonical doc through the mesh store (keeps the replica +
+  // fan-out in sync).
+  mirrorRow('scene_node', sceneId);
 
   res.json({ ok: true, data: patch });
 });
@@ -464,17 +477,51 @@ router.delete('/scenes/:sceneId', (req, res) => {
   // 018 migration rebuild), so delete explicitly with enforcement off.
   db.exec('PRAGMA foreign_keys = OFF');
   try {
-    for (const nid of nodeIds) {
-      db.prepare('DELETE FROM behaviors WHERE node_id = ?').run(nid);
-      db.prepare('DELETE FROM camera_effects WHERE node_id = ?').run(nid);
-      // Drop camera_view compose layers that targeted this scene's cameras.
-      db.prepare('DELETE FROM compose_layers WHERE camera_node_id = ?').run(
-        nid
-      );
+    // Remove every scene node through the mesh store FIRST (while the rows
+    // still exist, so the persist tap's `persists` guard doesn't early-return):
+    // the tap deletes each row, persists its HLC tombstone, and emits the
+    // canonical remove so the replica + containment index + collab/share
+    // fan-out drop the scene. FK enforcement is off, so a parent remove can't
+    // cascade-delete a sibling out from under a later remove.
+    const nodeCol = getMeshCollection('scene_node');
+    for (const nid of nodeIds) nodeCol?.remove(nid);
+
+    // The dependent rows go through their collections too, for the same reason
+    // the nodes do. A raw DELETE removes the row but leaves the DOCUMENT alive
+    // in the replica with no tombstone, so a tab that subscribes afterwards
+    // gets a snapshot full of behaviors / effects / layers / clips whose rows
+    // are gone. Only col.remove() writes the tombstone that suppresses them.
+    const dependents: { table: string; column: string; rtype: string }[] = [
+      { table: 'behaviors', column: 'node_id', rtype: 'behavior' },
+      { table: 'camera_effects', column: 'node_id', rtype: 'camera_effect' },
+      // camera_view compose layers that targeted this scene's cameras.
+      {
+        table: 'compose_layers',
+        column: 'camera_node_id',
+        rtype: 'compose_layer',
+      },
       // Track clips owned by this node (scene root included).
-      db.prepare('DELETE FROM track_clips WHERE owner_node_id = ?').run(nid);
+      { table: 'track_clips', column: 'owner_node_id', rtype: 'track_clip' },
+    ];
+    for (const { table, column, rtype } of dependents) {
+      const col = getMeshCollection(rtype);
+      for (const nid of nodeIds) {
+        // Read the ids BEFORE deleting: the persist tap's `persists` guard
+        // early-returns once the row is gone, so a remove issued after the
+        // DELETE would never write its tombstone.
+        const ids = (
+          db
+            .prepare(`SELECT id FROM ${table} WHERE ${column} = ?`)
+            .all(nid) as { id: string }[]
+        ).map((r) => r.id);
+        for (const id of ids) col?.remove(id);
+        // Safety net for the same reason as the scene_nodes sweep below: the
+        // mesh store may not be initialised in a bare context.
+        db.prepare(`DELETE FROM ${table} WHERE ${column} = ?`).run(nid);
+      }
     }
-    // All nodes belonging to this scene (descendants + the scene node itself).
+    // Safety net: drop any scene_nodes row the store remove missed (e.g. the
+    // mesh store not yet initialised in a bare context).
     db.prepare('DELETE FROM scene_nodes WHERE root_scene_node_id = ?').run(
       sceneId
     );
@@ -483,9 +530,6 @@ router.delete('/scenes/:sceneId', (req, res) => {
   }
 
   _ws?.broadcast('scene_removed', { id: sceneId });
-  // Tombstone every deleted node in the unified sync layer (mesh bridge +
-  // share fan-out) — otherwise the mesh replica keeps the scene alive.
-  for (const nid of nodeIds) sync.document.remove('scene_node', nid);
   res.json({ ok: true, data: {} });
 });
 

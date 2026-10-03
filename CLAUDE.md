@@ -67,6 +67,7 @@ packages/
 4. `pose_broadcast` emits `vmc_pose` / `vmc_blendshapes` messages over the shared WebSocket
 
 Key backend files:
+
 - [packages/backend/src/index.ts](packages/backend/src/index.ts) — entry point, HTTP + WebSocket setup, manager init
 - [packages/backend/src/routes/index.ts](packages/backend/src/routes/index.ts) — REST routes, split per resource and composed here (no monolithic `api.ts`)
 - [packages/backend/src/signal/engine.ts](packages/backend/src/signal/engine.ts) — graph runtime (typed ports, value cache, cycle detection)
@@ -80,6 +81,7 @@ Key backend files:
 3. `Viewport.tsx` renders a React Three Fiber canvas, loads the VRM, and applies pose from the store to the avatar's bones
 
 Key frontend files:
+
 - [packages/frontend/src/App.tsx](packages/frontend/src/App.tsx) — router (Home `/` + Editor `/:projectId`)
 - [packages/frontend/src/store/editorStore.ts](packages/frontend/src/store/editorStore.ts) — Zustand store (scene graph, VRM skeletons, VMC state)
 - [packages/frontend/src/components/editor/Viewport.tsx](packages/frontend/src/components/editor/Viewport.tsx) — Three.js canvas, VRM loader + per-frame pose application (`setNormalizedPose`)
@@ -119,6 +121,25 @@ Documentation is maintained by the `doc-updater` agent. Spawn it in the backgrou
 - **Planning a feature**: spawn with the feature description and how it fits → it adds it as planned
 - **Completing a task**: spawn with a summary of what changed, which modules were affected, and any new patterns or extension points → it updates statuses and module files
 
+## Describing vs prescribing
+
+Documentation must keep these two apart, because a later reader — human or agent —
+cannot tell them apart from the prose alone, and will treat everything as a requirement:
+
+- **Descriptive**: this is how the code behaves today. It can be changed by whoever has
+  a reason to change it. Write it in the present indicative: "clip playback state is
+  held in an in-memory map".
+- **Prescriptive**: someone decided this, and reversing it needs their agreement. Say
+  who decided and, where it is short, why: "**Decided:** transport actions are not
+  undoable — they are view actions, not document edits."
+
+Never write an observation in the language of a requirement ("must", "should", "always",
+"never") unless it really is one. An agent that describes the current implementation as a
+constraint manufactures a requirement nobody set, and every later reader inherits it — the
+same failure mode as a stale comment claiming a legacy path is "deliberate", except it now
+looks like it came from the user. If you are recording something you inferred rather than
+something you were told, say so explicitly.
+
 # Internationalization & Help (frontend)
 
 All user-facing frontend text is internationalized (English + German) via
@@ -151,12 +172,12 @@ Testing is a cross-cutting concern — treat it as part of "done" for any new fe
 
 ## What to add when shipping a feature
 
-| What changed | What test to add |
-|---|---|
-| New backend route or business logic | Vitest test in `packages/backend/test/` using `makeTestApp()` (routes) or `buildGraph` (signal nodes) |
-| New Zustand store action or frontend hook | Vitest/jsdom test in `packages/frontend/test/` using `renderWithProviders` |
-| New UI panel or interactive flow | Playwright spec in `e2e/tests/` seeded via REST, asserted via REST read-back |
-| New interactive control | Add `vs-<name>` CSS class → `node e2e/scripts/controls.mjs bless` → exercise in a `cov-*.spec.ts` |
+| What changed                              | What test to add                                                                                      |
+| ----------------------------------------- | ----------------------------------------------------------------------------------------------------- |
+| New backend route or business logic       | Vitest test in `packages/backend/test/` using `makeTestApp()` (routes) or `buildGraph` (signal nodes) |
+| New Zustand store action or frontend hook | Vitest/jsdom test in `packages/frontend/test/` using `renderWithProviders`                            |
+| New UI panel or interactive flow          | Playwright spec in `e2e/tests/` seeded via REST, asserted via REST read-back                          |
+| New interactive control                   | Add `vs-<name>` CSS class → `node e2e/scripts/controls.mjs bless` → exercise in a `cov-*.spec.ts`     |
 
 ## Key rules
 
@@ -206,7 +227,7 @@ Before switching to a new task or context, run `git status`. If there are uncomm
 
 When a change is complete and passes the fast gates (`pnpm lint` + the relevant Vitest suites), **commit and push it before running any slow end-to-end verification** — a Playwright run, a booted-stack check, or anything that takes more than a few seconds. The point is that the user can `git pull` and confirm the change locally straight away instead of waiting on the e2e run to finish.
 
-- Order: fast gates → commit → push → *then* the slow e2e/Playwright/booted-stack verification.
+- Order: fast gates → commit → push → _then_ the slow e2e/Playwright/booted-stack verification.
 - If the slow verification then reveals a problem, fix it in a **follow-up commit** (and push again). Don't hold the first commit back waiting for e2e to go green.
 - Never let a slow verification gate the push of an otherwise-passing change. Lint/type-check and unit/API tests remain a hard pre-commit gate; e2e is a post-push confirmation, not a pre-commit one.
 - Any temporary instrumentation added purely to drive the verification (debug hooks, exposed globals, sampling scripts) must be reverted and kept out of the pushed commit.
@@ -221,7 +242,7 @@ Implementation work can be handed off from a local planning session to an intera
 
 ## Workflow
 
-1. **Local (plan):** plan the change, create the feature branch, write the plan to `dev-notes/plans/<descriptive-name>.md` (use the plan template), commit, and **push the branch**. Cloud workers check out the *remote* — an unpushed plan or branch is invisible to them.
+1. **Local (plan):** plan the change, create the feature branch, write the plan to `dev-notes/plans/<descriptive-name>.md` (use the plan template), commit, and **push the branch**. Cloud workers check out the _remote_ — an unpushed plan or branch is invisible to them.
 2. **Hand off:** produce the handoff artifact below for the user.
 3. **Cloud (interactive):** the user opens the link, selects the branch, and drives the implementation, refining the plan live as needed.
 4. **Output:** the worker opens a PR into `dev` when done.
@@ -231,14 +252,15 @@ Implementation work can be handed off from a local planning session to an intera
 Emit a markdown-formatted link (plain `https://` URLs do not reliably linkify in the chat surface; markdown links do) plus a paste-fallback block.
 
 Link format — confirmed facts:
+
 - Base: `https://claude.ai/code`
 - `repositories=<owner>/<repo>` selects the repo (find the slug from `git remote -v`).
 - `prompt=<url-encoded>` pre-fills the initial message.
-- **There is no branch URL parameter.** The branch must be named *in the prompt text* and selected by the user from the branch dropdown after the repo loads.
+- **There is no branch URL parameter.** The branch must be named _in the prompt text_ and selected by the user from the branch dropdown after the repo loads.
 
 Template (substitute `<owner>/<repo>`, `<branch>`, `<plan-file>`):
 
-```markdown
+````markdown
 **[🔗 Open cloud session — <branch>](https://claude.ai/code?repositories=<owner>/<repo>&prompt=<url-encoded prompt below>)**
 
 ​```
@@ -252,7 +274,7 @@ Implement the plan in dev-notes/plans/<plan-file>.
 - Follow the repo CLAUDE.md conventions.
 - Commit at natural stopping points with conventional-commit messages.
 - When done, open a PR into dev.
-​```
-```
+  ​```
+````
 
 The `prompt=` value is the URL-encoded form of the same paste block (use `%0A` for line breaks, `%2F` for `/`).

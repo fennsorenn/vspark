@@ -1,5 +1,11 @@
 # i18n + Help-button migration — worker conventions
 
+> **Status:** shipped — the sweep is done (18 EN/DE namespaces under
+> `frontend/src/i18n/locales/`, 18 help topics under `frontend/src/help/content/`).
+> **Superseded as the reference by:** [`../modules/i18n-help.md`](../modules/i18n-help.md),
+> which is the maintained convention doc that CLAUDE.md points at. Read that, not this;
+> this file is the migration-era briefing.
+
 Goal: make vspark usable by non-technical users by (a) translating all
 user-facing strings (EN + DE) and (b) adding contextual `?` help buttons that
 deep-link into the documentation.

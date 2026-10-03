@@ -61,3 +61,13 @@ Fülllicht für einen schmeichelhaften Look.
 Die **Compose**-Ansicht platziert 2D-Ebenen — Overlays, Bilder, Browserquellen,
 deinen Webcam-Rahmen — vor oder hinter dem 3D-Bild. Hier baust du das endgültige
 Layout für deinen Stream auf, unabhängig von der 3D-Szene selbst.
+
+## Rückgängig & Wiederholen {#undo}
+
+Die Schaltflächen **↶** und **↷** in der oberen Leiste (oder **Strg+Z** /
+**Strg+Umschalt+Z**, **Strg+Y** zum Wiederholen) machen deine letzten
+Änderungen Schritt für Schritt rückgängig bzw. stellen sie wieder her.
+Rückgängig arbeitet pro Aktion — ein Druck macht eine Änderung rückgängig. In
+einer geteilten Sitzung betrifft Rückgängig nur *deine eigenen* Änderungen, und
+es tritt sicher zurück, wenn eine andere Person dasselbe zwischenzeitlich
+geändert hat, sodass niemandes Arbeit unbemerkt überschrieben wird.

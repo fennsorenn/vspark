@@ -1,4 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
+import {
+  commitBehaviorPatch,
+} from '../../mesh/behaviorWrites';
 import { useTranslation } from 'react-i18next';
 import { HelpButton } from '../../help/HelpButton';
 import {
@@ -64,6 +67,14 @@ import type {
 } from '../../lib/live2dParamMap';
 import { MicCapture, type VowelTemplates } from '../../media/MicCapture';
 import { useTrackClipRecorder } from '../../hooks/useTrackClipRecorder';
+import { useMeshField } from '../../hooks/useMeshField';
+import {
+  commitNodePatch,
+  commitNodePath,
+  previewNodePath,
+  previewNodeTransform,
+} from '../../mesh/writes';
+import { commitEffectPatch } from '../../mesh/effectWrites';
 
 /** Small "Pick…" button that routes the user to a bottom-dock asset tab and
  *  flashes it as a hint. The asset tab's existing "Apply to <node>" buttons do
@@ -366,7 +377,6 @@ function MaterialRow({
   slot: ReturnType<typeof getMaterialSlots>[number];
 }) {
   const { t } = useTranslation('properties');
-  const { updateNode: storeUpdateNode } = useEditorStore();
   const [open, setOpen] = useState(false);
   const [advOpen, setAdvOpen] = useState(false);
   const overrides = (node.properties?.materialOverrides ??
@@ -378,23 +388,23 @@ function MaterialRow({
   if (shader === 'mtoon' && !slot.supportsMToon) shader = 'pbr';
   const isStandard = shader === 'pbr' || shader === 'apbr';
 
-  const writeOverrides = (next: MaterialOverrides, persist: boolean) => {
-    const properties = { ...node.properties, materialOverrides: next };
-    storeUpdateNode(node.id, { properties });
-    if (persist)
-      api
-        .updateNode(node.id, { properties: { materialOverrides: next } })
-        .catch(() => {});
-  };
+  const overridesPath = 'properties.materialOverrides';
+  const slotPath = `${overridesPath}.${slot.key}`;
 
+  /** Whole-map replace — used by reset, which removes a slot entry. */
+  const writeOverrides = (next: MaterialOverrides, persist: boolean) =>
+    (persist ? commitNodePath : previewNodePath)(node.id, overridesPath, next);
+
+  /** One field of this material. Path writes stamp exactly the field touched,
+   *  so editing two materials (or two params) concurrently no longer clobbers.
+   *  `persist: false` is the live gesture value; `true` commits one undo step. */
   const patch = (p: Partial<MaterialOverride>, persist: boolean) => {
-    const prev = (node.properties?.materialOverrides ??
-      {}) as MaterialOverrides;
-    const prevEntry: MaterialOverride = prev[slot.key] ?? {
-      shader: defaultShader,
-    };
-    const next = { ...prev, [slot.key]: { ...prevEntry, ...p } };
-    writeOverrides(next, persist);
+    const write = persist ? commitNodePath : previewNodePath;
+    // No entry yet: seed shader + fields as one write, so the slot never exists
+    // in a half-formed state and the edit stays a single undo step.
+    if (!ov) return write(node.id, slotPath, { shader: defaultShader, ...p });
+    for (const [k, v] of Object.entries(p))
+      write(node.id, `${slotPath}.${k}`, v);
   };
 
   const reset = () => {
@@ -1921,7 +1931,6 @@ function liveOrMetaList(
 function VmcReceiverProps({ comp }: { comp: Behavior }) {
   const { t } = useTranslation('properties');
   const {
-    updateBehavior,
     vrmMorphTargetsByNode,
     vrmExpressionsByNode,
     nodes,
@@ -2025,12 +2034,7 @@ function VmcReceiverProps({ comp }: { comp: Behavior }) {
 
   const save = async (patch: Partial<Record<string, unknown>>) => {
     const newConfig = { ...comp.config, ...patch };
-    updateBehavior(comp.id, { config: newConfig });
-    try {
-      await api.updateBehavior(comp.id, { config: newConfig });
-    } catch {
-      /* non-fatal */
-    }
+    commitBehaviorPatch(comp.id, { config: newConfig });
   };
 
   const saveMapperNode = (nodeId: string, patch: Partial<MapperNodeConfig>) => {
@@ -2258,7 +2262,6 @@ function VmcReceiverProps({ comp }: { comp: Behavior }) {
 function IFacialMocapReceiverProps({ comp }: { comp: Behavior }) {
   const { t } = useTranslation('properties');
   const {
-    updateBehavior,
     vrmMorphTargetsByNode,
     vrmExpressionsByNode,
     nodes,
@@ -2371,12 +2374,7 @@ function IFacialMocapReceiverProps({ comp }: { comp: Behavior }) {
 
   const save = async (patch: Partial<Record<string, unknown>>) => {
     const newConfig = { ...comp.config, ...patch };
-    updateBehavior(comp.id, { config: newConfig });
-    try {
-      await api.updateBehavior(comp.id, { config: newConfig });
-    } catch {
-      /* non-fatal */
-    }
+    commitBehaviorPatch(comp.id, { config: newConfig });
   };
 
   const saveMapperNode = (nodeId: string, patch: Partial<MapperNodeConfig>) => {
@@ -2663,7 +2661,6 @@ function IFacialMocapReceiverProps({ comp }: { comp: Behavior }) {
 
 function LipsyncProcessorProps({ comp }: { comp: Behavior }) {
   const { t } = useTranslation('properties');
-  const { updateBehavior } = useEditorStore();
   const { projectId } = useParams<{ projectId: string }>();
   const cfg = comp.config as {
     sensitivity?: number;
@@ -2673,8 +2670,7 @@ function LipsyncProcessorProps({ comp }: { comp: Behavior }) {
 
   const save = (patch: Record<string, unknown>) => {
     const config = { ...comp.config, ...patch };
-    updateBehavior(comp.id, { config });
-    api.updateBehavior(comp.id, { config }).catch(() => {});
+    commitBehaviorPatch(comp.id, { config });
   };
 
   const rowStyle: React.CSSProperties = {
@@ -2916,7 +2912,6 @@ function LipsyncCalibration({
 
 function MediapipeTrackerProps({ comp }: { comp: Behavior }) {
   const { t } = useTranslation('properties');
-  const { updateBehavior } = useEditorStore();
   const { projectId } = useParams<{ projectId: string }>();
   const cfg = comp.config as {
     enableFace?: boolean;
@@ -2970,8 +2965,7 @@ function MediapipeTrackerProps({ comp }: { comp: Behavior }) {
 
   const save = (patch: Record<string, unknown>) => {
     const config = { ...comp.config, ...patch };
-    updateBehavior(comp.id, { config });
-    api.updateBehavior(comp.id, { config }).catch(() => {});
+    commitBehaviorPatch(comp.id, { config });
   };
 
   const saveIk = (patch: Record<string, unknown>) => {
@@ -3344,7 +3338,6 @@ function ApiControllerProps({ comp }: { comp: Behavior }) {
 
 function BreathingProps({ comp }: { comp: Behavior }) {
   const { t } = useTranslation('properties');
-  const { updateBehavior } = useEditorStore();
   const cfg = (comp.config ?? {}) as {
     chestAmplitude?: number;
     shoulderAmplitude?: number;
@@ -3359,8 +3352,7 @@ function BreathingProps({ comp }: { comp: Behavior }) {
 
   const save = (patch: Record<string, unknown>) => {
     const config = { ...comp.config, ...patch };
-    updateBehavior(comp.id, { config });
-    api.updateBehavior(comp.id, { config }).catch(() => {});
+    commitBehaviorPatch(comp.id, { config });
   };
 
   return (
@@ -3536,7 +3528,6 @@ function BoneCalibRow({
 }
 
 function ManualCalibrationProps({ comp }: { comp: Behavior }) {
-  const { updateBehavior } = useEditorStore();
   const cfg = (comp.config ?? {}) as {
     calibrations?: Record<string, BoneCalibration>;
   };
@@ -3544,8 +3535,7 @@ function ManualCalibrationProps({ comp }: { comp: Behavior }) {
 
   const saveCalibrations = (next: Record<string, BoneCalibration>) => {
     const config = { ...comp.config, calibrations: next };
-    updateBehavior(comp.id, { config });
-    api.updateBehavior(comp.id, { config }).catch(() => {});
+    commitBehaviorPatch(comp.id, { config });
   };
 
   const setBone = (bone: string, patch: BoneCalibration) => {
@@ -3739,7 +3729,6 @@ function NameListEditor({
 function BlendshapeLimiterProps({ comp }: { comp: Behavior }) {
   const { t } = useTranslation('properties');
   const {
-    updateBehavior,
     vrmMorphTargetsByNode,
     vrmExpressionsByNode,
     nodes,
@@ -3771,8 +3760,7 @@ function BlendshapeLimiterProps({ comp }: { comp: Behavior }) {
 
   const save = (next: BlendshapeLimitsConfig) => {
     const config = { ...comp.config, limits: next };
-    updateBehavior(comp.id, { config });
-    api.updateBehavior(comp.id, { config }).catch(() => {});
+    commitBehaviorPatch(comp.id, { config });
   };
   const patch = (p: Partial<BlendshapeLimitsConfig>) =>
     save({ ...limits, ...p });
@@ -4499,7 +4487,6 @@ function RigBoneRow({
 
 function StylizedTrackingProps({ comp }: { comp: Behavior }) {
   const { t } = useTranslation('properties');
-  const { updateBehavior } = useEditorStore();
   const cfg = (comp.config ?? {}) as StylizerConfig;
   const overrides = cfg.rig ?? {};
   // The rig editor shows the selected preset as the baseline; the stored
@@ -4547,8 +4534,7 @@ function StylizedTrackingProps({ comp }: { comp: Behavior }) {
 
   const save = (patch: Record<string, unknown>) => {
     const config = { ...comp.config, ...patch };
-    updateBehavior(comp.id, { config });
-    api.updateBehavior(comp.id, { config }).catch(() => {});
+    commitBehaviorPatch(comp.id, { config });
   };
 
   // Bones the panel offers: everything the stock rig drives, plus anything the
@@ -4958,16 +4944,15 @@ function EffectPanel({ effectId, kind }: { effectId: string; kind: string }) {
   const effect = useEditorStore((s) =>
     s.cameraEffects.find((e) => e.id === effectId)
   );
-  const updateCameraEffect = useEditorStore((s) => s.updateCameraEffect);
 
   if (!effect) return null;
   const cfg = effect.config;
   const ek = CAMERA_EFFECT_KINDS.find((k) => k.kind === kind)!;
 
   const save = (patch: Record<string, unknown>) => {
-    const config = { ...cfg, ...patch };
-    updateCameraEffect(effectId, { config });
-    api.updateCameraEffect(effectId, { config }).catch(() => {});
+    // One committed write per settled edit, so one undo step — the helper
+    // applies locally too, so the panel still updates immediately.
+    commitEffectPatch(effectId, { config: { ...cfg, ...patch } });
   };
 
   const TONE_MAPPING_MODES: { label: string; value: number }[] = [
@@ -5793,11 +5778,7 @@ const LIVE2D_SOURCE_SUGGESTIONS = [
  *  can own hooks (license state, param-map editor) — the panel renders the
  *  other node kinds via inline IIFEs that cannot host hooks. */
 function Live2DProperties({ node }: { node: StageObject }) {
-  const {
-    assets,
-    updateNode: storeUpdateNode,
-    live2dParamsByNode,
-  } = useEditorStore();
+  const { assets, live2dParamsByNode } = useEditorStore();
   const [licenseAccepted, setLicenseAccepted] = useState<boolean | null>(null);
   const [licenseBusy, setLicenseBusy] = useState(false);
 
@@ -5834,8 +5815,7 @@ function Live2DProperties({ node }: { node: StageObject }) {
       ...node.components,
       live2d: { type: 'live2d', ...lc, ...patch },
     };
-    api.updateNode(node.id, { components }).catch(() => {});
-    storeUpdateNode(node.id, { components });
+    commitNodePath(node.id, 'components', components);
   };
 
   const paramMap = (lc.paramMap as Live2dParamMap | undefined) ?? {};
@@ -6140,7 +6120,6 @@ export function PropertiesPanel() {
   const {
     nodes,
     selectedNodeId,
-    updateNode: storeUpdateNode,
     assets,
     selectedBehaviorId,
     behaviors,
@@ -6186,7 +6165,10 @@ export function PropertiesPanel() {
     : null;
 
   const { canRecord, recordKeyframe, recordKeyframes } = useTrackClipRecorder();
-  const [name, setName] = useState('');
+  // Bound straight to the node's mesh doc: no draft state, no re-sync effect,
+  // and (unlike the old `useState` + `[node.id]` effect) it tracks renames from
+  // other tabs live instead of going stale until the node is reselected.
+  const nameField = useMeshField<string>(node?.id ?? '', 'name', '');
   const nameInputRef = useRef<HTMLInputElement>(null);
   const focusNameNonce = useEditorStore((s) => s.focusNameNonce);
   const lastFocusNonce = useRef(focusNameNonce);
@@ -6239,7 +6221,6 @@ export function PropertiesPanel() {
 
   useEffect(() => {
     if (!node) return;
-    setName(node.name);
     const t = getTransform(node);
     setTransform(t);
     transformRef.current = t;
@@ -6294,17 +6275,13 @@ export function PropertiesPanel() {
   const idleSpeedDisplay = legacyIdle?.speed ?? idleProp?.speed ?? 1;
   const writeIdle = (idleUrl: string | null, speed: number) => {
     if (!node) return;
-    const animation = idleUrl ? { idleUrl, speed } : undefined;
-    const components = { ...node.components, animation };
-    const prevProps = (node.properties as Record<string, unknown>) ?? {};
-    const prevAnim =
-      (prevProps.animation as Record<string, unknown> | undefined) ?? {};
-    const properties = {
-      ...prevProps,
-      animation: { ...prevAnim, idle: undefined },
-    };
-    api.updateNode(node.id, { components, properties }).catch(() => {});
-    storeUpdateNode(node.id, { components, properties });
+    // Both fields in one op: retiring the legacy `components.animation` slot
+    // and clearing the new `properties.animation.idle` are one edit, so they
+    // must also be one undo step.
+    commitNodePatch(node.id, {
+      components: { animation: idleUrl ? { idleUrl, speed } : undefined },
+      properties: { animation: { idle: undefined } },
+    } as Partial<StageObject>);
   };
 
   // Base animation — the loop live tracking stacks onto (see the stacking
@@ -6328,15 +6305,11 @@ export function PropertiesPanel() {
   const baseSpeedDisplay = baseProp?.speed ?? 1;
   const writeBase = (url: string | null, speed: number) => {
     if (!node) return;
-    const prevProps = (node.properties as Record<string, unknown>) ?? {};
-    const prevAnim =
-      (prevProps.animation as Record<string, unknown> | undefined) ?? {};
-    const properties = {
-      ...prevProps,
-      animation: { ...prevAnim, base: url ? { url, speed } : undefined },
-    };
-    api.updateNode(node.id, { properties }).catch(() => {});
-    storeUpdateNode(node.id, { properties });
+    commitNodePath(
+      node.id,
+      'properties.animation.base',
+      url ? { url, speed } : undefined
+    );
   };
 
   const panelShell = (children: React.ReactNode) => (
@@ -6583,41 +6556,28 @@ export function PropertiesPanel() {
   // At this point node is guaranteed to be non-null (component-only path handled above).
   if (!node) return null;
 
-  const saveName = () => {
-    if (name === node.name) return;
-    storeUpdateNode(node.id, { name });
-    api
-      .updateNode(node.id, { name })
-      .catch(() => storeUpdateNode(node.id, { name: node.name }));
-  };
-
   // Called on blur: applies to Viewport + persists to DB in one shot.
   // Uses the ref (not state) so the value is always current regardless of render timing.
   const saveTransform = () => {
     const t = transformRef.current;
-    const components = {
-      ...node.components,
-      transform: { type: 'transform', ...t },
-    };
-    storeUpdateNode(node.id, { components });
-    api.updateNode(node.id, { components }).catch(() => {});
+    commitNodePath(node.id, 'components.transform', {
+      type: 'transform',
+      ...t,
+    });
   };
 
   const saveLight = (l: LightProps) => {
-    const components = { ...node.components, light: { type: 'light', ...l } };
-    storeUpdateNode(node.id, { components });
-    api.updateNode(node.id, { components }).catch(() => {});
+    commitNodePath(node.id, 'components.light', { type: 'light', ...l });
   };
 
   const saveCamera = (c: CameraProps) => {
     // Merge over the existing camera component so fields not covered by
     // CameraProps (e.g. backgroundImage) survive the write.
-    const components = {
-      ...node.components,
-      camera: { ...(node.components?.camera as object), type: 'camera', ...c },
-    };
-    storeUpdateNode(node.id, { components });
-    api.updateNode(node.id, { components }).catch(() => {});
+    commitNodePath(node.id, 'components.camera', {
+      ...(node.components?.camera as object),
+      type: 'camera',
+      ...c,
+    });
   };
 
   return (
@@ -6654,9 +6614,7 @@ export function PropertiesPanel() {
           ref={nameInputRef}
           className="vs-node-name"
           style={textInput}
-          value={name}
-          onChange={(e) => setName(e.target.value)}
-          onBlur={saveName}
+          {...nameField.bind()}
         />
 
         {/* Kind badge */}
@@ -6694,6 +6652,10 @@ export function PropertiesPanel() {
             };
             transformRef.current = t;
             setTransform(t);
+            // Live feedback while dragging: fan the in-flight value out on the
+            // mesh preview channel so the 3D viewport and every watching tab
+            // track the gesture. Committed on release by saveTransform.
+            previewNodeTransform(node.id, { x: t.x, y: t.y, z: t.z });
             // Suppress any active clip override for this axis so the user sees
             // their typed value land; cleared on the next clip event.
             const path =
@@ -6769,6 +6731,10 @@ export function PropertiesPanel() {
             };
             transformRef.current = t;
             setTransform(t);
+            // Live feedback while dragging: fan the in-flight value out on the
+            // mesh preview channel so the 3D viewport and every watching tab
+            // track the gesture. Committed on release by saveTransform.
+            previewNodeTransform(node.id, { rx: t.rx, ry: t.ry, rz: t.rz });
             const path =
               axis === 0
                 ? 'rotation.x'
@@ -6838,6 +6804,10 @@ export function PropertiesPanel() {
             };
             transformRef.current = t;
             setTransform(t);
+            // Live feedback while dragging: fan the in-flight value out on the
+            // mesh preview channel so the 3D viewport and every watching tab
+            // track the gesture. Committed on release by saveTransform.
+            previewNodeTransform(node.id, { sx: t.sx, sy: t.sy, sz: t.sz });
             const path =
               axis === 0 ? 'scale.x' : axis === 1 ? 'scale.y' : 'scale.z';
             useEditorStore
@@ -6896,6 +6866,10 @@ export function PropertiesPanel() {
             const t = { ...transformRef.current, opacity: next };
             transformRef.current = t;
             setTransform(t);
+            // Live feedback while dragging: fan the in-flight value out on the
+            // mesh preview channel so the 3D viewport and every watching tab
+            // track the gesture. Committed on release by saveTransform.
+            previewNodeTransform(node.id, { opacity: t.opacity });
             useEditorStore
               .getState()
               .suppressOverride('scene_node', node.id, 'opacity');
@@ -7485,14 +7459,12 @@ export function PropertiesPanel() {
                 unknown
               >;
               const bgAssets = assets.filter((a) => a.kind === 'image');
-              const saveBgImage = (url: string | null) => {
-                const components = {
-                  ...node.components,
-                  camera: { ...cam, backgroundImage: url },
-                };
-                api.updateNode(node.id, { components }).catch(() => {});
-                storeUpdateNode(node.id, { components });
-              };
+              const saveBgImage = (url: string | null) =>
+                commitNodePath(
+                  node.id,
+                  'components.camera.backgroundImage',
+                  url
+                );
               return (
                 <div
                   style={{ display: 'flex', flexDirection: 'column', gap: 8 }}
@@ -7610,14 +7582,10 @@ export function PropertiesPanel() {
           (() => {
             const gr =
               (node.components.godray as Record<string, unknown>) ?? {};
-            const saveGr = (patch: Record<string, unknown>) => {
-              const components = {
-                ...node.components,
-                godray: { ...gr, ...patch },
-              };
-              api.updateNode(node.id, { components }).catch(() => {});
-              storeUpdateNode(node.id, { components });
-            };
+            const saveGr = (patch: Record<string, unknown>) =>
+              commitNodePatch(node.id, {
+                components: { godray: patch },
+              } as Partial<StageObject>);
             const defaults: Record<string, number> = {
               scale: 0.3,
               samples: 60,
@@ -7743,14 +7711,11 @@ export function PropertiesPanel() {
                 unknown
               >),
             };
-            const saveBc = (patch: Record<string, unknown>) => {
-              const components = {
-                ...node.components,
-                billboard: { ...bc, ...patch },
-              };
-              api.updateNode(node.id, { components }).catch(() => {});
-              storeUpdateNode(node.id, { components });
-            };
+            const saveBc = (patch: Record<string, unknown>) =>
+              commitNodePath(node.id, 'components.billboard', {
+                ...bc,
+                ...patch,
+              });
             const imageAssets = assets.filter((a) => a.kind === 'image');
             const sel: React.CSSProperties = {
               background: '#2a2a2a',
@@ -7933,15 +7898,16 @@ export function PropertiesPanel() {
             };
             const saveVc = (patch: Record<string, unknown>) => {
               const next = { ...vc, ...patch };
-              const components = { ...node.components, video: next };
               const filePatch =
                 'sourceUrl' in patch
                   ? { filePath: (patch.sourceUrl as string) ?? null }
                   : {};
-              api
-                .updateNode(node.id, { components, ...filePatch })
-                .catch(() => {});
-              storeUpdateNode(node.id, { components, ...filePatch });
+              // One op, so swapping the source stays a single undo step even
+              // though it touches both the component and the node's filePath.
+              commitNodePatch(node.id, {
+                components: { video: next },
+                ...filePatch,
+              } as Partial<StageObject>);
             };
             const videoAssets = assets.filter((a) => a.kind === 'video');
             const sel: React.CSSProperties = {
@@ -8275,15 +8241,16 @@ export function PropertiesPanel() {
             };
             const saveAc = (patch: Record<string, unknown>) => {
               const next = { ...ac, ...patch };
-              const components = { ...node.components, audio: next };
               const filePatch =
                 'sourceUrl' in patch
                   ? { filePath: (patch.sourceUrl as string) ?? null }
                   : {};
-              api
-                .updateNode(node.id, { components, ...filePatch })
-                .catch(() => {});
-              storeUpdateNode(node.id, { components, ...filePatch });
+              // One op, so swapping the source stays a single undo step even
+              // though it touches both the component and the node's filePath.
+              commitNodePatch(node.id, {
+                components: { audio: next },
+                ...filePatch,
+              } as Partial<StageObject>);
             };
             const audioAssets = assets.filter((a) => a.kind === 'audio');
             const sel: React.CSSProperties = {
@@ -8535,12 +8502,10 @@ export function PropertiesPanel() {
               } else if ('billboard' in patch) {
                 merged.facing = patch.billboard ? 'screen' : 'world';
               }
-              const components = {
-                ...node.components,
-                text: { type: 'text', ...merged },
-              };
-              api.updateNode(node.id, { components }).catch(() => {});
-              storeUpdateNode(node.id, { components });
+              commitNodePath(node.id, 'components.text', {
+                type: 'text',
+                ...merged,
+              });
             };
             const sel: React.CSSProperties = {
               background: '#2a2a2a',
@@ -8733,13 +8698,11 @@ export function PropertiesPanel() {
               ...((node.components?.feed ?? {}) as Record<string, unknown>),
             };
             const saveFc = (patch: Record<string, unknown>) => {
-              const merged: Record<string, unknown> = { ...fc, ...patch };
-              const components = {
-                ...node.components,
-                feed: { type: 'feed', ...merged },
-              };
-              api.updateNode(node.id, { components }).catch(() => {});
-              storeUpdateNode(node.id, { components });
+              commitNodePath(node.id, 'components.feed', {
+                type: 'feed',
+                ...fc,
+                ...patch,
+              });
             };
             const row = (label: string, children: React.ReactNode) => (
               <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -8885,14 +8848,11 @@ export function PropertiesPanel() {
               ...PARTICLE_DEFAULTS,
               ...((node.components?.particle ?? {}) as Record<string, unknown>),
             };
-            const savePc = (patch: Record<string, unknown>) => {
-              const components = {
-                ...node.components,
-                particle: { ...pc, ...patch },
-              };
-              api.updateNode(node.id, { components }).catch(() => {});
-              storeUpdateNode(node.id, { components });
-            };
+            const savePc = (patch: Record<string, unknown>) =>
+              commitNodePath(node.id, 'components.particle', {
+                ...pc,
+                ...patch,
+              });
             const imageAssets = assets.filter((a) => a.kind === 'image');
             const sel: React.CSSProperties = {
               background: '#2a2a2a',
@@ -9666,23 +9626,12 @@ export function PropertiesPanel() {
                           v: number,
                           persist: boolean
                         ) => {
-                          const prev = (node.properties?.defaultExpressions ??
-                            {}) as Record<string, number>;
                           // Keep 0 entries (don't delete) so the viewport keeps
                           // driving the expression back to 0 — dropping the key
                           // would leave the last applied weight stuck on the VRM.
-                          const next = { ...prev, [n]: v };
-                          const properties = {
-                            ...node.properties,
-                            defaultExpressions: next,
-                          };
-                          storeUpdateNode(node.id, { properties });
-                          if (persist)
-                            api
-                              .updateNode(node.id, {
-                                properties: { defaultExpressions: next },
-                              })
-                              .catch(() => {});
+                          const path = `properties.defaultExpressions.${n}`;
+                          if (persist) commitNodePath(node.id, path, v);
+                          else previewNodePath(node.id, path, v);
                         };
                         return (
                           <div
@@ -9752,25 +9701,12 @@ export function PropertiesPanel() {
                 min={0}
                 suffix="s"
                 style={{ flex: 1, minWidth: 0 }}
-                onChange={(v) => {
-                  const properties = {
-                    ...node.properties,
-                    blendTransitionTime: v,
-                  };
-                  storeUpdateNode(node.id, { properties });
-                }}
-                onCommit={(v) => {
-                  const properties = {
-                    ...node.properties,
-                    blendTransitionTime: v,
-                  };
-                  storeUpdateNode(node.id, { properties });
-                  api
-                    .updateNode(node.id, {
-                      properties: { blendTransitionTime: v },
-                    })
-                    .catch(() => {});
-                }}
+                onChange={(v) =>
+                  previewNodePath(node.id, 'properties.blendTransitionTime', v)
+                }
+                onCommit={(v) =>
+                  commitNodePath(node.id, 'properties.blendTransitionTime', v)
+                }
               />
             </div>
 
@@ -9805,25 +9741,12 @@ export function PropertiesPanel() {
                 max={60}
                 suffix="s"
                 style={{ flex: 1, minWidth: 0 }}
-                onChange={(v) => {
-                  const properties = {
-                    ...node.properties,
-                    trackingGracePeriod: v,
-                  };
-                  storeUpdateNode(node.id, { properties });
-                }}
-                onCommit={(v) => {
-                  const properties = {
-                    ...node.properties,
-                    trackingGracePeriod: v,
-                  };
-                  storeUpdateNode(node.id, { properties });
-                  api
-                    .updateNode(node.id, {
-                      properties: { trackingGracePeriod: v },
-                    })
-                    .catch(() => {});
-                }}
+                onChange={(v) =>
+                  previewNodePath(node.id, 'properties.trackingGracePeriod', v)
+                }
+                onCommit={(v) =>
+                  commitNodePath(node.id, 'properties.trackingGracePeriod', v)
+                }
               />
             </div>
           </>
@@ -9836,17 +9759,10 @@ export function PropertiesPanel() {
               ...DEFAULT_POSE_DYNAMICS,
               ...node.properties?.poseDynamics,
             };
-            const liveDyn = (next: PoseDynamicsConfig) => {
-              storeUpdateNode(node.id, {
-                properties: { ...node.properties, poseDynamics: next },
-              });
-            };
-            const commitDyn = (next: PoseDynamicsConfig) => {
-              liveDyn(next);
-              api
-                .updateNode(node.id, { properties: { poseDynamics: next } })
-                .catch(() => {});
-            };
+            const liveDyn = (next: PoseDynamicsConfig) =>
+              previewNodePath(node.id, 'properties.poseDynamics', next);
+            const commitDyn = (next: PoseDynamicsConfig) =>
+              commitNodePath(node.id, 'properties.poseDynamics', next);
             const labelStyle = {
               fontSize: 12,
               color: '#888',
@@ -9969,13 +9885,9 @@ export function PropertiesPanel() {
                 const v = next[s];
                 if (v && (v.anim !== 1 || v.track !== 1)) pruned[s] = v;
               }
-              storeUpdateNode(node.id, {
-                properties: { ...node.properties, poseSource: pruned },
-              });
               if (persist)
-                api
-                  .updateNode(node.id, { properties: { poseSource: pruned } })
-                  .catch(() => {});
+                commitNodePath(node.id, 'properties.poseSource', pruned);
+              else previewNodePath(node.id, 'properties.poseSource', pruned);
             };
             const setInf = (
               sec: PoseSection,
@@ -10111,13 +10023,11 @@ export function PropertiesPanel() {
                 type="checkbox"
                 checked={node.properties?.forceTwistBone === true}
                 onChange={(e) => {
-                  const forceTwistBone = e.target.checked;
-                  storeUpdateNode(node.id, {
-                    properties: { ...node.properties, forceTwistBone },
-                  });
-                  api
-                    .updateNode(node.id, { properties: { forceTwistBone } })
-                    .catch(() => {});
+                  commitNodePath(
+                    node.id,
+                    'properties.forceTwistBone',
+                    e.target.checked
+                  );
                 }}
               />
               {t('avatar.twistForce')}
@@ -10139,13 +10049,11 @@ export function PropertiesPanel() {
                   type="checkbox"
                   checked={node.properties?.excludeSleeves === true}
                   onChange={(e) => {
-                    const excludeSleeves = e.target.checked;
-                    storeUpdateNode(node.id, {
-                      properties: { ...node.properties, excludeSleeves },
-                    });
-                    api
-                      .updateNode(node.id, { properties: { excludeSleeves } })
-                      .catch(() => {});
+                    commitNodePath(
+                      node.id,
+                      'properties.excludeSleeves',
+                      e.target.checked
+                    );
                   }}
                 />
                 {t('avatar.twistExcludeSleeves')}
@@ -10220,11 +10128,9 @@ export function PropertiesPanel() {
                 defaultValue={node.filePath ?? ''}
                 key={node.id + ':model'}
                 onBlur={(e) => {
-                  const filePath = e.target.value.trim();
-                  api
-                    .updateNode(node.id, { filePath: filePath || '' })
-                    .catch(() => {});
-                  storeUpdateNode(node.id, { filePath: filePath || null });
+                  // '' (not null) is the cleared value: REST's field-presence
+                  // merge drops a null, so the fallback would never clear it.
+                  commitNodePath(node.id, 'filePath', e.target.value.trim());
                 }}
               />
               {node.filePath && (
@@ -10240,8 +10146,7 @@ export function PropertiesPanel() {
                     flexShrink: 0,
                   }}
                   onClick={() => {
-                    api.updateNode(node.id, { filePath: '' }).catch(() => {});
-                    storeUpdateNode(node.id, { filePath: null });
+                    commitNodePath(node.id, 'filePath', '');
                   }}
                 >
                   ×
@@ -10276,10 +10181,7 @@ export function PropertiesPanel() {
                     }}
                     title={a.name}
                     onClick={() => {
-                      api
-                        .updateNode(node.id, { filePath: a.url })
-                        .catch(() => {});
-                      storeUpdateNode(node.id, { filePath: a.url });
+                      commitNodePath(node.id, 'filePath', a.url);
                     }}
                   >
                     {a.name}

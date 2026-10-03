@@ -80,6 +80,21 @@ describe('Migration runner — expected tables', () => {
     expect(getTables().has('compose_layers')).toBe(true);
   });
 
+  it('orders compose layers by a fractional order_key (migration 037)', () => {
+    const cols = new Set(
+      (
+        getDb().prepare('PRAGMA table_info(compose_layers)').all() as {
+          name: string;
+        }[]
+      ).map((c) => c.name)
+    );
+    expect(cols.has('order_key')).toBe(true);
+    // The integer pair is gone: renumbering every sibling on a drag doesn't
+    // survive concurrent edits, and camera_order was only a tie-break.
+    expect(cols.has('scene_order')).toBe(false);
+    expect(cols.has('camera_order')).toBe(false);
+  });
+
   it('creates the track_clips table', () => {
     expect(getTables().has('track_clips')).toBe(true);
   });
@@ -192,14 +207,14 @@ describe('Migration runner — idempotency', () => {
     expect(countAfter).toBe(countBefore);
   });
 
-  it('all 36 migrations are recorded in _migrations after a full run', () => {
+  it('all 41 migrations are recorded in _migrations after a full run', () => {
     const count = (
       getDb()
         .prepare('SELECT COUNT(*) AS cnt FROM _migrations')
         .all() as { cnt: number }[]
     )[0].cnt;
-    // There are 36 migrations (001 – 036).
-    expect(count).toBe(36);
+    // There are 41 migrations (001 – 041).
+    expect(count).toBe(41);
   });
 
   it('each migration name appears exactly once in _migrations', () => {

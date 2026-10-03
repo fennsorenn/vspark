@@ -150,11 +150,22 @@ participants (`serverId#tab`) go over `BrowserPeerMesh`, servers over
 
 ## Object sharing (`SharingManager`) — transport-agnostic
 
+**Not the same thing as a collab scene, on purpose.** An object share is a
+read-only ephemeral projection: the receiver holds a container node and the
+owner's subtree renders under it, dropped and restocked on (re)subscribe
+(`sync/sharedProjection.ts`). A collab scene is a real, persisted, **co-edited**
+scene in each peer's project, backed by a mutual RUCD grant. Migration 031 drew
+that line and it is still the line — see principle 3 in [mesh.md](mesh.md),
+where the decision not to give collab scenes a container node is recorded.
+
 Protocol rtypes (`SHARE_RTYPES`): `_share_advertise` / `_subscribe` /
-`_unsubscribe` / `_snapshot` / `_update` / `_unshared` / `_stream` / `_override`
-/ `_datachannel`. The owner tracks subscribers, sends the snapshot on subscribe,
-forwards live document updates of shared subtrees, and advertises grants on
-connect/change.
+`_unsubscribe` / `_snapshot` / `_unshared` / `_write` / `_write_nak`, plus
+`_share_stream` on the lossy path. The owner tracks subscribers, sends the
+snapshot on subscribe, and advertises grants on connect/change. `_share_update`
+is gone (the document plane rides the mesh — step D below), and so are
+`_share_override` / `_share_datachannel`: runtime overrides and published data
+fields are mesh collections parented to their target, so an object-share subtree
+grant already routes them.
 
 ## Asset transfer is a symmetric mesh capability — IMPLEMENTED
 

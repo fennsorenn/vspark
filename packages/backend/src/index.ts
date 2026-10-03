@@ -15,8 +15,6 @@ import {
   setTrackingManager,
   setApiControllerManager,
   setWsSync,
-  setTrackClipPlaybackManager,
-  setClipPlaybackForwarder,
 } from './routes/index.js';
 import { initUpdateChecker, getInstallDir } from './routes/update.js';
 import { WSSync } from './ws/index.js';
@@ -29,7 +27,6 @@ import { BlendshapeLimiterManager } from './behaviors/blendshape_limiter/manager
 import { LipsyncManager } from './behaviors/lipsync/manager.js';
 import { TrackingManager } from './behaviors/mediapipe_tracker/manager.js';
 import { ApiControllerManager } from './behaviors/api_controller/manager.js';
-import { TrackClipPlaybackManager } from './track_clips/playback.js';
 import { initPoseBroadcast } from './signal/nodes/pose_broadcast.js';
 import { broadcastBus } from './broadcast/bus.js';
 import { initBlendshapesBroadcast } from './signal/nodes/blendshapes_broadcast.js';
@@ -37,11 +34,9 @@ import {
   initIkBroadcast,
   setIkStreamForwarder,
 } from './signal/nodes/ik_broadcast.js';
-import { initTrackClipTrigger } from './signal/nodes/track_clip_trigger.js';
-import { initStartClip } from './signal/nodes/start_clip.js';
+import { startClipLifecycle } from './track_clips/lifecycle.js';
 import { runtimeOverrideManager } from './runtime_overrides/manager.js';
 import { dataChannelManager } from './data_channels/manager.js';
-import { mediaControlManager } from './media_control/manager.js';
 import { spawnManager } from './spawn/manager.js';
 import { sync } from './sync/index.js';
 import { SYNC_MESSAGE_KIND, type SyncEnvelope } from '@vspark/shared/sync';
@@ -267,48 +262,32 @@ async function start() {
   const apiControllerManager = new ApiControllerManager();
   setApiControllerManager(apiControllerManager);
 
-  const trackClipPlayback = new TrackClipPlaybackManager(wsSync);
-  trackClipPlayback.hydrateAutoplay();
-  setTrackClipPlaybackManager(trackClipPlayback);
-  // Mirror user-initiated clip playback control to collab-scene peers.
-  setClipPlaybackForwarder((clipId, action, t) =>
-    multiplayerManager.relayClipPlayback(
-      clipId,
-      action as Parameters<typeof multiplayerManager.relayClipPlayback>[1],
-      t
-    )
-  );
-  initTrackClipTrigger(trackClipPlayback);
-  initStartClip(trackClipPlayback);
+  // Clip lifecycle. There is no playhead to own: it is derived from the
+  // clip_playback document, so this only starts the autoplay clips and sweeps
+  // for ones that have run past their duration. Collab peers get transport
+  // through the document itself, so nothing relays it by hand any more.
+  startClipLifecycle();
 
   // Runtime override bus — graph-driven, parallel to track-clip overrides.
   // The persist hook is left unset until set_*_param nodes land in Phase 1.5;
   // until then, `persist: true` falls through to a log + no-op.
   // See dev-notes/modules/runtime-overrides.md.
-  runtimeOverrideManager.init(wsSync, null);
-  // Forward overrides on shared scene nodes to subscriber peers.
-  runtimeOverrideManager.setOverrideForwarder((op, payload) =>
-    multiplayerManager.forwardOverride(op, payload)
-  );
+  // Overrides fan out as retained mesh documents — one write reaches local
+  // tabs, collab peers and object-share subscribers, so there is no forwarder
+  // to install and no /ws broadcast to make.
+  runtimeOverrideManager.init(null);
 
   // Data-channel bus — generic graph→frontend publish surface (set_data node →
-  // feed/template compose layer). Sibling of the override bus.
+  // feed/template compose layer). Sibling of the override bus, and like it
+  // needs no wiring: each published field is a retained mesh document, so one
+  // write reaches local tabs, collab peers and object-share subscribers.
   // See dev-notes/modules/data-channels.md.
-  dataChannelManager.init(wsSync);
-  // Forward data channels scoped to a shared node to subscriber peers.
-  dataChannelManager.setDataChannelForwarder((op, payload) =>
-    multiplayerManager.forwardDataChannel(op, payload)
-  );
 
-  // Media-control bus — fire-and-forget play/pause/stop/seek commands for
-  // video/audio entities (media_control node → frontend media registry).
-  // See dev-notes/modules/media.md.
-  mediaControlManager.init(wsSync);
 
   // Spawn manager — ephemeral clip-clone spawning. Subscribes to playback
   // completion events so it can tear down tmp entities on clip end.
   // See dev-notes/modules/spawn.md.
-  spawnManager.init(wsSync, trackClipPlayback);
+  spawnManager.init(wsSync);
 
   // Standalone project graphs — start every persisted-enabled graph on boot.
   // See dev-notes/modules/project-graphs.md.
@@ -345,17 +324,11 @@ async function start() {
     ws.on('close', () => clientMeshRelay.onWsClose(ws));
   });
 
-  // Rebroadcast current state to any newly-connecting client.
+  // Rebroadcast current state to any newly-connecting client. Runtime overrides
+  // and data channels no longer need a line here: they are retained mesh
+  // documents, so a tab's subscription snapshot carries the current values
+  // (mesh/runtime.ts).
   wsSync.onClientConnected((ws) => {
-    trackClipPlayback.sendSnapshotTo((kind, payload) =>
-      wsSync.sendTo(ws, kind, payload)
-    );
-    runtimeOverrideManager.sendSnapshotTo((kind, payload) =>
-      wsSync.sendTo(ws, kind, payload)
-    );
-    dataChannelManager.sendSnapshotTo((kind, payload) =>
-      wsSync.sendTo(ws, kind, payload)
-    );
     // Unified sync layer snapshot (no-op until field/stream resources land).
     sync.sendSnapshotTo((env) =>
       wsSync.sendTo(
@@ -398,58 +371,12 @@ async function start() {
       const msg = payload as ClientHelloMessage;
       if (typeof msg.projectId === 'string')
         obsManager.handleHello(sourceWs, msg.projectId, msg.target ?? '');
-    } else if (kind === 'node_transform_preview') {
-      // Live in-flight transform from a drag/wheel gesture in one client; relay
-      // to every other client without persisting. The eventual mouseup/settle
-      // commits via the REST PUT, which re-broadcasts the canonical state.
-      const p = payload as {
-        nodeId?: string;
-        transform?: Record<string, number>;
-      };
-      if (typeof p.nodeId === 'string' && p.transform) {
-        wsSync.broadcast(
-          'node_transform_preview',
-          { nodeId: p.nodeId, transform: p.transform },
-          sourceWs
-        );
-        // Forward to share subscribers so dragging a shared object is smooth on
-        // the receiver (the committed PUT already forwards via sync.document).
-        multiplayerManager.forwardStream('node_transform_preview', p.nodeId, {
-          nodeId: p.nodeId,
-          transform: p.transform,
-        });
-      }
-    } else if (kind === 'shared_node_transform') {
-      // Clip-driven transform of a *shared* object: forward to subscribers only,
-      // never broadcast locally — the owner's own co-editor tabs evaluate the
-      // same clip themselves, so a local relay would be redundant and could fight
-      // their local override. Reuses the `node_transform_preview` stream kind so
-      // the receiver applies it via the existing smoother.
-      const p = payload as {
-        nodeId?: string;
-        transform?: Record<string, number>;
-      };
-      if (typeof p.nodeId === 'string' && p.transform)
-        // Root-resolving forward: a clip may animate a child *inside* the shared
-        // subtree, not only the object root.
-        multiplayerManager.forwardNodeTransform(p.nodeId, p.transform);
     } else if (kind === 'mp_share_write') {
       // Phase 6 relay: a browser client with no direct edge asks us to forward a
       // write to the owning peer over the mesh. The owner authorizes + persists.
       const p = payload as { owner?: string; env?: SyncEnvelope };
       if (typeof p.owner === 'string' && p.env)
         multiplayerManager.relayWrite(p.owner, p.env);
-    } else if (kind === 'compose_layer_preview') {
-      // Same idea for compose layer drag/resize/rotate: relay the patch without
-      // touching the DB; the final REST PUT will write+broadcast the canonical row.
-      const p = payload as { id?: string; patch?: Record<string, unknown> };
-      if (typeof p.id === 'string' && p.patch) {
-        wsSync.broadcast(
-          'compose_layer_preview',
-          { id: p.id, patch: p.patch },
-          sourceWs
-        );
-      }
     } else if (kind === 'mesh_hello') {
       // A browser client registers its participant id for the client mesh.
       const p = payload as { participantId?: string };

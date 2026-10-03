@@ -1,4 +1,4 @@
-import { type CSSProperties } from 'react';
+import { useEffect, useState, type CSSProperties } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   useEditorStore,
@@ -13,6 +13,8 @@ import { NumInput, VecInput, SliderInput } from './numericInputs';
 import { CSS_BLEND_MODES, readChroma } from './videoFx';
 import { HelpButton } from '../../help/HelpButton';
 import { obsOutputWindowTitle } from '@vspark/shared';
+import { keyBetween } from '@vspark/shared/fracIndex';
+import { commitLayerPatch, commitLayerPath } from '../../mesh/layerWrites';
 import {
   DEFAULT_COMPOSE_WIDTH,
   DEFAULT_COMPOSE_HEIGHT,
@@ -74,6 +76,41 @@ const select: CSSProperties = {
   boxSizing: 'border-box',
 };
 
+/** One stack-order step. Reordering is primarily drag-and-drop in the compose
+ *  tree; these give a precise nudge without dragging. */
+function OrderButton({
+  className,
+  label,
+  disabled,
+  onClick,
+}: {
+  className: string;
+  label: string;
+  disabled: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      className={className}
+      onClick={onClick}
+      disabled={disabled}
+      title={label}
+      style={{
+        flex: 1,
+        background: '#1c1c1c',
+        border: '1px solid #2a2a2a',
+        borderRadius: 4,
+        color: disabled ? '#444' : '#bbb',
+        cursor: disabled ? 'default' : 'pointer',
+        fontSize: 11,
+        padding: '3px 0',
+      }}
+    >
+      {label}
+    </button>
+  );
+}
+
 export function ComposeLayerProperties({
   layer,
 }: {
@@ -81,6 +118,7 @@ export function ComposeLayerProperties({
 }) {
   const { t } = useTranslation('compose');
   const assets = useEditorStore((s) => s.assets);
+  const composeLayers = useEditorStore((s) => s.composeLayers);
   const updateLayerLocal = useEditorStore((s) => s.updateComposeLayerLocal);
   const flashBottomTab = useEditorStore((s) => s.flashBottomTab);
   const nodes = useEditorStore((s) => s.nodes);
@@ -95,9 +133,45 @@ export function ComposeLayerProperties({
       })
     : t('properties.scopeAllCameras');
 
-  const commit = (patch: Partial<ComposeLayerRecord>) => {
-    updateLayerLocal(layer.id, patch);
-    api.updateComposeLayer(layer.id, patch).catch(() => {});
+  const commit = (patch: Partial<ComposeLayerRecord>) =>
+    commitLayerPatch(layer.id, patch);
+
+  // The name is typed into a local draft and committed on blur. Mirroring each
+  // keystroke into the store (the old path) let any replica echo for this layer
+  // — e.g. a just-committed visibility toggle — overwrite the unsaved text
+  // before blur read it back.
+  const [nameDraft, setNameDraft] = useState<string | null>(null);
+  useEffect(() => setNameDraft(null), [layer.id]);
+  const commitName = () => {
+    if (nameDraft !== null && nameDraft !== layer.name)
+      commitLayerPath(layer.id, 'name', nameDraft);
+    setNameDraft(null);
+  };
+
+  // Stack order. Drag-and-drop in the compose tree is the primary way to
+  // reorder; these buttons are the precision path. Paint order is ascending
+  // orderKey, so index 0 is the BACK and the last index is the front.
+  const siblings = composeLayers
+    .filter(
+      (l) =>
+        l.rootComposeSceneId === layer.rootComposeSceneId &&
+        (l.parentId ?? null) === (layer.parentId ?? null)
+    )
+    .sort(
+      (a, b) => a.orderKey.localeCompare(b.orderKey) || a.id.localeCompare(b.id)
+    );
+  const orderIdx = siblings.findIndex((l) => l.id === layer.id);
+
+  /** Re-key this layer so it sits at `target` in the back→front sequence. */
+  const moveTo = (target: number) => {
+    const rest = siblings.filter((l) => l.id !== layer.id);
+    const clamped = Math.max(0, Math.min(target, rest.length));
+    commit({
+      orderKey: keyBetween(
+        rest[clamped - 1]?.orderKey ?? null,
+        rest[clamped]?.orderKey ?? null
+      ),
+    });
   };
 
   // Mirror the 3D media nodes' "Pick…" affordance: jump to + flash the matching
@@ -317,13 +391,9 @@ export function ComposeLayerProperties({
       <input
         type="text"
         className="vs-layer-name"
-        value={layer.name}
-        onChange={(e) => updateLayerLocal(layer.id, { name: e.target.value })}
-        onBlur={(e) =>
-          api
-            .updateComposeLayer(layer.id, { name: e.target.value })
-            .catch(() => {})
-        }
+        value={nameDraft ?? layer.name}
+        onChange={(e) => setNameDraft(e.target.value)}
+        onBlur={commitName}
         style={textInput}
       />
 
@@ -1106,23 +1176,29 @@ export function ComposeLayerProperties({
 
       <div style={sectionHeader}>{t('properties.sectionStackOrder')}</div>
       <div style={row}>
-        <NumInput
-          className="vs-layer-scene-order"
-          value={layer.sceneOrder}
-          prefix={t('properties.prefixScene')}
-          step={1}
-          precision={0}
-          onCommit={(v) => commit({ sceneOrder: Math.round(v) })}
-          style={{ flex: 1 }}
+        <OrderButton
+          className="vs-layer-order-back"
+          label={t('properties.orderBack')}
+          disabled={orderIdx <= 0}
+          onClick={() => moveTo(0)}
         />
-        <NumInput
-          className="vs-layer-camera-order"
-          value={layer.cameraOrder}
-          prefix={t('properties.prefixCam')}
-          step={1}
-          precision={0}
-          onCommit={(v) => commit({ cameraOrder: Math.round(v) })}
-          style={{ flex: 1 }}
+        <OrderButton
+          className="vs-layer-order-backward"
+          label={t('properties.orderBackward')}
+          disabled={orderIdx <= 0}
+          onClick={() => moveTo(orderIdx - 1)}
+        />
+        <OrderButton
+          className="vs-layer-order-forward"
+          label={t('properties.orderForward')}
+          disabled={orderIdx < 0 || orderIdx >= siblings.length - 1}
+          onClick={() => moveTo(orderIdx + 1)}
+        />
+        <OrderButton
+          className="vs-layer-order-front"
+          label={t('properties.orderFront')}
+          disabled={orderIdx < 0 || orderIdx >= siblings.length - 1}
+          onClick={() => moveTo(siblings.length - 1)}
         />
       </div>
       <div
@@ -1157,19 +1233,19 @@ export function ComposeSceneProperties({
     const nw = Math.max(16, Math.round(values[0]));
     const nh = Math.max(16, Math.round(values[1]));
     updateSceneLocal({ ...scene, width: nw, height: nh });
-    api.updateComposeLayer(scene.id, { width: nw, height: nh }).catch(() => {});
+    commitLayerPatch(scene.id, { width: nw, height: nh });
   };
   const setPb = (patch: Partial<PreviewBg>) => {
     const config = { ...scene.config, previewBg: { ...pb, ...patch } };
     updateSceneLocal({ ...scene, config });
-    api.updateComposeLayer(scene.id, { config }).catch(() => {});
+    commitLayerPath(scene.id, 'config', config);
   };
   const obsWindow = scene.config?.obsWindowCapture === true;
   const runtime = useEditorStore((s) => s.outputWindowStatus);
   const setObsWindow = (on: boolean) => {
     const config = { ...scene.config, obsWindowCapture: on };
     updateSceneLocal({ ...scene, config });
-    api.updateComposeLayer(scene.id, { config }).catch(() => {});
+    commitLayerPath(scene.id, 'config', config);
   };
 
   return (

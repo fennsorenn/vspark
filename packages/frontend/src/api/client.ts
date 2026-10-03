@@ -1,3 +1,6 @@
+import { itemsOf, type IdMap } from '@vspark/shared/idMap';
+import { toGraphDescriptor } from '@vspark/shared/signal';
+
 const BASE = '/api';
 
 /** Thrown by `request()` on a non-ok response. `status` is the HTTP status so
@@ -298,8 +301,9 @@ export interface ComposeLayerRecord {
   rotation: number;
   anchorH: ComposeAnchorH;
   anchorV: ComposeAnchorV;
-  sceneOrder: number;
-  cameraOrder: number;
+  /** Sibling order: string fractional key, ascending = back→front, tie-broken
+   *  by id. Scoped to (rootComposeSceneId, parentId). */
+  orderKey: string;
   visible: boolean;
 }
 
@@ -351,7 +355,6 @@ export interface TrackClipRecord {
   loop: boolean;
   mode: TrackClipMode;
   autoplay: boolean;
-  startedAt: number | null;
   lanes: TrackClipLaneRecord[];
   events: TrackClipEventRecord[];
 }
@@ -443,7 +446,9 @@ export function mapTrackClipKeyframe(
 export function mapTrackClipLane(
   r: Record<string, unknown>
 ): TrackClipLaneRecord {
-  const rawKfs = (r.keyframes as Record<string, unknown>[] | undefined) ?? [];
+  const rawKfs = itemsOf(
+    r.keyframes as IdMap<Record<string, unknown>> | undefined
+  ).sort((a, b) => Number(a.t ?? 0) - Number(b.t ?? 0));
   return {
     id: r.id as string,
     clipId: (r.clip_id ?? r.clipId ?? '') as string,
@@ -471,8 +476,20 @@ export function mapTrackClipEvent(
 }
 
 export function mapTrackClip(r: Record<string, unknown>): TrackClipRecord {
-  const rawLanes = (r.lanes as Record<string, unknown>[] | undefined) ?? [];
-  const rawEvents = (r.events as Record<string, unknown>[] | undefined) ?? [];
+  // The document keys its children by id so each is its own mesh path; the UI
+  // wants them ordered — keyframes and events by `t`, lanes by target so a
+  // node's x/y/z stay adjacent. This mapper IS that boundary: everything above
+  // it works with the keyed document, everything below with ordered lists.
+  const laneKey = (l: Record<string, unknown>) =>
+    `${l.target_kind ?? l.targetKind}\u0000${l.target_id ?? l.targetId}\u0000${
+      l.param_path ?? l.paramPath
+    }`;
+  const rawLanes = itemsOf(
+    r.lanes as IdMap<Record<string, unknown>> | undefined
+  ).sort((a, b) => laneKey(a).localeCompare(laneKey(b)));
+  const rawEvents = itemsOf(
+    r.events as IdMap<Record<string, unknown>> | undefined
+  ).sort((a, b) => Number(a.t ?? 0) - Number(b.t ?? 0));
   return {
     id: r.id as string,
     ownerNodeId: (r.owner_node_id ?? r.ownerNodeId ?? null) as string | null,
@@ -482,12 +499,6 @@ export function mapTrackClip(r: Record<string, unknown>): TrackClipRecord {
     loop: r.loop === undefined ? false : Boolean(r.loop),
     mode: (r.mode ?? 'override') as TrackClipMode,
     autoplay: r.autoplay === undefined ? false : Boolean(r.autoplay),
-    startedAt:
-      r.started_at != null
-        ? Number(r.started_at)
-        : r.startedAt != null
-          ? Number(r.startedAt)
-          : null,
     lanes: rawLanes.map(mapTrackClipLane),
     events: rawEvents.map(mapTrackClipEvent),
   };
@@ -518,8 +529,7 @@ export function mapComposeLayer(
     rotation: Number(r.rotation ?? 0),
     anchorH: (r.anchor_h ?? r.anchorH ?? 'left') as ComposeAnchorH,
     anchorV: (r.anchor_v ?? r.anchorV ?? 'top') as ComposeAnchorV,
-    sceneOrder: Number(r.scene_order ?? r.sceneOrder ?? 0),
-    cameraOrder: Number(r.camera_order ?? r.cameraOrder ?? 0),
+    orderKey: String(r.order_key ?? r.orderKey ?? ''),
     visible: r.visible === undefined ? true : Boolean(r.visible),
   };
 }
@@ -783,18 +793,8 @@ export const updateComposeLayer = (
   }).then(mapComposeLayer);
 
 export const deleteComposeLayer = (id: string) =>
-  request<{
-    id: string;
-    reanchored?: { id: string; sceneOrder: number; cameraOrder: number }[];
-  }>(`/compose-layers/${id}`, { method: 'DELETE' });
+  request<{ id: string }>(`/compose-layers/${id}`, { method: 'DELETE' });
 
-export const reorderComposeLayers = (
-  updates: { id: string; sceneOrder: number; cameraOrder: number }[]
-) =>
-  request<void>('/compose-layers/reorder', {
-    method: 'POST',
-    body: JSON.stringify({ updates }),
-  });
 
 // Compose Scenes
 export const getComposeScenes = (projectId: string) =>
@@ -1044,13 +1044,15 @@ export const fireSignalEvent = (
 // ─── Project graphs ──────────────────────────────────────────────────────────
 
 export const getProjectLogic = (projectId: string) =>
-  request<LogicRecord[]>(`/projects/${projectId}/logic`);
+  request<RawLogic[]>(`/projects/${projectId}/logic`).then((rs) =>
+    rs.map(mapLogic)
+  );
 
 export const createProjectLogic = (projectId: string, name: string) =>
-  request<LogicRecord>(`/projects/${projectId}/logic`, {
+  request<RawLogic>(`/projects/${projectId}/logic`, {
     method: 'POST',
     body: JSON.stringify({ name }),
-  });
+  }).then(mapLogic);
 
 /** A scene-node- or compose-layer-scoped graph, tagged with its owner's
  *  display name for listing in the Graphs panel's Scoped section. */
@@ -1060,7 +1062,15 @@ export interface ScopedLogicRecord extends LogicRecord {
 }
 
 export const getProjectScopedLogic = (projectId: string) =>
-  request<ScopedLogicRecord[]>(`/projects/${projectId}/scoped-logic`);
+  request<(RawLogic & { ownerName: string; ownerNodeKind?: string })[]>(
+    `/projects/${projectId}/scoped-logic`
+  ).then((rs) =>
+    rs.map((r) => ({
+      ...mapLogic(r),
+      ownerName: r.ownerName,
+      ownerNodeKind: r.ownerNodeKind,
+    }))
+  );
 
 // ─── Overlive: app credentials ───────────────────────────────────────────────
 
@@ -1326,9 +1336,23 @@ export interface LogicRecord {
   ownerId: string;
   name: string;
   enabled: boolean;
+  /** The RUNTIME shape (nodes/edges as lists) — what the canvas renders and the
+   *  engine instantiates. The document keys them by id so each element is its
+   *  own mesh path; `mapLogic` is the boundary. */
   descriptor: import('@vspark/shared/signal').GraphDescriptor;
   createdAt?: string;
   updatedAt?: string;
+}
+
+/** A graph as it arrives: the document form, children keyed by id. */
+export type RawLogic = Omit<LogicRecord, 'descriptor'> & {
+  descriptor: import('@vspark/shared/signal').GraphDescriptorDoc;
+};
+
+/** Document → record. The only place the two descriptor shapes meet on the
+ *  frontend; everything above it works in lists. */
+export function mapLogic(r: RawLogic): LogicRecord {
+  return { ...r, descriptor: toGraphDescriptor(r.descriptor) };
 }
 
 export const getPresets = (projectId: string) =>
@@ -1412,25 +1436,30 @@ export const instantiatePreset = (
 
 /** Generic graph fetch by id — works for any owner kind. Used by the canvas
  *  so it can open a graph without first knowing its scope. */
-export const getLogic = (id: string) => request<LogicRecord>(`/logic/${id}`);
+export const getLogic = (id: string) =>
+  request<RawLogic>(`/logic/${id}`).then(mapLogic);
 
 export const getNodeLogic = (nodeId: string) =>
-  request<LogicRecord[]>(`/scene-nodes/${nodeId}/logic`);
+  request<RawLogic[]>(`/scene-nodes/${nodeId}/logic`).then((rs) =>
+    rs.map(mapLogic)
+  );
 
 export const createNodeLogic = (nodeId: string, name: string) =>
-  request<LogicRecord>(`/scene-nodes/${nodeId}/logic`, {
+  request<RawLogic>(`/scene-nodes/${nodeId}/logic`, {
     method: 'POST',
     body: JSON.stringify({ name }),
-  });
+  }).then(mapLogic);
 
 export const getLayerLogic = (layerId: string) =>
-  request<LogicRecord[]>(`/compose-layers/${layerId}/logic`);
+  request<RawLogic[]>(`/compose-layers/${layerId}/logic`).then((rs) =>
+    rs.map(mapLogic)
+  );
 
 export const createLayerLogic = (layerId: string, name: string) =>
-  request<LogicRecord>(`/compose-layers/${layerId}/logic`, {
+  request<RawLogic>(`/compose-layers/${layerId}/logic`, {
     method: 'POST',
     body: JSON.stringify({ name }),
-  });
+  }).then(mapLogic);
 
 export const updateLogic = (
   id: string,
@@ -1440,10 +1469,12 @@ export const updateLogic = (
     descriptor: import('@vspark/shared/signal').GraphDescriptor;
   }>
 ) =>
-  request<LogicRecord>(`/logic/${id}`, {
+  request<RawLogic>(`/logic/${id}`, {
     method: 'PUT',
+    // The route accepts either shape; sending the runtime one keeps the
+    // conversion in one place (mapLogic on the way back).
     body: JSON.stringify(patch),
-  });
+  }).then(mapLogic);
 
 export const deleteLogic = (id: string) =>
   request<Record<string, never>>(`/logic/${id}`, { method: 'DELETE' });
@@ -1478,7 +1509,6 @@ export const api = {
   deleteCameraEffect,
   updateComposeLayer,
   deleteComposeLayer,
-  reorderComposeLayers,
   getComposeScenes,
   createComposeScene,
   getComposeSceneLayers,

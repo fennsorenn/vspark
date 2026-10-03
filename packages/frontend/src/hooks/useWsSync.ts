@@ -4,12 +4,8 @@ import { useAssistantStore } from '../store/assistantStore';
 import type { StageObject } from '../store/editorStore';
 import type { CameraEffectRecord } from '../api/client';
 import {
-  mapBehavior,
   mapComposeLayer,
   mapTrackClip,
-  mapTrackClipLane,
-  mapTrackClipKeyframe,
-  mapTrackClipEvent,
   getScenes,
   getCollabScenes,
 } from '../api/client';
@@ -26,17 +22,12 @@ if (import.meta.env.DEV) {
   g.__captureFeed = captureFeedImage;
   g.__captureViewport = captureViewport;
 }
-import { smoothNodeTransform, smoothComposeLayer } from '../previewSmoother';
 import { setIkTargets } from '../ikTargetStore';
-import type {
-  IkTargetFrame,
-  AnimationBlendMode,
-  MediaCommand,
-} from '@vspark/shared/types';
-import { dispatchMediaCommand } from '../components/editor/mediaRegistry';
+import type { IkTargetFrame, AnimationBlendMode } from '@vspark/shared/types';
 import { SYNC_MESSAGE_KIND, type SyncEnvelope } from '@vspark/shared/sync';
-// Legacy 'sync'-envelope bindings are fully retired (§11): all five document
-// rtypes feed the store from the tab's mesh replica (sync/meshStoreFeeder.ts).
+// Legacy 'sync'-envelope bindings are fully retired (§11): every document
+// rtype the tab subscribes to (RTYPES in mesh/peer.ts) feeds the store from
+// the tab's mesh replica (sync/meshStoreFeeder.ts).
 // The envelope handler below stays as a harmless no-op dispatcher in case a
 // binding ever returns; the server still emits envelopes for other consumers.
 import { applyRemote } from '../sync/registry';
@@ -66,42 +57,6 @@ setShareWriteRelay((owner, env) => {
       JSON.stringify({ kind: 'mp_share_write', payload: { owner, env } })
     );
 });
-
-/** Send a live in-flight transform update so other connected editors can preview
- *  the motion without waiting for the final PUT. Silently no-ops if the WS isn't open. */
-export function sendNodeTransformPreview(
-  nodeId: string,
-  transform: Record<string, number>
-) {
-  const ws = editorWsRef.current;
-  if (!ws || ws.readyState !== WebSocket.OPEN) return;
-  ws.send(
-    JSON.stringify({ kind: 'node_transform_preview', nodeId, transform })
-  );
-}
-
-/** Forward a clip-driven transform of a *shared* object to subscribers only (no
- *  local co-editor broadcast — they evaluate the same clip themselves). The
- *  backend reuses the `node_transform_preview` stream kind toward subscribers. */
-export function sendSharedNodeTransform(
-  nodeId: string,
-  transform: Record<string, number>
-) {
-  const ws = editorWsRef.current;
-  if (!ws || ws.readyState !== WebSocket.OPEN) return;
-  ws.send(JSON.stringify({ kind: 'shared_node_transform', nodeId, transform }));
-}
-
-/** Send a live in-flight compose-layer patch (position/size/rotation) so other
- *  editors see the change before the user releases the mouse. */
-export function sendComposeLayerPreview(
-  id: string,
-  patch: Record<string, unknown>
-) {
-  const ws = editorWsRef.current;
-  if (!ws || ws.readyState !== WebSocket.OPEN) return;
-  ws.send(JSON.stringify({ kind: 'compose_layer_preview', id, patch }));
-}
 
 /** Send a user turn (with any attached editor elements) to the backend agent. */
 export function sendAssistantMessage(
@@ -198,34 +153,12 @@ export function useWsSync() {
               msg.payload.nodeId as string,
               msg.payload as unknown as IkTargetFrame
             );
-          } else if (msg.kind === 'node_updated') {
-            const { id, ...updates } = msg.payload as { id: string } & Record<
-              string,
-              unknown
-            >;
-            useEditorStore.getState().updateNode(id, updates);
-          } else if (msg.kind === 'node_transform_preview') {
-            // In-flight transform from another client's drag/wheel; tween the
-            // displayed value towards it instead of snapping. The originating
-            // client follows up with a node_updated when the gesture settles.
-            const p = msg.payload as {
-              nodeId: string;
-              transform: Record<string, number>;
-            };
-            smoothNodeTransform(p.nodeId, p.transform);
           } else if (msg.kind === 'node_added') {
             const store = useEditorStore.getState();
             const node = msg.payload as unknown as StageObject;
             // Only add if we have this scene loaded; avoid duplicates
             if (store.nodes.every((n) => n.id !== node.id)) {
               store.addNode(node);
-            }
-          } else if (msg.kind === 'behavior_added') {
-            const behavior = mapBehavior(msg.payload);
-            const store = useEditorStore.getState();
-            // Dedupe: the originating client may have refetched already.
-            if (store.behaviors.every((b) => b.id !== behavior.id)) {
-              store.addBehavior(behavior);
             }
           } else if (msg.kind === 'node_removed') {
             useEditorStore.getState().deleteNode(msg.payload.id as string);
@@ -257,16 +190,6 @@ export function useWsSync() {
             const store = useEditorStore.getState();
             if (store.cameraEffects.every((e) => e.id !== effect.id))
               store.addCameraEffect(effect);
-          } else if (msg.kind === 'camera_effect_updated') {
-            const p = msg.payload as {
-              id: string;
-              enabled?: boolean;
-              config?: Record<string, unknown>;
-            };
-            useEditorStore.getState().updateCameraEffect(p.id, {
-              ...(p.enabled != null ? { enabled: p.enabled } : {}),
-              ...(p.config != null ? { config: p.config } : {}),
-            });
           } else if (msg.kind === 'camera_effect_removed') {
             useEditorStore
               .getState()
@@ -278,15 +201,6 @@ export function useWsSync() {
             } else {
               useEditorStore.getState().addComposeLayer(added);
             }
-          } else if (msg.kind === 'compose_layer_updated') {
-            // Final committed state from a PUT. Route through the smoother so
-            // numeric fields (x/y/w/h/rotation) tween from the last preview
-            // into the canonical value instead of snapping.
-            const layer = mapComposeLayer(msg.payload);
-            smoothComposeLayer(
-              layer.id,
-              layer as unknown as Record<string, unknown>
-            );
           } else if (msg.kind === 'compose_layer_removed') {
             const removedId = msg.payload.id as string;
             const st = useEditorStore.getState();
@@ -295,180 +209,10 @@ export function useWsSync() {
             } else {
               st.removeComposeLayer(removedId);
             }
-          } else if (msg.kind === 'compose_layer_preview') {
-            const p = msg.payload as {
-              id: string;
-              patch: Record<string, unknown>;
-            };
-            // Tween numeric fields (x/y/width/height/rotation); apply other
-            // fields immediately. Mirrors the smoothing applied to 3D node previews.
-            smoothComposeLayer(p.id, p.patch);
-          } else if (msg.kind === 'compose_layer_reordered') {
-            const updates = (msg.payload.updates ?? []) as {
-              id: string;
-              sceneOrder: number;
-              cameraOrder: number;
-            }[];
-            const store = useEditorStore.getState();
-            for (const u of updates) {
-              store.updateComposeLayerLocal(u.id, {
-                sceneOrder: u.sceneOrder,
-                cameraOrder: u.cameraOrder,
-              });
-            }
           } else if (msg.kind === 'track_clip_added') {
             useEditorStore.getState().addTrackClip(mapTrackClip(msg.payload));
-          } else if (msg.kind === 'track_clip_updated') {
-            useEditorStore
-              .getState()
-              .updateTrackClipLocal(mapTrackClip(msg.payload));
           } else if (msg.kind === 'track_clip_removed') {
             useEditorStore.getState().removeTrackClip(msg.payload.id as string);
-          } else if (msg.kind === 'track_clip_lane_added') {
-            const lane = mapTrackClipLane(msg.payload);
-            useEditorStore.getState().addTrackClipLane(lane.clipId, lane);
-          } else if (msg.kind === 'track_clip_lane_updated') {
-            useEditorStore
-              .getState()
-              .updateTrackClipLaneLocal(mapTrackClipLane(msg.payload));
-          } else if (msg.kind === 'track_clip_lane_removed') {
-            useEditorStore
-              .getState()
-              .removeTrackClipLane(
-                msg.payload.id as string,
-                (msg.payload.clipId ?? null) as string | null
-              );
-          } else if (msg.kind === 'track_clip_keyframes_replaced') {
-            const laneId = msg.payload.laneId as string;
-            const rows =
-              (msg.payload.keyframes as Record<string, unknown>[]) ?? [];
-            useEditorStore
-              .getState()
-              .replaceTrackClipLaneKeyframes(
-                laneId,
-                rows.map(mapTrackClipKeyframe)
-              );
-          } else if (msg.kind === 'track_clip_events_replaced') {
-            const clipId = msg.payload.clipId as string;
-            const rows =
-              (msg.payload.events as Record<string, unknown>[]) ?? [];
-            useEditorStore
-              .getState()
-              .replaceTrackClipEvents(clipId, rows.map(mapTrackClipEvent));
-          } else if (msg.kind === 'track_clip_started') {
-            const p = msg.payload as {
-              clipId: string;
-              startedAt: number;
-              loop: boolean;
-              serverNow: number;
-            };
-            const clockOffsetMs = p.serverNow - Date.now();
-            // Any pending user-override suppressions are dropped: triggering /
-            // resuming / seeking re-asserts the clip as the source of truth.
-            useEditorStore.getState().clearOverrideSuppressions();
-            useEditorStore.getState().setTrackClipPlayback(p.clipId, {
-              kind: 'playing',
-              startedAt: p.startedAt,
-              loop: p.loop,
-              clockOffsetMs,
-            });
-          } else if (msg.kind === 'track_clip_paused') {
-            const p = msg.payload as {
-              clipId: string;
-              pausedAtT: number;
-              serverNow: number;
-            };
-            const clockOffsetMs = p.serverNow - Date.now();
-            const prev = useEditorStore.getState().trackClipPlayback[p.clipId];
-            const loop = prev?.loop ?? false;
-            // Pausing here is reached via the Pause button OR a Seek operation;
-            // either way we want the clip's value back in the inputs.
-            useEditorStore.getState().clearOverrideSuppressions();
-            useEditorStore.getState().setTrackClipPlayback(p.clipId, {
-              kind: 'paused',
-              pausedAtT: p.pausedAtT,
-              loop,
-              clockOffsetMs,
-            });
-          } else if (msg.kind === 'track_clip_stopped') {
-            useEditorStore
-              .getState()
-              .setTrackClipPlayback(msg.payload.clipId as string, null);
-            useEditorStore.getState().clearOverrideSuppressions();
-          } else if (msg.kind === 'track_clip_playback_snapshot') {
-            const p = msg.payload as {
-              entries: {
-                clipId: string;
-                loop: boolean;
-                startedAt?: number;
-                pausedAtT?: number;
-              }[];
-              serverNow: number;
-            };
-            const clockOffsetMs = p.serverNow - Date.now();
-            const next: Record<
-              string,
-              import('../store/editorStore').TrackClipPlayback
-            > = {};
-            for (const e of p.entries ?? []) {
-              if (e.startedAt != null) {
-                next[e.clipId] = {
-                  kind: 'playing',
-                  startedAt: e.startedAt,
-                  loop: e.loop,
-                  clockOffsetMs,
-                };
-              } else if (e.pausedAtT != null) {
-                next[e.clipId] = {
-                  kind: 'paused',
-                  pausedAtT: e.pausedAtT,
-                  loop: e.loop,
-                  clockOffsetMs,
-                };
-              }
-            }
-            useEditorStore.getState().clearOverrideSuppressions();
-            useEditorStore.getState().replaceTrackClipPlayback(next);
-          } else if (msg.kind === 'runtime_override_set') {
-            const p = msg.payload as {
-              targetKind: 'scene_node' | 'compose_layer';
-              targetId: string;
-              paramPath: string;
-              value: number | string | boolean;
-            };
-            useEditorStore
-              .getState()
-              .setRuntimeOverride(
-                p.targetKind,
-                p.targetId,
-                p.paramPath,
-                p.value
-              );
-          } else if (msg.kind === 'runtime_override_clear') {
-            const p = msg.payload as {
-              targetKind: 'scene_node' | 'compose_layer';
-              targetId: string;
-              paramPath?: string;
-            };
-            useEditorStore
-              .getState()
-              .clearRuntimeOverride(p.targetKind, p.targetId, p.paramPath);
-          } else if (msg.kind === 'runtime_override_snapshot') {
-            const p = msg.payload as {
-              entries: Array<{
-                targetKind: 'scene_node' | 'compose_layer';
-                targetId: string;
-                paramPath: string;
-                value: number | string | boolean;
-              }>;
-            };
-            useEditorStore.getState().replaceRuntimeOverrides(p.entries ?? []);
-          } else if (msg.kind === 'media_control') {
-            const p = msg.payload as {
-              targetId: string;
-              command: MediaCommand;
-            };
-            dispatchMediaCommand(p.targetId, p.command);
           } else if (msg.kind === 'obs_connection_status') {
             const p = msg.payload as {
               connectionId: string;
@@ -483,25 +227,6 @@ export function useWsSync() {
               .setOutputWindowStatus(
                 msg.payload as import('../store/editorStore').OutputWindowStatus
               );
-          } else if (msg.kind === 'data_channel_set') {
-            const p = msg.payload as {
-              scope: string;
-              fields: Record<string, unknown>;
-            };
-            useEditorStore
-              .getState()
-              .mergeDataChannels(p.scope ?? '', p.fields ?? {});
-          } else if (msg.kind === 'data_channel_clear') {
-            const p = msg.payload as { scope: string; field?: string };
-            useEditorStore.getState().clearDataChannels(p.scope ?? '', p.field);
-          } else if (msg.kind === 'data_channel_snapshot') {
-            const p = msg.payload as {
-              entries: Array<{
-                scope: string;
-                fields: Record<string, unknown>;
-              }>;
-            };
-            useEditorStore.getState().replaceDataChannels(p.entries ?? []);
           } else if (msg.kind === 'mp_status') {
             useConnectionsStore
               .getState()
@@ -633,54 +358,6 @@ export function useWsSync() {
               );
             } else if (p.kind === 'pose_ik_targets') {
               setIkTargets(f.nodeId as string, f as unknown as IkTargetFrame);
-            } else if (p.kind === 'node_transform_preview') {
-              // Smooth in-flight drag of a shared object on the receiver.
-              smoothNodeTransform(
-                f.nodeId as string,
-                f.transform as Record<string, number>
-              );
-            }
-          } else if (msg.kind === 'mp_shared_override') {
-            // Graph-driven runtime override on a shared node (owner ids are
-            // preserved by the projection, so it applies to the projected node).
-            const p = msg.payload as {
-              op: 'set' | 'clear';
-              targetKind: 'scene_node' | 'compose_layer';
-              targetId: string;
-              paramPath?: string;
-              value?: number | string | boolean;
-            };
-            if (p.op === 'set' && p.paramPath != null && p.value != null) {
-              useEditorStore
-                .getState()
-                .setRuntimeOverride(
-                  p.targetKind,
-                  p.targetId,
-                  p.paramPath,
-                  p.value
-                );
-            } else if (p.op === 'clear') {
-              useEditorStore
-                .getState()
-                .clearRuntimeOverride(p.targetKind, p.targetId, p.paramPath);
-            }
-          } else if (msg.kind === 'mp_shared_datachannel') {
-            // Data channel scoped to a shared node (scope = owner node id, which
-            // the projection preserves, so the projected feed/template resolves it).
-            const p = msg.payload as {
-              op: 'set' | 'clear';
-              scope: string;
-              fields?: Record<string, unknown>;
-              field?: string;
-            };
-            if (p.op === 'set') {
-              useEditorStore
-                .getState()
-                .mergeDataChannels(p.scope ?? '', p.fields ?? {});
-            } else {
-              useEditorStore
-                .getState()
-                .clearDataChannels(p.scope ?? '', p.field);
             }
           } else if (msg.kind === 'mesh_roster') {
             const p = msg.payload as { participants?: string[] };

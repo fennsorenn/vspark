@@ -1,7 +1,7 @@
 import type { ComposeLayerRecord } from '../../store/editorStore';
 import { useEditorStore } from '../../store/editorStore';
-import { api } from '../../api/client';
-import { sendComposeLayerPreview } from '../../hooks/useWsSync';
+import { commitLayerPatch } from '../../mesh/layerWrites';
+import { previewLayerFields } from '../../mesh/layerWrites';
 import { setSnapGuides, clearSnapGuides } from './composeSnap';
 
 const PREVIEW_INTERVAL_MS = 33; // ~30 Hz cap on outgoing layer previews
@@ -168,7 +168,7 @@ function makePreviewEmitter(id: string) {
     const now = performance.now();
     if (now - last < PREVIEW_INTERVAL_MS) return;
     last = now;
-    sendComposeLayerPreview(id, patch as Record<string, unknown>);
+    previewLayerFields(id, patch as Record<string, unknown>);
   };
 }
 
@@ -264,7 +264,7 @@ export function startDrag(
     window.removeEventListener('pointermove', move);
     window.removeEventListener('pointerup', up);
     clearSnapGuides();
-    if (last) api.updateComposeLayer(layer.id, last).catch(() => {});
+    if (last) commitLayerPatch(layer.id, last);
   };
   window.addEventListener('pointermove', move);
   window.addEventListener('pointerup', up);
@@ -439,7 +439,7 @@ export function startResize(
     window.removeEventListener('pointermove', move);
     window.removeEventListener('pointerup', up);
     clearSnapGuides();
-    if (last) api.updateComposeLayer(layer.id, last).catch(() => {});
+    if (last) commitLayerPatch(layer.id, last);
   };
   window.addEventListener('pointermove', move);
   window.addEventListener('pointerup', up);
@@ -476,7 +476,7 @@ export function startRotate(
   const up = () => {
     window.removeEventListener('pointermove', move);
     window.removeEventListener('pointerup', up);
-    if (last) api.updateComposeLayer(layer.id, last).catch(() => {});
+    if (last) commitLayerPatch(layer.id, last);
   };
   window.addEventListener('pointermove', move);
   window.addEventListener('pointerup', up);

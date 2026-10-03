@@ -15,6 +15,7 @@ import {
   createMeshPeer,
   type Collection,
   type MeshPeer,
+  type UndoStatus,
 } from '@vspark/mesh';
 import { WsBackendTransport } from '@vspark/mesh-transports/wsClient';
 import { makeClientParticipantId, randomUUID } from '@vspark/shared/sync';
@@ -35,10 +36,43 @@ const RTYPES = [
   'track_clip',
   'animation_clip',
   'scheduled_animation',
+  'clip_playback',
+  'logic',
+  'runtime_override',
+  'data_field',
+  'media_control',
 ] as const;
+
+/** Reliable + stamped + retained, no ack — runtime state that must reach a
+ *  late joiner without landing on anyone's undo stack. MUST match the backend
+ *  registration in `packages/backend/src/mesh/runtime.ts`: an op whose channel
+ *  this peer doesn't know is dropped silently on arrival. */
+const RUNTIME_CHANNEL = 'runtime';
+
+/** Reliable but UNSTAMPED and UNRETAINED — commands, not state. A media
+ *  command must not be replayed to a tab that connects an hour later, which is
+ *  exactly what retention would do. Same name as the backend's
+ *  (mesh/runtime.ts). */
+const CONTROL_CHANNEL = 'control';
+
+/** rtypes that live on a channel other than the default committed/preview
+ *  pair. The collection's allowed set has to include the channel its writes
+ *  arrive on, or they never apply. */
+const CHANNELS: Partial<Record<string, string[]>> = {
+  runtime_override: [RUNTIME_CHANNEL],
+  data_field: [RUNTIME_CHANNEL],
+  media_control: [CONTROL_CHANNEL],
+};
 
 const childOfNode = (d: Dto) =>
   typeof d.nodeId === 'string' ? { rtype: 'scene_node', id: d.nodeId } : null;
+
+// Transport state → its clip. Keyed on `clipId`, NOT `id`: the mesh
+// ContainmentIndex keys by id alone across every rtype, so a playback doc
+// sharing its clip's id would collide with the clip's own entry. Must match
+// the backend BINDINGS entry exactly or the two indexes diverge silently.
+const childOfClip = (d: Dto) =>
+  typeof d.clipId === 'string' ? { rtype: 'track_clip', id: d.clipId } : null;
 
 const PARENTS: Partial<
   Record<string, (d: Dto) => { rtype: string; id: string } | null>
@@ -71,6 +105,37 @@ const PARENTS: Partial<
     typeof d.avatarNodeId === 'string'
       ? { rtype: 'scene_node', id: d.avatarNodeId }
       : null,
+  clip_playback: childOfClip,
+  // A runtime override hangs off the entity it overrides, so a scene-subtree
+  // grant covers every override inside it. Must match the backend
+  // (mesh/runtime.ts `overrideParent`) or the two indexes diverge silently.
+  runtime_override: (d) =>
+    (d.targetKind === 'scene_node' || d.targetKind === 'compose_layer') &&
+    typeof d.targetId === 'string'
+      ? { rtype: d.targetKind, id: d.targetId }
+      : null,
+  // A scoped data field hangs off the entity it is scoped to; a GLOBAL field
+  // (scope '') belongs to no entity and has no parent. The document carries
+  // `scopeKind` so this stays a pure function on both peers.
+  data_field: (d) =>
+    (d.scopeKind === 'scene_node' || d.scopeKind === 'compose_layer') &&
+    typeof d.scope === 'string' &&
+    d.scope !== ''
+      ? { rtype: d.scopeKind, id: d.scope }
+      : null,
+  media_control: (d) =>
+    (d.targetKind === 'scene_node' || d.targetKind === 'compose_layer') &&
+    typeof d.targetId === 'string'
+      ? { rtype: d.targetKind, id: d.targetId }
+      : null,
+  // Owned polymorphically. A project-owned graph has no parent: there is no
+  // `project` rtype in the mesh. Must match the backend BINDINGS entry exactly.
+  logic: (d) =>
+    d.ownerKind === 'scene_node' && typeof d.ownerId === 'string'
+      ? { rtype: 'scene_node', id: d.ownerId }
+      : d.ownerKind === 'compose_layer' && typeof d.ownerId === 'string'
+        ? { rtype: 'compose_layer', id: d.ownerId }
+        : null,
 };
 
 let _init: Promise<MeshHandles> | null = null;
@@ -97,6 +162,61 @@ export function getMeshHandles(): MeshHandles | null {
 
 let _handles: MeshHandles | null = null;
 
+const _readyObservers = new Set<(h: MeshHandles) => void>();
+
+/** Called once the tab's peer and its collections exist. Fires immediately if
+ *  they already do, so a late subscriber is not left waiting for an event that
+ *  has already happened. Returns an unsubscribe. */
+export function onMeshReady(cb: (h: MeshHandles) => void): () => void {
+  if (_handles) cb(_handles);
+  else _readyObservers.add(cb);
+  return () => _readyObservers.delete(cb);
+}
+
+// --- undo/redo (tab peer) ----------------------------------------------------
+//
+// Mesh-native undo lives on the peer that AUTHORS the committed write. Once a UI
+// write path flows through this tab peer's collections (the open "writes →
+// collection.set" migration), the action is logged here and undo/redo work with
+// no extra wiring. Until then canUndo/canRedo stay false and the TopBar buttons
+// are (correctly) disabled — the plumbing below is what those writes light up.
+
+let _undoStatus: UndoStatus = { canUndo: false, canRedo: false };
+const _undoObservers = new Set<(s: UndoStatus) => void>();
+
+/** Undo this tab's last committed mesh action. No-op (false) if nothing to undo. */
+export function meshUndo(): boolean {
+  return _handles?.peer.undo() ?? false;
+}
+
+/** Redo the last undone action. No-op (false) if nothing to redo. */
+export function meshRedo(): boolean {
+  return _handles?.peer.redo() ?? false;
+}
+
+/** Run `fn`, grouping every committed mesh write it makes into ONE undo
+ *  action. Use for edits that are conceptually single but structurally
+ *  several — deleting a node together with its descendants, or detaching
+ *  children before removing their parent. No-op wrapper when the peer isn't
+ *  up yet (those writes fall back to REST and aren't undoable anyway). */
+export function meshBatch<T>(fn: () => T): T {
+  const peer = _handles?.peer;
+  return peer ? peer.batch(fn) : fn();
+}
+
+/** Current undo/redo availability (button enablement). */
+export function getMeshUndoStatus(): UndoStatus {
+  return _undoStatus;
+}
+
+/** Subscribe to undo/redo availability changes. Fires immediately with the
+ *  current status and on every subsequent transition. */
+export function onMeshUndoChange(cb: (s: UndoStatus) => void): () => void {
+  _undoObservers.add(cb);
+  cb(_undoStatus);
+  return () => _undoObservers.delete(cb);
+}
+
 async function doInit(): Promise<MeshHandles> {
   const res = await fetch('/api/mesh/identity');
   const { serverPeerId } = (await res.json()) as { serverPeerId: string };
@@ -113,12 +233,32 @@ async function doInit(): Promise<MeshHandles> {
     ],
   });
 
+  peer.channel(RUNTIME_CHANNEL, {
+    transport: 'reliable',
+    stamped: true,
+    retained: true,
+  });
+  peer.channel(CONTROL_CHANNEL, {
+    transport: 'reliable',
+    stamped: false,
+    retained: false,
+  });
+
   const collections: Record<string, Collection<Dto>> = {};
   for (const rtype of RTYPES)
     collections[rtype] = peer.collection<Dto>(rtype, {
       parent: PARENTS[rtype],
+      channels: CHANNELS[rtype],
       authority: serverPeerId,
     });
+
+  // Bridge the peer's undo/redo availability to the module-level observers the
+  // TopBar/keybindings subscribe to.
+  _undoStatus = peer.undoStatus();
+  peer.onUndoChange((s) => {
+    _undoStatus = s;
+    for (const cb of _undoObservers) cb(s);
+  });
 
   // Subscribe to every document rtype; re-arm after each reconnect (the peer
   // marks outgoing subscriptions stale on disconnect — they don't auto-renew).
@@ -156,5 +296,10 @@ async function doInit(): Promise<MeshHandles> {
   void armSubscriptions();
 
   _handles = { peer, serverPeerId, collections };
+  // The peer arrives asynchronously, so anything holding a reference to a
+  // collection has to be told when there finally is one. Without this a
+  // component that reads the replica renders empty forever: it mounts before
+  // `doInit` resolves and nothing re-renders it afterwards.
+  for (const cb of _readyObservers) cb(_handles);
   return _handles;
 }

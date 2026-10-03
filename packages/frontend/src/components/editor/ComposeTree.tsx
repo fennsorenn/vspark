@@ -6,6 +6,14 @@ import {
   type ComposeLayerRecord,
 } from '../../store/editorStore';
 import { api } from '../../api/client';
+import { keyBetween } from '@vspark/shared/fracIndex';
+import {
+  commitLayerDelete,
+  commitLayerDeleteKeepChildren,
+  commitLayerPatch,
+  commitLayerPath,
+} from '../../mesh/layerWrites';
+import { commitLogicCreate } from '../../mesh/logicWrites';
 import type { ComposeLayerKind } from '../../api/client';
 import { ClipsSection } from './ClipsSection';
 import { LogicSection } from './LogicSection';
@@ -136,12 +144,17 @@ function isSelfOrDescendant(
 }
 
 /** Move `draggedId` to `newParentId` and slot it into `index` among that
- *  parent's display-ordered siblings (front → back). Reassigns descending
- *  sceneOrder across the group (front-of-list = highest sceneOrder, since the
- *  layer stack paints higher sceneOrder further back and the tree lists
- *  front-first). Persists the parent change and the bulk reorder. Generalises
- *  the old same-parent reorder to also handle re-parenting (drag into a layer
- *  or across groups). */
+ *  parent's display-ordered siblings.
+ *
+ *  The tree lists front-first (descending orderKey) while the stack paints
+ *  back-to-front, so the neighbours around the drop index are swapped when
+ *  computing the key: the layer ABOVE in the tree is the one AFTER in paint
+ *  order.
+ *
+ *  Writes one key — not a renumbering of the group. That is the whole point of
+ *  fractional ordering: a move touches a single row, so concurrent moves by two
+ *  peers commute instead of LWW-merging two full renumberings into a stack
+ *  neither asked for. */
 function moveComposeLayer(
   orderedSiblings: ComposeLayerRecord[],
   draggedId: string,
@@ -152,31 +165,20 @@ function moveComposeLayer(
   const dragged = store.composeLayers.find((l) => l.id === draggedId);
   if (!dragged) return;
 
-  const order = orderedSiblings
-    .map((l) => l.id)
-    .filter((id) => id !== draggedId);
-  const clamped = Math.max(0, Math.min(index, order.length));
-  order.splice(clamped, 0, draggedId);
+  const rest = orderedSiblings.filter((l) => l.id !== draggedId);
+  const clamped = Math.max(0, Math.min(index, rest.length));
+  // rest is front-first; the neighbour below the slot in the tree is the one
+  // BEFORE it in paint order, and vice versa.
+  const above = rest[clamped - 1] ?? null; // nearer the front
+  const below = rest[clamped] ?? null; // nearer the back
+  const orderKey = keyBetween(
+    below?.orderKey ?? null,
+    above?.orderKey ?? null
+  );
 
-  // Persist the parent change first (a separate column from sceneOrder).
-  if ((dragged.parentId ?? null) !== newParentId) {
-    store.updateComposeLayerLocal(draggedId, { parentId: newParentId });
-    api
-      .updateComposeLayer(draggedId, { parentId: newParentId })
-      .catch(() => {});
-  }
-
-  // Assign descending sceneOrder so the top of the list paints in front.
-  const n = order.length;
-  const updates = order.map((id, i) => ({
-    id,
-    sceneOrder: n - i,
-    cameraOrder: 0,
-  }));
-  for (const u of updates) {
-    store.updateComposeLayerLocal(u.id, { sceneOrder: u.sceneOrder });
-  }
-  api.reorderComposeLayers(updates).catch(() => {});
+  const patch: Partial<ComposeLayerRecord> = { orderKey };
+  if ((dragged.parentId ?? null) !== newParentId) patch.parentId = newParentId;
+  commitLayerPatch(draggedId, patch);
 }
 
 /** Copy (or, with `copy=false`, move) a layer subtree into `targetSceneId`
@@ -203,10 +205,7 @@ async function transferComposeLayer(
       targetSceneId,
       parentId
     );
-    if (!copy) {
-      useEditorStore.getState().removeComposeLayer(draggedId);
-      await api.deleteComposeLayer(draggedId).catch(() => {});
-    }
+    if (!copy) await commitLayerDelete(draggedId);
     // deserialize inserts via raw INSERT without a WS broadcast, so re-pull the
     // project's compose layers from the scenes bundle.
     const bundle = await api.getScenes(projectId);
@@ -242,7 +241,9 @@ function LayerRow({
   // Siblings in display order (front-first), used for drag-reorder.
   const siblings = (layersByParent.get(layer.parentId ?? null) ?? [])
     .slice()
-    .sort((a, b) => b.sceneOrder - a.sceneOrder);
+    .sort(
+      (a, b) => b.orderKey.localeCompare(a.orderKey) || b.id.localeCompare(a.id)
+    );
 
   const selected = selectedComposeLayerId === layer.id;
   const children = layersByParent.get(layer.id) ?? [];
@@ -269,12 +270,7 @@ function LayerRow({
   const choose = useChoose();
   const confirm = useConfirm();
   const handleDelete = async () => {
-    const store = useEditorStore.getState();
     const directChildren = layersByParent.get(layer.id) ?? [];
-    const delOne = async (id: string) => {
-      store.removeComposeLayer(id);
-      await api.deleteComposeLayer(id).catch(() => {});
-    };
 
     // Leaf layer: a simple confirm.
     if (directChildren.length === 0) {
@@ -285,7 +281,7 @@ function LayerRow({
         }))
       )
         return;
-      await delOne(layer.id);
+      await commitLayerDelete(layer.id);
       return;
     }
 
@@ -302,25 +298,13 @@ function LayerRow({
     if (!choice) return; // cancel / dismiss
 
     if (choice === 'with') {
-      // Collect the whole subtree (leaves first) and delete each — the backend
-      // delete doesn't cascade on parent_id, so we remove them explicitly.
-      const subtree: string[] = [];
-      const stack = [layer.id];
-      while (stack.length) {
-        const id = stack.pop()!;
-        subtree.push(id);
-        for (const c of layersByParent.get(id) ?? []) stack.push(c.id);
-      }
-      for (const id of subtree.reverse()) await delOne(id);
+      // Removes the subtree explicitly, children before parents, as ONE undo
+      // action — see mesh/writes.ts on why the FK cascade alone isn't enough.
+      await commitLayerDelete(layer.id);
     } else {
-      // Keep children: reparent the direct children onto this layer's parent,
-      // then delete this layer.
-      for (const c of directChildren) {
-        const patch = { parentId: layer.parentId ?? null };
-        store.updateComposeLayerLocal(c.id, patch);
-        await api.updateComposeLayer(c.id, patch).catch(() => {});
-      }
-      await delOne(layer.id);
+      // Keep children: detach them onto this layer's parent, then delete —
+      // also one action, so the reparents don't unwind separately.
+      await commitLayerDeleteKeepChildren(layer.id, layer.parentId ?? null);
     }
   };
 
@@ -374,11 +358,11 @@ function LayerRow({
     const payload = await pasteFromClipboard(clipboardPayload);
     if (!payload || payload.kind !== 'graph') return;
     try {
-      const created = await api.createLayerLogic(layer.id, payload.name);
-      await api.updateLogic(created.id, {
-        descriptor: payload.descriptor,
-        enabled: true,
-      });
+      await commitLogicCreate(
+        { kind: 'compose_layer', id: layer.id },
+        payload.name,
+        payload.descriptor
+      );
     } catch (e) {
       alert(e instanceof Error ? e.message : t('tree.errors.pasteGraphFailed'));
     }
@@ -432,10 +416,8 @@ function LayerRow({
     return items;
   };
 
-  const handleToggleVisible = async () => {
-    const next = !layer.visible;
-    updateComposeLayerLocal(layer.id, { visible: next });
-    await api.updateComposeLayer(layer.id, { visible: next }).catch(() => {});
+  const handleToggleVisible = () => {
+    commitLayerPath(layer.id, 'visible', !layer.visible);
   };
 
   const locked = layer.config.locked === true;
@@ -538,7 +520,9 @@ function LayerRow({
           if (zone === 'inside') {
             const childOrder = (layersByParent.get(layer.id) ?? [])
               .slice()
-              .sort((a, b) => b.sceneOrder - a.sceneOrder);
+              .sort(
+      (a, b) => b.orderKey.localeCompare(a.orderKey) || b.id.localeCompare(a.id)
+    );
             moveComposeLayer(childOrder, draggedId, layer.id, 0);
           } else {
             const newParentId = layer.parentId ?? null;
@@ -696,7 +680,9 @@ function LayerRow({
       )}
       {children
         .slice()
-        .sort((a, b) => b.sceneOrder - a.sceneOrder)
+        .sort(
+      (a, b) => b.orderKey.localeCompare(a.orderKey) || b.id.localeCompare(a.id)
+    )
         .map((child) => (
           <LayerRow
             key={child.id}
@@ -754,12 +740,15 @@ function ComposeSceneRoot({
   }
   const roots = (layersByParent.get(null) ?? [])
     .slice()
-    .sort((a, b) => b.sceneOrder - a.sceneOrder);
+    .sort(
+      (a, b) => b.orderKey.localeCompare(a.orderKey) || b.id.localeCompare(a.id)
+    );
 
   const handleDeleteScene = async () => {
     if (!confirm(t('tree.deleteSceneConfirm', { name: scene.name }))) return;
-    useEditorStore.getState().removeComposeScene(scene.id);
-    await api.deleteComposeLayer(scene.id).catch(() => {});
+    // A compose scene is itself a compose_layer row, so this is a subtree
+    // delete: its layers are removed explicitly and come back on one undo.
+    await commitLayerDelete(scene.id);
   };
 
   // Drop a layer at this compose scene's top level (parentId = null). A
@@ -808,11 +797,11 @@ function ComposeSceneRoot({
     const payload = await pasteFromClipboard(clipboardPayload);
     if (!payload || payload.kind !== 'graph') return;
     try {
-      const created = await api.createLayerLogic(scene.id, payload.name);
-      await api.updateLogic(created.id, {
-        descriptor: payload.descriptor,
-        enabled: true,
-      });
+      await commitLogicCreate(
+        { kind: 'compose_layer', id: scene.id },
+        payload.name,
+        payload.descriptor
+      );
     } catch (e) {
       alert(e instanceof Error ? e.message : t('tree.errors.pasteGraphFailed'));
     }

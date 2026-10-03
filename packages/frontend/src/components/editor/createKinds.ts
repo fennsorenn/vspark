@@ -1,5 +1,6 @@
 import { useEditorStore, type StageObject } from '../../store/editorStore';
-import { api } from '../../api/client';
+import { commitNodeCreate } from '../../mesh/writes';
+import { commitLayerCreate } from '../../mesh/layerWrites';
 import { createRemoteChild } from '../../sync/remoteEdit';
 import type { AssetFile, ComposeLayerKind } from '../../api/client';
 import { PARTICLE_DEFAULTS } from '../../particleUtils';
@@ -303,18 +304,13 @@ export async function createSceneNode(
     if (remoteNode) return remoteNode;
   }
 
-  const node = await api.createNode(sceneId, {
+  return commitNodeCreate(sceneId, {
     parentId,
     name,
     kind: def.kind,
     filePath: null,
     components,
   });
-  // The WS broadcast may also deliver this node; dedupe by id.
-  if (useEditorStore.getState().nodes.every((n) => n.id !== node.id)) {
-    useEditorStore.getState().addNode(node);
-  }
-  return node;
 }
 
 // ---------------------------------------------------------------------------
@@ -329,17 +325,13 @@ export async function createNodeFromModelAsset(
 ): Promise<StageObject> {
   const ext = asset.name.split('.').pop()?.toLowerCase();
   const kind = ext === 'vrm' ? 'avatar' : 'model';
-  const node = await api.createNode(sceneId, {
+  return commitNodeCreate(sceneId, {
     parentId,
     name: asset.name,
     kind,
     filePath: asset.url,
     components: { ...DEFAULT_COMPONENTS },
   });
-  if (useEditorStore.getState().nodes.every((n) => n.id !== node.id)) {
-    useEditorStore.getState().addNode(node);
-  }
-  return node;
 }
 
 /** Add a Live2D bundle asset (its *.model3.json manifest) to a scene as a
@@ -349,7 +341,7 @@ export async function createNodeFromLive2dAsset(
   sceneId: string,
   parentId: string | null = null
 ): Promise<StageObject> {
-  const node = await api.createNode(sceneId, {
+  return commitNodeCreate(sceneId, {
     parentId,
     name: asset.name,
     kind: 'live2d',
@@ -359,10 +351,6 @@ export async function createNodeFromLive2dAsset(
       live2d: { ...LIVE2D_DEFAULTS, modelUrl: asset.url },
     },
   });
-  if (useEditorStore.getState().nodes.every((n) => n.id !== node.id)) {
-    useEditorStore.getState().addNode(node);
-  }
-  return node;
 }
 
 /** Add an image asset to a scene as a billboard node textured with it. */
@@ -371,7 +359,7 @@ export async function createBillboardFromImageAsset(
   sceneId: string,
   parentId: string | null = null
 ): Promise<StageObject> {
-  const node = await api.createNode(sceneId, {
+  return commitNodeCreate(sceneId, {
     parentId,
     name: asset.name,
     kind: 'billboard',
@@ -388,10 +376,6 @@ export async function createBillboardFromImageAsset(
       },
     },
   });
-  if (useEditorStore.getState().nodes.every((n) => n.id !== node.id)) {
-    useEditorStore.getState().addNode(node);
-  }
-  return node;
 }
 
 // ---------------------------------------------------------------------------
@@ -496,7 +480,7 @@ export async function createLayer(
   const name = uniqueName(baseName, taken);
 
   try {
-    const created = await api.createComposeSceneLayer(composeSceneId, {
+    const created = await commitLayerCreate(composeSceneId, {
       name,
       kind,
       cameraNodeId,
@@ -504,8 +488,7 @@ export async function createLayer(
       config,
       ...sizeDefaults,
     });
-    // Optimistic insert; the WS broadcast dedupes by id.
-    useEditorStore.getState().addComposeLayer(created);
+    // The feeder mirrors the replica into the store; just select it.
     useEditorStore.getState().selectComposeLayer(created.id);
   } catch (e) {
     alert(e instanceof Error ? e.message : 'Failed to add layer');

@@ -1,6 +1,13 @@
 # Plan: Face-heuristic calibration tool (dev-facing)
 
-> Branch: `claude/mediapipe-vmc-tracking-align-bfbdak` · Status: draft
+> **Status:** shipped — the heuristic is config-driven
+> (`frontend/src/media/arkitHeuristic.ts`, which cites this plan for the metric model)
+> and the dev-only tuning window exists
+> (`frontend/src/components/FaceCalibrationWindow.tsx`,
+> `frontend/src/media/faceCalibration.ts`). Module doc:
+> [`../modules/mediapipe-tracker.md`](../modules/mediapipe-tracker.md).
+
+> *(Historical.)* Branch: `claude/mediapipe-vmc-tracking-align-bfbdak`
 > Dev-facing tuning tool. NOT end-user UI — no i18n, no help docs, no persistence/sync.
 
 ## Goal

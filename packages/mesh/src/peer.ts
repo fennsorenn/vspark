@@ -54,6 +54,46 @@ export interface MeshPeerConfig {
   subscribeTimeoutMs?: number;
   /** Wall-clock source for the peer-clock sampler (tests inject skew). */
   now?: () => number;
+  /** Undo/redo log config. `depth` caps the per-peer stack (default 100);
+   *  `policy` 'guarded' (default) skips an inverse when the doc's current
+   *  committed value diverged from what this peer last left it at (a
+   *  collaborator edited it since), 'naive' always applies (last-writer-wins). */
+  undo?: { depth?: number; policy?: UndoPolicy };
+}
+
+export type UndoPolicy = 'guarded' | 'naive';
+
+/** Kind of committed action recorded in the undo-log. */
+export type UndoOp = 'created' | 'removed' | 'modified';
+
+/** One reversible committed action on one document (per-peer undo-log entry).
+ *  `before`/`after` are the committed (retained-channel, overlay-free) doc
+ *  values around the action — `before === undefined` ⇒ created,
+ *  `after === undefined` ⇒ removed. */
+export interface UndoEntry {
+  rtype: string;
+  id: string;
+  op: UndoOp;
+  before: unknown;
+  after: unknown;
+}
+
+export interface UndoStatus {
+  canUndo: boolean;
+  canRedo: boolean;
+}
+
+/** One user-level action: the committed writes {@link MeshPeer.batch} grouped
+ *  together, undone/redone as a unit. A write made outside a batch is its own
+ *  group of one. `placed` flips when the group reaches the undo stack — a batch
+ *  whose writes are all rejected never lands there.
+ *
+ *  Membership is fixed when the write is issued, not when it is logged: with a
+ *  remote authority the entry is only pushed on ack, so acks that arrive late
+ *  or out of order still land in the right group. */
+interface UndoGroup {
+  entries: UndoEntry[];
+  placed: boolean;
 }
 
 export interface MeshStatus {
@@ -78,6 +118,12 @@ interface PendingAck {
   pre: DocState<Record<string, unknown>>;
   timer: ReturnType<typeof setTimeout>;
   resolve: (o: WriteOutcome) => void;
+  /** Pending undo-log entry: pushed onto the undo stack only once the write is
+   *  confirmed (acked/corrected), discarded on reject/timeout, so a rolled-back
+   *  optimistic write never leaves a bogus undo action. */
+  undo?: UndoEntry;
+  /** The action this write belongs to (see `MeshPeer.batch`). */
+  undoGroup?: UndoGroup | null;
 }
 
 interface OutSub {
@@ -142,11 +188,25 @@ export class MeshPeer implements PeerCore {
   private readonly clocks = new Map<string, ClockState>();
   private readonly now: () => number;
 
+  /** Per-peer undo/redo log (committed writes only), one entry per action. */
+  private readonly undoStack: UndoGroup[] = [];
+  private readonly redoStack: UndoGroup[] = [];
+  /** The batch currently open on this peer, if any (see `batch`). */
+  private currentGroup: UndoGroup | null = null;
+  private readonly undoDepth: number;
+  private readonly undoPolicy: UndoPolicy;
+  /** While replaying an inverse (undo) or forward (redo), local committed
+   *  writes are NOT recorded — the stacks are moved explicitly instead. */
+  private replayMode: 'none' | 'undo' | 'redo' = 'none';
+  private readonly undoObservers: ((s: UndoStatus) => void)[] = [];
+
   constructor(cfg: MeshPeerConfig) {
     this.cfg = cfg;
     this.id = cfg.identity.peerId;
     this.clock = new HlcClock(this.id);
     this.now = cfg.now ?? (() => Date.now());
+    this.undoDepth = cfg.undo?.depth ?? 100;
+    this.undoPolicy = cfg.undo?.policy ?? 'guarded';
     this.transports = [];
     for (const t of cfg.transports ?? []) this.addTransport(t);
   }
@@ -237,6 +297,187 @@ export class MeshPeer implements PeerCore {
       peers: [...this.links.keys()].map((id) => ({ id })),
       pendingAcks: this.pendingAcks.size,
     };
+  }
+
+  // --- undo / redo ------------------------------------------------------------
+  //
+  // Per-peer, committed-only. Every committed write this peer authors logs a
+  // { before, after } entry (see localWrite). `undo()` re-emits the inverse as
+  // a fresh committed write — so propagation, persistence, and collaboration-
+  // safety fall out of the normal write path + HLC LWW, with no bespoke
+  // protocol. Preview/ephemeral writes are never logged (the commit is the
+  // action boundary), so gizmo-drag coalescing is a non-issue.
+
+  /** Run `fn`, grouping every committed write it issues into ONE undo action.
+   *
+   *  For edits that are conceptually single but structurally several — deleting
+   *  a node and its descendants, or reparenting a node's children before
+   *  removing it — so the user undoes the action, not its individual writes.
+   *  Nested batches join the outer one. Writes are still issued (and acked)
+   *  independently; only the undo grouping is affected, and rejected writes
+   *  simply never join the group. */
+  batch<T>(fn: () => T): T {
+    if (this.currentGroup) return fn(); // nested: join the open action
+    const group: UndoGroup = { entries: [], placed: false };
+    this.currentGroup = group;
+    try {
+      return fn();
+    } finally {
+      this.currentGroup = null;
+    }
+  }
+
+  canUndo(): boolean {
+    return this.undoStack.length > 0;
+  }
+
+  canRedo(): boolean {
+    return this.redoStack.length > 0;
+  }
+
+  undoStatus(): UndoStatus {
+    return { canUndo: this.canUndo(), canRedo: this.canRedo() };
+  }
+
+  /** Re-emit the inverse of this peer's last committed action as a fresh
+   *  committed write. Returns false when there's nothing to undo, the target
+   *  collection is gone, or (guarded policy) a collaborator has since changed
+   *  the doc — in which case the action is consumed without applying. */
+  undo(): boolean {
+    const group = this.undoStack.pop();
+    if (!group) return false;
+    // All-or-nothing: a partially applied action would leave the graph in a
+    // state the user never authored (half a deleted subtree restored).
+    const resolved = group.entries.map((e) => ({
+      e,
+      col: this.collections.get(e.rtype),
+    }));
+    // Policy is checked on the action's NET effect, not every write: an action that
+    // touched one doc twice leaves only its final value on that doc, and the
+    // intermediate state it passed through was never the committed state.
+    const ok = this.groupPolicyAllows(resolved, 'last');
+    if (ok) {
+      this.replay('undo', () => {
+        // Reverse order: children were removed before their parent, so the
+        // parent must come back first.
+        for (let i = resolved.length - 1; i >= 0; i--)
+          this.applyInverse(resolved[i].col!, resolved[i].e);
+      });
+      this.redoStack.push(group);
+    }
+    this.notifyUndoObservers();
+    return ok;
+  }
+
+  /** Re-apply the last undone action (forward direction). Same policy gate as
+   *  `undo`, checked against the value the undo restored. */
+  redo(): boolean {
+    const group = this.redoStack.pop();
+    if (!group) return false;
+    const resolved = group.entries.map((e) => ({
+      e,
+      col: this.collections.get(e.rtype),
+    }));
+    // Mirror of undo: the pre-action value of each doc is the FIRST entry's
+    // `before`, whatever the action did to it afterwards.
+    const ok = this.groupPolicyAllows(resolved, 'first');
+    if (ok) {
+      this.replay('redo', () => {
+        for (const { e, col } of resolved) this.applyForward(col!, e);
+      });
+      this.undoStack.push(group);
+    }
+    this.notifyUndoObservers();
+    return ok;
+  }
+
+  /** Drop the whole undo/redo history (e.g. on project/scene switch). */
+  clearUndoHistory(): void {
+    if (!this.undoStack.length && !this.redoStack.length) return;
+    this.undoStack.length = 0;
+    this.redoStack.length = 0;
+    this.notifyUndoObservers();
+  }
+
+  /** Fire on every change to `canUndo`/`canRedo` (button enablement). */
+  onUndoChange(cb: (s: UndoStatus) => void): () => void {
+    this.undoObservers.push(cb);
+    return () => {
+      const i = this.undoObservers.indexOf(cb);
+      if (i >= 0) this.undoObservers.splice(i, 1);
+    };
+  }
+
+  /** Log one confirmed write into its action. A group reaches the stack on its
+   *  first confirmed write, so a batch whose writes all fail leaves no action;
+   *  later writes of the same batch append to the group already in place. */
+  private pushUndo(entry: UndoEntry, group?: UndoGroup | null): void {
+    const g = group ?? { entries: [], placed: false };
+    g.entries.push(entry);
+    if (!g.placed) {
+      g.placed = true;
+      this.undoStack.push(g);
+      if (this.undoStack.length > this.undoDepth) this.undoStack.shift();
+      // A new action invalidates the redo future — but only when the action
+      // starts, not on every write that joins it.
+      this.redoStack.length = 0;
+    }
+    this.notifyUndoObservers();
+  }
+
+  private replay(mode: 'undo' | 'redo', fn: () => void): void {
+    this.replayMode = mode;
+    try {
+      fn();
+    } finally {
+      this.replayMode = 'none';
+    }
+  }
+
+  /** created → remove; removed/modified → restore the prior committed doc. */
+  private applyInverse(col: AnyCollection, e: UndoEntry): void {
+    if (e.op === 'created') col.remove(e.id);
+    else col.set(e.id, '', e.before);
+  }
+
+  /** created/modified → re-apply the new doc; removed → remove again. */
+  private applyForward(col: AnyCollection, e: UndoEntry): void {
+    if (e.op === 'removed') col.remove(e.id);
+    else col.set(e.id, '', e.after);
+  }
+
+  /** Guarded policy for a whole action: every doc it touched must still hold
+   *  the value this peer left it at. `edge` picks which end of the action to
+   *  compare — 'last' (undo: the doc as the action left it) or 'first' (redo:
+   *  the doc as it was before the action). Docs touched more than once are
+   *  collapsed so the action's intermediate states are never compared. */
+  private groupPolicyAllows(
+    resolved: { e: UndoEntry; col: AnyCollection | undefined }[],
+    edge: 'first' | 'last'
+  ): boolean {
+    const net = new Map<string, { e: UndoEntry; col: AnyCollection | undefined }>();
+    for (const r of resolved) {
+      const key = `${r.e.rtype}\u0000${r.e.id}`;
+      if (edge === 'last' || !net.has(key)) net.set(key, r);
+    }
+    for (const { e, col } of net.values()) {
+      if (!col) return false;
+      if (!this.policyAllows(col, e.id, edge === 'last' ? e.after : e.before))
+        return false;
+    }
+    return true;
+  }
+
+  /** Guarded policy: apply only if the doc's current committed value still
+   *  matches what this peer left it at. 'naive' always applies. */
+  private policyAllows(col: AnyCollection, id: string, expected: unknown): boolean {
+    if (this.undoPolicy !== 'guarded') return true;
+    return deepEqual(col.replica.raw(id), expected);
+  }
+
+  private notifyUndoObservers(): void {
+    const s = this.undoStatus();
+    for (const cb of [...this.undoObservers]) cb(s);
   }
 
   // --- peer clock translation ------------------------------------------------------
@@ -359,6 +600,69 @@ export class MeshPeer implements PeerCore {
     this.index.upsert(rtype, id, { p: parentId });
   }
 
+  // --- mounts ------------------------------------------------------------------
+  //
+  // A MOUNT is not a reconnect. Reconnecting peers share history and comparable
+  // clocks, so ordinary LWW reconciles them. Mounting brings in a tree this peer
+  // has no history with — and if it once held those ids and deleted them, its
+  // tombstones out-stamp the author's live documents: the mount lands empty, and
+  // the mutual subscription then propagates those tombstones back and deletes
+  // the author's scene.
+  //
+  // So a mount records WHEN it happened, and documents in the mounted scope
+  // reconcile against `max(write stamp, mount stamp)`.
+  //
+  // The stamp is LOCAL METADATA on the mount, never written to the documents.
+  // Re-stamping them would work and would break "a document has exactly one
+  // truth" — the same document would carry a different stamp here than at its
+  // author. Keeping it beside them has two consequences that fall out for free:
+  // nothing can leak back (the documents are untouched, so this peer can never
+  // appear as the author of someone else's scene), and it expires by itself
+  // (once a document's own writes pass the mount stamp, `max` is the write
+  // stamp and ordinary LWW resumes — no flag to clear).
+
+  private readonly mounts = new Map<string, HLC>();
+
+  /** Record a mount of the subtree rooted at `rootId`. `v` defaults to now.
+   *  Idempotent per root: re-mounting moves the stamp forward, which is the
+   *  point — a second mount is a second deliberate act. */
+  mount(rootId: string, v?: HLC): void {
+    this.mounts.set(rootId, v ?? this.clock.tick());
+  }
+
+  /** Forget a mount. Documents in the scope reconcile by ordinary LWW again. */
+  unmount(rootId: string): void {
+    this.mounts.delete(rootId);
+  }
+
+  /** The mount stamp covering `id`, if any — the doc itself or an ancestor.
+   *
+   *  `parentHint` is the parent the INCOMING document declares, which is the
+   *  only way to place a document the index has never seen or has forgotten.
+   *  That is the ordinary case here, not an edge one: the receiver deleted this
+   *  subtree, so removing it from the index is exactly what happened, and the
+   *  arriving document has to be placed by what it says about itself. */
+  mountStampFor(id: string, parentHint?: string | null): HLC | undefined {
+    if (this.mounts.size === 0) return undefined; // hot path: no mounts, no walk
+    const own = this.mounts.get(id);
+    if (own) return own;
+    for (const [rootId, v] of this.mounts) {
+      if (this.index.isDescendant('', id, rootId)) return v;
+      if (parentHint === rootId) return v;
+      if (parentHint && this.index.isDescendant('', parentHint, rootId))
+        return v;
+    }
+    return undefined;
+  }
+
+  /** `v`, or the mount stamp if this doc is in a mounted scope and the mount is
+   *  newer. Applied on the way INTO the replica only; what this peer relays
+   *  onward still carries the origin's own stamp. */
+  effectiveStamp(id: string, v: HLC, parentHint?: string | null): HLC {
+    const m = this.mountStampFor(id, parentHint);
+    return m && compareHLC(m, v) > 0 ? m : v;
+  }
+
   indexRemove(id: string): void {
     this.index.remove(id);
   }
@@ -399,6 +703,20 @@ export class MeshPeer implements PeerCore {
     const pre = guarded ? col.replica.captureState(w.id) : undefined;
     const v = w.hydrateV ?? this.clock.tick();
 
+    // Undo-log: only genuine committed (retained-channel, non-hydrate) writes
+    // that this peer authors directly — never previews, hydration, or the
+    // inverse/forward replays of an undo/redo (those move the stacks by hand).
+    //
+    // `undo: false` opts a write out explicitly, for changes that are not
+    // document edits at all (see WriteOpts.undo). It suppresses the entry only;
+    // the write still replicates, persists and acks like any other.
+    const loggable =
+      w.undo !== false &&
+      this.replayMode === 'none' &&
+      guarded &&
+      w.channel === col.retainedChannel;
+    const before = loggable ? col.replica.raw(w.id) : undefined;
+
     // For removes, routing/ancestry must be resolved before the index entry dies.
     const preRecipients =
       w.op === 'remove' ? this.recipients(col, w.id, w.path, w.channel) : undefined;
@@ -406,6 +724,13 @@ export class MeshPeer implements PeerCore {
 
     const change = col.applyOp(w.op, w.id, w.path, data, v, meta);
     if (!change) return done({ status: 'unguarded' }); // LWW no-op (stale hydrate)
+
+    const undoEntry = loggable
+      ? makeUndoEntry(col.rtype, w.id, before, col.replica.raw(w.id))
+      : undefined;
+    // Bound now, not at push time: with a remote authority the entry is logged
+    // on ack, by which point the batch has long since closed.
+    const undoGroup = undoEntry ? this.currentGroup : null;
 
     const opId = guarded && authority !== 'self' ? uuid() : undefined;
     const env = this.envelope(col, { ...w, data }, v, opId);
@@ -429,12 +754,19 @@ export class MeshPeer implements PeerCore {
           current: col.get(w.id),
         });
       }
+      // Persisted locally — safe to log (or, if corrected, log the corrected
+      // value the authority actually stored).
+      if (undoEntry) {
+        if (corrected) undoEntry.after = data;
+        this.pushUndo(undoEntry, undoGroup);
+      }
       return done(
         corrected ? { status: 'corrected', value: data } : { status: 'acked' }
       );
     }
 
-    // Remote authority: register the pending guarded write.
+    // Remote authority: register the pending guarded write. The undo entry
+    // rides the pending record — pushed only once the authority confirms.
     const ack = new Promise<WriteOutcome>((resolve) => {
       const timer = setTimeout(
         () => this.expirePending(opId!),
@@ -448,6 +780,8 @@ export class MeshPeer implements PeerCore {
         pre: pre!,
         timer,
         resolve,
+        undo: undoEntry,
+        undoGroup,
       });
     });
     return { ack };
@@ -840,6 +1174,7 @@ export class MeshPeer implements PeerCore {
     clearTimeout(p.timer);
 
     if (msg.status === 'acked') {
+      if (p.undo) this.pushUndo(p.undo, p.undoGroup);
       p.resolve({ status: 'acked' });
       return;
     }
@@ -855,6 +1190,12 @@ export class MeshPeer implements PeerCore {
           { origin: senderId, channel: p.col.retainedChannel ?? 'committed' }
         );
         if (change) this.safeTaps(p.col, change);
+      }
+      // The authority stored a normalized value — log THAT as the action's
+      // result so a later guarded undo matches the doc's real state.
+      if (p.undo) {
+        p.undo.after = p.col.replica.raw(p.id);
+        this.pushUndo(p.undo, p.undoGroup);
       }
       p.resolve({ status: 'corrected', value: msg.value });
       return;
@@ -1088,6 +1429,18 @@ export function createMeshPeer(cfg: MeshPeerConfig): MeshPeer {
 
 function done(o: WriteOutcome): WriteHandle {
   return { ack: Promise.resolve(o) };
+}
+
+/** Classify a committed write by its before/after committed values. */
+function makeUndoEntry(
+  rtype: string,
+  id: string,
+  before: unknown,
+  after: unknown
+): UndoEntry {
+  const op: UndoOp =
+    before === undefined ? 'created' : after === undefined ? 'removed' : 'modified';
+  return { rtype, id, op, before, after };
 }
 
 function errMsg(e: unknown): string {

@@ -1,8 +1,19 @@
 # Plan: mesh-native undo/redo
 
-**Status:** planned — build on a new branch (`feature/mesh-undo`).
-**Supersedes:** `user-undo.md` (frontend command-journal) and the agent
-snapshot/checkpoint approach (built then reverted on `claude/intelligent-turing-pjs4tf`).
+> **Status:** shipped — the engine is `packages/mesh/src/peer.ts` (undo log,
+> `undo()/redo()/canUndo()/canRedo()/undoStatus()/clearUndoHistory()/onUndoChange()`,
+> guarded-vs-naive policy), with the 17-test matrix in `packages/mesh/test/undo.test.ts`.
+> `peer.batch(fn)` — grouping many committed writes into ONE undo action — was added
+> later than this design and is not described below; grouping is bound when a write is
+> *issued*, not when it is logged, because with a remote authority the entry is only
+> pushed on ack. The design's step 5 ("optional action grouping") is therefore done.
+> **Supersedes:** `user-undo.md` (frontend command-journal, since deleted) and the agent
+> snapshot/checkpoint approach (built then reverted on `claude/intelligent-turing-pjs4tf`).
+> **Executed as:** workstream B of
+> [`mesh-drop-legacy-sync-and-undo.md`](./mesh-drop-legacy-sync-and-undo.md); made
+> user-visible by [`mesh-frontend-writes.md`](./mesh-frontend-writes.md), because undo
+> logs on the peer that *authors* a committed write and REST-authored writes are
+> authored by the server.
 
 Make undo/redo a **first-class primitive of the mesh** (`@vspark/mesh`), so every
 client that mutates through the mesh — user editor tabs **and** the assistant

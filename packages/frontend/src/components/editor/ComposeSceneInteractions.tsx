@@ -2,13 +2,17 @@ import { useEffect, useMemo, useRef } from 'react';
 import { useFrame, useThree } from '@react-three/fiber';
 import * as THREE from 'three';
 import { useEditorStore } from '../../store/editorStore';
-import { api } from '../../api/client';
+import {
+  commitNodePatch,
+  commitNodePath,
+  previewNodeTransform,
+} from '../../mesh/writes';
+import { mergedTransform } from './transformMerge';
 import {
   getNodeGroup,
   getVrmForScene,
   listRegisteredNodeGroups,
 } from './Viewport';
-import { sendNodeTransformPreview } from '../../hooks/useWsSync';
 import {
   humanoidBoneFor,
   worldToBoneLocalTransform,
@@ -219,7 +223,10 @@ export function ComposeSceneInteractions({
       return;
     lastPreviewAtRef.current = { nodeId, t: now };
     const node = useEditorStore.getState().nodes.find((n) => n.id === nodeId);
-    sendNodeTransformPreview(nodeId, transformPayload(group, node, liveScale));
+    const t = transformPayload(group, node, liveScale);
+    // One write, every audience — local tabs and object-share subscribers read
+    // the same preview overlays.
+    previewNodeTransform(nodeId, t);
   };
 
   // Mirror the live group transform back into the store so React's declarative
@@ -243,10 +250,7 @@ export function ComposeSceneInteractions({
     if (!node) return;
     const components = {
       ...node.components,
-      transform: {
-        type: 'transform',
-        ...transformPayload(group, node, liveScale),
-      },
+      transform: mergedTransform(node, transformPayload(group, node, liveScale)),
     };
     store.updateNode(nodeId, { components });
   };
@@ -393,8 +397,7 @@ export function ComposeSceneInteractions({
             },
           },
         };
-        store.updateNode(d.nodeId, patch);
-        api.updateNode(d.nodeId, patch).catch(() => {});
+        commitNodePatch(d.nodeId, patch);
         return;
       }
       // Missed a model: detach back to top level if it wasn't already there.
@@ -407,8 +410,7 @@ export function ComposeSceneInteractions({
             transform: { type: 'transform', ...worldTransform(d.group) },
           },
         };
-        store.updateNode(d.nodeId, patch);
-        api.updateNode(d.nodeId, patch).catch(() => {});
+        commitNodePatch(d.nodeId, patch);
         return;
       }
     }
@@ -434,8 +436,7 @@ export function ComposeSceneInteractions({
         sz: (existing?.sz as number | undefined) ?? s.z,
       },
     };
-    store.updateNode(d.nodeId, { components });
-    api.updateNode(d.nodeId, { components }).catch(() => {});
+    commitNodePath(d.nodeId, 'components', components);
   };
 
   // Wheel: instead of moving the object directly, each tick imparts an impulse
@@ -622,8 +623,7 @@ export function ComposeSceneInteractions({
           sz: (existing?.sz as number | undefined) ?? group.scale.z,
         },
       };
-      s.updateNode(w.nodeId, { components });
-      api.updateNode(w.nodeId, { components }).catch(() => {});
+      commitNodePath(w.nodeId, 'components', components);
     }
   });
 
@@ -673,13 +673,9 @@ export function ComposeSceneInteractions({
       if (!node) return;
       const components = {
         ...node.components,
-        transform: {
-          type: 'transform',
-          ...transformPayload(group, node, true),
-        },
+        transform: mergedTransform(node, transformPayload(group, node, true)),
       };
-      s.updateNode(st.nodeId, { components });
-      api.updateNode(st.nodeId, { components }).catch(() => {});
+      commitNodePath(st.nodeId, 'components', components);
     }
   });
 
@@ -716,10 +712,9 @@ export function ComposeSceneInteractions({
       if (!node) return;
       const components = {
         ...node.components,
-        transform: { type: 'transform', ...transformPayload(group, node) },
+        transform: mergedTransform(node, transformPayload(group, node)),
       };
-      s.updateNode(st.nodeId, { components });
-      api.updateNode(st.nodeId, { components }).catch(() => {});
+      commitNodePath(st.nodeId, 'components', components);
     }
   });
 

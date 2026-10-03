@@ -25,7 +25,6 @@ import {
   publishNodeStream,
   publishClipPlayback,
   publishCollabRuntime,
-  setClipPlaybackApplier,
   setCollabRuntimeApplier,
 } from '../mesh/streams.js';
 import { setAssetTransfer } from '../mesh/assets.js';
@@ -54,6 +53,7 @@ import {
   clipCollabScene,
   persistCollabAssets,
   indexAllCollabScenes,
+  restoreMountStamps,
   listAllCollabScenes,
   type CollabLink,
   collabPeersForScene,
@@ -61,11 +61,7 @@ import {
   COLLAB_SNAPSHOT_RTYPE,
   type ClipPlaybackAction,
 } from './collabScene.js';
-import { _trackClipPlayback } from '../routes/shared.js';
-import { dataChannelManager } from '../data_channels/manager.js';
-import { runtimeOverrideManager } from '../runtime_overrides/manager.js';
 import { spawnManager } from '../spawn/manager.js';
-import type { ParamTargetKind } from '@vspark/shared/paramPaths';
 import { BlobManager, BLOB_RTYPES } from './blobTransfer.js';
 import type { AssetMeta } from './blobs.js';
 import {
@@ -105,11 +101,6 @@ const PROFILE_RTYPE = 'peer_profile';
  *  node/clip CRUD goes through sync.document, so those kinds are excluded to avoid
  *  double-forwarding). Clip play frames are handled per-clip in the relay. */
 const COLLAB_RELAY_KINDS = new Set<string>([
-  'data_channel_set',
-  'data_channel_clear',
-  'runtime_override_set',
-  'runtime_override_clear',
-  'media_control',
   'node_added',
   'node_removed',
   'compose_layer_added',
@@ -166,12 +157,13 @@ class MultiplayerManager {
     // Rebuild the collab node→scene index from the persisted links so live
     // forwarding (edits + pose/preview streams) works after a restart.
     indexAllCollabScenes();
+    // And the mount stamps: the links persist, the peer's mount table does not.
+    // A receiver that restarts must not go back to reconciling a mounted scene
+    // as though it had always had it — see MeshPeer.mount.
+    restoreMountStamps();
     if (broadcast) this.broadcast = broadcast;
     // Remote clip playback + runtime events arrive over the mesh `control`
     // channel; the bridges apply them locally (guarded against re-relay).
-    setClipPlaybackApplier((clipId, action, t) =>
-      this.applyClipPlayback(clipId, action, t)
-    );
     setCollabRuntimeApplier((kind, payload, from) =>
       this.applyCollabRuntime(kind, payload, from)
     );
@@ -756,50 +748,14 @@ class MultiplayerManager {
     if (collabSceneForNode(nodeId)) publishNodeStream(nodeId, kind, payload);
   }
 
-  /** Relay a local clip playback control to collab peers (called by the playback
-   *  routes). Rides the mesh `control` channel (reliable events); each peer
-   *  replicates it on its own playback manager. */
-  relayClipPlayback(
-    clipId: string,
-    action: ClipPlaybackAction,
-    t?: number
-  ): void {
-    if (clipCollabScene(clipId)) publishClipPlayback(clipId, action, t);
-  }
-
-  /** Replicate a peer's clip playback control locally (no re-forward — only
-   *  user-initiated route actions relay, so this can't echo). */
-  private applyClipPlayback(
-    clipId: string,
-    action: ClipPlaybackAction,
-    t?: number
-  ): void {
-    const pb = _trackClipPlayback;
-    if (!pb) return;
-    if (action === 'trigger') pb.trigger(clipId);
-    else if (action === 'stop') pb.stop(clipId);
-    else if (action === 'pause') pb.pause(clipId);
-    else if (action === 'resume') pb.resume(clipId);
-    else if (action === 'seek' && t != null) pb.seek(clipId, t);
-  }
-
   /** Tap on every local WS broadcast (set via wsSync.setCollabRelay): mirror the
-   *  runtime kinds that have no other mesh path to collab peers. Regular clip play
-   *  frames are relayed (re-anchored) via relayClipPlayback, so here we relay
-   *  track_clip play frames only for ephemeral spawn clips (the receiver has just
-   *  the clone). The echo guard stops a re-applied broadcast bouncing back. */
+   *  runtime kinds that have no other mesh path to collab peers. Clip transport
+   *  is not among them any more — it is a replicated document, so peers get it
+   *  the same way they get any other doc, spawned clones included. The echo
+   *  guard stops a re-applied broadcast bouncing back. */
   relayCollabRuntime(kind: string, payload: Record<string, unknown>): void {
     if (this.applyingCollabRuntime || !this.mesh) return;
-    if (
-      kind === 'track_clip_started' ||
-      kind === 'track_clip_paused' ||
-      kind === 'track_clip_stopped'
-    ) {
-      const clipId = (payload.clipId ?? payload.id) as string | undefined;
-      if (!clipId || !spawnManager.isEphemeralClip(clipId)) return;
-    } else if (!COLLAB_RELAY_KINDS.has(kind)) {
-      return;
-    }
+    if (!COLLAB_RELAY_KINDS.has(kind)) return;
     publishCollabRuntime(kind, payload);
   }
 
@@ -814,57 +770,15 @@ class MultiplayerManager {
   ): void {
     this.applyingCollabRuntime = true;
     try {
-      if (kind === 'data_channel_set') {
-        dataChannelManager.set(
-          payload.scope as string,
-          (payload.fields ?? {}) as Record<string, unknown>
-        );
-      } else if (kind === 'data_channel_clear') {
-        dataChannelManager.clear(
-          payload.scope as string,
-          payload.field as string | undefined
-        );
-      } else if (kind === 'runtime_override_set') {
-        // Defensive: a spawned tmp target may not be registered yet if its
-        // override raced ahead of node_added — register from the payload's
-        // sceneId so the bus's scene lookup resolves (otherwise the override
-        // is dropped and the spawn shows stale/empty content on the peer).
-        const tid = payload.targetId as string;
-        if (tid?.startsWith('__spawn:') && typeof payload.sceneId === 'string')
-          runtimeOverrideManager.registerTarget(tid, payload.sceneId);
-        runtimeOverrideManager.set(
-          payload.targetKind as ParamTargetKind,
-          tid,
-          payload.paramPath as string,
-          payload.value
-        );
-      } else if (kind === 'runtime_override_clear') {
-        runtimeOverrideManager.clear(
-          payload.targetKind as ParamTargetKind,
-          payload.targetId as string,
-          payload.paramPath as string | undefined
-        );
-      } else if (kind === 'node_added' || kind === 'compose_layer_added') {
-        // A spawned ephemeral entity from a peer. Register its tmp id with the
-        // override bus so that set_text / set_*_param writes targeting it (which
-        // arrive as runtime_override_set) resolve here too — the spawn never
-        // persists to SQLite, so the bus's scene lookup would otherwise fail
-        // and silently drop every override on the projected spawn (empty
-        // textbox on the peer). The spawning backend registers locally in
-        // SpawnManager.spawn; this mirrors that for the receiver.
-        const id = payload.id as string | undefined;
-        const sceneId = (payload.rootSceneNodeId ??
-          payload.rootComposeSceneId) as string | undefined;
-        if (id?.startsWith('__spawn:') && sceneId)
-          runtimeOverrideManager.registerTarget(id, sceneId);
-        this.broadcast(kind, payload);
-      } else if (kind === 'node_removed' || kind === 'compose_layer_removed') {
-        const id = payload.id as string | undefined;
-        if (id?.startsWith('__spawn:'))
-          runtimeOverrideManager.clearAllForTarget(
-            kind === 'node_removed' ? 'scene_node' : 'compose_layer',
-            id
-          );
+      if (kind === 'node_added' || kind === 'compose_layer_added') {
+        // A spawned ephemeral entity from a peer. It used to be registered
+        // with the override bus here, so that the peer's overrides on it could
+        // resolve a scene id when this backend re-applied them. Overrides are
+        // documents now: they arrive in the replica already addressed to the
+        // tmp id and reach our tabs from there, so nothing local has to know
+        // the spawn exists. The owner clears them on despawn and the removes
+        // propagate — a receiver clearing them itself would be writing into
+        // the owner's state.
         this.broadcast(kind, payload);
       } else {
         this.broadcast(kind, payload);
@@ -872,31 +786,6 @@ class MultiplayerManager {
     } finally {
       this.applyingCollabRuntime = false;
     }
-  }
-
-  /** Forward a clip-driven transform of a shared subtree node to object-share
-   *  subscribers (read-only projections that can't evaluate the clip themselves).
-   *  NOT sent to collaborative-scene peers: they have the synced clip + playback
-   *  state and evaluate it locally, so forwarding the result would double-drive
-   *  and fight their own evaluation. */
-  forwardNodeTransform(
-    nodeId: string,
-    transform: Record<string, number>
-  ): void {
-    this.sharing?.forwardNodeTransform(nodeId, transform);
-  }
-
-  /** Owner: forward a runtime override on a shared scene node to subscribers. */
-  forwardOverride(op: 'set' | 'clear', payload: Record<string, unknown>): void {
-    this.sharing?.forwardOverride(op, payload);
-  }
-
-  /** Owner: forward a data-channel set/clear scoped to a shared node. */
-  forwardDataChannel(
-    op: 'set' | 'clear',
-    payload: Record<string, unknown>
-  ): void {
-    this.sharing?.forwardDataChannel(op, payload);
   }
 
   /** Replay current share offers to a freshly-connected client (late-join gap). */

@@ -2,10 +2,13 @@
  * Bus / manager subsystem tests.
  *
  * Covers:
- *  - RuntimeOverrideManager (set/get round-trips, type coercion, clear, snapshot,
- *    registerTarget for DB-free scene resolution)
- *  - DataChannelManager (set merge, seed, clear field/scope, clearAll, snapshot)
- *  - MediaControlManager (dispatch with/without ws, empty targetId guard)
+ *  - RuntimeOverrideManager (set/clear round-trips through the mesh
+ *    `runtime_override` collection, type coercion, registerTarget for DB-free
+ *    scene resolution)
+ *  - DataChannelManager (set merge, seed, clear field/scope, clearAll) through
+ *    the mesh `data_field` collection
+ *  - MediaControlManager (dispatch through the mesh `media_control` collection,
+ *    empty targetId guard, nothing retained)
  *  - SpawnManager.isEphemeralClip (the only pure unit-testable surface without a
  *    live graph — everything else needs DB + playback manager)
  *
@@ -21,7 +24,17 @@
  */
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { createMeshPeer } from '@vspark/mesh';
 import { RuntimeOverrideManager } from '../src/runtime_overrides/manager.js';
+import {
+  dataFieldCollection,
+  initMeshRuntime,
+  mediaControlCollection,
+  mediaControlParent,
+  overrideCollection,
+  overrideParent,
+  resetMeshRuntime,
+} from '../src/mesh/runtime.js';
 import { DataChannelManager } from '../src/data_channels/manager.js';
 import { MediaControlManager } from '../src/media_control/manager.js';
 import { SpawnManager } from '../src/spawn/manager.js';
@@ -70,43 +83,63 @@ function makeWsStub() {
 
 describe('RuntimeOverrideManager', () => {
   let manager: RuntimeOverrideManager;
-  const { ws, broadcasts } = makeWsStub();
+
+  /** Every live override, as (targetKind, targetId, paramPath, value) rows.
+   *  The replica IS the bus's state now — there is no snapshot method and no
+   *  broadcast to intercept, because a retained document reaches a late joiner
+   *  through its subscription instead. */
+  const rows = () =>
+    (overrideCollection()?.all() ?? []).map((d) => ({
+      targetKind: d.targetKind,
+      targetId: d.targetId,
+      paramPath: d.paramPath,
+      value: d.value,
+    }));
 
   beforeEach(() => {
+    resetMeshRuntime();
+    initMeshRuntime(
+      createMeshPeer({ identity: { peerId: 'test-peer' }, transports: [] })
+    );
     manager = new RuntimeOverrideManager();
-    manager.init(ws);
-    broadcasts.length = 0;
+    manager.init();
   });
 
-  describe('set + get via snapshot', () => {
-    it('set a valid Float param, snapshot contains it', () => {
+  describe('set', () => {
+    it('a valid Float param becomes a document', () => {
       // Register a fake scene mapping so no DB lookup is needed.
       manager.registerTarget('node-1', 'scene-a');
 
       manager.set('scene_node', 'node-1', 'position.x', 3.14);
 
-      const received: Array<Record<string, unknown>> = [];
-      manager.sendSnapshotTo((_kind, payload) => {
-        const p = payload as { entries: unknown[] };
-        received.push(...(p.entries as Array<Record<string, unknown>>));
-      });
-
-      expect(received).toHaveLength(1);
-      const entry = received[0];
+      expect(rows()).toHaveLength(1);
+      const entry = rows()[0];
       expect(entry.targetKind).toBe('scene_node');
       expect(entry.targetId).toBe('node-1');
       expect(entry.paramPath).toBe('position.x');
-      expect(entry.value).toBeCloseTo(3.14);
+      expect(entry.value).toBeCloseTo(3.14 as number);
     });
 
-    it('broadcasts runtime_override_set on successful set', () => {
+    it('keys one document per overridden path', () => {
       manager.registerTarget('node-2', 'scene-b');
       manager.set('scene_node', 'node-2', 'rotation.y', 1.5);
+      manager.set('scene_node', 'node-2', 'opacity', 0.5);
 
-      expect(broadcasts).toHaveLength(1);
-      expect(broadcasts[0].kind).toBe('runtime_override_set');
-      expect(broadcasts[0].payload.paramPath).toBe('rotation.y');
-      expect(broadcasts[0].payload.value).toBeCloseTo(1.5);
+      // Two params of one node are two documents, so two graphs overriding
+      // different params of the same node cannot clobber each other.
+      expect(overrideCollection()!.get('scene_node:node-2:rotation.y')).toBeDefined();
+      expect(overrideCollection()!.get('scene_node:node-2:opacity')).toBeDefined();
+    });
+
+    it('hangs the document off the target, so scene grants route it', () => {
+      manager.registerTarget('node-2b', 'scene-b');
+      manager.set('scene_node', 'node-2b', 'opacity', 0.25);
+
+      // Containment is what lets an override ride an existing scene-subtree
+      // grant without the grant naming this rtype.
+      expect(
+        overrideParent(overrideCollection()!.get('scene_node:node-2b:opacity')!)
+      ).toEqual({ rtype: 'scene_node', id: 'node-2b' });
     });
 
     it('set replaces an existing override for the same key', () => {
@@ -114,413 +147,293 @@ describe('RuntimeOverrideManager', () => {
       manager.set('scene_node', 'node-3', 'opacity', 0.5);
       manager.set('scene_node', 'node-3', 'opacity', 0.9);
 
-      const received: Array<Record<string, unknown>> = [];
-      manager.sendSnapshotTo((_k, payload) => {
-        const p = payload as { entries: unknown[] };
-        received.push(...(p.entries as Array<Record<string, unknown>>));
-      });
-
-      // Only one entry for that key; value is the latest.
-      const entry = received.find(
-        (e) => e.paramPath === 'opacity' && e.targetId === 'node-3'
-      );
-      expect(entry).toBeDefined();
-      expect(entry!.value).toBeCloseTo(0.9);
+      expect(rows()).toHaveLength(1);
+      expect(rows()[0].value).toBeCloseTo(0.9 as number);
     });
   });
 
   describe('type coercion', () => {
     it('coerces string "42" to number 42 for Float paths', () => {
-      manager.registerTarget('node-c1', 'scene-c1');
-      manager.set('scene_node', 'node-c1', 'position.x', '42');
-      const received: Array<Record<string, unknown>> = [];
-      manager.sendSnapshotTo((_k, payload) => {
-        const p = payload as { entries: unknown[] };
-        received.push(...(p.entries as Array<Record<string, unknown>>));
-      });
-      expect(received[0]?.value).toBe(42);
+      manager.registerTarget('node-4', 'scene-d');
+      manager.set('scene_node', 'node-4', 'position.y', '42');
+      expect(rows()[0].value).toBe(42);
     });
 
     it('coerces boolean true to 1 for Float paths', () => {
-      manager.registerTarget('node-c2', 'scene-c2');
-      manager.set('scene_node', 'node-c2', 'scale.z', true);
-      const received: Array<Record<string, unknown>> = [];
-      manager.sendSnapshotTo((_k, payload) => {
-        const p = payload as { entries: unknown[] };
-        received.push(...(p.entries as Array<Record<string, unknown>>));
-      });
-      expect(received[0]?.value).toBe(1);
+      manager.registerTarget('node-5', 'scene-e');
+      manager.set('scene_node', 'node-5', 'position.z', true);
+      expect(rows()[0].value).toBe(1);
     });
 
-    it('ignores set with unknown paramPath (no snapshot entry added)', () => {
-      manager.registerTarget('node-unk', 'scene-unk');
-      manager.set('scene_node', 'node-unk', 'does.not.exist', 99);
-      const received: Array<Record<string, unknown>> = [];
-      manager.sendSnapshotTo((_k, payload) => {
-        const p = payload as { entries: unknown[] };
-        received.push(...(p.entries as Array<Record<string, unknown>>));
-      });
-      expect(received).toHaveLength(0);
-      expect(warnSpy).toHaveBeenCalled();
+    it('ignores set with unknown paramPath', () => {
+      manager.registerTarget('node-6', 'scene-f');
+      manager.set('scene_node', 'node-6', 'not.a.real.path', 1);
+      expect(rows()).toHaveLength(0);
     });
 
     it('ignores set with uncoercible value', () => {
-      manager.registerTarget('node-bad', 'scene-bad');
-      // An object cannot be coerced to Float — coerceParamValue returns null.
-      manager.set('scene_node', 'node-bad', 'position.y', {} as unknown as number);
-      const received: Array<Record<string, unknown>> = [];
-      manager.sendSnapshotTo((_k, payload) => {
-        const p = payload as { entries: unknown[] };
-        received.push(...(p.entries as Array<Record<string, unknown>>));
-      });
-      expect(received).toHaveLength(0);
-      expect(warnSpy).toHaveBeenCalled();
+      manager.registerTarget('node-7', 'scene-g');
+      manager.set('scene_node', 'node-7', 'position.x', {});
+      expect(rows()).toHaveLength(0);
     });
 
     it('sets String param with text value', () => {
-      // text.content is a String param for scene_node kinds text_troika/text_canvas
-      // We call it via compose_layer where text.content is also String-typed.
-      manager.registerTarget('layer-s', 'scene-s');
-      manager.set('compose_layer', 'layer-s', 'text.content', 'hello world');
-      const received: Array<Record<string, unknown>> = [];
-      manager.sendSnapshotTo((_k, payload) => {
-        const p = payload as { entries: unknown[] };
-        received.push(...(p.entries as Array<Record<string, unknown>>));
-      });
-      expect(received[0]?.value).toBe('hello world');
+      manager.registerTarget('node-8', 'scene-h');
+      manager.set('scene_node', 'node-8', 'text.content', 'hello');
+      expect(rows()[0].value).toBe('hello');
     });
   });
 
   describe('clear', () => {
-    it('clear with paramPath removes one entry and broadcasts', () => {
-      manager.registerTarget('node-cl1', 'scene-d');
-      manager.set('scene_node', 'node-cl1', 'position.x', 1);
-      manager.set('scene_node', 'node-cl1', 'position.y', 2);
-      broadcasts.length = 0;
+    it('clear with paramPath removes one document', () => {
+      manager.registerTarget('node-9', 'scene-i');
+      manager.set('scene_node', 'node-9', 'position.x', 1);
+      manager.set('scene_node', 'node-9', 'position.y', 2);
 
-      manager.clear('scene_node', 'node-cl1', 'position.x');
+      manager.clear('scene_node', 'node-9', 'position.x');
 
-      expect(broadcasts).toHaveLength(1);
-      expect(broadcasts[0].kind).toBe('runtime_override_clear');
-      expect(broadcasts[0].payload.paramPath).toBe('position.x');
-
-      // position.y still in snapshot.
-      const received: Array<Record<string, unknown>> = [];
-      manager.sendSnapshotTo((_k, payload) => {
-        const p = payload as { entries: unknown[] };
-        received.push(...(p.entries as Array<Record<string, unknown>>));
-      });
-      expect(received).toHaveLength(1);
-      expect(received[0].paramPath).toBe('position.y');
+      expect(rows().map((r) => r.paramPath)).toEqual(['position.y']);
     });
 
-    it('clear without paramPath removes all entries for the target', () => {
-      manager.registerTarget('node-cl2', 'scene-e');
-      manager.set('scene_node', 'node-cl2', 'position.x', 1);
-      manager.set('scene_node', 'node-cl2', 'position.y', 2);
-      broadcasts.length = 0;
+    it('clear without paramPath removes every path for the target', () => {
+      manager.registerTarget('node-10', 'scene-j');
+      manager.set('scene_node', 'node-10', 'position.x', 1);
+      manager.set('scene_node', 'node-10', 'opacity', 0.5);
 
-      manager.clear('scene_node', 'node-cl2');
+      manager.clear('scene_node', 'node-10');
 
-      expect(broadcasts).toHaveLength(1);
-      expect(broadcasts[0].kind).toBe('runtime_override_clear');
-      expect(
-        (broadcasts[0].payload as { paramPath?: unknown }).paramPath
-      ).toBeUndefined();
-
-      const received: Array<Record<string, unknown>> = [];
-      manager.sendSnapshotTo((_k, payload) => {
-        const p = payload as { entries: unknown[] };
-        received.push(...(p.entries as Array<Record<string, unknown>>));
-      });
-      expect(received).toHaveLength(0);
+      // One remove per document — there is no prefix-delete on a replica.
+      expect(rows()).toHaveLength(0);
     });
 
-    it('clear is no-op for unknown targetId (no broadcast)', () => {
-      broadcasts.length = 0;
-      manager.clear('scene_node', 'ghost-id', 'position.x');
-      expect(broadcasts).toHaveLength(0);
+    it('clear leaves other targets alone', () => {
+      manager.registerTarget('node-11', 'scene-k');
+      manager.registerTarget('node-12', 'scene-k');
+      manager.set('scene_node', 'node-11', 'opacity', 0.5);
+      manager.set('scene_node', 'node-12', 'opacity', 0.5);
+
+      manager.clear('scene_node', 'node-11');
+
+      expect(rows().map((r) => r.targetId)).toEqual(['node-12']);
     });
 
-    it('clearAllForTarget removes target from lookup cache', () => {
-      manager.registerTarget('node-ca', 'scene-f');
-      manager.set('scene_node', 'node-ca', 'position.z', 5);
-      broadcasts.length = 0;
+    it('clear is a no-op for an unknown targetId', () => {
+      manager.clear('scene_node', 'never-set');
+      expect(rows()).toHaveLength(0);
+    });
 
-      manager.clearAllForTarget('scene_node', 'node-ca');
+    it('clearAllForTarget removes the documents', () => {
+      manager.registerTarget('node-13', 'scene-l');
+      manager.set('scene_node', 'node-13', 'opacity', 0.5);
 
-      // After clearAllForTarget the snapshot must be empty for this target.
-      const received: Array<Record<string, unknown>> = [];
-      manager.sendSnapshotTo((_k, payload) => {
-        const p = payload as { entries: unknown[] };
-        received.push(...(p.entries as Array<Record<string, unknown>>));
-      });
-      expect(received).toHaveLength(0);
-      // And a clear broadcast should have been emitted.
-      expect(broadcasts.some((b) => b.kind === 'runtime_override_clear')).toBe(true);
+      manager.clearAllForTarget('scene_node', 'node-13');
+
+      // It also drops the tmp-entity registration, so a later set falls back
+      // to the database lookup — not exercised here, which has no DB.
+      expect(rows()).toHaveLength(0);
     });
   });
 
-  describe('forwarder tap', () => {
-    it('invokes the forwarder on set', () => {
-      manager.registerTarget('node-fwd', 'scene-fwd');
-      const ops: Array<{ op: string; payload: Record<string, unknown> }> = [];
-      manager.setOverrideForwarder((op, payload) => ops.push({ op, payload }));
-
-      manager.set('scene_node', 'node-fwd', 'opacity', 0.3);
-
-      expect(ops).toHaveLength(1);
-      expect(ops[0].op).toBe('set');
-      expect(ops[0].payload.paramPath).toBe('opacity');
-    });
-
-    it('invokes the forwarder on clear', () => {
-      manager.registerTarget('node-fwd2', 'scene-fwd2');
-      const ops: Array<{ op: string }> = [];
-      manager.setOverrideForwarder((op, _p) => ops.push({ op }));
-
-      manager.set('scene_node', 'node-fwd2', 'position.x', 1);
-      ops.length = 0;
-      manager.clear('scene_node', 'node-fwd2', 'position.x');
-
-      expect(ops).toHaveLength(1);
-      expect(ops[0].op).toBe('clear');
-    });
-  });
-
-  describe('snapshot is empty when nothing is set', () => {
-    it('sendSnapshotTo on fresh manager emits empty entries array', () => {
-      const received: unknown[] = [];
-      manager.sendSnapshotTo((_k, payload) => {
-        const p = payload as { entries: unknown[] };
-        received.push(...p.entries);
-      });
-      expect(received).toHaveLength(0);
+  describe('no store', () => {
+    it('set and clear are inert when the mesh is not up', () => {
+      resetMeshRuntime();
+      const m = new RuntimeOverrideManager();
+      m.init();
+      m.registerTarget('node-14', 'scene-m');
+      // An override is best-effort: a missing store logs and drops rather than
+      // throwing into a running graph.
+      expect(() => m.set('scene_node', 'node-14', 'opacity', 0.5)).not.toThrow();
+      expect(() => m.clear('scene_node', 'node-14')).not.toThrow();
     });
   });
 });
 
-// ===========================================================================
-// DataChannelManager
-// ===========================================================================
-
 describe('DataChannelManager', () => {
   let manager: DataChannelManager;
-  const { ws, broadcasts } = makeWsStub();
+
+  /** Live fields of a scope, as a plain object. The bus keeps no `_scopes` map
+   *  any more — each field is its own retained document. */
+  const fieldsOf = (scope: string) =>
+    Object.fromEntries(
+      (dataFieldCollection()?.all() ?? [])
+        .filter((d) => d.scope === scope)
+        .map((d) => [d.field, d.value])
+    );
+  const scopes = () =>
+    new Set((dataFieldCollection()?.all() ?? []).map((d) => d.scope));
 
   beforeEach(() => {
+    resetMeshRuntime();
+    initMeshRuntime(
+      createMeshPeer({ identity: { peerId: 'test-peer' }, transports: [] })
+    );
     manager = new DataChannelManager();
-    manager.init(ws);
-    broadcasts.length = 0;
   });
 
   describe('set', () => {
-    it('stores and broadcasts merged fields', () => {
+    it('publishes one document per field', () => {
       manager.set('scope-a', { foo: 'bar', n: 42 });
-      expect(broadcasts).toHaveLength(1);
-      expect(broadcasts[0].kind).toBe('data_channel_set');
-      expect(broadcasts[0].payload.scope).toBe('scope-a');
-      expect((broadcasts[0].payload.fields as { foo: string }).foo).toBe('bar');
+      expect(fieldsOf('scope-a')).toEqual({ foo: 'bar', n: 42 });
     });
 
-    it('merges: second set does not erase first field', () => {
+    it('merges: a second set does not erase the first field', () => {
       manager.set('scope-b', { a: 1 });
       manager.set('scope-b', { b: 2 });
+      // Structural, not defensive: different fields are different documents,
+      // so two producers cannot clobber each other even under LWW.
+      expect(fieldsOf('scope-b')).toEqual({ a: 1, b: 2 });
+    });
 
-      const snap: Array<{ scope: string; fields: Record<string, unknown> }> = [];
-      manager.sendSnapshotTo((_k, p) => {
-        const payload = p as { entries: typeof snap };
-        snap.push(...payload.entries);
-      });
-      const entry = snap.find((e) => e.scope === 'scope-b');
-      expect(entry?.fields).toMatchObject({ a: 1, b: 2 });
+    it('keeps a field label containing a dot intact', () => {
+      // The reason a field is a document rather than a dotted path: labels come
+      // from set_data's input ports and are arbitrary user text.
+      manager.set('scope-dot', { 'user.name': 'ada' });
+      expect(fieldsOf('scope-dot')).toEqual({ 'user.name': 'ada' });
     });
 
     it('set with empty fields is a no-op', () => {
       manager.set('scope-empty', {});
-      expect(broadcasts).toHaveLength(0);
+      expect(scopes().has('scope-empty')).toBe(false);
     });
 
-    it('set normalizes non-string scope to empty string (global)', () => {
-      // Internal _scopeKey trims and defaults non-strings to ''
+    it('normalizes a whitespace scope to global', () => {
       manager.set('  ', { x: 1 });
-      const snap: Array<{ scope: string }> = [];
-      manager.sendSnapshotTo((_k, p) => {
-        const payload = p as { entries: typeof snap };
-        snap.push(...payload.entries);
-      });
-      // trimmed scope '' = global
-      expect(snap.some((e) => e.scope === '')).toBe(true);
+      expect(fieldsOf('')).toEqual({ x: 1 });
     });
   });
 
   describe('seed', () => {
     it('seeds only fields not yet present', () => {
       manager.set('scope-seed', { a: 1 });
-      broadcasts.length = 0;
-
       manager.seed('scope-seed', { a: 99, b: 2 });
-
-      // Only b should be broadcast (a was already present).
-      expect(broadcasts).toHaveLength(1);
-      const fields = broadcasts[0].payload.fields as Record<string, unknown>;
-      expect(fields.b).toBe(2);
-      expect(fields.a).toBeUndefined();
+      expect(fieldsOf('scope-seed')).toEqual({ a: 1, b: 2 });
     });
 
-    it('seed is no-op when all fields already present', () => {
+    it('seed is a no-op when all fields are already present', () => {
       manager.set('scope-seed2', { x: 10 });
-      broadcasts.length = 0;
       manager.seed('scope-seed2', { x: 99 });
-      expect(broadcasts).toHaveLength(0);
+      expect(fieldsOf('scope-seed2')).toEqual({ x: 10 });
     });
   });
 
   describe('clear', () => {
     it('clear single field removes only that field', () => {
       manager.set('scope-c', { a: 1, b: 2 });
-      broadcasts.length = 0;
-
       manager.clear('scope-c', 'a');
-
-      expect(broadcasts).toHaveLength(1);
-      expect(broadcasts[0].kind).toBe('data_channel_clear');
-      expect((broadcasts[0].payload as { field?: string }).field).toBe('a');
-
-      const snap: Array<{ scope: string; fields: Record<string, unknown> }> = [];
-      manager.sendSnapshotTo((_k, p) => {
-        const payload = p as { entries: typeof snap };
-        snap.push(...payload.entries);
-      });
-      const entry = snap.find((e) => e.scope === 'scope-c');
-      expect(entry?.fields.b).toBe(2);
-      expect(entry?.fields.a).toBeUndefined();
+      expect(fieldsOf('scope-c')).toEqual({ b: 2 });
     });
 
-    it('clear entire scope broadcasts without field key', () => {
-      manager.set('scope-drop', { x: 1 });
-      broadcasts.length = 0;
-
+    it('clear without a field removes the whole scope', () => {
+      manager.set('scope-drop', { x: 1, y: 2 });
       manager.clear('scope-drop');
-
-      expect(broadcasts[0].kind).toBe('data_channel_clear');
-      expect((broadcasts[0].payload as { field?: string }).field).toBeUndefined();
+      expect(scopes().has('scope-drop')).toBe(false);
     });
 
-    it('clear unknown scope is a no-op', () => {
-      broadcasts.length = 0;
+    it('clear leaves other scopes alone', () => {
+      manager.set('s1', { a: 1 });
+      manager.set('s2', { b: 2 });
+      manager.clear('s1');
+      expect(fieldsOf('s2')).toEqual({ b: 2 });
+    });
+
+    it('clear of an unknown scope is a no-op', () => {
       manager.clear('no-such-scope');
-      expect(broadcasts).toHaveLength(0);
+      expect(scopes().size).toBe(0);
     });
 
-    it('clear unknown field within known scope is a no-op', () => {
+    it('clear of an unknown field within a known scope is a no-op', () => {
       manager.set('scope-nf', { a: 1 });
-      broadcasts.length = 0;
       manager.clear('scope-nf', 'z');
-      expect(broadcasts).toHaveLength(0);
+      expect(fieldsOf('scope-nf')).toEqual({ a: 1 });
     });
   });
 
   describe('clearAll', () => {
-    it('clears every scope and broadcasts a clear for each', () => {
+    it('clears every scope', () => {
       manager.set('s1', { a: 1 });
       manager.set('s2', { b: 2 });
-      broadcasts.length = 0;
-
       manager.clearAll();
-
-      const kinds = broadcasts.map((b) => b.kind);
-      expect(kinds.every((k) => k === 'data_channel_clear')).toBe(true);
-      expect(broadcasts).toHaveLength(2);
+      expect(scopes().size).toBe(0);
     });
 
-    it('clearAll on empty manager is a no-op', () => {
-      broadcasts.length = 0;
-      manager.clearAll();
-      expect(broadcasts).toHaveLength(0);
+    it('clearAll on an empty bus is a no-op', () => {
+      expect(() => manager.clearAll()).not.toThrow();
+      expect(scopes().size).toBe(0);
     });
   });
 
-  describe('sendSnapshotTo', () => {
-    it('snapshot includes all set scopes and their fields', () => {
-      manager.set('alpha', { key: 'val' });
-      manager.set('beta', { num: 7 });
-
-      const snap: Array<{ scope: string; fields: Record<string, unknown> }> = [];
-      manager.sendSnapshotTo((_k, p) => {
-        const payload = p as { entries: typeof snap };
-        snap.push(...payload.entries);
-      });
-      expect(snap).toHaveLength(2);
-    });
-
-    it('snapshot is sent via data_channel_snapshot message kind', () => {
-      manager.set('z', { v: 1 });
-      let capturedKind = '';
-      manager.sendSnapshotTo((kind, _p) => {
-        capturedKind = kind;
-      });
-      expect(capturedKind).toBe('data_channel_snapshot');
-    });
-  });
-
-  describe('forwarder tap', () => {
-    it('forwarder is called on set', () => {
-      const ops: string[] = [];
-      manager.setDataChannelForwarder((op) => ops.push(op));
-      manager.set('fwd-scope', { a: 1 });
-      expect(ops).toContain('set');
-    });
-
-    it('forwarder is called on clear', () => {
-      const ops: string[] = [];
-      manager.setDataChannelForwarder((op) => ops.push(op));
-      manager.set('fwd2', { a: 1 });
-      ops.length = 0;
-      manager.clear('fwd2');
-      expect(ops).toContain('clear');
+  describe('no store', () => {
+    it('every method is inert when the mesh is not up', () => {
+      resetMeshRuntime();
+      const m = new DataChannelManager();
+      expect(() => m.set('s', { a: 1 })).not.toThrow();
+      expect(() => m.seed('s', { a: 1 })).not.toThrow();
+      expect(() => m.clear('s')).not.toThrow();
+      expect(() => m.clearAll()).not.toThrow();
     });
   });
 });
 
-// ===========================================================================
-// MediaControlManager
-// ===========================================================================
-
 describe('MediaControlManager', () => {
-  it('broadcasts media_control with correct shape', () => {
-    const { ws, broadcasts } = makeWsStub();
-    const manager = new MediaControlManager();
-    manager.init(ws);
+  /** Commands seen by a peer holding the target. The collection is UNRETAINED,
+   *  so this observes rather than reads back a stored value — a command that is
+   *  still readable an hour later would be a command a late joiner replays. */
+  let seen: { targetId: string; command: unknown }[];
 
+  beforeEach(() => {
+    resetMeshRuntime();
+    initMeshRuntime(
+      createMeshPeer({ identity: { peerId: 'test-peer' }, transports: [] })
+    );
+    seen = [];
+    mediaControlCollection()!.observe('**', (c) => {
+      const d = c.doc as { targetId: string; command: unknown } | undefined;
+      if (d) seen.push({ targetId: d.targetId, command: d.command });
+    });
+  });
+
+  it('publishes a command addressed to its target', () => {
+    const manager = new MediaControlManager();
     manager.dispatch('compose_layer', 'layer-123', {
       type: 'play',
     } as import('@vspark/shared').MediaCommand);
 
-    expect(broadcasts).toHaveLength(1);
-    expect(broadcasts[0].kind).toBe('media_control');
-    expect(broadcasts[0].payload.targetKind).toBe('compose_layer');
-    expect(broadcasts[0].payload.targetId).toBe('layer-123');
-    expect((broadcasts[0].payload.command as { type: string }).type).toBe(
-      'play'
-    );
+    expect(seen).toEqual([
+      { targetId: 'layer-123', command: { type: 'play' } },
+    ]);
   });
 
-  it('dispatch is a no-op when targetId is empty string', () => {
-    const { ws, broadcasts } = makeWsStub();
+  it('parents the command to its target', () => {
+    // So a subtree grant on the scene routes it, exactly like the override and
+    // data-field documents on the same entity.
     const manager = new MediaControlManager();
-    manager.init(ws);
+    manager.dispatch('scene_node', 'node-9', {
+      type: 'play',
+    } as import('@vspark/shared').MediaCommand);
+    expect(
+      mediaControlParent({ targetKind: 'scene_node', targetId: 'node-9' })
+    ).toEqual({ rtype: 'scene_node', id: 'node-9' });
+  });
 
+  it('is not replayed to a peer that subscribes later', () => {
+    // The point of the UNRETAINED channel. A subscription snapshot carries
+    // only a collection's retained channel, so `play` an hour ago cannot fire
+    // on a tab that opens now — which is why media commands do NOT live on the
+    // `runtime` channel the overrides and data fields use.
+    expect(mediaControlCollection()!.retainedChannel).toBeUndefined();
+  });
+
+  it('dispatch is a no-op when targetId is an empty string', () => {
+    const manager = new MediaControlManager();
     manager.dispatch('compose_layer', '', {
       type: 'stop',
     } as import('@vspark/shared').MediaCommand);
-
-    expect(broadcasts).toHaveLength(0);
+    expect(seen).toHaveLength(0);
   });
 
-  it('dispatch with no ws initialised does not throw', () => {
+  it('dispatch without a store does not throw', () => {
+    resetMeshRuntime();
     const manager = new MediaControlManager();
-    // ws never set — should not throw.
     expect(() =>
       manager.dispatch('compose_layer', 'x', {
         type: 'pause',
@@ -528,12 +441,9 @@ describe('MediaControlManager', () => {
     ).not.toThrow();
   });
 
-  it('broadcasts different command types without error', () => {
-    const { ws, broadcasts } = makeWsStub();
+  it('delivers every command type, in order', () => {
     const manager = new MediaControlManager();
-    manager.init(ws);
-
-    const commands: import('@vspark/shared').MediaCommand[] = [
+    const commands = [
       { type: 'pause' },
       { type: 'stop' },
       { type: 'restart' },
@@ -541,18 +451,13 @@ describe('MediaControlManager', () => {
       { type: 'mute', muted: true },
     ] as import('@vspark/shared').MediaCommand[];
 
-    for (const cmd of commands) {
-      manager.dispatch('compose_layer', 'tgt', cmd);
-    }
+    for (const cmd of commands) manager.dispatch('compose_layer', 'tgt', cmd);
 
-    expect(broadcasts).toHaveLength(commands.length);
-    expect(broadcasts.every((b) => b.kind === 'media_control')).toBe(true);
+    // Repeated commands to one target are a sequence, not an LWW collapse —
+    // the key is the target, and the channel is unstamped.
+    expect(seen.map((s) => s.command)).toEqual(commands);
   });
 });
-
-// ===========================================================================
-// SpawnManager — unit-testable surface
-// ===========================================================================
 
 describe('SpawnManager.isEphemeralClip', () => {
   it('returns false for an unknown clip id before any spawn', () => {

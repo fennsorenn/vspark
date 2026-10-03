@@ -58,10 +58,14 @@ test('track-clip creation: "+ Add Clip" button creates a clip in UI and backend'
   const compToggle = page.locator('button[title="Show components"]').first();
   await compToggle.click();
 
-  // The ClipsSection renders with a "+ Add Clip" button.
-  const addClipBtn = page.getByRole('button', { name: '+ Add Clip', exact: true });
-  await expect(addClipBtn).toBeVisible({ timeout: 5_000 });
-  await addClipBtn.click();
+  // Clips are created from the merged section's shared "+ Add…" menu.
+  const addBtn = page.locator('.vs-merged-add').first();
+  await expect(addBtn).toBeVisible({ timeout: 5_000 });
+  await addBtn.click();
+  await page
+    .getByText('New clip', { exact: true })
+    .first()
+    .dispatchEvent('click');
 
   // The new clip (default name "Clip") appears in the section.
   // It may share the name "Clip" with the button if the button text changes,

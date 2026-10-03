@@ -1,6 +1,18 @@
 # Plan: Multiplayer — Phase 5 (object share) implementation spec
 
-> Branch: `feature/multiplayer-object-share` · Status: spec (ready to refine into tasks)
+> **Status:** shipped — rendezvous signalling, `ServerMesh`/`BrowserPeerMesh` WebRTC,
+> pairing and the Connections UI all exist and the code cites this file
+> (`backend/src/multiplayer/{manager,mesh,peers,shares,rendezvous_client,identity}.ts`,
+> `frontend/src/components/ConnectionsWindow.tsx`,
+> `frontend/src/hooks/useSharedSubscriptions.ts`,
+> `frontend/src/store/connectionsStore.ts`). Since then the *document* plane of an
+> object share moved onto `@vspark/mesh` (`backend/src/mesh/shares.ts`,
+> `mesh-sync-refactor.md` §9 step D), so the envelope descriptions here are historical;
+> the `_share_stream` live plane is still deliberately direct-WebRTC — see
+> `mesh-sync-refactor.md` §12, which analyses and *declines* migrating it.
+> **Followed by:** [`multiplayer-phase6.md`](./multiplayer-phase6.md) (the write tier).
+
+> *(Historical.)* Branch: `feature/multiplayer-object-share`
 > Companion to [`unified-sync-layer.md`](./unified-sync-layer.md) (Phase 5) and its
 > [diagrams](./unified-sync-layer-diagrams.md). Phase 6 (shared scenes / full sync) is sketched
 > at the end but is a separate, gated effort.

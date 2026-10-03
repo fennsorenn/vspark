@@ -1,10 +1,197 @@
 # Mesh — Replicated Store (@vspark/mesh, @vspark/mesh-react, @vspark/mesh-transports)
 
-**Status:** Core package implemented with 29 vitest tests; three packages (mesh / mesh-react / mesh-transports WS pair) shipped; backend + frontend parallel-run wiring complete; app integration WIP (REST/frontend bindings remaining).
+**Status:** Core package implemented with 29 vitest tests; three packages (mesh / mesh-react / mesh-transports WS pair) shipped; backend hydration + persistence complete; reads fully mesh-fed (`sync/meshStoreFeeder.ts`); writes mesh-authored for every document rtype (see the per-rtype table under [Undo / redo](#undo--redo-per-peer)). See [Remaining](#remaining) for the rest.
+
+> **WIP:** Integration into dev in progress on `feature/mesh-integration` (2026-10-01).
 
 A **schema-agnostic in-memory replicated store** with symmetric read/write API on both frontend and backend, HLC last-write-wins convergence, grant-gated access control, and authority-driven ack lifecycle. No durability in the package itself; durable peers hydrate from persistent store and persist incoming mutations via observe taps. Designed to replace both the legacy sync layer and the entity-aware collab-scene sharing model.
 
-See the design spec in [plans/mesh-sync-refactor.md](../plans/mesh-sync-refactor.md) (§8 defines the interface).
+### Which plan is which
+
+Several plan documents describe this system and they are **not** alternatives —
+they are a chain, and only reading them in order makes the code legible. Each
+plan now opens with a status blockquote (shipped / live / superseded); this table
+is the index into that chain:
+
+| Plan | What it is |
+|---|---|
+| [plans/permissioned-sync-mesh.md](../plans/permissioned-sync-mesh.md) | A **design-alignment** doc, not an execution plan. Its §4 is where the fractional-index ordering rule first appears — as semantics only; the phasing in §6 contains no slice that adopts it, which is why `fracIndex.ts` sat written, unit-tested and *unreachable* (missing from the `@vspark/shared` exports map, the frontend tsconfig paths, and the vite/vitest aliases) until migration 037. Do not read this plan as a record of what was built. |
+| [plans/mesh-sync-refactor.md](../plans/mesh-sync-refactor.md) | The plan that was actually **executed**. §8 defines the interface; the code cites §§8/9/10/11 by name. This is the spec. |
+| [plans/mesh-native-undo.md](../plans/mesh-native-undo.md) | Undo/redo as a peer primitive. |
+| [plans/mesh-drop-legacy-sync-and-undo.md](../plans/mesh-drop-legacy-sync-and-undo.md) → [plans/mesh-frontend-writes.md](../plans/mesh-frontend-writes.md) | Retiring the legacy envelope, then moving UI writes onto the tab peer. |
+
+**Comments claiming a legacy path is deliberate are debt, not design.** Several
+in this area ("kept on purpose", "low value", "smoothing-aware broadcast") turned
+out to describe what nobody got to, and two of them had gone actively wrong when
+the model underneath them changed. Judge a path by whether a mesh-native
+equivalent *exists and is wired* — read the collection registration and the
+feeder — never by what a comment next to it asserts.
+
+## Core principles
+
+**Decided by the user, 2026-08-13.** These are prescriptive: they constrain what
+may be built, and reversing one needs the user's agreement. Everything else in
+this document describes how the code behaves today and may be changed by whoever
+has a reason to.
+
+### 1. Sync the inputs, derive the outputs
+
+Stream only what cannot be computed — external sensor data (mocap pose,
+blendshapes, IK targets). Anything derivable from documents is derived locally,
+on every peer, from the same inputs.
+
+Those three are what is left on the stream path. Everything else that used to
+ride it is gone: the clip playhead (derived from the transport document), and
+the drag preview for a shared object (`node_transform_preview`, which the
+receiver now reads as preview-channel overlays on `scene_node` — the same ones
+a local tab gets).
+
+Worked example: animation clip playback does **not** stream evaluated
+transforms. The clip document and the playback state (`state`, `startEpoch`,
+`speed`) sync; every peer derives the playhead from `startEpoch` against the
+wall clock and evaluates the clip itself. A "peer that can't evaluate" is a peer
+that is missing an input — widen its grant, never reintroduce the stream.
+
+### 2. A document has exactly one truth
+
+Never deliberately different between clients. A document's content is the same
+everywhere, whoever is asking. It may be in flight, or divided across
+documents — it is never per-client.
+
+If a client needs a diverging view, it takes a **local copy**, or writes a
+**local patch document merged at render time**. It does not rewrite the shared
+document's fields for itself.
+
+**Held for scene documents** (migration 040). Mounting used to copy the
+author's tree into the receiver's project and rewrite `project_id` on the way
+in; the feeder then had to re-preserve the local values on every incoming edit,
+so the two rewrites kept each other necessary. Both are gone: a mounted tree is
+stored with its author's `project_id`, and the receiver holds a **peer-owned
+project row** (`projects.owner_peer_id`) so the foreign key holds. The share
+link (`collab_scenes`) carries "this scene is mounted into that project", which
+is where a per-peer relationship belongs — beside the documents, not inside
+them.
+
+Consequences worth knowing:
+
+- "Everything with my project id" no longer finds a mounted scene, so the scene
+  bundle unions own scenes with the links, and the feeder adopts a node when its
+  SCENE is one we hold rather than when its project matches.
+- Peer-owned projects are excluded from the project list. They are places to
+  keep documents, not places to author.
+- `persists` for `scene_node` can no longer be "does a projects row exist" —
+  peer rows exist now. It is "our own project, or a collab scene we keep", so a
+  placed-object projection still stays replica-only.
+
+### 3. Mounting is rendering, not merging
+
+A shared tree stays whole and unmodified — the owner's ids, the owner's parent
+links. It is **not** spliced into the receiver's tree. The receiver's tree holds
+a share container node, and the renderer walks into the foreign tree at that
+point. Two trees, joined at display time.
+
+The mesh transports trees; it does not merge them.
+
+**Scope: placed objects, not collab scenes.** `sync/sharedProjection.ts`
+implements this — a receiver-owned `remote_object` container carrying
+`components.remoteRef`, with the owner's subtree projected under it, dropped and
+restocked on (re)subscribe.
+
+> **Decided by the user, 2026-08-15:** collab scenes deliberately do NOT take
+> this shape. Migration 031 states the distinction outright — object sharing is a
+> read-only ephemeral projection, while a collab scene is "a real, persisted,
+> editable scene in EACH peer's project", backed by a mutual RUCD grant on the
+> scene subtree (`mesh/collab.ts`). Giving them a container node would either
+> nest a peer's scene inside one of yours instead of opening it, or — in the
+> version that matches the placed-object path exactly — remove co-editing
+> altogether. Neither is wanted, so the container is not coming to mounted
+> scenes.
+
+This principle no longer carries principle 2, which is the job it was originally
+written for. The field rewriting existed to force a foreign tree into the local
+one; that rewriting is gone (see principle 2 above), and it went without the
+container, because what principle 2 needed was for the documents to stop being
+edited on the way in — not for the trees to be joined at a node.
+
+### 4. A mount is not a reconnect
+
+Two distinct operations, and they must not be inferred from each other:
+
+- **Reconnect** — peers with shared history, comparable clocks. Reconcile
+  normally through last-write-wins.
+- **Mount** — no shared history with the incoming scene. The mount records its
+  own timestamp as **local metadata on the share**, and reconciliation compares
+  against `max(document write stamp, mount stamp)`.
+
+Without this, mounting a scene whose ids you once deleted lets your tombstones
+out-stamp the author's live documents: the mount lands empty, and the mutual
+subscription then propagates those tombstones back and deletes the author's
+scene.
+
+**The mount stamp goes on the share, never on the document.** Re-stamping the
+incoming documents would work, and it would violate principle 2 — the same
+document would carry a different stamp on the receiver than on its author. Two
+things follow from keeping it beside the document instead:
+
+- Nothing can leak back to the author. The document is untouched, so there are
+  no receiver-authored stamps to re-publish and no way for the receiver to
+  appear as the author of the owner's scene (which would put it on the wrong
+  undo stack). This is structural, not a rule to remember.
+- It expires by itself. Once a document's own write stamp passes the mount
+  stamp, `max` is the write stamp and ordinary LWW resumes — no flag to clear,
+  no state to go stale.
+
+The mount must still be an **explicit act** rather than inferred from "we hold
+no state for this": a dropped socket and a fresh mount look alike at the
+transport level.
+
+**Implemented** (`MeshPeer.mount(rootId, v?)` / `unmount(rootId)`, and
+`collab_scenes.mounted_at`, migration 039). `Collection.applyOp` raises an
+incoming op's stamp to the mount stamp when the document is in a mounted scope,
+so it lands on the way IN only — what the peer relays onward still carries the
+origin's stamp, which is what keeps the document itself unstamped by us.
+
+Two details worth knowing before touching it:
+
+- The scope is resolved from the containment index **and from the parent the
+  incoming document declares**. The index alone is not enough, and not as an
+  edge case: the receiver deleted this subtree, so the index forgetting it is
+  exactly what happened. A document that arrives has to be placed by what it
+  says about itself.
+- Re-mounting moves the stamp forward, deliberately. Deleting a mounted scene
+  and mounting it again is two acts, and the second one is a request for the
+  tree to come back.
+
+### 5. The REST API stays — it writes THROUGH the mesh
+
+Migrating a write off REST means changing what the endpoint does, never deleting
+it. `/api` is a **public surface for outside services** (stream tooling,
+automation, integrations), and it keeps working regardless of what the editor UI
+does.
+
+So a migrated endpoint becomes a thin adapter: validate, then write the
+collection, exactly as a tab would. It does not touch SQLite directly and does
+not broadcast its own WS message — persistence and fan-out both fall out of the
+mesh write.
+
+The one thing an external caller does not get is undo, and that is correct
+rather than a gap: a REST write is authored by the SERVER, so it lands on no
+peer's undo stack. Undo belongs to the peer that made the edit, and an HTTP
+client is not one.
+
+What DOES get deleted is the bespoke machinery beside the mesh — in-memory state
+that duplicates a collection, WS kinds that re-send what the mesh already fanned
+out, and snapshot-on-connect handlers that reimplement retention.
+
+### 6. Seed at create
+
+"Set this only if nobody has set it" is a read-then-write, and last-write-wins
+cannot protect the gap between the read and the write — two peers can both
+observe "absent" and both write. So defaults are written **when the document is
+created**, where there is no gap.
+
+If a field must be backfilled onto documents created before it existed, that is
+an ordinary update, and it gets a **single owning writer** so there is no race.
 
 ## Architecture overview
 
@@ -40,7 +227,7 @@ All subscribe to the replica via `useSyncExternalStore` and auto-unsubscribe on 
 
 **Subscribing to ephemeral auto-includes retained.** Opting out of model updates is never the intent — preview subscribers always also get the base state.
 
-**Channels are delivery semantics, not data layers.** A channel declares transport reliability, HLC stamping, retention, and ack requirements. Composition of multiple sources driving one value (e.g., base / clip-override / runtime-override) happens via app-level conventions on sub-paths with a shared deterministic resolver, not via channels.
+**Channels are delivery semantics, not data layers.** A channel declares transport reliability, HLC stamping, retention, and ack requirements. Composition of multiple sources driving one value (e.g., base / clip-override / runtime-override) happens via app-level conventions on sub-paths with a shared deterministic resolver, not via channels. But the channel a write arrived on *is* the authoritative statement of what the write means — see [Committed vs preview](#committed-vs-preview--the-channel-is-the-discriminator).
 
 **At most one ack authority per collection**, gated while reachable, with three-outcome acks:
 - `acked` — applied + persisted by authority.
@@ -105,6 +292,105 @@ collection.onCommitted(callback): Unsubscribe
 collection.canWrite(): boolean  // false while ack authority is known down
 ```
 
+## Undo / redo (per peer)
+
+Undo/redo is a **first-class primitive of the peer** (`MeshPeer`, in
+`packages/mesh/src/peer.ts`), so any client that mutates through the mesh gets
+it for free, collaboration-safe by construction.
+
+- **Logging.** In `localWrite`, every committed (retained-channel, non-hydrate)
+  write this peer *authors* pushes a `{ rtype, id, op, before, after }` entry —
+  `before`/`after` read from the replica (`raw(id)`, overlay-free) around the
+  apply. **Preview/ephemeral writes are never logged**: the commit is the action
+  boundary, so gizmo-drag coalescing is a non-issue. Remote-authority writes are
+  logged only once the authority confirms (acked / corrected value); a rejected
+  or timed-out optimistic write leaves no entry. Depth-capped (default 100).
+- **Opting out.** `WriteOpts.undo: false` keeps a committed write off the stack.
+  It suppresses the entry only — the write applies, replicates, persists and acks
+  like any other. For changes that are not document edits: **Decided:** transport
+  controls (play / pause / stop, and scrub-release) pass `undo: false`, because
+  otherwise pressing Play makes the next Ctrl+Z un-pause rather than undo the
+  user's last edit.
+
+  Sharp edge worth knowing before using it on a doc users also edit: the guarded
+  policy skips an inverse when the doc changed since the entry was logged, and it
+  compares values — so it cannot tell a collaborator's edit from a non-undoable
+  one. An `undo: false` write therefore **guards the doc against its own earlier
+  entries**, and an undo that would otherwise apply is skipped. That is the
+  conservative direction (skip rather than clobber), and transport state does not
+  hit it because it lives in its own collection with no undoable writes. Pinned
+  by "SHARP EDGE: an opted-out write blocks a later undo of the same doc" in
+  `packages/mesh/test/undo.test.ts`.
+- **Replay.** `peer.undo()` re-emits the inverse as a fresh committed write
+  (`created→remove`, `removed`/`modified`→restore prior doc); `redo()` re-applies
+  the forward direction. Because the inverse is a normal write, propagation,
+  persistence, and LWW convergence all fall out of the standard path — no bespoke
+  protocol. A new committed write clears redo.
+- **Per-peer stacks.** Undo only ever replays *this peer's* own actions (the
+  agent loopback peer, once it exists, has its own stack).
+- **Grouping (`peer.batch`).** `batch(fn)` groups every committed write `fn`
+  *issues* into one `UndoGroup`, undone and redone as a unit; a write outside a
+  batch is its own group of one, and nested batches join the outer one. Two
+  properties matter and are easy to break:
+  - **Membership is bound at ISSUE time, not at log time.** With a remote
+    authority the entry is only pushed on ack, by which point the batch has long
+    since closed — so `localWrite` captures `this.currentGroup` alongside the
+    pending ack (`peer.ts`, `undoGroup`). The consequence for callers: **issue
+    every write inside the batch and await the acks afterwards.** Awaiting one
+    write's ack before issuing the next puts them in different actions. See
+    `commitPromoteLayerToNode` in `frontend/src/mesh/layerWrites.ts`, which
+    creates the 3D node and removes the 2D layer in one `meshBatch` for exactly
+    this reason — grouped wrongly, undo leaves the node behind while the layer
+    returns, a state the user never authored.
+  - **A group reaches the stack on its first CONFIRMED write** (`pushUndo`), so a
+    batch whose writes are all rejected leaves no action behind, and later
+    confirmations append to the group already placed. Undo is all-or-nothing
+    across the group and replays entries in reverse issue order (children were
+    removed before their parent, so the parent must come back first).
+- **Concurrency policy** (`MeshPeerConfig.undo.policy`): `guarded` (default)
+  skips an inverse when the doc's current committed value diverged from what this
+  peer left it at (a collaborator edited it since); `naive` is last-writer-wins.
+- **API:** `undo()`, `redo()`, `canUndo()`, `canRedo()`, `undoStatus()`,
+  `clearUndoHistory()`, `onUndoChange(cb)`. Test matrix in
+  `packages/mesh/test/undo.test.ts`. Design:
+  [plans/mesh-native-undo.md](../plans/mesh-native-undo.md).
+
+**Who authors decides who can undo.** Undo logs on the peer that *authors* the
+committed write, and nowhere else. A UI write that travels over REST is authored
+by the **server** peer — it lands on the backend's process-global stack (shared
+across every tab) and on nobody's tab stack, so the user cannot undo it. This is
+the single reason the write migration matters beyond tidiness.
+
+Current state, per rtype:
+
+| rtype | UI write path | Undoable in the tab |
+|---|---|---|
+| `scene_node` | tab peer (`frontend/src/mesh/writes.ts`) | yes |
+| `compose_layer` | tab peer (`frontend/src/mesh/layerWrites.ts`) | yes |
+| `behavior` | tab peer (`frontend/src/mesh/behaviorWrites.ts`) | yes |
+| `camera_effect` | tab peer (`frontend/src/mesh/effectWrites.ts`) | yes |
+| `track_clip` | tab peer (`frontend/src/mesh/clipWrites.ts`, per element) | yes |
+| `logic` | tab peer (`frontend/src/mesh/logicWrites.ts`) | yes |
+| `clip_playback` | tab peer (`frontend/src/mesh/playbackWrites.ts`), `undo: false` | no — deliberately; transport is a view action, not a document edit |
+
+The fallback ladder in `writes.ts` drops a *mesh-eligible* write back to REST
+when the doc is owner-authoritative (a Phase-6 projection), the tab peer isn't
+armed / the authority is offline (`canWrite()`), or the replica doesn't hold the
+doc. A write that took the fallback is likewise not undoable — by design, since
+the tab never authored it.
+
+Frontend plumbing (`meshUndo` / `meshRedo` / `meshBatch` / `onMeshUndoChange` in
+`frontend/src/mesh/peer.ts`, keybindings, TopBar buttons, i18n, help) is in place
+and lights up per write path as it migrates. A dedicated **agent loopback peer**
+for assistant undo is not yet built.
+
+**Commit granularity is a UI decision, and it is part of the undo model.** Every
+committed write is one undo step, so a control that commits per keystroke makes
+undo useless. `frontend/src/hooks/useMeshField.ts` owns that split for bound
+controls (`onChange` previews locally, `onBlur` commits once; `set()` for
+discrete controls that have no gesture); call the imperative helpers directly
+only from call sites that can't obey hook rules.
+
 ## Channel mechanics
 
 Channels are declared when creating the collection:
@@ -148,6 +434,88 @@ validate?: (data: unknown, originId?: string) => T   // packages/mesh/src/collec
 `Collection.validateDoc(data, originId?)` forwards it. `MeshPeer` (`packages/mesh/src/peer.ts`) threads the origin through every apply path: `this.id` for local writes, `env.origin` for remote ops, and `senderId` for snapshots. The peer also exposes a peer-clock API `toLocalTime(originId, t)` that maps a timestamp authored on `originId`'s clock onto the local clock (identity when `originId` is this peer, since local writes are already local).
 
 First use: the `scheduled_animation` collection's `validate` rewrites `startEpoch` via `peer.toLocalTime(originId, startEpoch)` so a timeline authored on one peer activates at the same wall-clock instant everywhere (see [animation.md](animation.md)). The clock is a synchronized-clocks stub today, so the translation is numerically a no-op, but the mechanism and call sites are final.
+
+## Committed vs preview — the channel is the discriminator
+
+Every user-visible edit exists in two forms and they ride two different channels.
+Getting the split right is what makes gestures smooth *and* keeps a cold page
+load from animating.
+
+| | `committed` | `preview` |
+|---|---|---|
+| transport / stamping | reliable, HLC-stamped | lossy, unstamped |
+| replica | retained: stored, snapshotted, tombstoned | per-key **overlay** composed over the retained doc |
+| authority | guarded — ack / correct / nack | ungated, always flows |
+| durability | persisted by the backend `onCommitted` tap | never persisted |
+| undo | one entry on the authoring peer | never logged |
+| meaning | model state | an in-flight gesture |
+
+**The channel is the discriminator — do not re-derive intent from the payload.**
+`Replica.get()` composes overlays over the retained doc, and the change handed to
+`observe()` carries its `op` and `channel`. So in
+`frontend/src/sync/meshStoreFeeder.ts` an `op === 'ephemeral'` change *is* an
+in-flight gesture by construction and is routed into the tween
+(`smoothComposeLayer`), while a retained op is model state and is applied
+directly. Two things fall out of that for free:
+
+- **A cold page load cannot animate.** Snapshots only carry retained channels
+  (`Replica`/`peer.ts` skip collections with no retained channel on both the send
+  and apply side), so nothing arriving at mount can be mistaken for a gesture and
+  tween in from wherever the store happened to sit.
+- **Mid-gesture the committed value retargets the running tween** rather than
+  snapping, because the preview channel is lossy and the last preview frame may
+  never have landed (`hasLayerTween` branch in the feeder).
+
+**Overlays are cleared by the committed write itself.** A retained upsert deletes
+the doc's overlay map (`Replica.upsert` → `overlays.delete(id)`), so a gesture
+needs no explicit "clear preview" message: committing ends it.
+
+### One overlay per field
+
+An ephemeral write with an **empty path is a ROOT overlay**: `Replica.ephemeral`
+clears every per-path overlay for that id and the composed read then returns the
+root value *instead of* the retained doc — not merged with it. So a pathless
+preview of `{x: 400}` composes to a doc that is only `{x: 400}`, losing the `id`
+and everything else with it.
+
+Therefore: **write previews one overlay per field**, as
+`previewLayerFields` does —
+
+```ts
+for (const [field, value] of Object.entries(patch))
+  col.set(id, field, value, { channel: 'preview' });
+```
+
+The root form is only correct when the whole document really is the unit being
+previewed (a pure-stream collection like `node_stream`, where each frame replaces
+the last).
+
+## Structural writes — a subtree delete must remove descendants explicitly
+
+Deleting a document that has children is **not** one write. The helpers in
+`frontend/src/mesh/writes.ts` walk the containment index and issue a remove for
+every descendant, each before its own parent, inside one `meshBatch`:
+
+```ts
+const acks = meshBatch(() => [
+  ...descendantsBottomUp(adapter, id).map((d) => col.remove(d.id).ack),
+  col.remove(id).ack,
+]);
+await Promise.all(acks);
+```
+
+Leaving the children to the server's SQL foreign-key cascade **looks** correct —
+the rows do disappear — but only the root gets a `col.remove`, so only the root
+gets a tombstone and only the root gets an undo entry. Undo would then restore a
+parent whose children are gone from the database for good, and gone from every
+other peer's replica with no tombstone to explain it. The same rule covers the
+"delete but keep children" variant (`commitDocDeleteKeepChildren`): reparent the
+children, then remove the doc, all in one batch so the reparents don't unwind
+separately.
+
+Ordering matters in both directions: depth-first preorder puts a parent ahead of
+its descendants, so *reversing* it gives the bottom-up removal order, and undo —
+which replays a group in reverse — restores parents first.
 
 ## Data shapes
 
@@ -216,59 +584,119 @@ nodes.onCommitted(({ op, id, doc, v }) => {
 });
 ```
 
-All collections are wired identically (`scene_node`, `behavior`, `camera_effect`, `compose_layer`, `track_clip`, `scheduled_animation`). A generic `(rtype, id, hlc)` tombstone table replaces the legacy `collab_tombstones`; tombstones are GC'd by age (offline peer may resurrect a deletion — accepted policy).
+All collections are wired identically (`scene_node`, `behavior`, `camera_effect`, `compose_layer`, `track_clip`, `animation_clip`, `scheduled_animation`). A generic `(rtype, id, hlc)` tombstone table replaces the legacy `collab_tombstones`; tombstones are GC'd by age (offline peer may resurrect a deletion — accepted policy).
 
-## Frontend parallel-run wiring
+## Frontend wiring
 
-Location: `packages/frontend/src/mesh/peer.ts`.
+Location: `packages/frontend/src/mesh/peer.ts` — one peer per tab, created once by
+`initMeshPeer()` (idempotent; started from both `Editor.tsx` and `ViewerPage.tsx`,
+since both render live state). It registers a collection per rtype in `RTYPES`
+(`scene_node`, `behavior`, `camera_effect`, `compose_layer`, `track_clip`,
+`animation_clip`, `scheduled_animation`) with `authority: serverPeerId`, and the
+containment schema from `PARENTS` in the same file.
 
-**Per-tab peer (mounted from Editor.tsx):**
-```ts
-const peer = useMemo(() => createMeshPeer({
-  identity: { peerId: sessionStorage.peerId ||= uuid(), displayName },
-  transports: [new WsBackendTransport(WebSocket, '/mesh')],
-  containment: ...,  // schema from PARENTS
-}), []);
-```
+**Participant ID:** `${serverPeerId}#${tabUuid}` (stable across reloads via
+sessionStorage), so HLC origins and grants stay consistent per tab.
 
-**Participant ID:** `${serverPeerId}#${tabUuid}` (stable across reconnects via sessionStorage).
-
-**Auto-subscription re-arming:** subscriptions are re-opened automatically on transport reconnect.
+**Auto-subscription re-arming:** the peer marks outgoing subscriptions stale on
+disconnect and they do not auto-renew, so `armSubscriptions()` re-subscribes every
+rtype (`entityId: '*'`) on each `onStatus` transition back to connected.
 
 **Vite proxy:** `/mesh` route proxied to backend during dev.
 
-**Current UI state:** Zustand `editorStore`, not mesh-react bindings (transition in progress).
+**Reads** are mesh-fed but not yet mesh-*bound*: `sync/meshStoreFeeder.ts` mirrors
+the replica into Zustand `editorStore` and components read the store. Moving
+components onto `@vspark/mesh-react` hooks is still open.
+
+**Writes** go through `mesh/writes.ts` / `mesh/layerWrites.ts` for `scene_node`
+and `compose_layer`; everything else is still REST. See the Undo/redo table for
+what that costs.
 
 ## Extending: adding a new synced rtype
 
+**Every step is load-bearing, and a missed one fails SILENTLY** — this is the
+`fracIndex` failure mode: a module with passing unit tests that nothing can
+reach. The list below was re-derived by adding `clip_playback` end to end;
+the previous version of this section named three steps that do not exist
+(`load`/`save`/`remove` on `BINDINGS`, a per-table `syncV` column, manual
+hydration) and omitted three that do.
+
+Two failures worth knowing in advance, because neither announces itself:
+
+- An rtype registered on only ONE peer: the receiving side drops the op and
+  sends no ack, so the write reverts ~4s later with nothing logged.
+- A collection missing from the frontend list: the feeder throws on
+  `.observe`, catches it into a console warning, and **every other observer
+  stops being registered too**. The tab goes quiet, not red.
+
 ### Backend
 
-1. Add a row to the `BINDINGS` schema in `packages/backend/src/mesh/index.ts`:
-   ```ts
-   {
-     rtype: 'my_entity',
-     parent: (doc) => ({ rtype: 'scene', id: doc.sceneId }),
-     load: async (id) => db.getMyEntity(id),
-     save: async (doc, v) => db.saveMyEntity(doc, v),
-     remove: async (id) => db.deleteMyEntity(id),
-   }
-   ```
+1. **Migration** — a `.sql` file in `packages/backend/src/db/migrations/`, then
+   `node packages/backend/scripts/buildMigrations.mjs` for its `.ts` mirror.
+2. **Register the migration** in the `MIGRATIONS` array in
+   `packages/backend/src/db/index.ts` (import + list entry). Easy to miss: the
+   generated mirror existing is not the same as it running.
+3. **Resource descriptor** — `defineResource({ rtype, cls: 'document', load,
+   save, remove })` in `packages/backend/src/sync/resources.ts`. This is where
+   row ⇄ DTO mapping lives (snake_case ⇄ camelCase). Persistence, hydration and
+   tombstone rehydration are all driven from it; `bindCollection` returns early
+   without one, leaving a replicate-only collection.
+4. **Binding** — a row in `BINDINGS` in `packages/backend/src/mesh/index.ts`:
+   `rtype`, `table`, `parent`, optional `validate` / `guard`, and `persists`
+   (which gates SQLite only — a doc that fails it still fans out to every
+   replica).
 
-2. Migrate the database: add `syncV` column to the entity table (or a generic `(rtype, id, hlc)` version table), add tombstone retention.
-
-3. Add hydration in the boot sequence (same pattern as scene_node above).
-
-4. Add a persistence tap (same pattern as scene_node above).
+   `validate` vs `guard`, which is easy to get wrong: **`validate` only runs on
+   whole-doc writes.** A dotted-path write is a `patch` op, and patches pass
+   through unvalidated — the hook is never called, so a check placed there is
+   silently skipped by exactly the writes a UI makes most (`set(id, 'field',
+   v)`). `validate` is for transforming an incoming doc (localizing a
+   peer-relative timestamp, say); it can also reject by throwing. `guard` runs
+   in the persistence tap on the COMPOSED doc, so it sees every write shape;
+   throwing there nacks the write and restores the author's pre-write state.
+   Anything that must hold regardless of how the write was shaped belongs in
+   `guard` (`logic` validates its descriptor there).
 
 ### Frontend
 
-1. Add to `PARENTS` in `packages/frontend/src/mesh/bindings.ts` (containment schema).
+5. **`RTYPES`** in `packages/frontend/src/mesh/peer.ts` — creates the collection
+   and subscribes to it.
+6. **`PARENTS`** in the same file. It must match the backend `parent` **exactly**;
+   the two containment indexes diverge with no error otherwise.
+7. **Store slice** — state + actions in
+   `packages/frontend/src/store/editorStore.ts`.
+8. **Feeder observer** — `packages/frontend/src/sync/meshStoreFeeder.ts`,
+   mirroring the replica into that slice. Handle `remove` explicitly, and decide
+   whether `ephemeral` ops mean anything for this rtype.
+9. **Writes** — a `MeshDocAdapter` in `packages/frontend/src/mesh/writes.ts`
+   (or a sibling like `layerWrites.ts`) rather than REST calls, so the write is
+   authored by the tab and lands on its undo stack.
 
-2. Add to `RTYPES` (registered in the frontend peer at creation).
+### Three constraints on the doc shape
 
-3. Bind reads: dispatch from `useMeshDoc` / `useMeshSubtree` / `useMeshValue` where the UI currently reads from Zustand.
+- **A list of things is a keyed map, never an array.** An array field is ONE
+  path, so two peers editing different elements write the same path and LWW
+  throws one edit away whole. Key by id and each element is its own path
+  (`lanes.<laneId>.keyframes.<kfId>`). See `@vspark/shared/idMap` for the read
+  helpers and the two consequences: a deleted element is present as `null`
+  (`set` writes a key, it cannot remove one), and a map has no order, so order
+  must come from the data (`t`) or a field (a fractional index). Persistence
+  writes rows for the live elements only, so tombstones never reach SQLite.
+- **Ids are globally unique across rtypes.** The `ContainmentIndex`
+  (`packages/shared/src/containment.ts`) keys by id alone, so a doc must not
+  reuse its parent's id — carry the parent as a field instead. `clip_playback`
+  has its own uuid plus a `clipId`, precisely for this.
+- **Nothing in `packages/shared` needs changing.** `SyncEnvelope.rtype` is a
+  free-form string; there is no rtype union or zod schema to extend. Nor is
+  `backend/src/sync/containmentIndex.ts` a registration point — that index
+  serves the legacy object-share code, and `MeshPeer` keeps its own private one.
 
-4. Bind writes: replace Zustand mutations with `collection.create` / `collection.update` / `collection.remove` calls.
+### Gate it
+
+Add a backend test asserting `getMeshCollection('<rtype>')` is defined after
+init, that a committed write reaches SQLite, and that the containment parent is
+what you intended — see `packages/backend/test/mesh.clipPlayback.test.ts`. Those
+three catch every wiring break above; behaviour tests do not.
 
 ## Integration roadmap
 
@@ -298,13 +726,14 @@ const peer = useMemo(() => createMeshPeer({
 - **Werift stale-slot reconnect wedge — FIXED, verified 4/4.** `ServerMesh.onSignal` tears down a connected slot when that peer sends a fresh offer (a live peer never re-dials), then answers. See [plans/mesh-sync-refactor.md §9](../plans/mesh-sync-refactor.md).
 
 - **REST write-through — DONE, verified live (commits 768ea2d, bfa3839, 27be0b2, 86a6e8c):** all five mutation rtypes (behaviors, camera-effects, scene-nodes, compose-layers, track-clips) now call `collection.set(id, '', dto)` / `collection.remove(id)` in their REST routes. Routes keep all validation, ordering, and side effects, and build the canonical camelCase DTO before writing. The `onCommitted` tap persists via the resource registry (`sync/resources.ts` `save`/`remove`) and emits `sync.document.upsert/remove` for legacy tabs. Direct SQL writes and route-side `sync.document` emissions are deleted — one write path, one HLC stamp. Track clips are a single aggregate doc: routes mutate the replica DTO in memory (lanes/keyframes/events) and `set` the whole doc; the save is delete-then-reinsert with `created_at` falling back DTO → prior row → now (86a6e8c). Bug fixes shipped: behavior PUT previously emitted no sync event; behavior `sortOrder` now rides the DTO; scene-node collab `validate` fires only for foreign docs (projectId differs from the collab link) so local model swaps on collab-author scenes are not reverted; lane routes 404 on unknown clip/lane instead of FK 500s. Replica docs lack DB-generated created/updated timestamps (display-only; the tap's sync envelopes re-load the row so legacy tabs get them). The legacy bridge's remaining job is read-side compatibility only (template bulk creation and any remaining `sync.document` callers still mirror into the mesh via the bridge).
-- Frontend behavior sync binding (`packages/frontend/src/sync/resources.ts`) — fixed (09cca24): remote updates are now applied instead of being skipped when the id already exists in the store (the recurring add-dedupes-then-drops-updates class noted in §8.8).
+- Frontend behavior sync binding — fixed (09cca24): remote updates were being skipped when the id already existed in the store (the recurring add-dedupes-then-drops-updates class noted in §8.8). *Historical:* the file it lived in, `packages/frontend/src/sync/resources.ts`, has since been deleted along with the rest of the `'sync'`-envelope bindings.
 
-- **Frontend mesh store feeder — slices 1–3 DONE, verified browser-live** (commits 0d21329, c4e4f04, a0d4da0; 5/5 then 6/6 with Playwright across live tabs):
-  - `packages/frontend/src/sync/meshStoreFeeder.ts` (new) — observes each collection via `collection.observe('**')` and writes changes into the editorStore's synced slices. Migrated rtypes: `behavior`, `camera_effect`, `compose_layer` (incl. the `compose_scene` kind branch), `track_clip`. Their legacy `'sync'`-envelope bindings removed from `sync/resources.ts`. The replica does HLC LWW internally so the client-side stale-drop (`lastVersion`) is obsolete for these rtypes. Foreign docs riding placed-object subscriptions are filtered by the parent node's `remote` flag (projections stay inert).
-  - ViewerPage now starts the mesh peer + feeder alongside the editor, since it renders the same live state.
-  - The migration re-points the store's TRANSPORT (envelope → replica observation); component reads of the Zustand store and REST-based writes are unchanged (component reads → mesh-react hooks + writes → `collection.set` remain open).
-- **Compose containment scope DONE** (a0d4da0): top-level compose layers anchor to their compose scene via `rootComposeSceneId` (scene_node-style fallback) in both backend BINDINGS (`packages/backend/src/mesh/index.ts`) and frontend PARENTS (`packages/frontend/src/mesh/bindings.ts`). Closes the 'compose layers need a containment scope' deferred item from §9 status; compose subtrees are now correctly grant-routed.
+- **Frontend mesh store feeder — ALL document rtypes DONE, verified browser-live** (commits 0d21329, c4e4f04, a0d4da0, ed47972; 5/5 then 6/6 with Playwright across live tabs):
+  - `packages/frontend/src/sync/meshStoreFeeder.ts` (new) — observes each collection via `collection.observe('**')` and writes changes into the editorStore's synced slices: `scene_node`, `behavior`, `camera_effect`, `compose_layer` (incl. the `compose_scene` kind branch) and `track_clip`. The whole `'sync'`-envelope bindings file (`sync/resources.ts`) is deleted; no tab reads the envelope. The replica does HLC LWW internally, so `observe()` only ever fires for applied changes and the client-side stale-drop (`lastVersion`) is obsolete.
+  - Foreign docs riding placed-object subscriptions are filtered by the parent node's `remote` flag (projections stay inert and remain owned by `sync/meshProjection.ts`).
+  - ViewerPage starts the mesh peer + feeder alongside the editor, since it renders the same live state.
+  - The migration re-points the store's TRANSPORT (envelope → replica observation); components still read the Zustand store (mesh-react hooks remain open). Its file header still says "Smoothing-sensitive patches … still ride their dedicated /ws messages" — true at the time for `node_transform_preview` and `node_updated`, **stale for `compose_layer_preview`**, which now rides the mesh `preview` channel a few lines below. (`node_transform_preview` has since been deleted outright.)
+- **Compose containment scope DONE** (a0d4da0): top-level compose layers anchor to their compose scene via `rootComposeSceneId` (scene_node-style fallback) in both backend BINDINGS (`packages/backend/src/mesh/index.ts`) and frontend PARENTS (`packages/frontend/src/mesh/peer.ts`). Closes the 'compose layers need a containment scope' deferred item from §9 status; compose subtrees are now correctly grant-routed.
   - See [plans/mesh-sync-refactor.md §11](../plans/mesh-sync-refactor.md) for the full slice spec and verification log.
 
 - **Mid-session mesh asset transfer — DONE, verified 4/4** (commits c756b77 + two fixes). Closes the model-swap/first-assign gap for both the COLLAB and PLACE paths.
@@ -316,11 +745,140 @@ const peer = useMemo(() => createMeshPeer({
   - Covers both mid-session **model swap** (a node that had a previous model gets a new one) and **first assignment** (a node that had no model receives its first). Nodes present at mount time still localize via the existing snapshot path (`persistCollabAssets`); `assets.ts` is the live mid-session complement.
   - Frontend handler: `mp_shared_assets` case in `packages/frontend/src/hooks/useWsSync.ts`.
 
+- **Frontend writes, `scene_node` + `compose_layer` — DONE.** UI edits, creates,
+  deletes, reparents and compose sibling ordering are authored by the **tab**
+  peer: `frontend/src/mesh/writes.ts` (generic over rtype via `MeshDocAdapter`)
+  plus the compose-specific half in `mesh/layerWrites.ts`, bound to controls
+  through `hooks/useMeshField.ts`. Dotted-path writes are native, so an edit
+  stamps exactly its own path and two clients editing different fields of one doc
+  no longer clobber each other the way the whole-doc REST `PUT` did. REST survives
+  only as the fallback ladder. Compose-layer **drag previews** ride the mesh
+  `preview` channel, replacing the bespoke `compose_layer_preview` WS kind.
+- **Sibling ordering — DONE (compose layers).** Order is a string fractional
+  `orderKey` (`packages/shared/src/fracIndex.ts`, migration 037); sort
+  `(orderKey, id)` ascending = back-to-front, per sibling set scoped to
+  `(rootComposeSceneId, parentId)`. This is a convergence property, not a UI
+  detail: a move writes ONE row, so concurrent moves commute under LWW. The
+  integer scheme it replaced renumbered every sibling per drag, which LWW merged
+  into a stack neither peer asked for.
+
+### Runtime state: the `runtime` channel
+
+Graph-driven param overrides and published data fields are **state**, not
+events, and they never touch SQLite. They live on a channel of their own
+(`packages/backend/src/mesh/runtime.ts`):
+
+```
+runtime : reliable, stamped, retained, NO ack
+```
+
+Both halves are load-bearing:
+
+- **retained** — a tab that connects an hour later must see the current
+  override, so the subscription snapshot carries it. This is what replaced the
+  hand-rolled `runtime_override_snapshot` / `data_channel_snapshot` messages
+  that were replayed per WS connect. The existing `control` channel is
+  `retained: false` and would have dropped that guarantee silently.
+- **no `ack`** — only `ch.ack === 'authority'` writes are logged for undo, so an
+  unacked channel keeps a graph firing overrides at frame rate off the authoring
+  tab's undo stack. That is a deliberate use of the ack flag, not a default.
+
+Collections on it, both parented to the entity they describe so existing
+scene-subtree grants route them cross-type:
+
+| rtype | key | notes |
+|---|---|---|
+| `runtime_override` | `${targetKind}:${targetId}:${paramPath}` | one document per overridden path, so two graphs overriding different params of one node cannot clobber each other; a clear is a `remove` |
+| `data_field` | `${scope}:${field}` | one document per published field, which is what makes `set`'s merge structural; carries `scopeKind` so both peers derive the same parent without a DB lookup. Scope `''` is global and has no parent |
+
+**Media commands are the counter-example.** They are events, so they stay on the
+unretained `control` channel (`media_control`, keyed by target). Retaining them
+would replay every past `play`/`seek` to each new tab — the opposite of what a
+late joiner wants.
+
+### Write outcomes are visible
+
+A committed write is optimistic — the value is in the replica, the store and on
+screen before the authority has agreed to it — and a refusal makes the peer
+restore the pre-write state. So a rejected edit reads as a field reverting on its
+own, which is indistinguishable from a bug.
+
+Every write path used to drop the outcome, each in its own way: `commitDocPath`
+(the bound-field path, and the most common write in the app) never read the ack
+at all; the create/delete helpers threw into callers that caught and ignored it;
+the REST fallback ended in `.catch(() => {})`.
+
+`frontend/src/mesh/writeFeedback.ts` is the one place an outcome becomes a
+message, and the write helpers call it so no call site has to remember:
+
+- `settled(outcome, subject)` where the outcome is already awaited;
+- `watch(handle.ack, subject)` for a fire-and-forget write — the bound-field
+  path cannot await, since a control commits synchronously from the UI's side;
+- `reportRejected` / `reportFailed` at the sites that still throw, called
+  *before* the throw so a caller's `catch` cannot swallow the notice.
+
+Only refusals surface. An accepted write says nothing (a toast per
+keystroke-commit would be worse than silence), and a **preview-channel write is
+unguarded by construction** — its outcome is never `rejected`, so a gesture never
+raises one.
+
+### Reading a document directly
+
+`@vspark/mesh-react` shipped written, tested, and imported by nothing — because
+its hooks take a `Collection` argument and this tab's collections only exist once
+`initMeshPeer()` resolves, so a component had no way to obtain one. The bridge is
+`frontend/src/mesh/hooks.ts`: `useMeshCollection(rtype)`, `useMeshPeer()`,
+`useMeshCanWrite(rtype)`, and the per-document `useSceneNode` / `useComposeLayer`.
+`onMeshReady` (in `mesh/peer.ts`) is what re-renders a component that mounted
+before the peer arrived.
+
+**What this buys is granularity, not liveness.** The feeder already keeps the
+store live and most components read it perfectly well. What a per-document hook
+adds is that `useSceneNode(id)` re-renders when THAT node changes, where
+`useEditorStore((s) => s.nodes)` re-renders every subscriber whenever any node
+anywhere changes. So it is worth reaching for when a component watches one
+document out of many — `CameraViewLayer` (the first conversion) owns a Three.js
+canvas per instance and was re-rendering all of them on every unrelated node
+edit — and not worth it for a component that wants the whole slice anyway.
+
+**The store is still the load path**, and that is what gates converting the rest.
+The editor hydrates from the REST scene bundle, which usually lands before the
+mesh subscription snapshot; a component reading only the replica would render
+empty in that window. `useSceneNode` therefore falls back to the store when the
+replica has no document yet — the two cannot disagree, since the feeder is what
+fills the store — and that fallback is written once, in the hook, so it can be
+deleted in one place when the snapshot becomes the load path. Converting reads
+wholesale before then would trade a working editor for a flashing one.
+
+<a id="remaining"></a>
+
 **Remaining:**
-- `scene_node` store feeder (step 4) — still on the legacy `'sync'` envelope; entangled with Avatar/Viewport rendering and the placed-object projection feeder (`meshProjection.ts`).
-- Component reads → mesh-react hooks (`useMeshDoc` / `useMeshSubtree` / etc.) and writes → `collection.set` (guarded, with ack outcomes surfaced as toasts).
+
+The list below was rewritten after the write migration finished; most of what
+used to be here is done, and saying so wrongly is worse than saying nothing.
+
+- Component reads → mesh-react hooks, **partially done**. The bridge exists
+  (`frontend/src/mesh/hooks.ts`) and the first read is converted; the rest is
+  case-by-case, not a sweep — see "Reading a document directly" above for when
+  it is worth it and what still gates a wholesale conversion.
 - Phase-6 guarded writes (`_share_write`/NAK) onto guarded mesh writes (per-doc authority).
 - Advertise/offer flow: still legacy.
+
+**Closed, not done:** principle 3's share container for mounted scenes. It was
+on this list; it is now a decision instead — see principle 3 above. Collab
+scenes stay scenes because they are co-edited by design (migration 031), and the
+container belongs to the placed-object path, which already has it.
+
+**Done since this list was first written** (kept short deliberately — the
+details live in the sections above): writes are mesh-authored for every document
+rtype; `logic` has a collection and no polls; clip playback is a document and
+the backend playhead is gone; node and clip previews ride the `preview` channel,
+including for object-share subscribers, so `node_transform_preview` is deleted;
+scene deletion cascades through the collection; list-shaped document fields
+(clip lanes/keyframes/events, graph nodes/edges) are keyed by id; preset
+instantiation commits its documents rather than inserting rows; runtime
+overrides, published data fields and media commands are collections rather than
+WS kinds; the document WS kinds that duplicated a collection write are deleted.
 
 ## Key files
 
@@ -328,8 +886,12 @@ const peer = useMemo(() => createMeshPeer({
 - `packages/mesh-react/src/` — hooks.
 - `packages/mesh-transports/src/` — WsServerTransport, WsBackendTransport.
 - `packages/backend/src/mesh/index.ts` — backend bindings, hydration, persistence.
-- `packages/backend/src/mesh/streams.ts` — `node_stream`, `clip_control`, `runtime_control` collections + the `control` channel; collab live-ops bridging helpers.
+- `packages/backend/src/mesh/streams.ts` — `node_stream`, `clip_control`, `runtime_control` collections; collab live-ops bridging helpers.
+- `packages/backend/src/mesh/runtime.ts` — the `runtime` and `control` channels, and the `runtime_override`, `data_field` and `media_control` collections. Registered from `initBackendMesh` so a mesh peer cannot exist without them.
 - `packages/backend/src/mesh/assets.ts` — `initMeshAssets()`: mid-session asset fetch for mesh docs with unresolvable file paths (COLLAB + PLACE paths; inert without multiplayer).
-- `packages/frontend/src/mesh/peer.ts` — frontend peer creation + wiring.
-- `packages/frontend/src/mesh/bindings.ts` — containment schema (PARENTS, RTYPES).
-- [plans/mesh-sync-refactor.md](../plans/mesh-sync-refactor.md) — full design spec (§8).
+- `packages/frontend/src/mesh/peer.ts` — frontend peer creation + wiring, the containment schema (`PARENTS`) and the subscribed rtype list (`RTYPES`), plus `meshUndo` / `meshRedo` / `meshBatch`.
+- `packages/frontend/src/mesh/writes.ts` — generic UI write helpers (`MeshDocAdapter`, fallback ladder, batched bottom-up subtree delete) + the `scene_node` wrappers.
+- `packages/frontend/src/mesh/layerWrites.ts` — the compose-layer half: fractional `orderKey` generation and the one-overlay-per-field `preview` write.
+- `packages/frontend/src/hooks/useMeshField.ts` — binds one control to one field; owns the preview/commit split that makes undo usable.
+- `packages/frontend/src/sync/meshStoreFeeder.ts` — replica → Zustand feeder; where the committed/ephemeral channel discrimination is applied.
+- [plans/mesh-sync-refactor.md](../plans/mesh-sync-refactor.md) — full design spec (§8). See [Which plan is which](#which-plan-is-which) before reading the other plan docs.
