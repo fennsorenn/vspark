@@ -46,7 +46,7 @@ Each lane is a single scalar. The UI groups three sibling lanes (`position.x/y/z
 
 Order is therefore not storage: keyframes and events sort by `t`, lanes by (targetKind, targetId, paramPath). `mapTrackClip` in the frontend api client is the boundary — above it the keyed document, below it the ordered lists the store and UI use.
 
-There is no playhead anchor on the clip row. It lives on the clip's `clip_playback` document (`start_epoch`), and every peer derives the playhead from there — see "Playback State Model" below. (`track_clips.started_at` was the old anchor; migration 040 dropped it once nothing read it.)
+There is no playhead anchor on the clip row. It lives on the clip's `clip_playback` document (`start_epoch`), and every peer derives the playhead from there — see "Playback State Model" below. (`track_clips.started_at` was the old anchor; migration 041 dropped it once nothing read it.)
 
 **Supported `param_path` values** (Phase 1 — sourced from the shared paramPath registry, scalar/animatable entries only; see [paramPaths.md](paramPaths.md)):
 
@@ -89,7 +89,7 @@ colliding on `UNIQUE(clip_id)`.
 
 ## Playback Authority — none; the transport is a document
 
-Playback state lives in the `clip_playback` table (migration 037) and syncs like
+Playback state lives in the `clip_playback` table (migration 038) and syncs like
 any other document: `{ state: playing | paused | stopped, startEpoch, pausedAtT,
 speed, loop }`, one row per clip, id `pb:<clipId>`. There is no manager, no
 in-memory map, and no playhead on the wire — every peer DERIVES the playhead
@@ -282,7 +282,7 @@ Each numeric input in the Properties panel gets a small **◆** button next to i
 
 **Backend:**
 - `packages/backend/src/db/migrations/009_track_clips.sql` + `.ts`; `021_track_clip_events.sql` + `.ts` (event/marker lane)
-- `packages/backend/src/db/migrations/037_clip_playback.sql` + `.ts` — the transport document's table
+- `packages/backend/src/db/migrations/038_clip_playback.sql` + `.ts` — the transport document's table
 - `packages/backend/src/track_clips/playbackDoc.ts` — trigger / stop / pause / resume / seek / syncPlaybackLoop / removePlayback, all writing the `clip_playback` document
 - `packages/backend/src/track_clips/lifecycle.ts` — 250ms completion sweep, autoplay at boot, `onClipFinished` listeners, ephemeral durations
 - `packages/backend/src/routes/track-clips.ts` — CRUD + `/trigger /stop /pause /resume /seek` + `PUT /track-clips/:id/events` (event-marker bulk replace); event load via `loadClip`/`mapClip`/`mapEvent`. Mounted in `routes/index.ts`; scene bundle in `routes/scenes.ts` includes nested `trackClips` (with `events`)

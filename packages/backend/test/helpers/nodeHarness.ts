@@ -35,6 +35,10 @@ export function buildGraph(
     (id) => states.get(id),
     (id, s) => states.set(id, s)
   );
+  // Seed through the graph as well: only nodes declaring `static persistState`
+  // read from the owner's store — everything else keeps scratch state inside the
+  // graph, and `setNodeState` routes each seed to whichever side the node uses.
+  for (const [id, s] of Object.entries(stateByNode)) graph.setNodeState(id, s);
   return { graph, states };
 }
 

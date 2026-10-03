@@ -138,7 +138,7 @@ describe('collabScene mount appliers → mesh store', () => {
 });
 
 /**
- * The mount stamp (migration 038).
+ * The mount stamp (migration 039).
  *
  * A mount is not a reconnect: the receiver has no history with the incoming
  * tree, and if it once held those ids and deleted them, its tombstones
@@ -214,7 +214,7 @@ describe('collab scene mount stamp', () => {
 });
 
 /**
- * Mounting keeps the author's documents (migration 039).
+ * Mounting keeps the author's documents (migration 040).
  *
  * A mounted tree used to be copied into the receiver's project with
  * `project_id` rewritten on the way in, so one document id had different

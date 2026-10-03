@@ -6,7 +6,7 @@
 > survives only as the in-helper fallback for foreign/unwritable docs. Landed: `scene_node`
 > update + create + delete + reparent (undo is no longer inert), compose-layer CRUD,
 > compose-layer drag previews on the mesh `preview` channel, fractional sibling ordering
-> (`packages/shared/src/fracIndex.ts`, migration `036_compose_layer_order_key`), and
+> (`packages/shared/src/fracIndex.ts`, migration `037_compose_layer_order_key`), and
 > `peer.batch()` grouping. Verified by `e2e/tests/editor-mesh-undo.spec.ts` (9 tests —
 > the plan calls it `cov-undo.spec.ts`). **Not yet migrated:** `behavior`,
 > `camera_effect`, `track_clip` and `logic` writes (still `api.update*`), and node

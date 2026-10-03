@@ -2,6 +2,8 @@
 
 **Status:** Core package implemented with 29 vitest tests; three packages (mesh / mesh-react / mesh-transports WS pair) shipped; backend hydration + persistence complete; reads fully mesh-fed (`sync/meshStoreFeeder.ts`); writes mesh-authored for every document rtype (see the per-rtype table under [Undo / redo](#undo--redo-per-peer)). See [Remaining](#remaining) for the rest.
 
+> **WIP:** Integration into dev in progress on `feature/mesh-integration` (2026-10-01).
+
 A **schema-agnostic in-memory replicated store** with symmetric read/write API on both frontend and backend, HLC last-write-wins convergence, grant-gated access control, and authority-driven ack lifecycle. No durability in the package itself; durable peers hydrate from persistent store and persist incoming mutations via observe taps. Designed to replace both the legacy sync layer and the entity-aware collab-scene sharing model.
 
 ### Which plan is which
@@ -13,7 +15,7 @@ is the index into that chain:
 
 | Plan | What it is |
 |---|---|
-| [plans/permissioned-sync-mesh.md](../plans/permissioned-sync-mesh.md) | A **design-alignment** doc, not an execution plan. Its §4 is where the fractional-index ordering rule first appears — as semantics only; the phasing in §6 contains no slice that adopts it, which is why `fracIndex.ts` sat written, unit-tested and *unreachable* (missing from the `@vspark/shared` exports map, the frontend tsconfig paths, and the vite/vitest aliases) until migration 036. Do not read this plan as a record of what was built. |
+| [plans/permissioned-sync-mesh.md](../plans/permissioned-sync-mesh.md) | A **design-alignment** doc, not an execution plan. Its §4 is where the fractional-index ordering rule first appears — as semantics only; the phasing in §6 contains no slice that adopts it, which is why `fracIndex.ts` sat written, unit-tested and *unreachable* (missing from the `@vspark/shared` exports map, the frontend tsconfig paths, and the vite/vitest aliases) until migration 037. Do not read this plan as a record of what was built. |
 | [plans/mesh-sync-refactor.md](../plans/mesh-sync-refactor.md) | The plan that was actually **executed**. §8 defines the interface; the code cites §§8/9/10/11 by name. This is the spec. |
 | [plans/mesh-native-undo.md](../plans/mesh-native-undo.md) | Undo/redo as a peer primitive. |
 | [plans/mesh-drop-legacy-sync-and-undo.md](../plans/mesh-drop-legacy-sync-and-undo.md) → [plans/mesh-frontend-writes.md](../plans/mesh-frontend-writes.md) | Retiring the legacy envelope, then moving UI writes onto the tab peer. |
@@ -60,7 +62,7 @@ If a client needs a diverging view, it takes a **local copy**, or writes a
 **local patch document merged at render time**. It does not rewrite the shared
 document's fields for itself.
 
-**Held for scene documents** (migration 039). Mounting used to copy the
+**Held for scene documents** (migration 040). Mounting used to copy the
 author's tree into the receiver's project and rewrite `project_id` on the way
 in; the feeder then had to re-preserve the local values on every incoming edit,
 so the two rewrites kept each other necessary. Both are gone: a mounted tree is
@@ -144,7 +146,7 @@ no state for this": a dropped socket and a fresh mount look alike at the
 transport level.
 
 **Implemented** (`MeshPeer.mount(rootId, v?)` / `unmount(rootId)`, and
-`collab_scenes.mounted_at`, migration 038). `Collection.applyOp` raises an
+`collab_scenes.mounted_at`, migration 039). `Collection.applyOp` raises an
 incoming op's stamp to the mount stamp when the document is in a mounted scope,
 so it lands on the way IN only — what the peer relays onward still carries the
 origin's stamp, which is what keeps the document itself unstamped by us.
@@ -753,7 +755,7 @@ three catch every wiring break above; behaviour tests do not.
   only as the fallback ladder. Compose-layer **drag previews** ride the mesh
   `preview` channel, replacing the bespoke `compose_layer_preview` WS kind.
 - **Sibling ordering — DONE (compose layers).** Order is a string fractional
-  `orderKey` (`packages/shared/src/fracIndex.ts`, migration 036); sort
+  `orderKey` (`packages/shared/src/fracIndex.ts`, migration 037); sort
   `(orderKey, id)` ascending = back-to-front, per sibling set scoped to
   `(rootComposeSceneId, parentId)`. This is a convergence property, not a UI
   detail: a move writes ONE row, so concurrent moves commute under LWW. The

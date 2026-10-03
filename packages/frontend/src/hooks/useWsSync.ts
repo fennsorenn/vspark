@@ -1,5 +1,6 @@
 import { useEffect, useRef } from 'react';
 import { useEditorStore } from '../store/editorStore';
+import { useAssistantStore } from '../store/assistantStore';
 import type { StageObject } from '../store/editorStore';
 import type { CameraEffectRecord } from '../api/client';
 import {
@@ -9,6 +10,18 @@ import {
   getCollabScenes,
 } from '../api/client';
 import { setVmcPose, setVmcBlendshapes } from '../vmcPoseStore';
+import { captureFeedImage } from '../lib/captureFeed';
+import { captureViewport } from '../lib/viewportCapture';
+
+// Dev-only handles for e2e harnesses to exercise the captures directly.
+if (import.meta.env.DEV) {
+  const g = globalThis as unknown as {
+    __captureFeed?: typeof captureFeedImage;
+    __captureViewport?: typeof captureViewport;
+  };
+  g.__captureFeed = captureFeedImage;
+  g.__captureViewport = captureViewport;
+}
 import { setIkTargets } from '../ikTargetStore';
 import type { IkTargetFrame, AnimationBlendMode } from '@vspark/shared/types';
 import { SYNC_MESSAGE_KIND, type SyncEnvelope } from '@vspark/shared/sync';
@@ -27,6 +40,7 @@ import {
 import { registerAssetUrls } from '../sync/meshProjection';
 import { useConnectionsStore } from '../store/connectionsStore';
 import { clientMesh } from '../mesh/clientMesh';
+import { startObsBridge } from '../obs/bridge';
 
 const WS_URL = `${window.location.protocol === 'https:' ? 'wss' : 'ws'}://${window.location.host}/ws`;
 const RECONNECT_MS = 3000;
@@ -43,6 +57,25 @@ setShareWriteRelay((owner, env) => {
       JSON.stringify({ kind: 'mp_share_write', payload: { owner, env } })
     );
 });
+
+/** Send a user turn (with any attached editor elements) to the backend agent. */
+export function sendAssistantMessage(
+  text: string,
+  attachments?: import('@vspark/shared').AssistantAttachment[]
+) {
+  const ws = editorWsRef.current;
+  if (!ws || ws.readyState !== WebSocket.OPEN) return;
+  ws.send(
+    JSON.stringify({ kind: 'assistant_user_message', text, attachments })
+  );
+}
+
+/** Reset the backend assistant conversation for this connection. */
+export function sendAssistantReset() {
+  const ws = editorWsRef.current;
+  if (!ws || ws.readyState !== WebSocket.OPEN) return;
+  ws.send(JSON.stringify({ kind: 'assistant_reset' }));
+}
 
 export function useWsSync() {
   const setVmcStatus = useEditorStore((s) => s.setVmcStatus);
@@ -63,6 +96,9 @@ export function useWsSync() {
       ws.onopen = () => {
         // Re-announce this tab to the client-mesh signaling relay.
         clientMesh.sendHello();
+        // Announce this render client + start forwarding OBS browser-source
+        // events (no-op outside OBS). See obs/bridge.ts.
+        startObsBridge(ws);
         if (pendingReloadRef.current) {
           pendingReloadRef.current = false;
           useEditorStore.getState().setPendingReload(false);
@@ -177,6 +213,14 @@ export function useWsSync() {
             useEditorStore.getState().addTrackClip(mapTrackClip(msg.payload));
           } else if (msg.kind === 'track_clip_removed') {
             useEditorStore.getState().removeTrackClip(msg.payload.id as string);
+          } else if (msg.kind === 'obs_connection_status') {
+            const p = msg.payload as {
+              connectionId: string;
+              status: import('../api/client').ObsConnectionStatus;
+              reason: string | null;
+              message: string | null;
+            };
+            useEditorStore.getState().patchObsConnectionStatus(p);
           } else if (msg.kind === 'mp_status') {
             useConnectionsStore
               .getState()
@@ -326,6 +370,98 @@ export function useWsSync() {
               pendingReloadRef.current = true;
               useEditorStore.getState().setPendingReload(true);
             }
+          } else if (msg.kind === 'assistant_text') {
+            useAssistantStore
+              .getState()
+              .pushAssistantText((msg.payload as { text: string }).text);
+          } else if (msg.kind === 'assistant_tool_call') {
+            const p = msg.payload as {
+              id: string;
+              name: string;
+              args: unknown;
+            };
+            useAssistantStore.getState().pushToolCall(p);
+          } else if (msg.kind === 'assistant_tool_result') {
+            const p = msg.payload as { id: string; ok: boolean; text: string };
+            useAssistantStore.getState().resolveToolResult(p);
+          } else if (msg.kind === 'assistant_error') {
+            useAssistantStore
+              .getState()
+              .pushError((msg.payload as { message: string }).message);
+          } else if (msg.kind === 'assistant_done') {
+            useAssistantStore.getState().setStreaming(false);
+          } else if (msg.kind === 'session_hello') {
+            // Tag this session with the project it has open so the agent /
+            // external MCP clients can identify it in list_ui_sessions.
+            const projectId =
+              /\/(?:editor|viewer)\/([^/]+)/.exec(window.location.pathname)?.[1] ??
+              useEditorStore.getState().projectId;
+            const sock = wsRef.current;
+            if (sock && sock.readyState === WebSocket.OPEN)
+              sock.send(JSON.stringify({ kind: 'ui_register', projectId }));
+          } else if (msg.kind === 'ui_action') {
+            useEditorStore.getState().dispatchUiAction(msg.payload);
+          } else if (msg.kind === 'feed_preview_request') {
+            // The assistant's render_feed_template tool asks THIS editor to
+            // rasterize a hypothetical feed offscreen (real renderer + browser
+            // engine) and send the PNG back, so no headless browser is needed.
+            const p = msg.payload as {
+              requestId: string;
+              template: string;
+              css?: string;
+              data?: Record<string, unknown>;
+              width?: number;
+              height?: number;
+              background?: string;
+            };
+            const sock = wsRef.current;
+            void captureFeedImage({
+              template: p.template,
+              css: p.css,
+              data: p.data,
+              width: p.width ?? 560,
+              height: p.height ?? 380,
+              background: p.background,
+            })
+              .then((dataUrl) => {
+                sock?.send(
+                  JSON.stringify({
+                    kind: 'feed_preview_result',
+                    requestId: p.requestId,
+                    pngBase64: dataUrl.replace(/^data:image\/png;base64,/, ''),
+                  })
+                );
+              })
+              .catch((e: unknown) => {
+                sock?.send(
+                  JSON.stringify({
+                    kind: 'feed_preview_result',
+                    requestId: p.requestId,
+                    error: e instanceof Error ? e.message : String(e),
+                  })
+                );
+              });
+          } else if (msg.kind === 'viewport_screenshot_request') {
+            // The assistant's screenshot_viewport tool asks THIS editor to grab
+            // its 3D viewport so the agent can see scene/lighting/framing.
+            const p = msg.payload as { requestId: string };
+            const sock = wsRef.current;
+            const dataUrl = captureViewport();
+            sock?.send(
+              JSON.stringify(
+                dataUrl
+                  ? {
+                      kind: 'viewport_screenshot_result',
+                      requestId: p.requestId,
+                      pngBase64: dataUrl.replace(/^data:image\/png;base64,/, ''),
+                    }
+                  : {
+                      kind: 'viewport_screenshot_result',
+                      requestId: p.requestId,
+                      error: 'the 3D viewport is not available right now',
+                    }
+              )
+            );
           }
         } catch {
           /* ignore malformed */

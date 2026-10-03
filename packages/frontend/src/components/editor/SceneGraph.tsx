@@ -61,6 +61,8 @@ import {
   NODE_KIND_FALLBACK,
   BEHAVIOR_ICON,
   BEHAVIOR_FALLBACK,
+  CAMERA_EFFECT_ICON,
+  CAMERA_EFFECT_FALLBACK,
 } from '../icons';
 import {
   Antenna,
@@ -1076,11 +1078,13 @@ function BehaviorsSection({
       {components.map((comp) => {
         const ct = behaviorKinds.find((c) => c.kind === comp.kind);
         const isSelected = selectedBehaviorId === comp.id;
-        // The two UDP receivers have a connection dot; all three tracking
-        // sources have a tracking dot (MediaPipe is browser-driven, so it has
-        // no connection concept).
+        // The UDP receivers (VMC 3D, VMC 2D, iFacialMocap) have a connection
+        // dot; every tracking source also has a tracking dot (MediaPipe is
+        // browser-driven, so it has no connection concept).
         const hasConnection =
-          comp.kind === 'vmc_receiver' || comp.kind === 'ifacialmocap_receiver';
+          comp.kind === 'vmc_receiver' ||
+          comp.kind === 'vmc_receiver_2d' ||
+          comp.kind === 'ifacialmocap_receiver';
         const hasTracking = hasConnection || comp.kind === 'mediapipe_tracker';
         const isConnected = hasConnection && vmcStatus[comp.id] === true;
         const isTracking = hasTracking && vmcTracking[comp.id] === true;
@@ -1509,7 +1513,7 @@ function CameraEffectsSection({
               style={{ display: 'inline-flex', alignItems: 'center', flexShrink: 0 }}
             >
               {(() => {
-                const I = ek?.icon ?? Sparkle;
+                const I = CAMERA_EFFECT_ICON[effect.kind] ?? CAMERA_EFFECT_FALLBACK;
                 return <I size={13} />;
               })()}
             </span>
@@ -1640,7 +1644,7 @@ function CameraEffectsSection({
                     }}
                   >
                     {(() => {
-                      const I = ek.icon;
+                      const I = CAMERA_EFFECT_ICON[ek.kind] ?? CAMERA_EFFECT_FALLBACK;
                       return <I size={15} />;
                     })()}
                   </span>
@@ -2741,6 +2745,9 @@ export function SceneGraph() {
         {/* Node row */}
         <div
           className="vs-node-row"
+          data-attach-kind="scene_node"
+          data-attach-id={node.id}
+          data-attach-name={node.name}
           draggable
           onDragStart={(e) => handleDragStart(e, node.id)}
           onDragEnd={() => {

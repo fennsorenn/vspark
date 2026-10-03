@@ -13,6 +13,7 @@ import {
   Baseline,
   Box,
   Camera,
+  Drama,
   Film,
   Folder,
   Globe,
@@ -111,7 +112,22 @@ export const NODE_KIND_DEFS: NodeKindDef[] = [
     kind: 'feed',
     icon: Rss,
   },
+  { label: 'Live2D Avatar', i18nKey: 'live2d', kind: 'live2d', icon: Drama },
 ];
+
+/** Default `components.live2d` bag for a Live2D scene node. */
+export const LIVE2D_DEFAULTS = {
+  type: 'live2d',
+  modelUrl: null as string | null,
+  scale: 1,
+  width: 2,
+  height: 2,
+  facing: 'screen' as 'screen' | 'world',
+  autoBlink: true,
+  autoBreath: true,
+  // Live2D param id → override of the default blendshape map (see live2dParamMap.ts).
+  paramMap: {} as Record<string, unknown>,
+};
 
 const DEFAULT_COMPONENTS = {
   transform: {
@@ -262,6 +278,8 @@ export async function createSceneNode(
       billboard: true,
       facing: 'screen' as 'screen' | 'world',
     };
+  } else if (def.kind === 'live2d') {
+    components.live2d = { ...LIVE2D_DEFAULTS };
   } else if (def.kind === 'feed') {
     components.feed = {
       type: 'feed',
@@ -313,6 +331,25 @@ export async function createNodeFromModelAsset(
     kind,
     filePath: asset.url,
     components: { ...DEFAULT_COMPONENTS },
+  });
+}
+
+/** Add a Live2D bundle asset (its *.model3.json manifest) to a scene as a
+ *  `live2d` avatar node pointed at the manifest url. */
+export async function createNodeFromLive2dAsset(
+  asset: AssetFile,
+  sceneId: string,
+  parentId: string | null = null
+): Promise<StageObject> {
+  return commitNodeCreate(sceneId, {
+    parentId,
+    name: asset.name,
+    kind: 'live2d',
+    filePath: asset.url,
+    components: {
+      ...DEFAULT_COMPONENTS,
+      live2d: { ...LIVE2D_DEFAULTS, modelUrl: asset.url },
+    },
   });
 }
 

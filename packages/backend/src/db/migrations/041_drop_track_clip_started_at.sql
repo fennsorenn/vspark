@@ -1,4 +1,4 @@
--- 040_drop_track_clip_started_at: the playhead anchor left this row in 037.
+-- 041_drop_track_clip_started_at: the playhead anchor left this row in 038.
 --
 -- track_clips.started_at held the anchor for an autoplaying loop, back when the
 -- backend owned a playhead and pushed track_clip_started over the socket. That

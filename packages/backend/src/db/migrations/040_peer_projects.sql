@@ -1,4 +1,4 @@
--- 039_peer_projects: a project we hold but do not own.
+-- 040_peer_projects: a project we hold but do not own.
 --
 -- Mounting a collaborator's scene used to copy their tree into OUR project and
 -- rewrite project_id on the way in, so one document id had different content on

@@ -79,6 +79,7 @@ vi.mock('../src/signal/nodes/blendshapes_broadcast.js', async (importOriginal) =
 // ── Imports (after mocks) ─────────────────────────────────────────────────────
 import { BreathingManager } from '../src/behaviors/breathing/manager.js';
 import { PoseStylizerManager } from '../src/behaviors/pose_stylizer/manager.js';
+import type { SignalGraph } from '../src/signal/engine.js';
 import { LipsyncManager } from '../src/behaviors/lipsync/manager.js';
 import { VmcManager } from '../src/behaviors/vmc_receiver/manager.js';
 import { ApiControllerManager } from '../src/behaviors/api_controller/manager.js';
@@ -664,6 +665,12 @@ describe('PoseStylizerManager._persistNodeState', () => {
       }
     )._persistNodeState.bind(m);
 
+  /** The running graph for a behavior — `graphs` is private, same cast idiom. */
+  const graphOf = (m: PoseStylizerManager, behaviorId: string) =>
+    (m as unknown as { graphs: Map<string, SignalGraph> }).graphs.get(
+      behaviorId
+    );
+
   it('no-ops when the behaviors row is absent (non-fatal)', () => {
     expect(() => manager.start('b-absent')).not.toThrow();
   });
@@ -680,20 +687,33 @@ describe('PoseStylizerManager._persistNodeState', () => {
     expect(ns['stylize']).toEqual({ some: 'state' });
   });
 
-  it('SKIPS the interceptor node — its state is a whole pose, injected at ~60Hz', () => {
+  it('never persists the interceptor node — its state is a whole pose at ~60Hz', () => {
     // `on_pose_broadcast` has the current pose written into its state before every
     // fire. Persisting that would mean a read-modify-write of the behaviors row at
     // the pose rate, for a value that is meaningless after a restart.
+    //
+    // The guarantee lives in the ENGINE, not in this manager: only classes with
+    // `static persistState` reach `_persistNodeState` at all. So this asserts
+    // through the graph's state API rather than calling the manager callback
+    // directly — calling it directly would bypass the very routing under test and
+    // pass no matter what the engine does.
     seedBehaviorRow('s2', 'sn2', 'pose_stylizer', 'p2');
     manager.syncBehaviors([
       { id: 's2', nodeId: 'sn2', kind: 'pose_stylizer', enabled: true, config: {} },
     ]);
 
-    persistOf(manager)('s2', 'intercept', { frame: { pose: 'huge' } });
+    const graph = graphOf(manager, 's2');
+    expect(graph, 'graph should be running for the seeded behavior').toBeTruthy();
+
+    graph!.setNodeState('intercept', { frame: { pose: 'huge' } });
 
     const cfg = getBehaviorConfig('s2');
     const ns = (cfg._nodeState ?? {}) as Record<string, unknown>;
     expect(ns['intercept']).toBeUndefined();
+    // …and it is still readable in-graph, just not durable.
+    expect(graph!.getNodeState('intercept')).toEqual({
+      frame: { pose: 'huge' },
+    });
   });
 
   it('merges into existing _nodeState without clobbering unrelated keys', () => {

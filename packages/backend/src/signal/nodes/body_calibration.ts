@@ -49,6 +49,9 @@ export interface BodyCalibConfig {
 })
 export class BodyCalibration extends Node {
   static readonly kind = 'body_calibration';
+  /** Captured offsets are user-produced calibration — they survive a restart.
+   *  State is plain `[x,y,z,w]` arrays, so the JSON round-trip is lossless. */
+  static readonly persistState = true;
 
   @valueIn('pose', 'NormalizedPose') poseIn!: () => NormalizedPose | undefined;
   @valueIn('mirrorSource', 'String') mirrorSource!: () =>

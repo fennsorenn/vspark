@@ -1,4 +1,4 @@
--- 038_collab_scene_mounted_at: when a mounted scene was mounted.
+-- 039_collab_scene_mounted_at: when a mounted scene was mounted.
 --
 -- A mount is not a reconnect. Reconnecting peers share history and comparable
 -- clocks, so ordinary last-write-wins reconciles them. Mounting brings in a

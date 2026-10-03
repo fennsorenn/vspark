@@ -13,9 +13,11 @@ import logic from './logic.js';
 import presets from './presets.js';
 import overliveAccounts from './overlive-accounts.js';
 import overliveAuth from './overlive-auth.js';
+import obsConnections from './obs-connections.js';
 import signal from './signal.js';
 import connections from './connections.js';
 import meta from './meta.js';
+import ui from './ui.js';
 
 const router: ReturnType<typeof Router> = Router();
 router.use(projects);
@@ -32,9 +34,11 @@ router.use(logic);
 router.use(presets);
 router.use(overliveAccounts);
 router.use(overliveAuth);
+router.use(obsConnections);
 router.use(signal);
 router.use(connections);
 router.use(meta);
+router.use(ui);
 
 export { router as apiRoutes };
 export {

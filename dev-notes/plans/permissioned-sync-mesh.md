@@ -11,7 +11,7 @@
 > (`packages/shared/src/fracIndex.ts`) was written and unit-tested here but stayed
 > **unreachable** — missing from `@vspark/shared`'s exports map, the frontend tsconfig
 > paths, and the vite/vitest aliases — until compose-layer ordering adopted it in
-> 2026-08 (migration `036_compose_layer_order_key`). Do not read anything here as
+> 2026-08 (migration `037_compose_layer_order_key`). Do not read anything here as
 > a description of running code.
 > **Superseded by:** [`mesh-sync-refactor.md`](./mesh-sync-refactor.md) for execution.
 > **Supersedes:** the "full flat mesh" wording in [`live-mesh.md`](./live-mesh.md).

@@ -57,6 +57,8 @@ import { pruneExpiredGrants } from './multiplayer/peers.js';
 import { multiplayerManager } from './multiplayer/manager.js';
 import { resolveRendezvousUrl } from './multiplayer/config.js';
 import { clientMeshRelay } from './multiplayer/clientMeshRelay.js';
+import { createMcpHttpRouter } from './mcp/http.js';
+import { AssistantManager } from './assistant/manager.js';
 import {
   hydrateContainmentIndex,
   applyDocToIndex,
@@ -65,12 +67,26 @@ import type {
   LipsyncInputMessage,
   TrackingInputMessage,
   AvatarExpressionsReportMessage,
+  ClientHelloMessage,
 } from '@vspark/shared';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
+const PORT = Number(process.env.PORT) || 3001;
+
 const wsSync = new WSSync();
 const app = createApp({ wsSync });
+
+// MCP server over Streamable HTTP at /mcp. Tools call back into this same
+// backend over loopback, so the MCP path exercises the real REST surface.
+app.use('/mcp', createMcpHttpRouter(`http://127.0.0.1:${PORT}`));
+
+// In-app assistant agent (consumes the MCP via an in-memory transport).
+const assistantManager = new AssistantManager(
+  wsSync,
+  `http://127.0.0.1:${PORT}`
+);
+
 const server = createServer(app);
 
 // Mirrors the bundle check in createApp — used below to decide whether to open
@@ -221,6 +237,23 @@ async function start() {
   const overliveManager = initOverliveManager(wsSync);
   await overliveManager.startAll();
 
+  // Render-client lifecycle — client_hello / disconnect → client_lifecycle
+  // nodes. vspark-native: works for a plain browser tab, no OBS needed.
+  // See dev-notes/modules/obs.md.
+  const { initObsManager } = await import('./obs/manager.js');
+  const obsManager = initObsManager();
+  wsSync.onClientConnected((ws) => {
+    ws.on('close', () => obsManager.handleClientGone(ws));
+  });
+
+  // OBS integration — one backend-held obs-websocket connection per project
+  // (credentials in the Accounts UI). Carries every OBS control and state node:
+  // scene/transition/output control, audio volume/mute, replay path.
+  // See dev-notes/modules/obs.md.
+  const { initObsWsManager } = await import('./obs/ws_manager.js');
+  const obsWsManager = initObsWsManager(wsSync);
+  obsWsManager.startAll();
+
   // Client-mesh signaling relay: track each client's participant id + tear it
   // down on disconnect so the roster stays accurate.
   clientMeshRelay.initWs(wsSync);
@@ -249,6 +282,9 @@ async function start() {
 
   // Handle browser → server media messages
   wsSync.onMessage((kind, payload, sourceWs) => {
+    if (assistantManager.handle(kind, payload, sourceWs)) {
+      return;
+    }
     if (kind === 'lipsync_input') {
       const msg = payload as LipsyncInputMessage;
       lipsyncManager.fireVisemes(msg.behaviorId, msg.visemes ?? {});
@@ -267,6 +303,11 @@ async function start() {
         msg.nodeId,
         msg.expressions ?? []
       );
+    } else if (kind === 'client_hello') {
+      // Render client announcing its identity (projectId + stable target marker).
+      const msg = payload as ClientHelloMessage;
+      if (typeof msg.projectId === 'string')
+        obsManager.handleHello(sourceWs, msg.projectId, msg.target ?? '');
     } else if (kind === 'mp_share_write') {
       // Phase 6 relay: a browser client with no direct edge asks us to forward a
       // write to the owning peer over the mesh. The owner authorizes + persists.
@@ -298,7 +339,9 @@ async function start() {
 
   // Start receivers for any components that were persisted
   const vmcRows = getDb()
-    .prepare("SELECT * FROM behaviors WHERE kind = 'vmc_receiver'")
+    .prepare(
+      "SELECT * FROM behaviors WHERE kind IN ('vmc_receiver', 'vmc_receiver_2d')"
+    )
     .all() as Record<string, unknown>[];
   vmcManager.syncBehaviors(vmcRows.map(mapRow));
 
@@ -343,7 +386,7 @@ async function start() {
   apiControllerManager.syncBehaviors(apiControllerRows.map(mapRow));
 
   // PORT override lets two instances run on one box (multiplayer testing).
-  const port = Number(process.env.PORT) || 3001;
+  const port = PORT;
   server.listen(port, async () => {
     console.log(`vspark listening on http://localhost:${port}`);
     if (existsSync(PUBLIC_DIR)) {

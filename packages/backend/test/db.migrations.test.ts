@@ -80,7 +80,7 @@ describe('Migration runner — expected tables', () => {
     expect(getTables().has('compose_layers')).toBe(true);
   });
 
-  it('orders compose layers by a fractional order_key (migration 036)', () => {
+  it('orders compose layers by a fractional order_key (migration 037)', () => {
     const cols = new Set(
       (
         getDb().prepare('PRAGMA table_info(compose_layers)').all() as {
@@ -116,6 +116,22 @@ describe('Migration runner — expected tables', () => {
 
   it('creates the mesh_tombstones table (migration 032)', () => {
     expect(getTables().has('mesh_tombstones')).toBe(true);
+  });
+
+  it('creates the obs_connections table (migration 036)', () => {
+    // Renumbered from 035 when this branch merged: dev's 035 (tracking grace
+    // period) had already shipped and run on real databases, so it owns that
+    // number. `_migrations` is keyed by FILENAME, so 036 is simply pending on a
+    // DB that already applied 035 — both must be present and applied.
+    expect(getTables().has('obs_connections')).toBe(true);
+
+    const names = (
+      getDb().prepare('SELECT name FROM _migrations').all() as {
+        name: string;
+      }[]
+    ).map((r) => r.name);
+    expect(names).toContain('035_tracking_grace_period_to_node.ts');
+    expect(names).toContain('036_obs_connections.sql');
   });
 });
 
@@ -191,14 +207,14 @@ describe('Migration runner — idempotency', () => {
     expect(countAfter).toBe(countBefore);
   });
 
-  it('all 40 migrations are recorded in _migrations after a full run', () => {
+  it('all 41 migrations are recorded in _migrations after a full run', () => {
     const count = (
       getDb()
         .prepare('SELECT COUNT(*) AS cnt FROM _migrations')
         .all() as { cnt: number }[]
     )[0].cnt;
-    // There are 40 migrations (001 – 040).
-    expect(count).toBe(40);
+    // There are 41 migrations (001 – 041).
+    expect(count).toBe(41);
   });
 
   it('each migration name appears exactly once in _migrations', () => {

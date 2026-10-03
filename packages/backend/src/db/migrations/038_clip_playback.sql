@@ -1,4 +1,4 @@
--- 037_clip_playback: a track clip's transport state, as a synced document.
+-- 038_clip_playback: a track clip's transport state, as a synced document.
 --
 -- Replaces the backend-authoritative playhead (track_clips/playback.ts), which
 -- held state in an in-memory Map and pushed track_clip_started/paused/stopped

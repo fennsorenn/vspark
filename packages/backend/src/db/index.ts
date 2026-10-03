@@ -48,11 +48,19 @@ import m032 from './migrations/032_mesh_tombstones.js';
 import m033 from './migrations/033_scheduled_animations.js';
 import m034 from './migrations/034_asset_metadata.js';
 import m035 from './migrations/035_tracking_grace_period_to_node.js';
-import m036 from './migrations/036_compose_layer_order_key.js';
-import m037 from './migrations/037_clip_playback.js';
-import m038 from './migrations/038_collab_scene_mounted_at.js';
-import m039 from './migrations/039_peer_projects.js';
-import m040 from './migrations/040_drop_track_clip_started_at.js';
+// Renumbered from 035 on merge: dev's 035 (tracking grace period) shipped with
+// #69 and has already run on real databases, so it owns that number. Migrations
+// are keyed by FILENAME in `_migrations`, so 036 is simply pending on any DB
+// that already applied 035.
+import m036 from './migrations/036_obs_connections.js';
+// The mesh migrations below were authored as 036–040 on a branch that diverged
+// before dev's 036_obs_connections; renumbered to 037–041 on merge. None had run
+// on a real database (only disposable cloud-worker DBs), so renaming is safe.
+import m037 from './migrations/037_compose_layer_order_key.js';
+import m038 from './migrations/038_clip_playback.js';
+import m039 from './migrations/039_collab_scene_mounted_at.js';
+import m040 from './migrations/040_peer_projects.js';
+import m041 from './migrations/041_drop_track_clip_started_at.js';
 
 const { Database } = nodeSqliteWasm as unknown as {
   Database: typeof DatabaseType;
@@ -111,11 +119,12 @@ const MIGRATIONS: Migration[] = [
   { name: '033_scheduled_animations.sql', sql: m033 },
   { name: '034_asset_metadata.sql', sql: m034 },
   { name: '035_tracking_grace_period_to_node.ts', run: m035 },
-  { name: '036_compose_layer_order_key.ts', run: m036 },
-  { name: '037_clip_playback.sql', sql: m037 },
-  { name: '038_collab_scene_mounted_at.sql', sql: m038 },
-  { name: '039_peer_projects.sql', sql: m039 },
-  { name: '040_drop_track_clip_started_at.sql', sql: m040 },
+  { name: '036_obs_connections.sql', sql: m036 },
+  { name: '037_compose_layer_order_key.ts', run: m037 },
+  { name: '038_clip_playback.sql', sql: m038 },
+  { name: '039_collab_scene_mounted_at.sql', sql: m039 },
+  { name: '040_peer_projects.sql', sql: m040 },
+  { name: '041_drop_track_clip_started_at.sql', sql: m041 },
 ];
 
 // Thin wrapper so call sites can use .run(a, b, c) spread syntax.

@@ -76,7 +76,7 @@ Design → executed → follow-ups. Each supersedes roughly what came before it.
 
 ### The ordering model for compose layers is a string fractional key
 
-Migration `036_compose_layer_order_key` replaced the integer `scene_order`/`camera_order`
+Migration `037_compose_layer_order_key` replaced the integer `scene_order`/`camera_order`
 pair with a single string `order_key` (`packages/shared/src/fracIndex.ts`).
 
 - Sort is **`(orderKey, id)` ascending = back-to-front**. The `id` breaks ties because
