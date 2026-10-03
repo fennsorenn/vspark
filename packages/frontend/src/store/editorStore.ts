@@ -60,6 +60,14 @@ export type {
   TrackClipEventRecord,
 };
 
+/** Backend output-window runtime state (mirrors the backend's OutputRuntimeStatus). */
+export type OutputWindowStatus =
+  | { state: 'idle' }
+  | { state: 'downloading'; progress: number }
+  | { state: 'ready' }
+  | { state: 'error'; message: string }
+  | { state: 'unavailable' };
+
 /** Per-node ephemeral transform overrides produced by the track-clip evaluator.
  *  Never persisted; cleared each frame the evaluator decides to stop driving a param.
  *  Read by Viewport.tsx inside an existing useFrame and applied directly to Three.js objects. */
@@ -297,6 +305,8 @@ interface EditorState {
   /** OBS (obs-websocket) connections for the current project. Populated lazily
    *  by the OBS Connections modal; status kept live via obs_connection_status. */
   obsConnections: import('../api/client').ObsConnectionRecord[];
+  /** Backend Electron runtime state for OBS window capture (output_window_status). */
+  outputWindowStatus: OutputWindowStatus | null;
   activeLogicId: string | null;
   /** True when the active graph is a writable standalone project graph;
    *  false when it's a behavior-owned (read-only) graph or no graph is active.
@@ -438,6 +448,7 @@ interface EditorState {
     reason: string | null;
     message: string | null;
   }) => void;
+  setOutputWindowStatus: (status: OutputWindowStatus) => void;
   setActiveLogic: (id: string | null) => void;
   setActiveLogicWritable: (writable: boolean) => void;
   setSelectedSignalNode: (id: string | null) => void;
@@ -600,6 +611,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   behaviorKinds: [],
   overliveAccounts: [],
   obsConnections: [],
+  outputWindowStatus: null,
   activeLogicWritable: false,
   activeLogicId: null,
   selectedSignalNodeId: null,
@@ -859,6 +871,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   setBehaviorKinds: (kinds) => set({ behaviorKinds: kinds }),
   setOverliveAccounts: (accounts) => set({ overliveAccounts: accounts }),
   setObsConnections: (connections) => set({ obsConnections: connections }),
+  setOutputWindowStatus: (status) => set({ outputWindowStatus: status }),
   patchObsConnectionStatus: (patch) =>
     set((s) => ({
       obsConnections: s.obsConnections.map((c) =>

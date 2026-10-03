@@ -12,6 +12,7 @@ import { useTrackClipRecorder } from '../../hooks/useTrackClipRecorder';
 import { NumInput, VecInput, SliderInput } from './numericInputs';
 import { CSS_BLEND_MODES, readChroma } from './videoFx';
 import { HelpButton } from '../../help/HelpButton';
+import { obsOutputWindowTitle } from '@vspark/shared';
 import { keyBetween } from '@vspark/shared/fracIndex';
 import { commitLayerPatch, commitLayerPath } from '../../mesh/layerWrites';
 import {
@@ -1239,6 +1240,13 @@ export function ComposeSceneProperties({
     updateSceneLocal({ ...scene, config });
     commitLayerPath(scene.id, 'config', config);
   };
+  const obsWindow = scene.config?.obsWindowCapture === true;
+  const runtime = useEditorStore((s) => s.outputWindowStatus);
+  const setObsWindow = (on: boolean) => {
+    const config = { ...scene.config, obsWindowCapture: on };
+    updateSceneLocal({ ...scene, config });
+    commitLayerPath(scene.id, 'config', config);
+  };
 
   return (
     <div style={{ padding: '4px 2px' }}>
@@ -1252,6 +1260,55 @@ export function ComposeSceneProperties({
         precision={0}
         onCommit={commitSize}
       />
+
+      <div
+        style={{ ...sectionHeader, display: 'flex', alignItems: 'center', gap: 6 }}
+      >
+        {t('sceneProps.obsWindowHeader')}
+        <HelpButton
+          topic="compose"
+          anchor="obs-window-capture"
+          tip={t('help.obsWindowCapture')}
+        />
+      </div>
+      <label
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: 5,
+          fontSize: 12,
+          color: '#bbb',
+          cursor: 'pointer',
+        }}
+      >
+        <input
+          className="vs-compose-obs-window"
+          type="checkbox"
+          checked={obsWindow}
+          onChange={(e) => setObsWindow(e.target.checked)}
+        />
+        {t('sceneProps.obsWindowCapture')}
+      </label>
+      {obsWindow && (
+        <div
+          style={{
+            fontSize: 10,
+            color: runtime?.state === 'error' ? '#e06c6c' : '#666',
+            lineHeight: 1.4,
+            marginTop: 4,
+          }}
+        >
+          {runtime?.state === 'downloading'
+            ? t('sceneProps.obsWindowDownloading', { progress: runtime.progress })
+            : runtime?.state === 'error'
+              ? t('sceneProps.obsWindowError', { message: runtime.message })
+              : runtime?.state === 'unavailable'
+                ? t('sceneProps.obsWindowUnavailable')
+                : t('sceneProps.obsWindowHint', {
+                    title: obsOutputWindowTitle(scene.name),
+                  })}
+        </div>
+      )}
 
       <div style={sectionHeader}>{t('sceneProps.previewBgHeader')}</div>
       <div style={{ fontSize: 10, color: '#666', lineHeight: 1.4, marginBottom: 8 }}>

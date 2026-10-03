@@ -472,12 +472,14 @@ function LayerContent({
   }
   const url = (layer.config.url as string | undefined) ?? '';
   if (!url) return <Placeholder text={t('stack.noUrl')} mode={mode} />;
-  // Iframes always swallow events when active. We keep them pointer-events:none
-  // in editor mode so selection works; the streamed output (viewer mode) makes
-  // them interactive only there.
+  // Iframes swallow pointer events, so they stay pointer-events:none in every
+  // mode: the editor needs selection to work, and the streamed output is
+  // view-only. `allow="autoplay"` lets embedded overlays (alerts, widgets) play
+  // sound/video without a user gesture — cross-origin frames need it delegated.
   return (
     <iframe
       src={url}
+      allow="autoplay"
       sandbox="allow-scripts allow-same-origin allow-forms allow-popups"
       style={{
         width: '100%',

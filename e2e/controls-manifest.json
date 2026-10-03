@@ -5,7 +5,7 @@
   "components/editor/AssistantWindow.tsx": "d19dbbc96f5a",
   "components/editor/AttachOverlay.tsx": "ddc57671901f",
   "components/editor/ClipsSection.tsx": "098bbd7a3e62",
-  "components/editor/ComposeLayerProperties.tsx": "bd87d5cbe6e3",
+  "components/editor/ComposeLayerProperties.tsx": "de4eb3fa9807",
   "components/editor/ComposeSelectionOverlay.tsx": "51cafe40e419",
   "components/editor/ComposeTree.tsx": "1071b69455ed",
   "components/editor/ComposeView.tsx": "9d3513ea8049",

@@ -296,6 +296,41 @@ See also [frontend.md](frontend.md) for general editor structure and store conve
 - The legacy single-camera viewer route `/viewer/:projectId/:nodeId` renders **only** the camera's 3D output (no compose layers). Compose layers are shown exclusively by the compose-scene viewer (`/viewer/:projectId/compose/:composeSceneId`, via the `composeSceneId` param), whose whole stack — including the `camera_view` 3D layer — is the streamed output. Both render through `ComposeStage`.
 - [track-clips.md](track-clips.md) — track clips can target compose-layer `layer.x`, `layer.y`, `layer.rotation`. `ComposeLayerStack.LayerView` subscribes per-layer to `composeLayerOverrides[layer.id]` in the Zustand store and merges over the base on render. Overrides are runtime-only (never persisted); for `relative`-mode clips the evaluator pre-folds the base in, so the merge is always a plain replace.
 
+## OBS window capture output
+
+Status: **implemented** (from source and in the packaged release, which downloads Electron on first use). Plan and
+measurements: [plans/obs-output-window.md](../plans/obs-output-window.md).
+
+- **Setting:** compose scene `config.obsWindowCapture: boolean`, toggled by the
+  `.vs-compose-obs-window` checkbox in `ComposeSceneProperties` (`ComposeLayerProperties.tsx`).
+- **Backend:** `packages/backend/src/output_window/manager.ts`. `OutputWindowManager`
+  observes the `compose_layer` mesh collection (debounced `all()` resync) and keeps one
+  window per enabled compose scene for the server's lifetime. The pure `desiredWindows()`
+  maps scenes to `{ id, url, width, height, title }`. A crashed child restarts with
+  exponential backoff; it is stopped from `shutdown()` and `process.on('exit')`.
+- **Electron:** `packages/output-window/main.cjs`, one process for all windows. Windows are
+  frameless, transparent, `skipTaskbar`, non-focusable, sized on-screen while hidden, then
+  parked far off-screen (Windows capture still delivers frames; minimized windows can't be
+  captured). Chromium throttling is disabled (`CalculateNativeWinOcclusion`,
+  `disable-backgrounding-occluded-windows`, `disable-renderer-backgrounding`,
+  `backgroundThrottling: false`). Driven over the **Node IPC channel**, because Electron's
+  main process reads EOF from stdin on Windows; it quits on `disconnect`.
+- **Viewer:** `ViewerPage` with `?output=window` keeps the document transparent outside OBS.
+- **Window title:** `obsOutputWindowTitle(name)` in `@vspark/shared` (`vspark – <scene>`).
+  OBS Window Capture matches by title, so renaming a scene requires re-picking it in OBS.
+- **Viewer origin:** `VSPARK_VIEWER_ORIGIN`, else the backend port when bundled, else Vite
+  (`VITE_DEV_PORT`, default 5173).
+- **Packaged release:** Electron is downloaded on first use (`output_window/runtime.ts`). The
+  bundle inlines the Electron version and the official release-zip SHA-256s
+  (`@vspark/output-window/runtime-info.cjs` → `electron/checksums.json`). The backend fetches
+  `electron-v<ver>-<platform>-<arch>.zip` from Electron's GitHub release, verifies it,
+  extracts it via staging → rename into `<install>/runtime/` (override:
+  `VSPARK_RUNTIME_DIR`) and writes a `.vspark-verified` marker; a cached runtime is reused.
+  The release zip ships `output-window/main.cjs`; in-place updates leave `runtime/` alone.
+  Status (`idle` / `downloading` + progress / `ready` / `error` / `unavailable`) is broadcast
+  as `output_window_status` (snapshot on connect) and shown under the checkbox. A failed
+  preparation is retried on a later scene change, at most every 30 s.
+
 ## Known Limitations / Future Work
 
 - Ordering has no cross-sibling-set affordance: a layer can only be re-keyed within its own `(rootComposeSceneId, parentId)` group, so "move in front of that layer over there" is a reparent first (drag onto the target's parent), then a reorder. See [Ordering](#ordering).
