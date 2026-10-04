@@ -61,6 +61,7 @@ import m038 from './migrations/038_clip_playback.js';
 import m039 from './migrations/039_collab_scene_mounted_at.js';
 import m040 from './migrations/040_peer_projects.js';
 import m041 from './migrations/041_drop_track_clip_started_at.js';
+import m042 from './migrations/042_mesh_tombstone_ancestors.js';
 
 const { Database } = nodeSqliteWasm as unknown as {
   Database: typeof DatabaseType;
@@ -125,6 +126,7 @@ const MIGRATIONS: Migration[] = [
   { name: '039_collab_scene_mounted_at.sql', sql: m039 },
   { name: '040_peer_projects.sql', sql: m040 },
   { name: '041_drop_track_clip_started_at.sql', sql: m041 },
+  { name: '042_mesh_tombstone_ancestors.sql', sql: m042 },
 ];
 
 // Thin wrapper so call sites can use .run(a, b, c) spread syntax.

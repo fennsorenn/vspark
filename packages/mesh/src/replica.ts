@@ -18,12 +18,7 @@
  * (the landing write supersedes the preview).
  */
 import { compareHLC, type HLC } from '@vspark/shared/sync';
-import {
-  flattenToLeaves,
-  getPath,
-  pathAtOrAbove,
-  setPath,
-} from './paths.js';
+import { flattenToLeaves, getPath, pathAtOrAbove, setPath } from './paths.js';
 import type { DocOp } from './wire.js';
 
 export interface ApplyMeta {
@@ -47,6 +42,9 @@ export interface AppliedChange<T> {
   channel: string;
   hydrate?: boolean;
   restored?: boolean;
+  /** remove only: the removed doc's ancestor ids, nearest first, as they were
+   *  before the removal (a durable peer persists them with the tombstone). */
+  ancestors?: string[];
 }
 
 interface ParkedPatch {
@@ -210,7 +208,14 @@ export class Replica<T extends object> {
       }
     }
     if (!applied) return null;
-    return { op: 'patch', id, path: '', doc: this.get(id), v, ...metaFields(meta) };
+    return {
+      op: 'patch',
+      id,
+      path: '',
+      doc: this.get(id),
+      v,
+      ...metaFields(meta),
+    };
   }
 
   remove(id: string, v: HLC, meta: ApplyMeta): AppliedChange<T> | null {

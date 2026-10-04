@@ -512,7 +512,9 @@ describe('tombstone scoping + epoch reset', () => {
     na.create({ id: 's-root', name: 'S', parentId: null });
     nb.put({ id: 's-root', name: 'S', parentId: null }, { v: { t: 10, c: 0, n: 'A' } });
     nb.put({ id: 's-gone', name: 'dead', parentId: 's-root' }, { v: { t: 10, c: 0, n: 'A' } });
-    na.putTombstone('s-gone', { t: 99, c: 0, n: 'A' });
+    // Hydrated with the ancestry a durable peer persists next to the stamp —
+    // the subtree grant can only be checked against where the entity WAS.
+    na.putTombstone('s-gone', { t: 99, c: 0, n: 'A' }, ['s-root']);
     a.grants.grant(subtreeGrant('B', 's-root'));
 
     await b.subscribe('A', subtreeSub('s-root'));

@@ -87,8 +87,7 @@ export function initMeshStreams(
   broadcast: (kind: string, payload: Record<string, unknown>) => void
 ): void {
   if (_col) return;
-  // CONTROL_CHANNEL is registered by initMeshRuntime (mesh/runtime.ts), which
-  // runs as part of initBackendMesh — before this. One definition, one place.
+  // Server-to-server only: no `clients` grant, so tabs can't subscribe.
   _col = peer.collection<StreamFrame>(NODE_STREAM_RTYPE, {
     channels: ['preview'],
   });

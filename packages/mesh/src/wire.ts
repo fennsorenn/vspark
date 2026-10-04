@@ -78,6 +78,11 @@ export interface AckMsg {
   value?: unknown;
   v?: HLC;
   reason?: string;
+  /** The document the ack is about. Lets the egress filter project `value`
+   *  down to what the requester may read (a rejected writer must not learn a
+   *  value it has no read grant for). */
+  rtype?: string;
+  id?: string;
 }
 
 /** Clock-sync probe (NTP-style): the receiver answers immediately with a

@@ -43,16 +43,10 @@ const RTYPES = [
   'media_control',
 ] as const;
 
-/** Reliable + stamped + retained, no ack — runtime state that must reach a
- *  late joiner without landing on anyone's undo stack. MUST match the backend
- *  registration in `packages/backend/src/mesh/runtime.ts`: an op whose channel
- *  this peer doesn't know is dropped silently on arrival. */
+/** Built-in mesh channels (packages/mesh/src/channels.ts): `runtime` is
+ *  retained state without undo, `control` is commands that are never replayed
+ *  to a tab that connects later. */
 const RUNTIME_CHANNEL = 'runtime';
-
-/** Reliable but UNSTAMPED and UNRETAINED — commands, not state. A media
- *  command must not be replayed to a tab that connects an hour later, which is
- *  exactly what retention would do. Same name as the backend's
- *  (mesh/runtime.ts). */
 const CONTROL_CHANNEL = 'control';
 
 /** rtypes that live on a channel other than the default committed/preview
@@ -224,6 +218,8 @@ async function doInit(): Promise<MeshHandles> {
   const wsProto = window.location.protocol === 'https:' ? 'wss' : 'ws';
   const peer = createMeshPeer({
     identity: { peerId: participantId },
+    // Our server is the source of our grants, not a recipient they gate.
+    home: serverPeerId,
     transports: [
       new WsBackendTransport({
         url: `${wsProto}://${window.location.host}/mesh`,
@@ -231,17 +227,6 @@ async function doInit(): Promise<MeshHandles> {
         serverPeerId,
       }),
     ],
-  });
-
-  peer.channel(RUNTIME_CHANNEL, {
-    transport: 'reliable',
-    stamped: true,
-    retained: true,
-  });
-  peer.channel(CONTROL_CHANNEL, {
-    transport: 'reliable',
-    stamped: false,
-    retained: false,
   });
 
   const collections: Record<string, Collection<Dto>> = {};

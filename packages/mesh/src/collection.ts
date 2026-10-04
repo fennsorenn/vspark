@@ -53,6 +53,15 @@ export interface CollectionConfig<T extends object> {
   channels?: string[];
   /** Ack authority: 'self' on the home peer, the home's peer id elsewhere. */
   authority?: 'self' | string;
+  /** Rights this peer's own client participants (its tabs) hold on every
+   *  document of the collection. Grants are a whitelist (principle 9): a
+   *  collection that declares none is unreachable from tabs, visibly. */
+  clients?: {
+    read?: boolean;
+    update?: boolean;
+    create?: boolean;
+    delete?: boolean;
+  };
 }
 
 export type Selector = string | { subtree: string } | '**';
@@ -86,6 +95,9 @@ export interface PeerCore {
   effectiveStamp(id: string, v: HLC, parentHint?: string | null): HLC;
   indexUpsert(rtype: string, id: string, parentId: string | null): void;
   indexRemove(id: string): void;
+  /** A document was removed; `chain` is its id + ancestors as they were, so a
+   *  tombstone can still be scope-checked once its containment entry is gone. */
+  noteRemoved(id: string, chain: string[]): void;
 }
 
 interface Observer<T> {
@@ -193,14 +205,17 @@ export class Collection<T extends object> {
     });
   }
 
-  /** Hydrate one tombstone with its restored stamp. */
-  putTombstone(id: string, v: HLC): void {
+  /** Hydrate one tombstone with its restored stamp. `ancestors` (nearest
+   *  first, as persisted from the remove's `AppliedChange.ancestors`) restores
+   *  where the entity sat, so subtree-scoped grants can still be checked. */
+  putTombstone(id: string, v: HLC, ancestors?: string[]): void {
     this.peer.localWrite(this, {
       op: 'remove',
       id,
       channel: this.requireRetained('putTombstone'),
       hydrateV: v,
     });
+    if (ancestors?.length) this.peer.noteRemoved(id, [id, ...ancestors]);
   }
 
   /** Forget a deletion marker (LOCAL only — nothing fans out). The epoch-reset
@@ -277,7 +292,11 @@ export class Collection<T extends object> {
     if (op === 'remove') {
       preChain = this.ancestorChain(id);
       change = this.replica.remove(id, v, meta);
-      if (change) this.peer.indexRemove(id);
+      if (change) {
+        change.ancestors = preChain.slice(1);
+        this.peer.noteRemoved(id, preChain);
+        this.peer.indexRemove(id);
+      }
     } else if (op === 'upsert') {
       change = this.replica.upsert(id, data as T, v, meta);
     } else {
@@ -290,7 +309,11 @@ export class Collection<T extends object> {
     if (op !== 'remove') {
       const doc = this.replica.raw(id);
       if (doc !== undefined)
-        this.peer.indexUpsert(this.rtype, id, this.cfg.parent?.(doc)?.id ?? null);
+        this.peer.indexUpsert(
+          this.rtype,
+          id,
+          this.cfg.parent?.(doc)?.id ?? null
+        );
     }
     this.notify(change, preChain);
     return change;

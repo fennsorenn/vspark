@@ -47,8 +47,8 @@
 import type { Collection, MeshPeer } from '@vspark/mesh';
 import type { ParamTargetKind } from '@vspark/shared/paramPaths';
 
-/** Reliable, stamped, retained, unacked: durable state that must reach late
- *  joiners, without an ack (and so without an undo entry). */
+/** Built-in mesh channel: retained state that must reach late joiners, without
+ *  an ack (and so without an undo entry). */
 export const RUNTIME_CHANNEL = 'runtime';
 export const RUNTIME_OVERRIDE_RTYPE = 'runtime_override';
 
@@ -152,9 +152,8 @@ export const dataFieldParent = (
 
 // --- media commands ----------------------------------------------------------
 
-/** Reliable, stamped=false, retained=false: control messages that must not drop
- *  but are EVENTS, not state. Defined here rather than in mesh/streams.ts (which
- *  also uses it) so the channel has one definition. */
+/** Built-in mesh channel: commands that must not drop but are events, not
+ *  state — never replayed to a participant that connects later. */
 export const CONTROL_CHANNEL = 'control';
 export const MEDIA_CONTROL_RTYPE = 'media_control';
 
@@ -189,30 +188,25 @@ let _media: Collection<MediaControlDoc> | null = null;
 /** Register the runtime channel + collections. Idempotent. */
 export function initMeshRuntime(peer: MeshPeer): void {
   if (_overrides) return;
-  peer.channel(RUNTIME_CHANNEL, {
-    transport: 'reliable',
-    stamped: true,
-    retained: true,
-  });
+  // `runtime` and `control` are built-in mesh channels. Tabs display these
+  // documents; only this server writes them.
   _overrides = peer.collection<RuntimeOverrideDoc>(RUNTIME_OVERRIDE_RTYPE, {
     channels: [RUNTIME_CHANNEL],
     parent: overrideParent,
     authority: 'self',
+    clients: { read: true },
   });
   _dataFields = peer.collection<DataFieldDoc>(DATA_FIELD_RTYPE, {
     channels: [RUNTIME_CHANNEL],
     parent: dataFieldParent,
     authority: 'self',
-  });
-  peer.channel(CONTROL_CHANNEL, {
-    transport: 'reliable',
-    stamped: false,
-    retained: false,
+    clients: { read: true },
   });
   _media = peer.collection<MediaControlDoc>(MEDIA_CONTROL_RTYPE, {
     channels: [CONTROL_CHANNEL],
     parent: mediaControlParent,
     authority: 'self',
+    clients: { read: true },
   });
 }
 
