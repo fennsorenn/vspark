@@ -48,7 +48,7 @@ export const BLENDSHAPE_SOURCE_KINDS = [
   'vmc_receiver',
   'ifacialmocap_receiver',
   'mediapipe_tracker',
-  'lipsync',
+  'lipsync_processor',
   'api_controller',
 ] as const;
 

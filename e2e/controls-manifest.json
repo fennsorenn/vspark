@@ -20,7 +20,7 @@
   "components/editor/signal/SignalNodeCard.tsx": "365355ea3176",
   "components/editor/TopBar.tsx": "98b44ed1b41b",
   "components/editor/TrackClipTimeline.tsx": "12d1ce5e8b1d",
-  "components/editor/TrackingMix.tsx": "5bcc7b764be3",
+  "components/editor/TrackingMix.tsx": "b7cce35666d1",
   "components/editor/UpdateDialog.tsx": "704a2c6edfc2",
   "components/FaceCalibrationWindow.tsx": "7843b27f8b27",
   "components/FileDrop.tsx": "e0f095e333bf",

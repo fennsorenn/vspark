@@ -91,7 +91,7 @@ function seed(
         defaultConfig: {},
       },
       {
-        kind: 'lipsync',
+        kind: 'lipsync_processor',
         label: 'Lip Sync',
         icon: '',
         description: '',
@@ -143,7 +143,7 @@ describe('buildMixSources', () => {
         beh('br', 'breathing'),
         beh('v1', 'vmc_receiver'),
         beh('x', 'pose_stylizer'),
-        beh('lip', 'lipsync'),
+        beh('lip', 'lipsync_processor'),
       ],
       label,
       'Anim',

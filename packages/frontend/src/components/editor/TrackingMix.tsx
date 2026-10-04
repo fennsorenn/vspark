@@ -390,7 +390,7 @@ export function TrackingMixModal({
           {(['body', 'face'] as Tab[]).map((k) => (
             <button
               key={k}
-              className={`vs-mix-tab-${k}`}
+              className={k === 'body' ? 'vs-mix-tab-body' : 'vs-mix-tab-face'}
               style={tabStyle(tab === k)}
               onClick={() => setTab(k)}
             >

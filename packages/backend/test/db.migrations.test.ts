@@ -444,7 +444,7 @@ describe('044_pose_source_to_tracking_mix', () => {
       [
         { id: 'vmc', kind: 'vmc_receiver' },
         { id: 'br', kind: 'breathing' },
-        { id: 'lip', kind: 'lipsync' }, // blendshapes only — not a bone source
+        { id: 'lip', kind: 'lipsync_processor' }, // blendshapes only — not a bone source
       ]
     );
     const p = nodeProps(db);
