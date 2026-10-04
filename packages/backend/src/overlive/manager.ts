@@ -31,6 +31,7 @@ import { mkEvent } from '@vspark/shared/signal';
 import { getDb } from '../db/index.js';
 import { logicManager } from '../logic/manager.js';
 import type { WSSync } from '../ws/index.js';
+import { publishStatus } from '../mesh/status.js';
 
 /**
  * One accumulated chat message in the overlive chat ring-buffer. Mirrors the
@@ -781,7 +782,7 @@ export class OverliveManager {
          WHERE id = ?`
         )
         .run(status, reason, message, accountId);
-      this.ws?.broadcast('overlive_account_status', {
+      publishStatus('overlive_account', accountId, {
         accountId,
         status,
         reason,

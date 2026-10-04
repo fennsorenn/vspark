@@ -383,44 +383,6 @@ describe('useWsSync', () => {
     unmount();
   });
 
-  it('handles vmc_status message → updates editorStore', async () => {
-    const useWsSync = await getUseWsSync();
-    const { unmount } = renderHook(() => useWsSync());
-    const ws = FakeWebSocket.lastInstance!;
-
-    act(() => {
-      ws.simulateOpen();
-      ws.simulateMessage({
-        kind: 'vmc_status',
-        payload: { behaviorId: 'beh-1', connected: true },
-      });
-    });
-
-    expect(useEditorStore.getState().vmcStatus['beh-1']).toBe(true);
-    unmount();
-  });
-
-  it('handles vmc_tracking_state message → updates editorStore', async () => {
-    const useWsSync = await getUseWsSync();
-    const { unmount } = renderHook(() => useWsSync());
-    const ws = FakeWebSocket.lastInstance!;
-
-    act(() => {
-      ws.simulateOpen();
-      ws.simulateMessage({
-        kind: 'vmc_tracking_state',
-        payload: { behaviorId: 'beh-1', tracking: true },
-      });
-    });
-
-    expect(useEditorStore.getState().vmcTracking['beh-1']).toBe(true);
-    unmount();
-  });
-
-
-
-
-
   it('schedules reconnect when connection closes then reconnects', async () => {
     vi.useFakeTimers();
     const useWsSync = await getUseWsSync();

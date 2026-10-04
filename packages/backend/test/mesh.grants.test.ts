@@ -329,3 +329,57 @@ describe('compose layer guard', () => {
     expect(good.status).toBe('acked');
   });
 });
+
+describe('server status documents', () => {
+  let app: Express;
+
+  beforeEach(async () => {
+    ({ app } = await makeTestApp({ mesh: true }));
+  });
+
+  afterEach(() => resetBackendMesh());
+
+  it('reach a tab that subscribes later, and go when their behavior does', async () => {
+    const { publishTracking, publishStatus } =
+      await import('../src/mesh/status.js');
+    const proj = (await request(app).post('/api/projects').send({ name: 'P' }))
+      .body.data;
+    const scene = (
+      await request(app)
+        .post(`/api/projects/${proj.id}/scenes`)
+        .send({ name: 'S' })
+    ).body.data;
+    const node = (
+      await request(app)
+        .post(`/api/scenes/${scene.id}/nodes`)
+        .send({ name: 'Avatar', kind: 'group' })
+    ).body.data;
+    const beh = (
+      await request(app)
+        .post(`/api/scene-nodes/${node.id}/behaviors`)
+        .send({ kind: 'breathing' })
+    ).body.data;
+
+    // Published before any tab exists.
+    publishTracking({ behaviorId: beh.id, connected: true });
+    publishTracking({ behaviorId: beh.id, tracking: true });
+    publishStatus('output_window', 'main', { state: 'ready' });
+
+    const server = getMeshPeer()!;
+    const { peer, flush } = attach(makeClientParticipantId(server.id, 'tab1'));
+    const status = peer.collection<Dto>('server_status', {
+      channels: ['runtime'],
+      authority: server.id,
+    });
+    await peer.subscribe(server.id, everything('server_status'));
+    expect(status.get(`tracking:${beh.id}`)).toMatchObject({
+      connected: true,
+      tracking: true,
+    });
+    expect(status.get('output_window:main')).toMatchObject({ state: 'ready' });
+
+    await request(app).delete(`/api/behaviors/${beh.id}`).expect(200);
+    await flush();
+    expect(status.get(`tracking:${beh.id}`)).toBeUndefined();
+  });
+});

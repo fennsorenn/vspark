@@ -118,17 +118,7 @@ export function useWsSync() {
             applyRemote(msg.payload as unknown as SyncEnvelope);
             return;
           }
-          if (msg.kind === 'vmc_status') {
-            setVmcStatus(
-              msg.payload.behaviorId as string,
-              msg.payload.connected as boolean
-            );
-          } else if (msg.kind === 'vmc_tracking_state') {
-            setVmcTracking(
-              msg.payload.behaviorId as string,
-              msg.payload.tracking as boolean
-            );
-          } else if (msg.kind === 'vmc_pose') {
+          if (msg.kind === 'vmc_pose') {
             setVmcPose(
               msg.payload.nodeId as string,
               msg.payload.bones as Record<
@@ -180,20 +170,6 @@ export function useWsSync() {
             useEditorStore.getState().addTrackClip(mapTrackClip(msg.payload));
           } else if (msg.kind === 'track_clip_removed') {
             useEditorStore.getState().removeTrackClip(msg.payload.id as string);
-          } else if (msg.kind === 'obs_connection_status') {
-            const p = msg.payload as {
-              connectionId: string;
-              status: import('../api/client').ObsConnectionStatus;
-              reason: string | null;
-              message: string | null;
-            };
-            useEditorStore.getState().patchObsConnectionStatus(p);
-          } else if (msg.kind === 'output_window_status') {
-            useEditorStore
-              .getState()
-              .setOutputWindowStatus(
-                msg.payload as import('../store/editorStore').OutputWindowStatus
-              );
           } else if (msg.kind === 'mp_status') {
             useConnectionsStore
               .getState()

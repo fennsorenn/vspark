@@ -18,6 +18,7 @@ import {
 import { getDb } from '../../db/index.js';
 import { BehaviorKind } from '../decorator.js';
 import { trackingGraceMs } from '../tracking_grace.js';
+import { publishTracking } from '../../mesh/status.js';
 
 /** No packet for this long ⇒ the device is unreachable (the grey status dot).
  *  Its own fixed window, same as the VMC receiver: "can we reach the source" is
@@ -97,22 +98,6 @@ export class IFacialMocapManager {
     initPoseBroadcast(ws);
     initBlendshapesBroadcast(ws);
     this.timer = setInterval(() => this.tick(), SWEEP_MS);
-
-    // Send current receiver state to any new WebSocket client (handles page refresh / new tabs).
-    ws.onClientConnected((client) => {
-      for (const [behaviorId, info] of this.receivers) {
-        ws.sendTo(client, 'vmc_status', {
-          behaviorId,
-          connected: info.connected,
-        });
-        if (info.trackingActive !== null) {
-          ws.sendTo(client, 'vmc_tracking_state', {
-            behaviorId,
-            tracking: info.trackingActive,
-          });
-        }
-      }
-    });
   }
 
   // ── graph management ───────────────────────────────────────────────────────
@@ -277,7 +262,7 @@ export class IFacialMocapManager {
         console.log(
           `[iFacialMocap] Device connected: ${rinfo.address}:${rinfo.port} → port ${port} (behavior ${behaviorId})`
         );
-        this.ws.broadcast('vmc_status', {
+        publishTracking({
           behaviorId,
           connected: true,
           remoteAddress: rinfo.address,
@@ -344,12 +329,12 @@ export class IFacialMocapManager {
     this.interceptorCleanups.delete(behaviorId);
     broadcastBus.removeBehavior(behaviorId);
     if (info.connected)
-      this.ws.broadcast('vmc_status', { behaviorId, connected: false });
+      publishTracking({ behaviorId, connected: false });
     // Signal tracking loss on teardown, or every client keeps a stale
     // `tracking: true` forever (pinning avatars to their base animation).
     // Mirrors VmcManager.stopReceiver().
     if (info.trackingActive)
-      this.ws.broadcast('vmc_tracking_state', {
+      publishTracking({
         behaviorId,
         tracking: false,
       });
@@ -454,7 +439,7 @@ export class IFacialMocapManager {
     console.log(
       `[iFacialMocap] Tracking ${nowTracking ? 'ACTIVE' : 'LOST'} (behavior ${behaviorId})`
     );
-    this.ws.broadcast('vmc_tracking_state', {
+    publishTracking({
       behaviorId,
       tracking: nowTracking,
     });
@@ -471,7 +456,7 @@ export class IFacialMocapManager {
       if (info.connected && now - info.lastSeen > CONNECT_TIMEOUT_MS) {
         info.connected = false;
         console.log(`[iFacialMocap] Device timed out (behavior ${behaviorId})`);
-        this.ws.broadcast('vmc_status', { behaviorId, connected: false });
+        publishTracking({ behaviorId, connected: false });
         info.prevSignature = [];
       }
 

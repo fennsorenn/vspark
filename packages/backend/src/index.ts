@@ -3,6 +3,7 @@ import { existsSync } from 'fs';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import { currentPairingCode, onPairingCode } from './auth/clients.js';
+import { publishStatus } from './mesh/status.js';
 import { createApp } from './app.js';
 import { runMigrations, getDb, closeDb } from './db/index.js';
 import {
@@ -173,12 +174,11 @@ async function start() {
                   onProgress,
                 })
               ),
-        onStatus: (status) => wsSync.broadcast('output_window_status', status),
+        onStatus: (status) =>
+          publishStatus('output_window', 'main', { ...status }),
       });
       outputWindows = mgr;
-      wsSync.onClientConnected((ws) =>
-        wsSync.sendTo(ws, 'output_window_status', mgr.status)
-      );
+      publishStatus('output_window', 'main', { ...mgr.status });
       const resync = () =>
         outputWindows?.setScenes(composeLayers.all() as unknown as ComposeSceneDoc[]);
       let pending: ReturnType<typeof setTimeout> | null = null;

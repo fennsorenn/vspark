@@ -524,11 +524,10 @@ export type WSMessageKind =
   | 'compose_layer_removed'
   | 'track_clip_added'
   | 'track_clip_removed'
-  // OBS. client_hello / client_status carry render-client lifecycle;
-  // obs_connection_status reports the backend's obs-websocket link.
+  // Render-client lifecycle (client_hello / client_status). An OBS
+  // connection's status is a `server_status` mesh document now.
   | 'client_hello'
   | 'client_status'
-  | 'obs_connection_status'
   // Assistant (in-app agent). Inbound: assistant_user_message, assistant_reset.
   // Outbound (per-connection): the rest.
   | 'assistant_user_message'
@@ -719,16 +718,6 @@ export type ObsConnectionStatus =
   | 'reconnecting'
   | 'disconnected'
   | 'error';
-
-/** Backend → frontend: an obs-websocket connection's status changed. */
-export interface ObsConnectionStatusMessage {
-  kind: 'obs_connection_status';
-  connectionId: string;
-  projectId: string;
-  status: ObsConnectionStatus;
-  reason: string | null;
-  message: string | null;
-}
 
 // ── Render-client lifecycle ──────────────────────────────────────────────────
 // A render client (a browser tab or OBS browser source showing a vspark scene)

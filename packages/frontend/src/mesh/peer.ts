@@ -41,6 +41,7 @@ const RTYPES = [
   'runtime_override',
   'data_field',
   'media_control',
+  'server_status',
 ] as const;
 
 /** Built-in mesh channels (packages/mesh/src/channels.ts): `runtime` is
@@ -56,6 +57,7 @@ const CHANNELS: Partial<Record<string, string[]>> = {
   runtime_override: [RUNTIME_CHANNEL],
   data_field: [RUNTIME_CHANNEL],
   media_control: [CONTROL_CHANNEL],
+  server_status: [RUNTIME_CHANNEL],
 };
 
 const childOfNode = (d: Dto) =>
@@ -123,6 +125,13 @@ const PARENTS: Partial<
     typeof d.targetId === 'string'
       ? { rtype: d.targetKind, id: d.targetId }
       : null,
+  // A status about a document hangs off it (backend mesh/status.ts `of`).
+  server_status: (d) => {
+    const of = d.of as { rtype?: unknown; id?: unknown } | null | undefined;
+    return of && typeof of.rtype === 'string' && typeof of.id === 'string'
+      ? { rtype: of.rtype, id: of.id }
+      : null;
+  },
   // Owned polymorphically. A project-owned graph has no parent: there is no
   // `project` rtype in the mesh. Must match the backend BINDINGS entry exactly.
   logic: (d) =>

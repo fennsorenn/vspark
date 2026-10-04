@@ -5,6 +5,19 @@ import { ObsWsManager } from '../src/obs/ws_manager.js';
 import { logicManager } from '../src/logic/manager.js';
 import type { WSSync } from '../src/ws/index.js';
 
+// Connection status is a mesh document now (mesh/status.ts).
+const { statusCalls } = vi.hoisted(() => ({
+  statusCalls: [] as {
+    kind: string;
+    key: string;
+    fields: Record<string, unknown>;
+  }[],
+}));
+vi.mock('../src/mesh/status.js', () => ({
+  publishStatus: (kind: string, key: string, fields: Record<string, unknown>) =>
+    statusCalls.push({ kind, key, fields }),
+}));
+
 /**
  * ObsWsManager — connection lifecycle, status broadcast, event fan-out, and
  * outbound requests, using a fake obs-websocket client + an in-memory DB.
@@ -54,25 +67,25 @@ beforeEach(async () => {
 afterEach(() => vi.restoreAllMocks());
 
 describe('ObsWsManager connection status', () => {
-  it('broadcasts connecting then connected across the handshake', async () => {
+  it('publishes connecting then connected across the handshake', async () => {
     await insertConnection();
     vi.spyOn(logicManager, 'iterateNodes').mockReturnValue(
       [] as unknown as ReturnType<typeof logicManager.iterateNodes>
     );
-    const { ws, broadcasts } = makeWsStub();
+    const { ws } = makeWsStub();
     const mgr = new ObsWsManager(ws, () => fake);
 
     mgr.refreshProject('p1');
     expect(fake.connect).toHaveBeenCalled();
-    expect(broadcasts.at(-1)).toMatchObject({
-      kind: 'obs_connection_status',
-      payload: { projectId: 'p1', status: 'connecting' },
+    expect(statusCalls.at(-1)).toMatchObject({
+      kind: 'obs_connection',
+      fields: { projectId: 'p1', status: 'connecting' },
     });
 
     fake.goLive();
-    expect(broadcasts.at(-1)).toMatchObject({
-      kind: 'obs_connection_status',
-      payload: { projectId: 'p1', status: 'connected' },
+    expect(statusCalls.at(-1)).toMatchObject({
+      kind: 'obs_connection',
+      fields: { projectId: 'p1', status: 'connected' },
     });
     expect(mgr.isConnected('p1')).toBe(true);
   });
@@ -81,7 +94,11 @@ describe('ObsWsManager connection status', () => {
     await insertConnection();
     const fire = vi.spyOn(logicManager, 'fire').mockImplementation(() => {});
     vi.spyOn(logicManager, 'iterateNodes').mockReturnValue([
-      { graphId: 'g', node: { id: 'cs', kind: 'obs_connection_state' }, projectId: 'p1' },
+      {
+        graphId: 'g',
+        node: { id: 'cs', kind: 'obs_connection_state' },
+        projectId: 'p1',
+      },
     ] as unknown as ReturnType<typeof logicManager.iterateNodes>);
     const mgr = new ObsWsManager(makeWsStub().ws, () => fake);
     mgr.refreshProject('p1');
@@ -100,7 +117,11 @@ describe('ObsWsManager event routing', () => {
     await insertConnection();
     const fire = vi.spyOn(logicManager, 'fire').mockImplementation(() => {});
     vi.spyOn(logicManager, 'iterateNodes').mockReturnValue([
-      { graphId: 'g', node: { id: 'v', kind: 'obs_volume_changed' }, projectId: 'p1' },
+      {
+        graphId: 'g',
+        node: { id: 'v', kind: 'obs_volume_changed' },
+        projectId: 'p1',
+      },
     ] as unknown as ReturnType<typeof logicManager.iterateNodes>);
     const mgr = new ObsWsManager(makeWsStub().ws, () => fake);
     mgr.refreshProject('p1');

@@ -105,6 +105,52 @@ function parseDataFieldId(id: string): { scope: string; field: string } | null {
   return { scope: id.slice(0, i), field: id.slice(i + 1) };
 }
 
+/** A `server_status` document (backend mesh/status.ts). */
+interface RawStatus {
+  id: string;
+  kind: 'tracking' | 'obs_connection' | 'overlive_account' | 'output_window';
+  key: string;
+  [field: string]: unknown;
+}
+
+/** Route one status document into the store slice that shows it. */
+function applyStatus(d: RawStatus): void {
+  const s = useEditorStore.getState();
+  switch (d.kind) {
+    case 'tracking':
+      if (typeof d.connected === 'boolean') s.setVmcStatus(d.key, d.connected);
+      if (typeof d.tracking === 'boolean') s.setVmcTracking(d.key, d.tracking);
+      return;
+    case 'obs_connection':
+      s.patchObsConnectionStatus({
+        connectionId: d.key,
+        status: d.status as import('../api/client').ObsConnectionStatus,
+        reason: (d.reason as string | null) ?? null,
+        message: (d.message as string | null) ?? null,
+      });
+      return;
+    case 'overlive_account':
+      s.setOverliveAccounts(
+        s.overliveAccounts.map((a) =>
+          a.id === d.key
+            ? {
+                ...a,
+                status: d.status as typeof a.status,
+                statusReason: (d.reason as string | null) ?? null,
+                statusMessage: (d.message as string | null) ?? null,
+              }
+            : a
+        )
+      );
+      return;
+    case 'output_window':
+      s.setOutputWindowStatus(
+        d as unknown as import('../store/editorStore').OutputWindowStatus
+      );
+      return;
+  }
+}
+
 /** A `media_control` document. */
 interface RawMediaControl {
   id: string;
@@ -169,7 +215,8 @@ export function startMeshStoreFeeder(): void {
           const item = {
             id: node.id,
             name: node.name,
-            runtimeSettings: (node.properties ?? {}) as SceneItem['runtimeSettings'],
+            runtimeSettings: (node.properties ??
+              {}) as SceneItem['runtimeSettings'],
           };
           if (s.scenes.some((sc) => sc.id === node.id))
             s.updateSceneItem(node.id, item);
@@ -419,6 +466,14 @@ export function startMeshStoreFeeder(): void {
       // Media commands. An EVENT, not state: the collection has no retained
       // channel, so there is nothing to seed from and nothing replayed to a tab
       // that connects later — a play from an hour ago must not fire now.
+      // Server status (backend mesh/status.ts): retained while the server
+      // runs, so a tab that opens later gets it from the snapshot.
+      h.collections.server_status.observe('**', (c) => {
+        if (c.op !== 'remove' && c.doc)
+          applyStatus(c.doc as unknown as RawStatus);
+      });
+      for (const d of h.collections.server_status.all())
+        applyStatus(d as unknown as RawStatus);
       h.collections.media_control.observe('**', (c) => {
         const d = c.doc as unknown as RawMediaControl | undefined;
         if (c.op === 'remove' || !d?.command) return;

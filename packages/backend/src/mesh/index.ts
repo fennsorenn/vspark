@@ -43,6 +43,11 @@ import {
 } from './docGuards.js';
 import { runtimeOverrideManager } from '../runtime_overrides/manager.js';
 import { initMeshRuntime, resetMeshRuntime } from './runtime.js';
+import {
+  clearStatusOf,
+  initServerStatus,
+  resetServerStatus,
+} from './status.js';
 import { refreshAllBehaviorManagers } from '../behaviors/refresh.js';
 import { logicLifecycle } from '../logic/lifecycle.js';
 import {
@@ -522,6 +527,7 @@ export function initBackendMesh(): MeshPeer {
   // the call site so a mesh peer cannot exist without it — a missing runtime
   // collection is silent, and the overrides simply stop arriving.
   initMeshRuntime(peer);
+  initServerStatus(peer);
   // The animation-clip asset follow-up re-points sourceFilePath through the
   // store once a fetched blob lands.
   const animCol = COLLECTIONS.get('animation_clip');
@@ -549,6 +555,7 @@ export function resetBackendMesh(): void {
   _transport = null;
   COLLECTIONS.clear();
   resetMeshRuntime();
+  resetServerStatus();
 }
 
 /** Epoch reset: forget deletion markers for the given ids — replica AND the
@@ -614,6 +621,7 @@ function bindCollection(
         // usually removed them already in the same undo action — then this is
         // a no-op.
         peer.removeTree(c.id);
+        clearStatusOf(c.id);
         if (b.persists && !rowExists(b.table, c.id)) return; // never persisted
         r.remove?.(c.id);
         if (c.v) saveTombstone(b.rtype, c.id, c.v, c.ancestors);
