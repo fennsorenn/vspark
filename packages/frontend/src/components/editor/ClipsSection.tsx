@@ -13,7 +13,7 @@ import {
 import { ContextMenu } from './ContextMenu';
 import { copyToClipboard, pasteFromClipboard } from '../../clipboard';
 import { HelpButton } from '../../help/HelpButton';
-import { useClipPlaybacks } from '../../mesh/hooks';
+import { useClipPlaybacks, useTrackClips } from '../../mesh/hooks';
 
 /** Inline, expandable list of track clips owned by a single scene node or
  *  compose layer — mirrors the components/effects sub-sections in the scene
@@ -29,7 +29,7 @@ export function ClipsSection({
   flat?: boolean;
 }) {
   const { t } = useTranslation('clips');
-  const trackClips = useEditorStore((s) => s.trackClips);
+  const trackClips = useTrackClips();
   const selectedTrackClipId = useEditorStore((s) => s.selectedTrackClipId);
   const selectTrackClip = useEditorStore((s) => s.selectTrackClip);
   const setBottomTab = useEditorStore((s) => s.setBottomTab);

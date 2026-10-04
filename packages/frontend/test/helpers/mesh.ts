@@ -70,3 +70,30 @@ export function docsOf<T extends object = Record<string, unknown>>(
 ): T[] {
   return testPeer().collection<T>(rtype).all();
 }
+
+/** A track clip in record form (lists) → its document form (keyed by id), as
+ *  the mesh holds it. */
+export function clipDoc(clip: {
+  id: string;
+  lanes: { id: string; keyframes: { id: string }[] }[];
+  events: { id: string }[];
+}): Record<string, unknown> {
+  const byId = <T extends { id: string }>(xs: readonly T[]) =>
+    Object.fromEntries(xs.map((x) => [x.id, x]));
+  return {
+    ...clip,
+    lanes: byId(
+      clip.lanes.map((l) => ({ ...l, keyframes: byId(l.keyframes) }))
+    ),
+    events: byId(clip.events),
+  };
+}
+
+/** Put a track clip (record form) into the test peer. */
+export function seedClip(clip: Parameters<typeof clipDoc>[0]): void {
+  testPeer()
+    .collection<{ id: string }>('track_clip')
+    .put(clipDoc(clip) as { id: string }, {
+      v: { t: ++seedClock, c: 0, n: 'seed' },
+    });
+}

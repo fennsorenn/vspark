@@ -2,12 +2,7 @@ import { useEffect, useRef } from 'react';
 import { useEditorStore } from '../store/editorStore';
 import { useAssistantStore } from '../store/assistantStore';
 import type { StageObject } from '../store/editorStore';
-import {
-  mapComposeLayer,
-  mapTrackClip,
-  getScenes,
-  getCollabScenes,
-} from '../api/client';
+import { mapComposeLayer, getScenes, getCollabScenes } from '../api/client';
 import { setVmcPose, setVmcBlendshapes } from '../vmcPoseStore';
 import { captureFeedImage } from '../lib/captureFeed';
 import { captureViewport } from '../lib/viewportCapture';
@@ -164,10 +159,6 @@ export function useWsSync() {
             } else {
               st.removeComposeLayer(removedId);
             }
-          } else if (msg.kind === 'track_clip_added') {
-            useEditorStore.getState().addTrackClip(mapTrackClip(msg.payload));
-          } else if (msg.kind === 'track_clip_removed') {
-            useEditorStore.getState().removeTrackClip(msg.payload.id as string);
           } else if (msg.kind === 'mp_status') {
             useConnectionsStore
               .getState()

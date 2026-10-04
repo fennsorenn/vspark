@@ -94,10 +94,12 @@ vi.mock('../src/store/connectionsStore', () => {
 });
 
 // api/client — stub only the functions useWsSync calls.
-vi.mock('../src/api/client', () => ({
+vi.mock('../src/api/client', async (importOriginal) => ({
   mapBehavior: (p: unknown) => p,
   mapComposeLayer: (p: unknown) => p,
-  mapTrackClip: (p: unknown) => p,
+  // The real boundary: clips live in the mesh in document form.
+  mapTrackClip: (await importOriginal<typeof import('../src/api/client')>())
+    .mapTrackClip,
   mapTrackClipLane: (p: unknown) => p,
   mapTrackClipKeyframe: (p: unknown) => p,
   mapTrackClipEvent: (p: unknown) => p,
@@ -158,7 +160,6 @@ const INITIAL_STATE = {
   editorAudioPreviewEnabled: false,
   clipboardPayload: null,
   selectedComposeLayerId: null,
-  trackClips: [],
   selectedTrackClipId: null,
   nodeTransformOverrides: {},
   composeLayerOverrides: {},
@@ -446,7 +447,7 @@ describe('useWsSync', () => {
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { useTrackClipEvaluator } from '../src/hooks/useTrackClipEvaluator';
-import { testPeer } from './helpers/mesh';
+import { seedClip, testPeer } from './helpers/mesh';
 
 /**
  * useTrackClipEvaluator drives a requestAnimationFrame loop. We replace rAF
@@ -594,7 +595,7 @@ describe('useTrackClipEvaluator', () => {
 
     act(() => {
       useEditorStore.getState().addNode(node);
-      useEditorStore.getState().addTrackClip(clip);
+      seedClip(clip);
       seedPlayback({
         id: 'pb:clip-eval',
         clipId: 'clip-eval',
@@ -640,7 +641,7 @@ describe('useTrackClipEvaluator', () => {
     // 2 s ago — well past the 1 s duration
     const startedAt = Date.now() - 2000;
     act(() => {
-      useEditorStore.getState().addTrackClip(clip);
+      seedClip(clip);
       seedPlayback({
         id: 'pb:clip-done',
         clipId: 'clip-done',
@@ -738,7 +739,7 @@ describe('useTrackClipEvaluator', () => {
 
     act(() => {
       useEditorStore.getState().addNode(node);
-      useEditorStore.getState().addTrackClip(clip);
+      seedClip(clip);
       // Paused at t=5 → position.x = 50 (halfway)
       seedPlayback({
         id: 'pb:clip-paused',

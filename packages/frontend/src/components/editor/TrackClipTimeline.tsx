@@ -30,7 +30,11 @@ import type {
   TrackClipMode,
   TrackClipEasing,
 } from '../../api/client';
-import { useClipPlayback, useClipPlaybacks } from '../../mesh/hooks';
+import {
+  useClipPlayback,
+  useClipPlaybacks,
+  useTrackClip,
+} from '../../mesh/hooks';
 
 const MEDIA_ACTIONS = [
   'play',
@@ -57,11 +61,8 @@ const COMPOSE_LAYER_PARAMS = ['x', 'y', 'rotation'] as const;
 
 export function TrackClipTimeline() {
   const { t } = useTranslation('clips');
-  const trackClips = useEditorStore((s) => s.trackClips);
   const selectedTrackClipId = useEditorStore((s) => s.selectedTrackClipId);
-
-  const selectedClip =
-    trackClips.find((c) => c.id === selectedTrackClipId) ?? null;
+  const selectedClip = useTrackClip(selectedTrackClipId) ?? null;
 
   // Clips are created and selected from the per-node/per-layer Clips sections in
   // the left dock; this panel is purely the lane/keyframe editor for whatever

@@ -342,7 +342,6 @@ export interface EditorState {
   selectedComposeLayerId: string | null;
 
   // Track clips
-  trackClips: TrackClipRecord[];
   selectedTrackClipId: string | null;
   /** clipId → active playback anchor */
   /** nodeId → ephemeral transform override produced by the evaluator (never persisted) */
@@ -466,22 +465,7 @@ export interface EditorState {
   dispatchUiAction: (action: unknown) => void;
 
   // Track clip actions
-  setTrackClips: (clips: TrackClipRecord[]) => void;
-  addTrackClip: (clip: TrackClipRecord) => void;
-  updateTrackClipLocal: (clip: TrackClipRecord) => void;
-  removeTrackClip: (id: string) => void;
   selectTrackClip: (id: string | null) => void;
-  addTrackClipLane: (clipId: string, lane: TrackClipLaneRecord) => void;
-  updateTrackClipLaneLocal: (lane: TrackClipLaneRecord) => void;
-  removeTrackClipLane: (laneId: string, clipId?: string | null) => void;
-  replaceTrackClipLaneKeyframes: (
-    laneId: string,
-    keyframes: TrackClipKeyframeRecord[]
-  ) => void;
-  replaceTrackClipEvents: (
-    clipId: string,
-    events: TrackClipEventRecord[]
-  ) => void;
   /** Bulk replace (used by playback snapshot on (re)connect). */
   setNodeTransformOverride: (
     nodeId: string,
@@ -585,7 +569,6 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   clipboardPayload: null,
   selectedComposeLayerId: null,
 
-  trackClips: [],
   selectedTrackClipId: null,
   nodeTransformOverrides: {},
   composeLayerOverrides: {},
@@ -614,9 +597,6 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       return {
         scenes: remainingScenes,
         nodes: s.nodes.filter((n) => n.rootSceneNodeId !== sceneId),
-        trackClips: s.trackClips.filter(
-          (t) => !(t.ownerNodeId != null && removedNodeIds.has(t.ownerNodeId))
-        ),
         activeSceneId: wasActive
           ? (remainingScenes[0]?.id ?? null)
           : s.activeSceneId,
@@ -930,87 +910,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     }
   },
 
-  setTrackClips: (clips) => set({ trackClips: clips }),
-  addTrackClip: (clip) =>
-    set((s) =>
-      s.trackClips.some((c) => c.id === clip.id)
-        ? {}
-        : { trackClips: [...s.trackClips, clip] }
-    ),
-  updateTrackClipLocal: (clip) =>
-    set((s) => ({
-      trackClips: s.trackClips.map((c) => (c.id === clip.id ? clip : c)),
-    })),
-  removeTrackClip: (id) =>
-    set((s) => {
-      // Drop any overrides/suppressions this clip's lanes left behind so the
-      // deleted clip can't keep governing a layer/node's position.
-      const clip = s.trackClips.find((c) => c.id === id);
-      const nextLayerOverrides = { ...s.composeLayerOverrides };
-      const nextNodeOverrides = { ...s.nodeTransformOverrides };
-      let suppressionsTouched = false;
-      const nextSuppressed = new Set(s.suppressedOverrides);
-      for (const lane of clip?.lanes ?? []) {
-        if (lane.targetKind === 'compose_layer')
-          delete nextLayerOverrides[lane.targetId];
-        else if (lane.targetKind === 'scene_node')
-          delete nextNodeOverrides[lane.targetId];
-        const key = `${lane.targetKind}:${lane.targetId}:${lane.paramPath}`;
-        if (nextSuppressed.delete(key)) suppressionsTouched = true;
-      }
-
-      return {
-        trackClips: s.trackClips.filter((c) => c.id !== id),
-        selectedTrackClipId:
-          s.selectedTrackClipId === id ? null : s.selectedTrackClipId,
-        composeLayerOverrides: nextLayerOverrides,
-        nodeTransformOverrides: nextNodeOverrides,
-        ...(suppressionsTouched ? { suppressedOverrides: nextSuppressed } : {}),
-      };
-    }),
   selectTrackClip: (id) => set({ selectedTrackClipId: id }),
-  addTrackClipLane: (clipId, lane) =>
-    set((s) => ({
-      trackClips: s.trackClips.map((c) =>
-        c.id === clipId
-          ? {
-              ...c,
-              lanes: c.lanes.some((l) => l.id === lane.id)
-                ? c.lanes
-                : [...c.lanes, lane],
-            }
-          : c
-      ),
-    })),
-  updateTrackClipLaneLocal: (lane) =>
-    set((s) => ({
-      trackClips: s.trackClips.map((c) =>
-        c.id === lane.clipId
-          ? { ...c, lanes: c.lanes.map((l) => (l.id === lane.id ? lane : l)) }
-          : c
-      ),
-    })),
-  removeTrackClipLane: (laneId, clipId) =>
-    set((s) => ({
-      trackClips: s.trackClips.map((c) =>
-        clipId == null || c.id === clipId
-          ? { ...c, lanes: c.lanes.filter((l) => l.id !== laneId) }
-          : c
-      ),
-    })),
-  replaceTrackClipLaneKeyframes: (laneId, keyframes) =>
-    set((s) => ({
-      trackClips: s.trackClips.map((c) => ({
-        ...c,
-        lanes: c.lanes.map((l) => (l.id === laneId ? { ...l, keyframes } : l)),
-      })),
-    })),
-  replaceTrackClipEvents: (clipId, events) =>
-    set((s) => ({
-      trackClips: s.trackClips.map((c) =>
-        c.id === clipId ? { ...c, events } : c
-      ),
-    })),
   setNodeTransformOverride: (nodeId, override) =>
     set((s) => {
       const next = { ...s.nodeTransformOverrides };

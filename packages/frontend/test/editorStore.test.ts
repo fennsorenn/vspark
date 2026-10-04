@@ -606,36 +606,12 @@ describe('mergeDataChannels / clearDataChannels', () => {
 
 // ── Track clips ───────────────────────────────────────────────────────────────
 
-describe('track clip CRUD', () => {
-  test('addTrackClip appends; idempotent by id', () => {
-    useEditorStore.getState().addTrackClip(makeTrackClip());
-    useEditorStore.getState().addTrackClip(makeTrackClip());
-    expect(useEditorStore.getState().trackClips).toHaveLength(1);
-  });
-
-  test('updateTrackClipLocal replaces a clip in the list', () => {
-    useEditorStore.getState().addTrackClip(makeTrackClip());
-    useEditorStore
-      .getState()
-      .updateTrackClipLocal(makeTrackClip({ name: 'Updated' }));
-    expect(useEditorStore.getState().trackClips[0].name).toBe('Updated');
-  });
-
+describe('track clip selection', () => {
   test('selectTrackClip sets selectedTrackClipId', () => {
-    useEditorStore.getState().addTrackClip(makeTrackClip());
     useEditorStore.getState().selectTrackClip('clip-1');
     expect(useEditorStore.getState().selectedTrackClipId).toBe('clip-1');
     useEditorStore.getState().selectTrackClip(null);
     expect(useEditorStore.getState().selectedTrackClipId).toBeNull();
-  });
-
-  test('removeTrackClip removes the clip and clears selectedTrackClipId', () => {
-    useEditorStore.getState().addTrackClip(makeTrackClip());
-    useEditorStore.getState().selectTrackClip('clip-1');
-    useEditorStore.getState().removeTrackClip('clip-1');
-    const st = useEditorStore.getState();
-    expect(st.trackClips).toHaveLength(0);
-    expect(st.selectedTrackClipId).toBeNull();
   });
 });
 

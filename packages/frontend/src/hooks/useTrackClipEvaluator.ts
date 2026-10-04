@@ -18,6 +18,7 @@ import { playheadAt } from '@vspark/shared/clipPlayback';
 import { commitStop } from '../mesh/playbackWrites';
 import type { MediaCommand, MediaAction } from '@vspark/shared';
 import { collectionOf } from '../mesh/docs';
+import { trackClipRecordOf } from '../mesh/hooks';
 
 // Per-clip last evaluated playhead time, kept across rAF ticks (module scope so
 // it survives re-renders). Used to detect when the playhead crosses an event
@@ -91,7 +92,12 @@ export function useTrackClipEvaluator(): void {
       }
 
       const clipById = new Map<string, TrackClipRecord>(
-        s.trackClips.map((c) => [c.id, c])
+        collectionOf<Record<string, unknown>>('track_clip')
+          .all()
+          .map((d) => {
+            const c = trackClipRecordOf(d)!;
+            return [c.id, c];
+          })
       );
       const nodeAcc = new Map<string, NodeAccumulator>();
       const layerAcc = new Map<string, ComposeLayerOverride>();

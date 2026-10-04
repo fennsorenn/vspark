@@ -51,6 +51,8 @@ import {
 import { playbackDocId } from '@vspark/shared/clipPlayback';
 import {
   mapLogic,
+  mapTrackClip,
+  type TrackClipRecord,
   type CameraEffectRecord,
   type ComposeLayerRecord,
   type LogicRecord,
@@ -281,5 +283,35 @@ export function useLogicRecords(): Record<string, LogicRecord> {
 export function useLogicRecord(id: string): LogicRecord | undefined {
   return useMeshSelector(useCollection<RawLogic>('logic'), id, (c) =>
     logicRecordOf(c.get(id))
+  );
+}
+
+/** Clip document (children keyed by id) → the ordered record the timeline and
+ *  evaluator work with, once per document version. */
+const clipCache = new WeakMap<object, TrackClipRecord>();
+export function trackClipRecordOf(
+  raw: Record<string, unknown> | undefined
+): TrackClipRecord | undefined {
+  if (!raw) return undefined;
+  let rec = clipCache.get(raw);
+  if (!rec) clipCache.set(raw, (rec = mapTrackClip(raw)));
+  return rec;
+}
+
+/** Every track clip this tab holds, as records. */
+export function useTrackClips(): TrackClipRecord[] {
+  return useMeshSelector(
+    useCollection<Record<string, unknown>>('track_clip'),
+    '**',
+    (c) => c.all().map((d) => trackClipRecordOf(d)!)
+  );
+}
+
+/** One track clip, as a record. */
+export function useTrackClip(id: string | null | undefined) {
+  return useMeshSelector(
+    useCollection<Record<string, unknown>>('track_clip'),
+    id ?? '',
+    (c) => trackClipRecordOf(id ? c.get(id) : undefined)
   );
 }

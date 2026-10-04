@@ -112,7 +112,6 @@ export function PresetLibrary() {
       );
       // Compose presets can carry track clips owned by their layers; refresh
       // them too so the pasted clips show up in the layer's Clips section.
-      store.setTrackClips(data.trackClips);
       return result;
     }
     if (!activeSceneId) return null;
@@ -127,7 +126,6 @@ export function PresetLibrary() {
     const data = await apiClient.getScenes(projectId);
     const store = useEditorStore.getState();
     store.setNodes(data.nodes);
-    store.setTrackClips(data.trackClips);
     return result;
   };
 

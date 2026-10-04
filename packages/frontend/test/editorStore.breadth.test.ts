@@ -124,7 +124,9 @@ function makeComposeScene(
   });
 }
 
-function makeLane(overrides: Partial<TrackClipLaneRecord> = {}): TrackClipLaneRecord {
+function makeLane(
+  overrides: Partial<TrackClipLaneRecord> = {}
+): TrackClipLaneRecord {
   return {
     id: 'lane-1',
     clipId: 'clip-1',
@@ -167,7 +169,9 @@ function makeEvent(
   };
 }
 
-function makeTrackClip(overrides: Partial<TrackClipRecord> = {}): TrackClipRecord {
+function makeTrackClip(
+  overrides: Partial<TrackClipRecord> = {}
+): TrackClipRecord {
   return {
     id: 'clip-1',
     ownerNodeId: 'node-1',
@@ -220,7 +224,9 @@ describe('updateComposeSceneLocal', () => {
   test('replaces the matching compose scene', () => {
     const cs = makeComposeScene();
     useEditorStore.getState().addComposeScene(cs);
-    useEditorStore.getState().updateComposeSceneLocal({ ...cs, name: 'Renamed' });
+    useEditorStore
+      .getState()
+      .updateComposeSceneLocal({ ...cs, name: 'Renamed' });
     expect(useEditorStore.getState().composeScenes[0].name).toBe('Renamed');
   });
 
@@ -244,7 +250,9 @@ describe('updateComposeSceneLocal', () => {
       name: 'Ghost',
     });
     // The real compose scene is untouched
-    expect(useEditorStore.getState().composeScenes[0].name).toBe('Compose Scene 1');
+    expect(useEditorStore.getState().composeScenes[0].name).toBe(
+      'Compose Scene 1'
+    );
   });
 });
 
@@ -267,15 +275,19 @@ describe('removeComposeScene', () => {
     useEditorStore.getState().addComposeScene(makeComposeScene({ id: 'cs-1' }));
     useEditorStore.getState().addComposeScene(makeComposeScene({ id: 'cs-2' }));
     useEditorStore.getState().removeComposeScene('cs-1');
-    expect(useEditorStore.getState().composeScenes.map((c) => c.id)).toEqual(['cs-2']);
+    expect(useEditorStore.getState().composeScenes.map((c) => c.id)).toEqual([
+      'cs-2',
+    ]);
   });
 
   test('also removes composeLayers whose rootComposeSceneId matches', () => {
     useEditorStore.getState().addComposeScene(makeComposeScene({ id: 'cs-1' }));
-    useEditorStore.getState().setComposeLayers([
-      makeComposeLayer({ id: 'l-1', rootComposeSceneId: 'cs-1' }),
-      makeComposeLayer({ id: 'l-2', rootComposeSceneId: 'cs-2' }),
-    ]);
+    useEditorStore
+      .getState()
+      .setComposeLayers([
+        makeComposeLayer({ id: 'l-1', rootComposeSceneId: 'cs-1' }),
+        makeComposeLayer({ id: 'l-2', rootComposeSceneId: 'cs-2' }),
+      ]);
     useEditorStore.getState().removeComposeScene('cs-1');
     const layers = useEditorStore.getState().composeLayers;
     expect(layers.map((l) => l.id)).toEqual(['l-2']);
@@ -309,9 +321,11 @@ describe('removeComposeScene', () => {
     // selectedComposeLayerId. This test documents the current behavior so that
     // if the store is fixed in the future the test will fail and prompt an update.
     useEditorStore.getState().addComposeScene(makeComposeScene({ id: 'cs-1' }));
-    useEditorStore.getState().setComposeLayers([
-      makeComposeLayer({ id: 'l-1', rootComposeSceneId: 'cs-1' }),
-    ]);
+    useEditorStore
+      .getState()
+      .setComposeLayers([
+        makeComposeLayer({ id: 'l-1', rootComposeSceneId: 'cs-1' }),
+      ]);
     useEditorStore.getState().selectComposeLayer('l-1');
     useEditorStore.getState().removeComposeScene('cs-1');
     // Layer is gone from the list…
@@ -351,13 +365,17 @@ describe('addComposeLayer', () => {
 describe('updateComposeLayerLocal', () => {
   test('patches the matching layer', () => {
     useEditorStore.getState().addComposeLayer(makeComposeLayer());
-    useEditorStore.getState().updateComposeLayerLocal('layer-1', { name: 'Updated' });
+    useEditorStore
+      .getState()
+      .updateComposeLayerLocal('layer-1', { name: 'Updated' });
     expect(useEditorStore.getState().composeLayers[0].name).toBe('Updated');
   });
 
   test('can patch multiple fields at once', () => {
     useEditorStore.getState().addComposeLayer(makeComposeLayer());
-    useEditorStore.getState().updateComposeLayerLocal('layer-1', { x: 50, y: 75, visible: false });
+    useEditorStore
+      .getState()
+      .updateComposeLayerLocal('layer-1', { x: 50, y: 75, visible: false });
     const layer = useEditorStore.getState().composeLayers[0];
     expect(layer.x).toBe(50);
     expect(layer.y).toBe(75);
@@ -365,8 +383,12 @@ describe('updateComposeLayerLocal', () => {
   });
 
   test('leaves other layers untouched', () => {
-    useEditorStore.getState().addComposeLayer(makeComposeLayer({ id: 'l-1', name: 'A' }));
-    useEditorStore.getState().addComposeLayer(makeComposeLayer({ id: 'l-2', name: 'B' }));
+    useEditorStore
+      .getState()
+      .addComposeLayer(makeComposeLayer({ id: 'l-1', name: 'A' }));
+    useEditorStore
+      .getState()
+      .addComposeLayer(makeComposeLayer({ id: 'l-2', name: 'B' }));
     useEditorStore.getState().updateComposeLayerLocal('l-1', { name: 'A2' });
     expect(
       useEditorStore.getState().composeLayers.find((l) => l.id === 'l-2')?.name
@@ -375,7 +397,9 @@ describe('updateComposeLayerLocal', () => {
 
   test('is a no-op for an unknown id', () => {
     useEditorStore.getState().addComposeLayer(makeComposeLayer());
-    useEditorStore.getState().updateComposeLayerLocal('nope', { name: 'Ghost' });
+    useEditorStore
+      .getState()
+      .updateComposeLayerLocal('nope', { name: 'Ghost' });
     expect(useEditorStore.getState().composeLayers[0].name).toBe('Layer 1');
   });
 });
@@ -385,7 +409,9 @@ describe('removeComposeLayer', () => {
     useEditorStore.getState().addComposeLayer(makeComposeLayer({ id: 'l-1' }));
     useEditorStore.getState().addComposeLayer(makeComposeLayer({ id: 'l-2' }));
     useEditorStore.getState().removeComposeLayer('l-1');
-    expect(useEditorStore.getState().composeLayers.map((l) => l.id)).toEqual(['l-2']);
+    expect(useEditorStore.getState().composeLayers.map((l) => l.id)).toEqual([
+      'l-2',
+    ]);
   });
 
   test('clears selectedComposeLayerId when the removed layer was selected', () => {
@@ -425,259 +451,3 @@ describe('selectComposeLayer', () => {
 });
 
 // ── Track clip lane mutations ─────────────────────────────────────────────────
-
-describe('addTrackClipLane', () => {
-  test('appends a lane to the matching clip', () => {
-    useEditorStore.getState().addTrackClip(makeTrackClip({ id: 'clip-1' }));
-    useEditorStore.getState().addTrackClipLane('clip-1', makeLane());
-    expect(useEditorStore.getState().trackClips[0].lanes).toHaveLength(1);
-  });
-
-  test('is idempotent by lane id (duplicate ignored)', () => {
-    useEditorStore.getState().addTrackClip(makeTrackClip({ id: 'clip-1' }));
-    const lane = makeLane();
-    useEditorStore.getState().addTrackClipLane('clip-1', lane);
-    useEditorStore.getState().addTrackClipLane('clip-1', lane);
-    expect(useEditorStore.getState().trackClips[0].lanes).toHaveLength(1);
-  });
-
-  test('does not add a lane to a non-matching clip', () => {
-    useEditorStore.getState().addTrackClip(makeTrackClip({ id: 'clip-1' }));
-    useEditorStore.getState().addTrackClip(makeTrackClip({ id: 'clip-2' }));
-    useEditorStore.getState().addTrackClipLane('clip-1', makeLane({ id: 'lane-1' }));
-    const clip2 = useEditorStore.getState().trackClips.find((c) => c.id === 'clip-2');
-    expect(clip2?.lanes).toHaveLength(0);
-  });
-
-  test('multiple lanes can be added to the same clip', () => {
-    useEditorStore.getState().addTrackClip(makeTrackClip({ id: 'clip-1' }));
-    useEditorStore.getState().addTrackClipLane('clip-1', makeLane({ id: 'lane-1' }));
-    useEditorStore.getState().addTrackClipLane('clip-1', makeLane({ id: 'lane-2' }));
-    expect(useEditorStore.getState().trackClips[0].lanes).toHaveLength(2);
-  });
-});
-
-describe('updateTrackClipLaneLocal', () => {
-  test('replaces the matching lane inside its clip', () => {
-    const lane = makeLane();
-    useEditorStore.getState().addTrackClip(makeTrackClip({ id: 'clip-1' }));
-    useEditorStore.getState().addTrackClipLane('clip-1', lane);
-    useEditorStore.getState().updateTrackClipLaneLocal({ ...lane, paramPath: 'position.x' });
-    expect(useEditorStore.getState().trackClips[0].lanes[0].paramPath).toBe('position.x');
-  });
-
-  test('leaves other lanes in the same clip untouched', () => {
-    const lane1 = makeLane({ id: 'lane-1', paramPath: 'opacity' });
-    const lane2 = makeLane({ id: 'lane-2', paramPath: 'position.x' });
-    useEditorStore.getState().addTrackClip(makeTrackClip({ id: 'clip-1' }));
-    useEditorStore.getState().addTrackClipLane('clip-1', lane1);
-    useEditorStore.getState().addTrackClipLane('clip-1', lane2);
-    useEditorStore.getState().updateTrackClipLaneLocal({ ...lane1, defaultValue: 0.5 });
-    const lanes = useEditorStore.getState().trackClips[0].lanes;
-    expect(lanes.find((l) => l.id === 'lane-2')?.paramPath).toBe('position.x');
-  });
-
-  test('is a no-op for an unknown lane id', () => {
-    const lane = makeLane({ id: 'lane-1' });
-    useEditorStore.getState().addTrackClip(makeTrackClip({ id: 'clip-1' }));
-    useEditorStore.getState().addTrackClipLane('clip-1', lane);
-    useEditorStore.getState().updateTrackClipLaneLocal({
-      ...lane,
-      id: 'nope',
-      paramPath: 'ghost',
-    });
-    expect(useEditorStore.getState().trackClips[0].lanes[0].paramPath).toBe('opacity');
-  });
-
-  test('does not bleed into a lane with the same id in a different clip (cross-clip isolation)', () => {
-    // Two clips each have a lane named 'shared-lane'. Updating in clip-1 must
-    // not affect clip-2 — the store routes via lane.clipId, not just lane.id.
-    const lane1 = makeLane({ id: 'shared-lane', clipId: 'clip-1', paramPath: 'opacity' });
-    const lane2 = makeLane({ id: 'shared-lane', clipId: 'clip-2', paramPath: 'rotation' });
-    useEditorStore.getState().addTrackClip(makeTrackClip({ id: 'clip-1' }));
-    useEditorStore.getState().addTrackClip(makeTrackClip({ id: 'clip-2' }));
-    useEditorStore.getState().addTrackClipLane('clip-1', lane1);
-    useEditorStore.getState().addTrackClipLane('clip-2', lane2);
-    // Update only the lane inside clip-1
-    useEditorStore.getState().updateTrackClipLaneLocal({ ...lane1, defaultValue: 0.5 });
-    const clips = useEditorStore.getState().trackClips;
-    expect(clips.find((c) => c.id === 'clip-1')?.lanes[0].defaultValue).toBe(0.5);
-    // clip-2's lane must remain at its original defaultValue (1 from makeLane default)
-    expect(clips.find((c) => c.id === 'clip-2')?.lanes[0].defaultValue).toBe(1);
-    expect(clips.find((c) => c.id === 'clip-2')?.lanes[0].paramPath).toBe('rotation');
-  });
-});
-
-describe('removeTrackClipLane', () => {
-  test('removes the lane from every clip (no clipId)', () => {
-    const lane = makeLane({ id: 'lane-1' });
-    useEditorStore.getState().addTrackClip(makeTrackClip({ id: 'clip-1' }));
-    useEditorStore.getState().addTrackClipLane('clip-1', lane);
-    useEditorStore.getState().removeTrackClipLane('lane-1');
-    expect(useEditorStore.getState().trackClips[0].lanes).toHaveLength(0);
-  });
-
-  test('removes the lane only from the specified clip when clipId is given', () => {
-    const lane = makeLane({ id: 'lane-1', clipId: 'clip-1' });
-    useEditorStore.getState().addTrackClip(makeTrackClip({ id: 'clip-1' }));
-    useEditorStore.getState().addTrackClip(makeTrackClip({ id: 'clip-2' }));
-    useEditorStore.getState().addTrackClipLane('clip-1', lane);
-    useEditorStore.getState().addTrackClipLane('clip-2', { ...lane, clipId: 'clip-2' });
-    useEditorStore.getState().removeTrackClipLane('lane-1', 'clip-1');
-    const clips = useEditorStore.getState().trackClips;
-    expect(clips.find((c) => c.id === 'clip-1')?.lanes).toHaveLength(0);
-    // clip-2's lane is preserved
-    expect(clips.find((c) => c.id === 'clip-2')?.lanes).toHaveLength(1);
-  });
-
-  test('removes the lane from all clips when clipId is null', () => {
-    const lane = makeLane({ id: 'lane-x', clipId: 'clip-1' });
-    useEditorStore.getState().addTrackClip(makeTrackClip({ id: 'clip-1' }));
-    useEditorStore.getState().addTrackClip(makeTrackClip({ id: 'clip-2' }));
-    useEditorStore.getState().addTrackClipLane('clip-1', lane);
-    useEditorStore.getState().addTrackClipLane('clip-2', { ...lane, clipId: 'clip-2' });
-    useEditorStore.getState().removeTrackClipLane('lane-x', null);
-    const clips = useEditorStore.getState().trackClips;
-    expect(clips[0].lanes).toHaveLength(0);
-    expect(clips[1].lanes).toHaveLength(0);
-  });
-
-  test('is a no-op for an unknown lane id', () => {
-    useEditorStore.getState().addTrackClip(makeTrackClip({ id: 'clip-1' }));
-    useEditorStore.getState().addTrackClipLane('clip-1', makeLane({ id: 'lane-1' }));
-    useEditorStore.getState().removeTrackClipLane('nope');
-    expect(useEditorStore.getState().trackClips[0].lanes).toHaveLength(1);
-  });
-
-  test('does NOT clear nodeTransformOverrides or suppressedOverrides (known store gap — unlike removeTrackClip)', () => {
-    // removeTrackClipLane only filters the lanes array; it does not clean up
-    // transform overrides or suppression entries tied to the lane (removeTrackClip
-    // does). This test documents the current behavior.
-    useEditorStore.getState().addTrackClip(makeTrackClip({ id: 'clip-1' }));
-    useEditorStore.getState().addTrackClipLane('clip-1', makeLane({ id: 'lane-1' }));
-    useEditorStore.getState().setNodeTransformOverride('node-1', { opacity: 0.5 });
-    useEditorStore.getState().suppressOverride('scene_node', 'node-1', 'opacity');
-    useEditorStore.getState().removeTrackClipLane('lane-1');
-    // Lane is removed…
-    expect(useEditorStore.getState().trackClips[0].lanes).toHaveLength(0);
-    // …but overrides and suppressions are NOT cleared (store gap).
-    expect(useEditorStore.getState().nodeTransformOverrides['node-1']).toBeDefined();
-    expect(
-      useEditorStore.getState().suppressedOverrides.has('scene_node:node-1:opacity')
-    ).toBe(true);
-  });
-});
-
-describe('replaceTrackClipLaneKeyframes', () => {
-  test('replaces keyframes for the matching lane (across all clips)', () => {
-    const lane = makeLane({ id: 'lane-1', keyframes: [] });
-    useEditorStore.getState().addTrackClip(makeTrackClip({ id: 'clip-1' }));
-    useEditorStore.getState().addTrackClipLane('clip-1', lane);
-    const kf1 = makeKeyframe({ id: 'kf-1', t: 0, value: 0 });
-    const kf2 = makeKeyframe({ id: 'kf-2', t: 1, value: 1 });
-    useEditorStore.getState().replaceTrackClipLaneKeyframes('lane-1', [kf1, kf2]);
-    const lanes = useEditorStore.getState().trackClips[0].lanes;
-    expect(lanes[0].keyframes).toHaveLength(2);
-    expect(lanes[0].keyframes[0].id).toBe('kf-1');
-    expect(lanes[0].keyframes[1].id).toBe('kf-2');
-  });
-
-  test('replaces (not appends) — existing keyframes are discarded', () => {
-    const existingKf = makeKeyframe({ id: 'old-kf', t: 0.5, value: 0.5 });
-    const lane = makeLane({ id: 'lane-1', keyframes: [existingKf] });
-    useEditorStore.getState().addTrackClip(makeTrackClip({ id: 'clip-1' }));
-    useEditorStore.getState().addTrackClipLane('clip-1', lane);
-    const newKf = makeKeyframe({ id: 'new-kf', t: 0, value: 0 });
-    useEditorStore.getState().replaceTrackClipLaneKeyframes('lane-1', [newKf]);
-    const lanes = useEditorStore.getState().trackClips[0].lanes;
-    expect(lanes[0].keyframes).toHaveLength(1);
-    expect(lanes[0].keyframes[0].id).toBe('new-kf');
-  });
-
-  test('can clear all keyframes by passing an empty array', () => {
-    const kf = makeKeyframe({ id: 'kf-1' });
-    const lane = makeLane({ id: 'lane-1', keyframes: [kf] });
-    useEditorStore.getState().addTrackClip(makeTrackClip({ id: 'clip-1' }));
-    useEditorStore.getState().addTrackClipLane('clip-1', lane);
-    useEditorStore.getState().replaceTrackClipLaneKeyframes('lane-1', []);
-    expect(useEditorStore.getState().trackClips[0].lanes[0].keyframes).toHaveLength(0);
-  });
-
-  test('does not affect lanes with a different id', () => {
-    const lane1 = makeLane({ id: 'lane-1', keyframes: [] });
-    const lane2 = makeLane({ id: 'lane-2', keyframes: [] });
-    useEditorStore.getState().addTrackClip(makeTrackClip({ id: 'clip-1' }));
-    useEditorStore.getState().addTrackClipLane('clip-1', lane1);
-    useEditorStore.getState().addTrackClipLane('clip-1', lane2);
-    useEditorStore.getState().replaceTrackClipLaneKeyframes(
-      'lane-1',
-      [makeKeyframe({ id: 'kf-1' })]
-    );
-    const lanes = useEditorStore.getState().trackClips[0].lanes;
-    expect(lanes.find((l) => l.id === 'lane-2')?.keyframes).toHaveLength(0);
-  });
-
-  test('is a no-op for a non-existent laneId (all clips unchanged)', () => {
-    useEditorStore.getState().addTrackClip(makeTrackClip({ id: 'clip-1' }));
-    useEditorStore.getState().addTrackClipLane('clip-1', makeLane({ id: 'lane-1', keyframes: [] }));
-    useEditorStore.getState().replaceTrackClipLaneKeyframes('no-such-lane', [makeKeyframe()]);
-    // lane-1's keyframes are still empty
-    expect(useEditorStore.getState().trackClips[0].lanes[0].keyframes).toHaveLength(0);
-  });
-});
-
-describe('replaceTrackClipEvents', () => {
-  test('replaces events for the matching clip', () => {
-    useEditorStore.getState().addTrackClip(makeTrackClip({ id: 'clip-1', events: [] }));
-    const ev1 = makeEvent({ id: 'ev-1', t: 0.25 });
-    const ev2 = makeEvent({ id: 'ev-2', t: 0.75 });
-    useEditorStore.getState().replaceTrackClipEvents('clip-1', [ev1, ev2]);
-    expect(useEditorStore.getState().trackClips[0].events).toHaveLength(2);
-    expect(useEditorStore.getState().trackClips[0].events[0].id).toBe('ev-1');
-  });
-
-  test('replaces (not appends) — old events are discarded', () => {
-    const oldEv = makeEvent({ id: 'old-ev', t: 0.1 });
-    useEditorStore.getState().addTrackClip(
-      makeTrackClip({ id: 'clip-1', events: [oldEv] })
-    );
-    const newEv = makeEvent({ id: 'new-ev', t: 0.9 });
-    useEditorStore.getState().replaceTrackClipEvents('clip-1', [newEv]);
-    const events = useEditorStore.getState().trackClips[0].events;
-    expect(events).toHaveLength(1);
-    expect(events[0].id).toBe('new-ev');
-  });
-
-  test('can clear all events by passing an empty array', () => {
-    const ev = makeEvent({ id: 'ev-1' });
-    useEditorStore.getState().addTrackClip(
-      makeTrackClip({ id: 'clip-1', events: [ev] })
-    );
-    useEditorStore.getState().replaceTrackClipEvents('clip-1', []);
-    expect(useEditorStore.getState().trackClips[0].events).toHaveLength(0);
-  });
-
-  test('does not affect events on a different clip', () => {
-    const ev1 = makeEvent({ id: 'ev-A' });
-    const ev2 = makeEvent({ id: 'ev-B' });
-    useEditorStore.getState().addTrackClip(
-      makeTrackClip({ id: 'clip-1', events: [ev1] })
-    );
-    useEditorStore.getState().addTrackClip(
-      makeTrackClip({ id: 'clip-2', events: [ev2] })
-    );
-    useEditorStore.getState().replaceTrackClipEvents('clip-1', []);
-    const clip2 = useEditorStore.getState().trackClips.find((c) => c.id === 'clip-2');
-    expect(clip2?.events).toHaveLength(1);
-    expect(clip2?.events[0].id).toBe('ev-B');
-  });
-
-  test('is a no-op for a non-existent clipId (all clips unchanged)', () => {
-    const ev = makeEvent({ id: 'ev-1' });
-    useEditorStore.getState().addTrackClip(makeTrackClip({ id: 'clip-1', events: [ev] }));
-    useEditorStore.getState().replaceTrackClipEvents('no-such-clip', [makeEvent({ id: 'ev-new' })]);
-    // clip-1's events are still [ev-1]
-    expect(useEditorStore.getState().trackClips[0].events).toHaveLength(1);
-    expect(useEditorStore.getState().trackClips[0].events[0].id).toBe('ev-1');
-  });
-});

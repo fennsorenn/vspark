@@ -68,7 +68,6 @@ export function ViewerPage() {
     setComposeLayers,
     setComposeScenes,
     selectComposeScene,
-    setTrackClips,
     nodes,
     composeLayers,
     composeScenes,
@@ -110,7 +109,7 @@ export function ViewerPage() {
 
     api
       .getScenes(projectId)
-      .then(({ scenes, nodes: sceneNodes, composeLayers, trackClips }) => {
+      .then(({ scenes, nodes: sceneNodes, composeLayers }) => {
         setScenes(scenes);
         // Split compose_scene containers from regular layers (mirrors Editor).
         setComposeScenes(
@@ -119,7 +118,6 @@ export function ViewerPage() {
         setComposeLayers(
           composeLayers.filter((l) => l.kind !== 'compose_scene')
         );
-        setTrackClips(trackClips);
         // Load every scene's nodes so cross-scene camera_views resolve.
         setNodes(sceneNodes);
         // Activate the scene this link actually targets — for a single-camera
@@ -155,7 +153,6 @@ export function ViewerPage() {
     setComposeLayers,
     setComposeScenes,
     selectComposeScene,
-    setTrackClips,
   ]);
 
   // Fade the 3D output in once it's loaded and settled (single-camera mode);

@@ -123,7 +123,7 @@ function MergedSections({
   const { t } = useTranslation('sceneGraph');
   const nodeBehaviors = useNodeBehaviors(nodeId);
   const nodeEffects = useCameraEffects(nodeId);
-  const trackClips = useEditorStore((s) => s.trackClips);
+  const trackClips = useTrackClips();
   const behaviorKinds = useEditorStore((s) => s.behaviorKinds);
   const nodeKind = useEditorStore(
     (s) => s.nodes.find((n) => n.id === nodeId)?.kind ?? ''
@@ -1728,6 +1728,7 @@ import {
   useCameraEffects,
   useLogicRecords,
   useNodeBehaviors,
+  useTrackClips,
   useTrackingStatuses,
 } from '../../mesh/hooks';
 

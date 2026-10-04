@@ -42,7 +42,6 @@ import {
   type SceneItem,
   type StageObject,
 } from '../store/editorStore';
-import { mapTrackClip } from '../api/client';
 import type { ComposeLayerRecord } from '../api/client';
 
 let started = false;
@@ -149,14 +148,6 @@ interface RawMediaControl {
   command: MediaCommand;
 }
 
-function parentIsRemote(nodeId: unknown): boolean {
-  if (typeof nodeId !== 'string') return false;
-  return (
-    useEditorStore.getState().nodes.find((n) => n.id === nodeId)?.remote ===
-    true
-  );
-}
-
 type Handles = Awaited<ReturnType<typeof initMeshPeer>>;
 
 /** Once an rtype's snapshot has landed the replica is its authority: drop
@@ -181,10 +172,6 @@ function pruneStale(h: Handles, rtype: string): void {
         if (!held(l.id)) s.removeComposeLayer(l.id);
       for (const c of [...s.composeScenes])
         if (!held(c.id)) s.removeComposeScene(c.id);
-      return;
-    case 'track_clip':
-      for (const c of [...s.trackClips])
-        if (!held(c.id)) s.removeTrackClip(c.id);
       return;
   }
 }
@@ -357,37 +344,6 @@ export function startMeshStoreFeeder(): void {
         } else {
           s.addComposeLayer(layer);
         }
-      });
-      h.collections.track_clip.observe('**', (c) => {
-        const s = useEditorStore.getState();
-        if (c.op === 'remove') {
-          s.removeTrackClip(c.id);
-          return;
-        }
-        // `c.doc` is the clip DOCUMENT: lanes, keyframes and events keyed by
-        // id (@vspark/shared/idMap), because each has to be its own mesh path.
-        // mapTrackClip is the boundary that turns them into the ordered lists
-        // the store and UI work with — a raw cast would hand the timeline a
-        // map where it expects an array.
-        //
-        // A remote edit re-sends the whole doc even when one keyframe moved,
-        // so an existing clip must be REPLACED, not skipped.
-        const raw = c.doc as unknown as Record<string, unknown> | undefined;
-        if (!raw || parentIsRemote(raw.ownerNodeId)) return;
-        // An ephemeral op is an in-flight keyframe drag: the composed doc
-        // already carries the overlay, so it applies exactly like a committed
-        // one. No tweening — a curve editor's dot must sit where the pointer
-        // is, not chase it — and no special case beyond skipping the add path,
-        // since a clip cannot come into existence on the preview channel.
-        const clip = mapTrackClip(raw);
-        if (c.op === 'ephemeral') {
-          if (s.trackClips.some((x) => x.id === clip.id))
-            s.updateTrackClipLocal(clip);
-          return;
-        }
-        if (s.trackClips.some((x) => x.id === clip.id))
-          s.updateTrackClipLocal(clip);
-        else s.addTrackClip(clip);
       });
       // Graph-driven param overrides. One document per overridden path, so a
       // remove IS the clear — including the whole-target clear, which arrives

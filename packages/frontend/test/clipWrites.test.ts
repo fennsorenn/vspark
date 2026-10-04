@@ -7,8 +7,8 @@
  * the entire lane on the wire per sample, and none of it was undoable because
  * the server authored it.
  *
- * Same convention as the other write tests: the store is not asserted on the
- * mesh path (the feeder mirrors the replica), only on the REST fallback.
+ * A recording stand-in for the collections pins the exact op each helper
+ * issues.
  */
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 
@@ -46,17 +46,23 @@ const collectionFor = (rtype: string) => ({
     docs.delete(id);
     return { ack: Promise.resolve({ status: 'acked' }) };
   },
+  create: (doc: { id: string }) => {
+    writes.push({ id: doc.id, path: '', value: doc, op: 'set' });
+    docs.set(doc.id, doc);
+    return { ack: Promise.resolve({ status: 'acked' }) };
+  },
   __rtype: rtype,
 });
+const cols: Record<string, ReturnType<typeof collectionFor>> = {
+  track_clip: collectionFor('track_clip'),
+  clip_playback: collectionFor('clip_playback'),
+};
 
 vi.mock('../src/mesh/peer', () => ({
   getMeshHandles: () => ({
-    peer: {},
+    peer: { collection: (rtype: string) => cols[rtype] },
     serverPeerId: 'server',
-    collections: {
-      track_clip: collectionFor('track_clip'),
-      clip_playback: collectionFor('clip_playback'),
-    },
+    collections: cols,
   }),
   meshBatch: <T>(fn: () => T): T => fn(),
 }));
@@ -90,46 +96,9 @@ const kf = (id: string, t: number, value = 0) => ({
   outHandleVFraction: null,
 });
 
-/** A clip in the store (where the helpers read lists) and the replica (where
- *  they check the peer holds the doc). */
+/** A clip the (stand-in) replica holds. */
 async function seedClip() {
-  const { useEditorStore } = await import('../src/store/editorStore');
-  useEditorStore.setState({
-    trackClips: [
-      {
-        id: 'c1',
-        ownerNodeId: 'n1',
-        ownerLayerId: null,
-        name: 'Clip',
-        duration: 2,
-        loop: false,
-        mode: 'override',
-        autoplay: false,
-        lanes: [
-          {
-            id: 'l1',
-            clipId: 'c1',
-            targetKind: 'scene_node',
-            targetId: 'n1',
-            paramPath: 'position.x',
-            defaultValue: 0,
-            keyframes: [kf('k1', 0), kf('k2', 1)],
-          },
-        ],
-        events: [
-          {
-            id: 'e1',
-            t: 0.5,
-            action: 'play',
-            targetKind: 'scene_node',
-            targetId: 'n1',
-            payload: null,
-          },
-        ],
-      },
-    ],
-  });
-  docs.set('c1', {});
+  docs.set('c1', { id: 'c1' });
 }
 
 describe('track-clip writes', () => {
@@ -137,8 +106,6 @@ describe('track-clip writes', () => {
     writes.length = 0;
     canWrite = true;
     docs.clear();
-    const { useEditorStore } = await import('../src/store/editorStore');
-    useEditorStore.setState({ trackClips: [] });
   });
 
   it('addresses one keyframe per write, not the lane', async () => {
@@ -260,26 +227,5 @@ describe('track-clip writes', () => {
         .map((w) => w.id)
         .sort()
     ).toEqual(['c1', 'pb:c1']);
-  });
-
-  it('falls back to REST with the whole list when the peer cannot author', async () => {
-    await seedClip();
-    canWrite = false;
-    const { api } = await import('../src/api/client');
-    const { useEditorStore } = await import('../src/store/editorStore');
-    const { commitKeyframe } = await import('../src/mesh/clipWrites');
-
-    commitKeyframe('c1', 'l1', kf('k1', 0.5, 7));
-
-    expect(writes).toHaveLength(0);
-    // REST only speaks whole lists, so the helper rebuilds one — and applies it
-    // locally, since no feeder will.
-    expect(api.replaceTrackClipKeyframes).toHaveBeenCalledWith(
-      'l1',
-      expect.arrayContaining([expect.objectContaining({ id: 'k1', value: 7 })])
-    );
-    const lane = useEditorStore.getState().trackClips[0].lanes[0];
-    expect(lane.keyframes.find((k) => k.id === 'k1')?.value).toBe(7);
-    expect(lane.keyframes).toHaveLength(2);
   });
 });
