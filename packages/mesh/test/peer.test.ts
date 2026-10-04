@@ -369,8 +369,10 @@ describe('pure-stream collections (preview-only, routed by containment)', () => 
     sa.set('avatar', '', { id: 'avatar', kind: 'pose' }, { channel: 'preview' });
     await lb.flush();
     expect(seen.map((f) => f.kind)).toEqual(['pose']);
-    expect(sb.get('avatar')?.kind).toBe('pose'); // overlay composed
-    expect(sb.replica.raw('avatar')).toBeUndefined(); // never retained
+    // Delivered to observers, not kept: with no retained channel there is no
+    // document for an overlay to preview.
+    expect(sb.get('avatar')).toBeUndefined();
+    expect(sb.replica.raw('avatar')).toBeUndefined();
 
     // A frame keyed OUTSIDE the granted subtree never crosses.
     sa.set('elsewhere', '', { id: 'elsewhere', kind: 'x' }, { channel: 'preview' });

@@ -334,6 +334,10 @@ export class Collection<T extends object> {
   ): AppliedChange<T> | null {
     if (v === undefined) {
       const change = this.replica.ephemeral(id, path ?? '', data, meta);
+      // A collection with no retained channel carries commands or stream
+      // frames: delivered to observers, never kept. An overlay only means
+      // something over a retained document it previews.
+      if (!this.retainedChannel) this.replica.dropOverlays(id);
       this.notify(change);
       return change;
     }

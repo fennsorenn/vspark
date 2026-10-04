@@ -259,6 +259,11 @@ export class Replica<T extends object> {
     };
   }
 
+  /** Forget every overlay on `id` (nothing retained underneath to compose). */
+  dropOverlays(id: string): void {
+    if (this.overlays.delete(id)) this.composed.delete(id);
+  }
+
   // --- reverts (bypass LWW; local rollback of optimistic writes) ----------------
 
   /** Snapshot one doc's full LWW state before a guarded write, so a nack /

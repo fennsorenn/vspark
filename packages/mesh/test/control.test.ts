@@ -272,3 +272,16 @@ describe('control: request / reply', () => {
     expect(await pending).toEqual({ status: 'timeout' });
   });
 });
+
+describe('control: delivered, not stored', () => {
+  it('a command reaches observers and leaves nothing in the replica', async () => {
+    const { sCol, tabs, flush, subscribeAll } = star();
+    await subscribeAll();
+    const seen = record(tabs.t1.col);
+    sCol.set('door', '', { id: 'door', action: 'open' }, { channel: 'control' });
+    await flush();
+    expect(seen.map((c) => c.doc?.action)).toEqual(['open']);
+    expect(tabs.t1.col.get('door')).toBeUndefined();
+    expect(sCol.get('door')).toBeUndefined();
+  });
+});
