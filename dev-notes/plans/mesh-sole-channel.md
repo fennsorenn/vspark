@@ -277,6 +277,11 @@ Viewport loaders take a hash → `blob:` URL resolver.
 Replace the REST scene bundle in `Editor.tsx` with the subscription snapshot
 (`subscribe()` resolving is the ready signal); then reads can move to mesh-react hooks.
 
+Worth moving earlier: loading from two sources already produced a visible race — a
+REST bundle fetched before another tab's delete could land after the delete and
+resurrect the document. Mitigated by filtering bundle rows against the replica's
+tombstones (`withoutRemoved`, 7179845); W6 removes the cause.
+
 ### W7: Multiplayer legacy
 
 Placed-object writes (`_share_write`), object-share streams (`_share_*`, `mp_shared_*`),

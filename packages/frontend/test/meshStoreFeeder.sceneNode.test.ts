@@ -19,6 +19,10 @@ type Observer = (c: Op) => void;
 
 /** Captures the observer the feeder registers per rtype so tests can drive ops. */
 const observers = new Map<string, Observer>();
+/** The feeder's snapshot callback (mesh/peer onSnapshot), captured per run. */
+let snapshotCb: ((rtype: string) => void) | null = null;
+/** Ids the fake replica holds, per rtype (for the post-snapshot prune). */
+const replicaHas = new Map<string, Set<string>>();
 
 // Answer for ANY rtype rather than listing them. A hardcoded list here is a
 // second copy of RTYPES in mesh/peer.ts, and it drifts the moment one is added:
@@ -26,6 +30,10 @@ const observers = new Map<string, Observer>();
 // that into a console warning, EVERY observer silently stops being registered —
 // so the whole suite goes green-but-inert rather than failing loudly.
 vi.mock('../src/mesh/peer', () => ({
+  onSnapshot: (cb: (rtype: string) => void) => {
+    snapshotCb = cb;
+    return () => {};
+  },
   initMeshPeer: () =>
     Promise.resolve({
       collections: new Proxy(
@@ -33,6 +41,8 @@ vi.mock('../src/mesh/peer', () => ({
         {
           get: (_t, rtype: string) => ({
             observe: (_p: string, cb: Observer) => observers.set(rtype, cb),
+            get: (id: string) =>
+              replicaHas.get(rtype)?.has(id) ? { id } : undefined,
             // Slices with no REST load (`logic`, `runtime_override`) seed
             // themselves from the replica. Without this the seed throws, the
             // feeder swallows it, and every observer AFTER the seed silently
@@ -730,5 +740,34 @@ describe('meshStoreFeeder — server_status routing', () => {
     expect(useEditorStore.getState().outputWindowStatus).toMatchObject({
       state: 'ready',
     });
+  });
+});
+
+describe('meshStoreFeeder — after a snapshot', () => {
+  beforeEach(async () => {
+    replicaHas.clear();
+    await startFeeder();
+  });
+
+  it('drops store nodes the replica does not hold (removed before we subscribed)', () => {
+    useEditorStore.setState({
+      projectId: 'p1',
+      nodes: [
+        { ...meshDoc('kept', 'p1') },
+        { ...meshDoc('stale', 'p1') },
+        { ...meshDoc('shared', 'p1'), remote: true },
+      ] as never,
+    });
+    replicaHas.set('scene_node', new Set(['kept']));
+    snapshotCb!('scene_node');
+    expect(
+      useEditorStore
+        .getState()
+        .nodes.map((n) => n.id)
+        .sort()
+    ).toEqual([
+      'kept',
+      'shared', // projected remote nodes belong to the projection feeder
+    ]);
   });
 });

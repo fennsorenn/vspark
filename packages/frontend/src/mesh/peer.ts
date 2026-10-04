@@ -367,6 +367,7 @@ async function doInit(): Promise<MeshHandles> {
           pathPrefix: '',
         });
         subscribed.add(rtype);
+        for (const cb of _snapshotObservers) cb(rtype);
       }
     } catch (e) {
       console.warn('[mesh] subscribe failed (will retry on reconnect):', e);
@@ -399,4 +400,14 @@ export function withoutRemoved<T extends { id: string }>(
 ): T[] {
   const col = _handles?.collections[rtype];
   return col ? rows.filter((r) => !col.replica.isTombstoned(r.id)) : rows;
+}
+
+const _snapshotObservers = new Set<(rtype: string) => void>();
+
+/** Be told when the first snapshot of an rtype has been applied: from then on
+ *  the replica is the authority for that collection, and anything the store
+ *  got elsewhere (the REST bundle) that the replica doesn't hold is stale. */
+export function onSnapshot(cb: (rtype: string) => void): () => void {
+  _snapshotObservers.add(cb);
+  return () => _snapshotObservers.delete(cb);
 }
