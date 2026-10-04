@@ -908,7 +908,9 @@ things fall out of that for free:
   between the two samples around that moment (rotation by quaternion slerp).
   A tween restarted per sample made the speed jump with every uneven arrival
   and stop in every long gap (choppy remote drags, 2026-10-04). Compose layers
-  still use the per-sample tween.
+  play back the same way (x/y/width/height linear, rotation in degrees along
+  the shortest arc); when a layer's playback ends its `liveLayers` entry is
+  dropped and the composed document, which holds the last preview, shows.
 - **Mid-gesture the committed value retargets the running tween** rather than
   snapping, because the preview channel is lossy and the last preview frame may
   never have landed (the `hasLayerTween` / `hasNodeTween` branches in
