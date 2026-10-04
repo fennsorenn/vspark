@@ -254,6 +254,36 @@ survives once panels read it directly.
 
 ### Step 4: Direct links as a transport
 
+✅ Done (14210c2, branch `feature/mesh-store-transport`, stacked on
+`feature/mesh-store-replica`). Calls made beyond the text below, recorded for
+review:
+- **Discovery is a core feature (decided, user 2026-10-04).** A server tells
+  each server it shares with (a grant either way) which of its participants are
+  connected, and tells its own participants what it heard (`RosterMsg`). A
+  dialing transport reads that as `directory.wanted()`; `TransportHandlers`
+  gained a `directory` field for it. Replaces the `/ws` `mesh_roster` for the
+  mesh peer.
+- **Signaling is a core message, not an addressed op on a model.** The text
+  below says "addressed `control` messages"; an op on a declared model would
+  need write grants on a signaling rtype across servers. `SignalMsg` is routed
+  by `nextHop` instead, and each hop accepts it only from the participant
+  itself, its own server, or (on a tab) its upstream.
+- **WebRtcTransport**: the smaller id dials, the larger answers; a dialer
+  redials after 2s while the peer is still wanted. Two data channels per link
+  (`mesh` reliable, `mesh-lossy` unordered without retransmits for
+  `sendLossy`). No ICE servers are configured, same as the legacy client mesh:
+  host candidates only.
+- **Path reporting**: `MeshStatus.subscriptions` (sources per subscription) and
+  `MeshStatus.direct` (on a server: whom each of its tabs gets data from
+  first-hand), the latter exposed as `GET /api/mesh/status` for the two-server
+  e2e.
+- **The asymmetry stays.** Rosters are symmetric, so both tabs link, but with
+  one-way collab only the mounting side's tab uses the link as a source (the
+  author's server granted the mounting server; not the reverse).
+- **Two WebRTC connections per tab pair until W7**: the legacy `clientMesh`
+  still opens its own for object-share and blob envelopes; only its mesh frames
+  are gone.
+
 A WebRTC transport in `packages/mesh-transports` (the `browserPeerTransport` from
 §8.9), signaling over addressed `control` messages through each side's server.
 With step 2 in place, a direct link is just a better path for subscriptions that

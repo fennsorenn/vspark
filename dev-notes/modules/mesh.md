@@ -1,6 +1,6 @@
 # Mesh — Replicated Store (@vspark/mesh, @vspark/mesh-react, @vspark/mesh-transports)
 
-**Status:** Core package implemented (119 vitest tests across `packages/mesh/test/`); three packages (mesh / mesh-react / mesh-transports WS pair) shipped; backend hydration + persistence complete; the replica is the frontend's document store — components read it through per-type hooks on `@vspark/mesh-react`, the store feeder is deleted ([Frontend wiring](#frontend-wiring)); writes mesh-authored for every document rtype (see the per-rtype table under [Undo / redo](#undo--redo-per-peer)); whitelist grants with one egress filter ([Grants](#grants)); every tab authenticates before joining ([Tab authentication](#tab-authentication)). See [Remaining](#remaining) for the rest.
+**Status:** Core package implemented (143 vitest tests across `packages/mesh/test/`); three packages (mesh / mesh-react / mesh-transports: WS pair + tab↔tab `WebRtcTransport`) shipped; tabs of different servers link directly, discovered through core rosters ([Direct links (tabs)](#direct-links-tabs)); backend hydration + persistence complete; the replica is the frontend's document store — components read it through per-type hooks on `@vspark/mesh-react`, the store feeder is deleted ([Frontend wiring](#frontend-wiring)); writes mesh-authored for every document rtype (see the per-rtype table under [Undo / redo](#undo--redo-per-peer)); whitelist grants with one egress filter ([Grants](#grants)); every tab authenticates before joining ([Tab authentication](#tab-authentication)). See [Remaining](#remaining) for the rest.
 
 A **schema-agnostic in-memory replicated store** with symmetric read/write API on both frontend and backend, HLC last-write-wins convergence, grant-gated access control, and authority-driven ack lifecycle. No durability in the package itself; durable peers hydrate from persistent store and persist incoming mutations via observe taps. Designed to replace both the legacy sync layer and the entity-aware collab-scene sharing model.
 
@@ -17,7 +17,7 @@ is the index into that chain:
 | [plans/mesh-sync-refactor.md](../plans/mesh-sync-refactor.md) | The plan that was actually **executed**. §8 defines the interface; the code cites §§8/9/10/11 by name. This is the spec. |
 | [plans/mesh-native-undo.md](../plans/mesh-native-undo.md) | Undo/redo as a peer primitive. |
 | [plans/mesh-drop-legacy-sync-and-undo.md](../plans/mesh-drop-legacy-sync-and-undo.md) → [plans/mesh-frontend-writes.md](../plans/mesh-frontend-writes.md) | Retiring the legacy envelope, then moving UI writes onto the tab peer. |
-| [plans/mesh-store-surface.md](../plans/mesh-store-surface.md) | The mesh as a store: models declared once (step 1), target-less subscriptions + grants (step 2), the replica as the frontend store (step 3, done), direct links as a `mesh-transports` WebRTC transport (step 4, next). |
+| [plans/mesh-store-surface.md](../plans/mesh-store-surface.md) | The mesh as a store: models declared once (step 1), target-less subscriptions + grants (step 2), the replica as the frontend store (step 3, done), direct links as a `mesh-transports` WebRTC transport (step 4, done). |
 
 **Comments claiming a legacy path is deliberate are debt, not design.** Several
 in this area ("kept on purpose", "low value", "smoothing-aware broadcast") turned
@@ -294,7 +294,8 @@ All subscribe to the replica via `useSyncExternalStore` and auto-unsubscribe on 
 **`@vspark/mesh-transports`** — Transport implementations:
 - `WsServerTransport` — `/mesh` route (authenticated hello handshake, participant id composition `${serverPeerId}#${tabUuid}`); see [Tab authentication](#tab-authentication).
 - `WsBackendTransport` — Browser client with auto-reconnect and offline write gating; sends the token in each hello and calls `onUnauthorized` on close code 4401.
-- WebRTC adapters (ServerMesh, BrowserPeerMesh wrapping) — planned.
+- `WebRtcTransport` (`./webrtc` export) — tab↔tab direct links, dialing from the core roster; see [Direct links (tabs)](#direct-links-tabs).
+- WebRTC adapters for server↔server and tab↔remote-server edges (ServerMesh, BrowserPeerMesh wrapping) — planned.
 
 ### Core invariants
 
@@ -644,13 +645,58 @@ the path that survives a direct link dropping silently; the receiver's dedup
 
 ### Direct links (tabs)
 
-A tab links over WebRTC to tabs of **other** servers (`DirectTransport` in
-`frontend/src/mesh/directTransport.ts`, carried by `clientMesh.ts`; step 4 of
-[plans/mesh-store-surface.md](../plans/mesh-store-surface.md) replaces it with a
-transport in `mesh-transports`). Nothing in the app wires the link up: once it
-is there, the subscriptions the tab already holds gain the other tab as a
-source if its server granted ours read. All channels travel it, committed ones
-included, since the deciding peer restates what stands after a refusal.
+A tab links over WebRTC to tabs of **other** servers through `WebRtcTransport`
+(`packages/mesh-transports/src/webrtc.ts`, export
+`@vspark/mesh-transports/webrtc`), which `frontend/src/mesh/peer.ts` passes to
+the tab's peer next to the WS transport (step 4 of
+[plans/mesh-store-surface.md](../plans/mesh-store-surface.md)). Nothing in the
+app wires a link up: once it is there, the subscriptions the tab already holds
+gain the other tab as a source if its server granted ours read. All channels
+travel it, committed ones included, since the deciding peer restates what
+stands after a refusal.
+
+*Historical:* before step 4 this was `DirectTransport` in
+`frontend/src/mesh/directTransport.ts`, carried as mesh frames inside the legacy
+`clientMesh.ts`. Both are gone from that path; `clientMesh.ts` now carries only
+object-share and blob envelopes until mesh-sole-channel W7, so a tab pair holds
+two WebRTC connections until then.
+
+**Discovery (rosters).** **Decided (user, 2026-10-04):** discovery is a core
+mesh feature. A server sends each server it shares with (a grant in either
+direction, `sharesWith`) a `roster` message (`RosterMsg {t:'roster', peers}` in
+`wire.ts`) listing its connected participants, and sends its own participants
+the participants it heard about from those servers (`rosterFor`,
+`sendRosters`, `handleRoster`). A tab's `wanted()` is the roster its upstream
+server last sent. This replaces the legacy `/ws` `mesh_roster` for the mesh
+peer (the legacy roster still drives `clientMesh`).
+
+**Transport SPI hook.** `TransportHandlers` carries a `directory: PeerDirectory`
+(`transport.ts`): `self`, `wanted()`, `onWanted(cb)`, `signal(to, data)`,
+`onSignal(cb)`. A dialing transport dials and accepts only the peers in
+`wanted()`, and exchanges link-setup data through `signal`.
+
+**Signaling.** Link setup travels as a core `signal` message
+(`SignalMsg {t:'signal', to, from, data}`), not as an op on a declared model
+(that would need write grants on a signaling rtype across servers — a call made
+in step 4, recorded for review). `routeSignal` forwards it by `nextHop`; a hop
+accepts it only from the participant named in `from`, that participant's own
+server, or (on a tab) its upstream.
+
+**`WebRtcTransport` behaviour** (current, recorded for review): the smaller id
+dials, the larger only answers; a dialer whose link fails redials after
+`redialMs` (2s) while the peer is still wanted. Two data channels per link:
+`mesh` (reliable, ordered) and `mesh-lossy` (unordered, no retransmits) for
+`sendLossy`. No ICE servers are configured by the app (host candidates only,
+same as the legacy client mesh); `iceServers` is an option. ICE arriving before
+the remote description is buffered. Tests:
+`packages/mesh-transports/test/webrtc.test.ts` (fake `RTCPeerConnection`) and
+`packages/mesh/test/roster.test.ts`.
+
+**Path reporting.** `MeshStatus.subscriptions` lists each subscription with the
+peers serving it (its path); `MeshStatus.direct` (on a server) maps each of its
+participants to whom it gets data from first-hand (from `links` messages). The
+backend exposes the latter as `GET /api/mesh/status` → `{peers, direct}`, which
+`e2e/tests-mp/collab.spec.ts` uses to assert the direct path.
 
 - A participant (a tab) is an endpoint: it forwards nothing it receives, so a
   direct subscriber gets from it only what it authored.
@@ -659,7 +705,9 @@ included, since the deciding peer restates what stands after a refusal.
 - **Asymmetry:** with a space shared one way, the author's tabs serve the
   mounting server's tabs directly, but not the other way round — the mounting
   server granted the author nothing. Previews from a mounting tab reach the
-  author's tabs through the two servers.
+  author's tabs through the two servers. Rosters are symmetric, so both tabs
+  still link; only the mounting side's tab uses the link as a source. Left as
+  is in step 4.
 
 ### Snapshot & apply
 
@@ -1169,9 +1217,9 @@ three catch every wiring break above; behaviour tests do not.
 ## Integration roadmap
 
 **Completed (through collab live-ops migration):**
-- Core package (@vspark/mesh) — 29 tests at the time (118 now), all APIs. New: snapshot relay topology + one-way place isolation tests + pure-stream containment routing test. `handleSubOk` now relays snapshot-applied docs/tombstones onward to the peer's own subscribers (tabs subscribed before a reconcile were previously blind to snapshot state).
+- Core package (@vspark/mesh) — 29 tests at the time (143 now), all APIs. New: snapshot relay topology + one-way place isolation tests + pure-stream containment routing test. `handleSubOk` now relays snapshot-applied docs/tombstones onward to the peer's own subscribers (tabs subscribed before a reconcile were previously blind to snapshot state).
 - React hooks (@vspark/mesh-react) — all hooks.
-- Transports (@vspark/mesh-transports) — WS pair shipped; WebRTC pending.
+- Transports (@vspark/mesh-transports) — WS pair shipped; tab↔tab `WebRtcTransport` shipped (mesh-store-surface step 4); server-side WebRTC pending.
 - Backend hydration + persistence (five collections, generic onCommitted taps).
 - Frontend per-tab peer + auto-subscribe (wired, mounted in Editor).
 - **Collab-scene LIVE OPS + RECONCILE:** standing RUCD mesh grant on scene subtree, mutual subscription re-armed per connect, snapshot-on-subscribe replaces reconcile. Verified 8/8 two-backend live.
@@ -1340,9 +1388,8 @@ the advertise/offer flow).
 
 Outside that plan:
 
-- Step 4 of [plans/mesh-store-surface.md](../plans/mesh-store-surface.md),
-  **next**: a WebRTC direct-link transport in `mesh-transports`, replacing
-  `frontend/src/mesh/directTransport.ts` and the mesh frames in `clientMesh.ts`.
+- The tab pair's second WebRTC connection (legacy `clientMesh`, object-share and
+  blob envelopes) goes with W7.
 - `projectedNodes` and the projected-node REST writes go with W7.
 
 **Closed, not done:** principle 3's share container for mounted scenes. It was
@@ -1352,7 +1399,9 @@ container belongs to the placed-object path, which already has it.
 
 **Done since this list was first written** (kept short deliberately — the
 details live in the sections above): component reads moved onto mesh-react
-hooks and the store feeder deleted (mesh-store-surface step 3); writes are mesh-authored for every document
+hooks and the store feeder deleted (mesh-store-surface step 3); direct links
+as `WebRtcTransport` with core rosters and signaling, replacing
+`directTransport.ts` and the mesh frames in `clientMesh.ts` (step 4); writes are mesh-authored for every document
 rtype; `logic` has a collection and no polls; clip playback is a document and
 the backend playhead is gone; node and clip previews ride the `preview` channel,
 including for object-share subscribers, so `node_transform_preview` is deleted;
@@ -1377,7 +1426,7 @@ lost to its own copy of the document.
 
 - `packages/mesh/src/` — core implementation (MeshPeer, Collection, Replica, ChannelRegistry).
 - `packages/mesh-react/src/` — hooks.
-- `packages/mesh-transports/src/` — WsServerTransport, WsBackendTransport.
+- `packages/mesh-transports/src/` — WsServerTransport, WsBackendTransport, WebRtcTransport (`webrtc.ts`).
 - `packages/backend/src/mesh/index.ts` — backend bindings, hydration, persistence.
 - `packages/mesh/src/grants.ts` — `GrantStore`, `readScope` / `projectValue` / `projectOp`, `grantOverlapsSubscription`.
 - `packages/mesh/src/channels.ts` — the four built-in channels.
