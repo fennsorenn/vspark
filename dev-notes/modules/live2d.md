@@ -68,14 +68,29 @@ the per-node blendshape/pose broadcast bus already routes to a node's id.
   (`ensureCubismCore`), idempotent. Owns the **consent gate**: `hasLive2dConsent`
   / `setLive2dConsent` (interim `localStorage` mirror of
   `AppConfig.live2dLicenseAccepted`); `ensureCubismCore` rejects without consent
-  so the Core is never fetched silently.
-- `live2d/Live2DRuntime.ts` — the adapter. Loads the Core, then **dynamic-imports**
-  the framework (after the Core global exists — some framework modules read
-  `Live2DCubismCore` enums at eval time), parses `*.model3.json` via
-  `CubismModelSettingJson`, loads the `.moc3` + textures, creates a
-  `CubismRenderer_WebGL`, and renders into an **off-screen WebGL canvas** exposed
-  as a `THREE.CanvasTexture`. `setParam` resolves string ids through the
-  framework's id manager (cached).
+  so the Core is never fetched silently. `cubismCoreUrl()` is the same gate for
+  the worker, which loads the Core itself.
+- `live2d/live2d.worker.ts` — **the model runs off the main thread** (since
+  2026-10-04). One module worker per page hosts every Live2D model, each with
+  its own `OffscreenCanvas` + WebGL2 context. It fetches the Core and evaluates
+  it in its global scope, then **dynamic-imports** the framework (after the Core
+  global exists — some framework modules read `Live2DCubismCore` enums at eval
+  time), parses `*.model3.json` via `CubismModelSettingJson`, loads the `.moc3`
+  + textures (`createImageBitmap`, premultiplied), creates a
+  `CubismRenderer_WebGL`, and per frame applies the parameters it is sent,
+  draws, and posts the picture back as an `ImageBitmap`
+  (`transferToImageBitmap`). Messages: `live2d/live2dProtocol.ts`. Needs
+  `worker.format: 'es'` in `vite.config.ts`.
+- `live2d/Live2DRuntime.ts` — the adapter, now the page-side proxy: forwards
+  `load`/`setParam`/`update`/`dispose` to the worker and shows the returned
+  bitmaps on a `THREE.Texture` (flipped by `repeat`/`offset`, since WebGL
+  ignores `UNPACK_FLIP_Y` for ImageBitmaps). At most one frame is in flight per
+  model: while the worker draws, parameters wait for the next frame instead of
+  queueing work. `load` resolves once the first picture arrives.
+  Why: on the main thread, Cubism's update and draw (with GL state
+  save/restore and `getParameter` around every draw) took ~98% of the main
+  thread in a 3s headless profile of the Hiyori sample; in the worker it is
+  ~1%, at a matching picture (screenshot diff < 1%).
 
 ### Frontend — mapping & node
 - `lib/live2dParamMap.ts` — pure, stateless translation from a blendshape record
@@ -160,8 +175,10 @@ buffer *count* — it ignores width/height.
    the per-node broadcast bus (same path as VRM).
 2. `Live2DNode`'s `useFrame` reads them, calls `mapToLive2dParams(...)` (default
    map ∪ node overrides), and `setParam`s each result.
-3. `runtime.update(dt)` advances the Cubism model and redraws the off-screen
-   canvas; `texture.needsUpdate = true` pushes it to the plane.
+3. `runtime.update(dt)` sends the parameters to the worker (unless the previous
+   frame is still being drawn); the worker updates and draws the model and
+   posts back an `ImageBitmap`, which replaces the plane's texture image (the
+   picture is one frame behind its parameters).
 
 ## Extending
 - **New source → param mapping:** add an entry to `DEFAULT_BLENDSHAPE_MAP`, or

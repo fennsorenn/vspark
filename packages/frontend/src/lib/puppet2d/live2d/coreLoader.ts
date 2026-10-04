@@ -60,6 +60,18 @@ export interface CubismCoreLoadOptions {
 }
 
 /**
+ * The Core's url, for a context that loads it itself (the Live2D worker).
+ * Throws without the user's license consent, like `ensureCubismCore`.
+ */
+export function cubismCoreUrl(opts: CubismCoreLoadOptions = {}): string {
+  if (!hasLive2dConsent())
+    throw new Error(
+      'Live2D Cubism Core not loaded: the Live2D license has not been accepted.'
+    );
+  return opts.url ?? DEFAULT_CORE_URL;
+}
+
+/**
  * Inject the Cubism Core script and resolve once `window.Live2DCubismCore` is
  * available. Idempotent: an already-loaded Core resolves immediately, and
  * concurrent/repeat calls share a single in-flight load. A failed load clears
