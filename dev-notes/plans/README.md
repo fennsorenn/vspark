@@ -15,7 +15,11 @@ replaced. A plan is not a description of running code.
 the only client↔server channel (principles 7–9: sole channel, most direct path, authenticated whitelist grants), as an inventory of every stream that
 still bypasses it and the mesh feature each one reveals. Its predecessor,
 [`mesh-frontend-writes.md`](./mesh-frontend-writes.md), shipped and landed in `dev` at
-77bfdb4. Everything else is shipped, superseded, or shipped with a named blocker.
+77bfdb4. Its order is now set by [`mesh-store-surface.md`](./mesh-store-surface.md)
+(design-only, not started): first make the mesh usable like a store (models and
+channels declared once, subscriptions without a target, the replica as the store,
+direct links as a transport), then move the remaining streams. Everything else is
+shipped, superseded, or shipped with a named blocker.
 
 **If you only read one historical file, read [`mesh-sync-refactor.md`](./mesh-sync-refactor.md).**
 It is the plan that was actually executed, and the code cites its section numbers (`§8`
@@ -41,6 +45,7 @@ Design → executed → follow-ups. Each supersedes roughly what came before it.
 | [`mesh-drop-legacy-sync-and-undo.md`](./mesh-drop-legacy-sync-and-undo.md) | in progress — undo (B) shipped; envelope retirement (A) → W7 of `mesh-sole-channel.md`     |
 | [`mesh-frontend-writes.md`](./mesh-frontend-writes.md)                     | shipped — in `dev` at 77bfdb4                                                               |
 | [`mesh-sole-channel.md`](./mesh-sole-channel.md)                           | **in progress — LIVE** (principles 7–9; supersedes §12)                                    |
+| [`mesh-store-surface.md`](./mesh-store-surface.md)                         | **design-only, not started** — sequences the rest of `mesh-sole-channel.md`             |
 
 ## Multiplayer
 
