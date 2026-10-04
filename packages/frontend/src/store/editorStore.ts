@@ -295,9 +295,6 @@ export interface EditorState {
   /** OBS (obs-websocket) connections for the current project. Populated lazily
    *  by the OBS Connections modal; status kept live by `server_status` docs. */
   obsConnections: import('../api/client').ObsConnectionRecord[];
-  /** Backend Electron runtime state for OBS window capture (`server_status`
-   *  document `output_window:main`). */
-  outputWindowStatus: OutputWindowStatus | null;
   activeLogicId: string | null;
   /** True when the active graph is a writable standalone project graph;
    *  false when it's a behavior-owned (read-only) graph or no graph is active.
@@ -356,17 +353,6 @@ export interface EditorState {
   nodeTransformOverrides: Record<string, NodeTransformOverride>;
   /** composeLayerId → ephemeral DOM-space override produced by the evaluator */
   composeLayerOverrides: Record<string, ComposeLayerOverride>;
-  /** nodeId → paramPath → value, driven by signal-graph nodes via the runtime
-   *  override bus. Parallel to nodeTransformOverrides; see RuntimeOverrideMap. */
-  runtimeNodeOverrides: Record<string, RuntimeOverrideMap>;
-  /** composeLayerId → paramPath → value, same as above for compose layers. */
-  runtimeLayerOverrides: Record<string, RuntimeOverrideMap>;
-  /** scope → (field → last-published value), fed by the data-channel bus
-   *  (`set_data` node → the mesh `data_field` collection). Consumed by `feed` compose layers
-   *  (and the 3D billboard), which expose every in-scope field to a user template
-   *  by its bare name. scope `''` is GLOBAL; other scopes are a consumer's own id
-   *  (a layer/node id). A consumer reads `global ∪ its-own-id`. */
-  dataChannels: Record<string, Record<string, unknown>>;
   /** Per-(target, param) suppression set: while a key is present, the evaluator
    *  must NOT apply that lane's value as an override, and the existing override
    *  slot for it should be cleared. Set when the user edits a numeric input on
@@ -408,14 +394,6 @@ export interface EditorState {
   setObsConnections: (
     connections: import('../api/client').ObsConnectionRecord[]
   ) => void;
-  /** Patch one connection's live status from an obs_connection_status message. */
-  patchObsConnectionStatus: (patch: {
-    connectionId: string;
-    status: import('../api/client').ObsConnectionStatus;
-    reason: string | null;
-    message: string | null;
-  }) => void;
-  setOutputWindowStatus: (status: OutputWindowStatus) => void;
   setActiveLogic: (id: string | null) => void;
   setActiveLogicWritable: (writable: boolean) => void;
   setSelectedSignalNode: (id: string | null) => void;
@@ -468,20 +446,6 @@ export interface EditorState {
     layerId: string,
     override: ComposeLayerOverride | null
   ) => void;
-  /** Apply a single runtime override broadcast from the runtime-override bus. */
-  setRuntimeOverride: (
-    targetKind: 'scene_node' | 'compose_layer',
-    targetId: string,
-    paramPath: string,
-    value: RuntimeOverrideValue
-  ) => void;
-  /** Clear a single runtime override, or every override for the target when
-   *  paramPath is omitted. */
-  clearRuntimeOverride: (
-    targetKind: 'scene_node' | 'compose_layer',
-    targetId: string,
-    paramPath?: string
-  ) => void;
   /** Mark a (target, param) as user-edited so the evaluator stops overwriting it
    *  until the next clip event. `paramPath` matches the lane's param path. */
   suppressOverride: (
@@ -491,12 +455,6 @@ export interface EditorState {
   ) => void;
   /** Drop all suppressions — called when a clip is triggered / paused / scrubbed. */
   clearOverrideSuppressions: () => void;
-
-  // Data channels (generic graph → frontend publish surface)
-  /** Merge a published field-set into a scope. */
-  mergeDataChannels: (scope: string, fields: Record<string, unknown>) => void;
-  /** Clear one field in a scope, or the whole scope when `field` is omitted. */
-  clearDataChannels: (scope: string, field?: string) => void;
 
   // Presets
   presets: PresetSummary[];
@@ -538,7 +496,6 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   behaviorKinds: [],
   overliveAccounts: [],
   obsConnections: [],
-  outputWindowStatus: null,
   activeLogicWritable: false,
   activeLogicId: null,
   selectedSignalNodeId: null,
@@ -564,9 +521,6 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   selectedTrackClipId: null,
   nodeTransformOverrides: {},
   composeLayerOverrides: {},
-  runtimeNodeOverrides: {},
-  runtimeLayerOverrides: {},
-  dataChannels: {},
   suppressedOverrides: new Set<string>(),
 
   setProject: (id, name) => set({ projectId: id, projectName: name }),
@@ -658,20 +612,6 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   setBehaviorKinds: (kinds) => set({ behaviorKinds: kinds }),
   setOverliveAccounts: (accounts) => set({ overliveAccounts: accounts }),
   setObsConnections: (connections) => set({ obsConnections: connections }),
-  setOutputWindowStatus: (status) => set({ outputWindowStatus: status }),
-  patchObsConnectionStatus: (patch) =>
-    set((s) => ({
-      obsConnections: s.obsConnections.map((c) =>
-        c.id === patch.connectionId
-          ? {
-              ...c,
-              status: patch.status,
-              statusReason: patch.reason,
-              statusMessage: patch.message,
-            }
-          : c
-      ),
-    })),
   setActiveLogicWritable: (writable) => set({ activeLogicWritable: writable }),
   setActiveLogic: (id) => {
     // Opening a graph (from any list — including scoped graphs in the scene /
@@ -858,64 +798,6 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       else next[layerId] = override;
       return { composeLayerOverrides: next };
     }),
-  setRuntimeOverride: (targetKind, targetId, paramPath, value) =>
-    set((s) => {
-      const slice =
-        targetKind === 'scene_node'
-          ? s.runtimeNodeOverrides
-          : s.runtimeLayerOverrides;
-      const next = { ...slice };
-      const prev = next[targetId] ?? {};
-      if (prev[paramPath] === value) return {};
-      next[targetId] = { ...prev, [paramPath]: value };
-      return targetKind === 'scene_node'
-        ? { runtimeNodeOverrides: next }
-        : { runtimeLayerOverrides: next };
-    }),
-  clearRuntimeOverride: (targetKind, targetId, paramPath) =>
-    set((s) => {
-      const slice =
-        targetKind === 'scene_node'
-          ? s.runtimeNodeOverrides
-          : s.runtimeLayerOverrides;
-      const prev = slice[targetId];
-      if (!prev) return {};
-      const next = { ...slice };
-      if (paramPath === undefined) {
-        delete next[targetId];
-      } else {
-        if (!(paramPath in prev)) return {};
-        const { [paramPath]: _, ...rest } = prev;
-        if (Object.keys(rest).length === 0) delete next[targetId];
-        else next[targetId] = rest;
-      }
-      return targetKind === 'scene_node'
-        ? { runtimeNodeOverrides: next }
-        : { runtimeLayerOverrides: next };
-    }),
-  mergeDataChannels: (scope, fields) =>
-    set((s) => ({
-      dataChannels: {
-        ...s.dataChannels,
-        [scope]: { ...(s.dataChannels[scope] ?? {}), ...fields },
-      },
-    })),
-  clearDataChannels: (scope, field) =>
-    set((s) => {
-      const bucket = s.dataChannels[scope];
-      if (!bucket) return {};
-      if (field === undefined) {
-        const { [scope]: _, ...rest } = s.dataChannels;
-        return { dataChannels: rest };
-      }
-      if (!(field in bucket)) return {};
-      const { [field]: _, ...restFields } = bucket;
-      const next = { ...s.dataChannels };
-      if (Object.keys(restFields).length === 0) delete next[scope];
-      else next[scope] = restFields;
-      return { dataChannels: next };
-    }),
-
   presets: [],
   setPresets: (presets) => set({ presets }),
   addPreset: (preset) => set((s) => ({ presets: [preset, ...s.presets] })),

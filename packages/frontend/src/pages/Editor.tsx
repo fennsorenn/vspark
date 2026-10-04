@@ -21,7 +21,6 @@ import {
 } from '../mesh/peer';
 import { usePrompt } from '../components/DialogProvider';
 import { startMeshProjection } from '../sync/meshProjection';
-import { startMeshStoreFeeder } from '../sync/meshStoreFeeder';
 import { TopBar } from '../components/editor/TopBar';
 import { SceneGraph } from '../components/editor/SceneGraph';
 import { Viewport } from '../components/editor/Viewport';
@@ -48,13 +47,11 @@ export function Editor() {
   useTrackClipEvaluator();
   useSharedSubscriptions();
   useClientMesh();
-  // Mesh store: mirror the document collections into this tab, and feed
-  // shared-object projections from them (the doc plane of "place" rides the
-  // mesh since §9 step D; dev-notes/plans/mesh-sync-refactor.md).
+  // Feed shared-object projections (placed remote objects, Phase 6) from the
+  // replica. The documents themselves are read straight from it.
   useEffect(() => {
     void initMeshPeer().catch(console.warn);
     startMeshProjection();
-    startMeshStoreFeeder();
   }, []);
   // A browser on another machine joins with vspark's pairing code.
   const prompt = usePrompt();

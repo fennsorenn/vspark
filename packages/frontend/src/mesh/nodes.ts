@@ -3,7 +3,10 @@
  *
  * One rtype (`scene_node`); a scene is the root node of its tree
  * (`kind: 'scene'`). The tab subscribes server-wide, so these hooks keep to the
- * open project. Two views are laid over the documents:
+ * open project — including the collab scenes mounted into it, whose documents
+ * keep their author's projectId (which project of ours a mounted scene lives in
+ * is this server's mount record, `collab_scenes`, read over REST for now). Two
+ * views are laid over the documents:
  *
  *   - `liveNodes`: a node's transform while a local gesture or a received
  *     preview's tween runs (previewSmoother);
@@ -18,6 +21,7 @@ import {
   type SceneItem,
   type StageObject,
 } from '../store/editorStore';
+import { useConnectionsStore } from '../store/connectionsStore';
 
 const RTYPE = 'scene_node';
 
@@ -37,16 +41,33 @@ function withLive(
   };
 }
 
+type Mounts = Record<string, { role: string; projectId: string }>;
+
+/** Is `scene` a scene of the open project: its own, or mounted into it? */
+const ofProject = (
+  d: StageObject,
+  sceneId: string,
+  projectId: string,
+  mounts: Mounts
+): boolean =>
+  d.projectId === projectId ||
+  (mounts[sceneId]?.role === 'mounted' &&
+    mounts[sceneId].projectId === projectId);
+
 function projectNodes(
   docs: StageObject[],
   projectId: string | null,
   live: Record<string, Record<string, number>>,
-  projected: StageObject[]
+  projected: StageObject[],
+  mounts: Mounts
 ): StageObject[] {
   const out: StageObject[] = [];
   if (projectId)
     for (const d of docs)
-      if (d.projectId === projectId && d.kind !== 'scene')
+      if (
+        d.kind !== 'scene' &&
+        ofProject(d, d.rootSceneNodeId, projectId, mounts)
+      )
         out.push(withLive(d, live[d.id]));
   for (const p of projected) out.push(withLive(p, live[p.id]));
   return out;
@@ -67,9 +88,10 @@ export function useSceneNodes(): StageObject[] {
   const projectId = useEditorStore((s) => s.projectId);
   const live = useEditorStore((s) => s.liveNodes);
   const projected = useEditorStore((s) => s.projectedNodes);
+  const mounts = useConnectionsStore((s) => s.collabScenes);
   return useMemo(
-    () => projectNodes(docs, projectId, live, projected),
-    [docs, projectId, live, projected]
+    () => projectNodes(docs, projectId, live, projected, mounts),
+    [docs, projectId, live, projected, mounts]
   );
 }
 
@@ -79,14 +101,17 @@ export function useScenes(): SceneItem[] {
     c.all()
   );
   const projectId = useEditorStore((s) => s.projectId);
+  const mounts = useConnectionsStore((s) => s.collabScenes);
   return useMemo(
     () =>
       projectId
         ? docs
-            .filter((d) => d.kind === 'scene' && d.projectId === projectId)
+            .filter(
+              (d) => d.kind === 'scene' && ofProject(d, d.id, projectId, mounts)
+            )
             .map(sceneItemOf)
         : [],
-    [docs, projectId]
+    [docs, projectId, mounts]
   );
 }
 
@@ -106,16 +131,18 @@ export function sceneNodesNow(): StageObject[] {
     collectionOf<StageObject>(RTYPE).all(),
     s.projectId,
     s.liveNodes,
-    s.projectedNodes
+    s.projectedNodes,
+    useConnectionsStore.getState().collabScenes
   );
 }
 
 export function scenesNow(): SceneItem[] {
   const projectId = useEditorStore.getState().projectId;
   if (!projectId) return [];
+  const mounts = useConnectionsStore.getState().collabScenes;
   return collectionOf<StageObject>(RTYPE)
     .all()
-    .filter((d) => d.kind === 'scene' && d.projectId === projectId)
+    .filter((d) => d.kind === 'scene' && ofProject(d, d.id, projectId, mounts))
     .map(sceneItemOf);
 }
 

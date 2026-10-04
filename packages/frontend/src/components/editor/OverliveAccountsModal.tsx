@@ -28,6 +28,7 @@ import type {
   ObsConnectionStatus,
   Project,
 } from '../../api/client';
+import { useServerStatuses, withLiveStatus } from '../../mesh/runtime';
 
 interface Props {
   onClose: () => void;
@@ -64,9 +65,14 @@ export function OverliveAccountsModal({ onClose }: Props) {
   const [showSeForm, setShowSeForm] = useState(false);
   const [pendingTwitchAppPick, setPendingTwitchAppPick] = useState(false);
   const [otherProjects, setOtherProjects] = useState<Project[]>([]);
-  // OBS connections use the editor store as source of truth so live status
-  // (server_status documents, applied by the mesh feeder) reaches the pills.
+  // OBS connections and accounts are REST records; their live status is a
+  // server_status document, laid over them where the pills render.
   const obsConnections = useEditorStore((s) => s.obsConnections);
+  const obsStatus = useServerStatuses('obs_connection');
+  const accountStatus = useServerStatuses('overlive_account');
+  const obsShown = obsConnections.map((c) =>
+    withLiveStatus(c, obsStatus[c.id])
+  );
   const setObsConnections = useEditorStore((s) => s.setObsConnections);
   // null = closed; 'new' = add form; a record = editing it.
   const [obsForm, setObsForm] = useState<ObsConnectionRecord | 'new' | null>(
@@ -252,7 +258,7 @@ export function OverliveAccountsModal({ onClose }: Props) {
   const handleTestObs = async (conn: ObsConnectionRecord) => {
     try {
       await api.testObsConnection(conn.id);
-      // Live status arrives as a server_status document (mesh feeder).
+      // Live status arrives as a server_status document.
     } catch {
       /* non-fatal — status pill reflects the outcome */
     }
@@ -410,7 +416,8 @@ export function OverliveAccountsModal({ onClose }: Props) {
                 : t('accounts.emptyHasApp')}
             </div>
           ) : (
-            accounts.map((acc) => {
+            accounts.map((rawAcc) => {
+              const acc = withLiveStatus(rawAcc, accountStatus[rawAcc.id]);
               const status = STATUS_LABEL[acc.status];
               const needsReauth =
                 acc.status === 'error' || acc.status === 'needs_reauth';
@@ -514,9 +521,15 @@ export function OverliveAccountsModal({ onClose }: Props) {
         {/* OBS Connections section (obs-websocket power tier) */}
         <section style={sectionStyle}>
           <div style={sectionHeaderStyle}>
-            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+            <span
+              style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}
+            >
               {t('obs.heading')}
-              <HelpButton topic="obs" anchor="obs-websocket" tip={t('obs.help')} />
+              <HelpButton
+                topic="obs"
+                anchor="obs-websocket"
+                tip={t('obs.help')}
+              />
             </span>
             <button
               style={primaryBtnStyle}
@@ -529,7 +542,7 @@ export function OverliveAccountsModal({ onClose }: Props) {
           {obsConnections.length === 0 ? (
             <div style={emptyStateStyle}>{t('obs.empty')}</div>
           ) : (
-            obsConnections.map((conn) => (
+            obsShown.map((conn) => (
               <div key={conn.id} style={rowStyle}>
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={rowTitleStyle}>
@@ -541,7 +554,9 @@ export function OverliveAccountsModal({ onClose }: Props) {
                     </span>
                   </div>
                   <div style={rowSubStyle}>
-                    <span style={{ color: OBS_STATUS_LABEL[conn.status].color }}>
+                    <span
+                      style={{ color: OBS_STATUS_LABEL[conn.status].color }}
+                    >
                       ● {t(`status.${conn.status}`)}
                     </span>
                     {conn.statusMessage && (
@@ -551,10 +566,16 @@ export function OverliveAccountsModal({ onClose }: Props) {
                     )}
                   </div>
                 </div>
-                <button style={secondaryBtnStyle} onClick={() => handleTestObs(conn)}>
+                <button
+                  style={secondaryBtnStyle}
+                  onClick={() => handleTestObs(conn)}
+                >
                   {t('obs.test')}
                 </button>
-                <button style={secondaryBtnStyle} onClick={() => setObsForm(conn)}>
+                <button
+                  style={secondaryBtnStyle}
+                  onClick={() => setObsForm(conn)}
+                >
                   {t('obs.edit')}
                 </button>
                 <button

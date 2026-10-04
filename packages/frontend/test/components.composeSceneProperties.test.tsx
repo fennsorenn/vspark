@@ -1,5 +1,11 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { renderWithProviders, screen, fireEvent, i18n } from './helpers/render';
+import {
+  act,
+  renderWithProviders,
+  screen,
+  fireEvent,
+  i18n,
+} from './helpers/render';
 import { useEditorStore } from '../src/store/editorStore';
 import type { ComposeLayerRecord } from '../src/api/client';
 
@@ -58,21 +64,36 @@ const tc = (key: string, opts?: Record<string, unknown>) =>
 const cs1 = () =>
   testPeer().collection<ComposeLayerRecord>('compose_layer').get('cs1');
 
+/** The output window's runtime state, as the server publishes it. */
+const outputStatus = (fields: Record<string, unknown>) =>
+  act(() => {
+    testPeer()
+      .collection('server_status')
+      .set(
+        'output_window:main',
+        '',
+        {
+          id: 'output_window:main',
+          kind: 'output_window',
+          key: 'main',
+          ...fields,
+        },
+        { channel: 'runtime' }
+      );
+  });
+
 describe('ComposeSceneProperties — OBS window capture', () => {
   beforeEach(() => {
     updateComposeLayer.mockClear();
     seedEditor({
       composeScenes: [scene],
       assets: [],
-      outputWindowStatus: null,
     });
   });
 
   it('shows runtime download progress and errors instead of the hint', () => {
     const enabled = { ...scene, config: { obsWindowCapture: true } };
-    useEditorStore.setState({
-      outputWindowStatus: { state: 'downloading', progress: 42 },
-    });
+    outputStatus({ state: 'downloading', progress: 42 });
     const { rerender } = renderWithProviders(
       <ComposeSceneProperties scene={enabled} />
     );
@@ -80,15 +101,13 @@ describe('ComposeSceneProperties — OBS window capture', () => {
       screen.getByText(tc('sceneProps.obsWindowDownloading', { progress: 42 }))
     ).toBeTruthy();
 
-    useEditorStore.setState({
-      outputWindowStatus: { state: 'error', message: 'offline' },
-    });
+    outputStatus({ state: 'error', message: 'offline' });
     rerender(<ComposeSceneProperties scene={enabled} />);
     expect(
       screen.getByText(tc('sceneProps.obsWindowError', { message: 'offline' }))
     ).toBeTruthy();
 
-    useEditorStore.setState({ outputWindowStatus: { state: 'ready' } });
+    outputStatus({ state: 'ready', message: undefined, progress: undefined });
     rerender(<ComposeSceneProperties scene={enabled} />);
     expect(
       screen.getByText(

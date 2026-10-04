@@ -314,71 +314,6 @@ describe('setComposeLayerOverride', () => {
 
 // ── Runtime overrides ─────────────────────────────────────────────────────────
 
-describe('setRuntimeOverride / clearRuntimeOverride', () => {
-  test('setRuntimeOverride writes to runtimeNodeOverrides', () => {
-    useEditorStore
-      .getState()
-      .setRuntimeOverride('scene_node', 'node-1', 'opacity', 0.8);
-    expect(
-      useEditorStore.getState().runtimeNodeOverrides['node-1']['opacity']
-    ).toBe(0.8);
-  });
-
-  test('setRuntimeOverride writes to runtimeLayerOverrides', () => {
-    useEditorStore
-      .getState()
-      .setRuntimeOverride('compose_layer', 'layer-1', 'x', 100);
-    expect(
-      useEditorStore.getState().runtimeLayerOverrides['layer-1']['x']
-    ).toBe(100);
-  });
-
-  test('setRuntimeOverride is a no-op when value is unchanged', () => {
-    useEditorStore
-      .getState()
-      .setRuntimeOverride('scene_node', 'node-1', 'opacity', 0.5);
-    // Capture state reference
-    const before = useEditorStore.getState().runtimeNodeOverrides;
-    useEditorStore
-      .getState()
-      .setRuntimeOverride('scene_node', 'node-1', 'opacity', 0.5);
-    // No state change means the reference is the same
-    expect(useEditorStore.getState().runtimeNodeOverrides).toBe(before);
-  });
-
-  test('clearRuntimeOverride removes a specific param', () => {
-    useEditorStore
-      .getState()
-      .setRuntimeOverride('scene_node', 'node-1', 'opacity', 0.8);
-    useEditorStore
-      .getState()
-      .setRuntimeOverride('scene_node', 'node-1', 'scale.x', 2);
-    useEditorStore
-      .getState()
-      .clearRuntimeOverride('scene_node', 'node-1', 'opacity');
-    const overrides = useEditorStore.getState().runtimeNodeOverrides['node-1'];
-    expect(overrides).not.toHaveProperty('opacity');
-    expect(overrides).toHaveProperty('scale.x', 2);
-  });
-
-  test('clearRuntimeOverride with no paramPath removes the whole target', () => {
-    useEditorStore
-      .getState()
-      .setRuntimeOverride('scene_node', 'node-1', 'opacity', 0.8);
-    useEditorStore.getState().clearRuntimeOverride('scene_node', 'node-1');
-    expect(
-      useEditorStore.getState().runtimeNodeOverrides['node-1']
-    ).toBeUndefined();
-  });
-
-  test('clearRuntimeOverride is a no-op for unknown target', () => {
-    useEditorStore.getState().clearRuntimeOverride('scene_node', 'nope');
-    expect(useEditorStore.getState().runtimeNodeOverrides).toEqual({});
-  });
-});
-
-// ── Override suppressions ─────────────────────────────────────────────────────
-
 describe('suppressOverride / clearOverrideSuppressions', () => {
   test('suppressOverride adds a key to the set', () => {
     useEditorStore
@@ -420,43 +355,6 @@ describe('suppressOverride / clearOverrideSuppressions', () => {
 });
 
 // ── Data channels ─────────────────────────────────────────────────────────────
-
-describe('mergeDataChannels / clearDataChannels', () => {
-  test('mergeDataChannels merges fields into a scope', () => {
-    useEditorStore
-      .getState()
-      .mergeDataChannels('global', { name: 'Alice', score: 42 });
-    expect(useEditorStore.getState().dataChannels['global']).toEqual({
-      name: 'Alice',
-      score: 42,
-    });
-    useEditorStore.getState().mergeDataChannels('global', { score: 99 });
-    expect(useEditorStore.getState().dataChannels['global']['score']).toBe(99);
-    expect(useEditorStore.getState().dataChannels['global']['name']).toBe(
-      'Alice'
-    );
-  });
-
-  test('clearDataChannels removes a single field from a scope', () => {
-    useEditorStore.getState().mergeDataChannels('global', { a: 1, b: 2 });
-    useEditorStore.getState().clearDataChannels('global', 'a');
-    expect(useEditorStore.getState().dataChannels['global']).toEqual({ b: 2 });
-  });
-
-  test('clearDataChannels with no field removes the whole scope', () => {
-    useEditorStore.getState().mergeDataChannels('global', { a: 1 });
-    useEditorStore.getState().clearDataChannels('global');
-    expect(useEditorStore.getState().dataChannels['global']).toBeUndefined();
-  });
-
-  test('clearDataChannels last field in scope removes scope key entirely', () => {
-    useEditorStore.getState().mergeDataChannels('s1', { only: true });
-    useEditorStore.getState().clearDataChannels('s1', 'only');
-    expect(useEditorStore.getState().dataChannels['s1']).toBeUndefined();
-  });
-});
-
-// ── Track clips ───────────────────────────────────────────────────────────────
 
 describe('track clip selection', () => {
   test('selectTrackClip sets selectedTrackClipId', () => {

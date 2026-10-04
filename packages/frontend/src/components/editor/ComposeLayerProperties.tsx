@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next';
 import {
   useEditorStore,
   type ComposeLayerRecord,
+  type OutputWindowStatus,
 } from '../../store/editorStore';
 import type { ComposeAnchorH, ComposeAnchorV } from '../../api/client';
 import { LAYER_KIND_ICON } from '../icons';
@@ -22,6 +23,7 @@ import {
 } from './ComposeView';
 import { useComposeLayers, useComposeScenes } from '../../mesh/compose';
 import { useSceneNodes } from '../../mesh/nodes';
+import { useServerStatus } from '../../mesh/runtime';
 
 // The old `numInput` / `NumberField` / `KfBtn` helpers were removed when the
 // numeric controls were unified — see ./numericInputs.tsx.
@@ -1194,7 +1196,9 @@ export function ComposeSceneProperties({
     commitLayerPath(scene.id, 'config', config);
   };
   const obsWindow = scene.config?.obsWindowCapture === true;
-  const runtime = useEditorStore((s) => s.outputWindowStatus);
+  const runtime = useServerStatus('output_window', 'main') as
+    | OutputWindowStatus
+    | undefined;
   const setObsWindow = (on: boolean) => {
     const config = { ...scene.config, obsWindowCapture: on };
     commitLayerPath(scene.id, 'config', config);

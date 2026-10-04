@@ -30,6 +30,7 @@ import {
   FeedErrorBoundary,
 } from '../../lib/feedTemplate';
 import { useComposeLayers } from '../../mesh/compose';
+import { useDataFields, useRuntimeOverrides } from '../../mesh/runtime';
 
 interface ComposeLayerStackProps {
   layers: ComposeLayerRecord[];
@@ -497,10 +498,11 @@ function LayerContent({
  *  (curated allow-list: inline formatting + emote-friendly img tags); otherwise
  *  it's rendered as plain text. */
 function TextLayer({ layer }: { layer: ComposeLayerRecord }) {
-  const overrideContent = useEditorStore((s) => {
-    const v = s.runtimeLayerOverrides[layer.id]?.['text.content'];
-    return typeof v === 'string' ? v : undefined;
-  });
+  const overrideValue = useRuntimeOverrides('compose_layer', layer.id)?.[
+    'text.content'
+  ];
+  const overrideContent =
+    typeof overrideValue === 'string' ? overrideValue : undefined;
   const cfg = layer.config as {
     content?: string;
     fontFamily?: string;
@@ -551,8 +553,8 @@ function TextLayer({ layer }: { layer: ComposeLayerRecord }) {
 function FeedLayer({ layer }: { layer: ComposeLayerRecord }) {
   const { t } = useTranslation('compose');
   const cfg = layer.config as { template?: string; css?: string };
-  const globalFields = useEditorStore((s) => s.dataChannels['']);
-  const ownFields = useEditorStore((s) => s.dataChannels[layer.id]);
+  const globalFields = useDataFields('');
+  const ownFields = useDataFields(layer.id);
   const channels = useMemo(
     () => ({ ...(globalFields ?? {}), ...(ownFields ?? {}) }),
     [globalFields, ownFields]
@@ -658,9 +660,7 @@ function LayerView({
   // Per-layer subscription to its track-clip override: this keeps re-renders
   // localized to layers being animated; idle layers don't re-render each rAF.
   const clipOverride = useEditorStore((s) => s.composeLayerOverrides[layer.id]);
-  const runtimeOverride = useEditorStore(
-    (s) => s.runtimeLayerOverrides[layer.id]
-  );
+  const runtimeOverride = useRuntimeOverrides('compose_layer', layer.id);
   // Child layers are nested INSIDE this layer's box, so their CSS left/top/
   // width/height (and % units) resolve against this layer's content box and
   // their rotation composes with ours — i.e. children are positioned, rotated

@@ -44,7 +44,10 @@ interface ConnectionsState {
   meshConnected: string[];
   /** Collab-scene links (sceneId → peer + author/mounted role) for the scene-
    *  graph chain badge. Keyed by sceneId. */
-  collabScenes: Record<string, { peerId: string; role: 'author' | 'mounted' }>;
+  collabScenes: Record<
+    string,
+    { peerId: string; role: 'author' | 'mounted'; projectId: string }
+  >;
   /** Bumped by WS events so the window refetches the peer list. */
   revision: number;
 
@@ -63,7 +66,12 @@ interface ConnectionsState {
   clearPeerSharing: (peerId: string) => void;
   setMeshConnected: (ids: string[]) => void;
   setCollabScenes: (
-    links: { sceneId: string; peerId: string; role: 'author' | 'mounted' }[]
+    links: {
+      sceneId: string;
+      peerId: string;
+      role: 'author' | 'mounted';
+      projectId: string;
+    }[]
   ) => void;
   bumpRevision: () => void;
 }
@@ -133,7 +141,10 @@ export const useConnectionsStore = create<ConnectionsState>((set) => ({
   setCollabScenes: (links) =>
     set({
       collabScenes: Object.fromEntries(
-        links.map((l) => [l.sceneId, { peerId: l.peerId, role: l.role }])
+        links.map((l) => [
+          l.sceneId,
+          { peerId: l.peerId, role: l.role, projectId: l.projectId },
+        ])
       ),
     }),
   bumpRevision: () => set((s) => ({ revision: s.revision + 1 })),

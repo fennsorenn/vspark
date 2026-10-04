@@ -161,6 +161,7 @@ import {
 } from '../../mesh/hooks';
 import { collectionOf } from '../../mesh/docs';
 import { sceneNodesNow, useSceneNodes } from '../../mesh/nodes';
+import { useDataFields, useRuntimeOverrides } from '../../mesh/runtime';
 
 type GizmoMode = 'translate' | 'rotate' | 'scale';
 
@@ -951,9 +952,7 @@ function getTransform(node: StageObject): Transform {
  *  wins). See dev-notes/plans/unified-sync-layer.md. */
 function useTransformWithOverride(node: StageObject): Transform {
   const clipOverride = useEditorStore((s) => s.nodeTransformOverrides[node.id]);
-  const runtimeOverride = useEditorStore(
-    (s) => s.runtimeNodeOverrides[node.id]
-  );
+  const runtimeOverride = useRuntimeOverrides('scene_node', node.id);
   const base = getTransform(node);
   if (!clipOverride && !runtimeOverride) return base;
   // Base + both override layers keyed by paramPath, folded low → high.
@@ -4899,10 +4898,8 @@ function makeInstancedParticleMaterial(
 /** Read the live text content for a text scene node, preferring the runtime
  *  override on `text.content` over the persisted `components.text.content`. */
 function useTextContent(node: StageObject): string {
-  const override = useEditorStore((s) => {
-    const v = s.runtimeNodeOverrides[node.id]?.['text.content'];
-    return typeof v === 'string' ? v : undefined;
-  });
+  const v = useRuntimeOverrides('scene_node', node.id)?.['text.content'];
+  const override = typeof v === 'string' ? v : undefined;
   if (override !== undefined) return override;
   const tc = (node.components?.text as { content?: string } | undefined)
     ?.content;
@@ -5196,8 +5193,8 @@ function FeedCanvasNode({
 
   // Fields visible to this node: GLOBAL ∪ its own id (own wins), mirroring the
   // 2D feed layer's consumer-by-identity model.
-  const globalFields = useEditorStore((s) => s.dataChannels['']);
-  const ownFields = useEditorStore((s) => s.dataChannels[node.id]);
+  const globalFields = useDataFields('');
+  const ownFields = useDataFields(node.id);
   const channels = useMemo(
     () => ({ ...(globalFields ?? {}), ...(ownFields ?? {}) }),
     [globalFields, ownFields]
