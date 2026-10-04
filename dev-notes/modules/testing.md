@@ -130,6 +130,20 @@ test('my flow', async ({ page, request }) => {
 
 The Playwright `webServer` block (in `e2e/playwright.config.ts`) boots a real backend + Vite frontend on ports `PW_BACKEND_PORT` / `PW_FRONTEND_PORT` (defaults 3031/5193) against a pid-stamped temp DB — override these env vars to run specs concurrently on different ports.
 
+### Two-server suite (multiplayer)
+
+`e2e/playwright.multiplayer.config.ts` boots a local rendezvous, two backends (A
+and B, separate databases and identities) and a frontend per backend, then runs
+`e2e/tests-mp/`: pairing, a collab scene shared by A and mounted by B, edits in
+both directions (REST read-back on the other server), and a rename in B's editor
+showing up in A's editor. It is the only place server↔server mesh traffic runs
+over real WebRTC. Separate from the main suite (five processes, fixed ports
+8799 / 3301–3302 / 5301–5302, so both can run at once):
+
+```bash
+pnpm --filter @vspark/e2e e2e:mp
+```
+
 ### Controlled inputs (PATCH round-trips)
 
 Checkbox / select values driven by server state must be clicked, not `.check()`-ed — `.check()` requires the checkbox to flip synchronously, but the state only updates after the PATCH round-trip. Use `.click()` and verify via REST poll.
