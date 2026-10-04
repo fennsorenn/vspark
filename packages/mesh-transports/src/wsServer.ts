@@ -18,6 +18,11 @@
  * anything not namespaced under THIS server's peer id is refused, and so is a
  * hello whose token `authenticate` doesn't accept. No mesh message is handled
  * before the welcome.
+ *
+ * One socket per participant: a hello for an id that is already connected
+ * replaces the older socket, which is closed with code 4409. That is a tab
+ * reconnecting while its old socket is not yet known to be dead; refusing the
+ * newcomer instead would lock the tab out until the old one timed out.
  */
 import { WebSocketServer, type WebSocket } from 'ws';
 import type { IncomingMessage } from 'http';
@@ -33,6 +38,8 @@ import {
 
 /** Close code for a refused hello (unknown or missing credentials). */
 export const UNAUTHENTICATED = 4401;
+/** Close code for a socket replaced by a newer one under the same id. */
+export const REPLACED = 4409;
 
 export interface WsServerTransportOptions {
   /** Accept or refuse a tab's credentials. Required: there is no
@@ -47,6 +54,8 @@ export class WsServerTransport implements MeshTransport {
   private handlers: TransportHandlers | null = null;
   /** Sockets that completed the handshake. */
   private readonly authed = new Set<WebSocket>();
+  /** The current socket of each connected participant. */
+  private readonly current = new Map<string, WebSocket>();
 
   constructor(
     private readonly serverPeerId: string,
@@ -97,6 +106,15 @@ export class WsServerTransport implements MeshTransport {
           return;
         }
         pid = requested;
+        const older = this.current.get(pid);
+        if (older) {
+          // Its link goes first, so the newcomer's link is the one that stays.
+          this.current.delete(pid);
+          this.authed.delete(older);
+          this.handlers?.peerDisconnected(pid);
+          older.close(REPLACED, 'replaced');
+        }
+        this.current.set(pid, ws);
         this.authed.add(ws);
         ws.send(JSON.stringify({ ...this.opts.welcome?.(), t: 'welcome' }));
         const link: PeerLink = {
@@ -108,12 +126,17 @@ export class WsServerTransport implements MeshTransport {
         return;
       }
       if (msg?.t === 'hello') return; // one handshake per socket
+      if (this.current.get(pid) !== ws) return; // replaced
       if (typeof msg?.t === 'string')
         this.handlers?.message(pid, msg as MeshMessage);
     });
     ws.on('close', () => {
       this.authed.delete(ws);
-      if (pid !== null) this.handlers?.peerDisconnected(pid);
+      // A replaced socket's link is already gone; only the current one's goes.
+      if (pid !== null && this.current.get(pid) === ws) {
+        this.current.delete(pid);
+        this.handlers?.peerDisconnected(pid);
+      }
     });
     ws.on('error', () => {
       /* 'close' follows */

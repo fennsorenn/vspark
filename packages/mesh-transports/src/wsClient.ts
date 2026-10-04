@@ -25,6 +25,9 @@ import {
 
 /** Close code the backend uses for a refused hello. */
 const UNAUTHENTICATED = 4401;
+/** Close code for a socket the backend replaced with a newer one under the
+ *  same participant id: someone else holds this id now, so don't fight it. */
+const REPLACED = 4409;
 
 export interface WsBackendTransportOptions {
   /** e.g. `ws://localhost:3001/mesh` */
@@ -104,11 +107,12 @@ export class WsBackendTransport implements MeshTransport {
         this.handlers?.message(this.opts.serverPeerId, msg);
     };
     ws.onclose = (e) => {
+      if (ws !== this.ws) return; // a socket we already replaced
       if (this.announced) {
         this.announced = false;
         this.handlers?.peerDisconnected(this.opts.serverPeerId);
       }
-      if (this.stopped) return;
+      if (this.stopped || e.code === REPLACED) return;
       const retry = () =>
         setTimeout(
           () => void this.connect(),

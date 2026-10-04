@@ -210,3 +210,48 @@ describe('ws transport info', () => {
     ws.close();
   });
 });
+
+describe('ws transport: one socket per participant', () => {
+  it('a newer socket under the same id replaces the older one, which stays away', async () => {
+    const participantId = makeClientParticipantId(SERVER_ID, 'twin');
+    const sub = {
+      entityRtype: 'node',
+      entityId: '*',
+      includeDescendants: false,
+      pathPrefix: '',
+    };
+    const open = () => {
+      const peer = createMeshPeer({
+        identity: { peerId: participantId },
+        transports: [
+          new WsBackendTransport({
+            url: `ws://127.0.0.1:${port}/mesh`,
+            participantId,
+            serverPeerId: SERVER_ID,
+            token: () => GOOD_TOKEN,
+            reconnectDelayMs: 10,
+          }),
+        ],
+      });
+      return { peer, nodes: peer.collection<Node>('node') };
+    };
+    const older = open();
+    await older.peer.subscribe(sub);
+    const newer = open();
+    await newer.peer.subscribe(sub);
+
+    // The older one is told it was replaced and does not reconnect.
+    await waitFor(() => older.peer.status().peers.length === 0);
+    await new Promise((r) => setTimeout(r, 100));
+    expect(older.peer.status().peers).toHaveLength(0);
+
+    // The newer one keeps its link: its writes are acked.
+    serverNodes.create({ id: 'tw', name: 'before' });
+    await waitFor(() => newer.nodes.get('tw') !== undefined);
+    expect((await newer.nodes.update('tw', { name: 'after' }).ack).status).toBe(
+      'acked'
+    );
+    older.peer.close();
+    newer.peer.close();
+  });
+});
