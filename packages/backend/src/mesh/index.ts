@@ -95,6 +95,19 @@ interface RtypeBinding {
   onRemoved?: (id: string) => void;
 }
 
+/** camera_view layers show a camera by id — a reference, not containment, so
+ *  removeTree can't see them. They go with their camera, through their
+ *  collection while the rows still exist (each gets its tombstone; the
+ *  database would otherwise cascade-delete the row and leave the document). */
+function removeCameraViewsOf(nodeId: string): void {
+  const layers = COLLECTIONS.get('compose_layer');
+  if (!layers) return;
+  for (const { id } of getDb()
+    .prepare('SELECT id FROM compose_layers WHERE camera_node_id = ?')
+    .all(nodeId) as { id: string }[])
+    if (layers.get(id)) layers.remove(id);
+}
+
 /** Runtime overrides target a doc by id and outlive its row, so they go
  *  with it. Only scene nodes and compose layers can carry overrides
  *  (ParamTargetKind). */
@@ -138,7 +151,10 @@ const BINDINGS: RtypeBinding[] = [
   {
     rtype: 'scene_node',
     clients: TAB_AUTHORED,
-    onRemoving: clearOverridesOf('scene_node'),
+    onRemoving: (id) => {
+      clearOverridesOf('scene_node')(id);
+      removeCameraViewsOf(id);
+    },
     // A scene root's properties are its runtime settings: the running bus
     // re-reads them whoever wrote them.
     onSaved: (d) => {

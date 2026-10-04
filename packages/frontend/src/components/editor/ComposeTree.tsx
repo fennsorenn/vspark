@@ -12,6 +12,7 @@ import {
   commitLayerDeleteKeepChildren,
   commitLayerPatch,
   commitLayerPath,
+  commitComposeSceneCreate,
 } from '../../mesh/layerWrites';
 import { commitLogicCreate } from '../../mesh/logicWrites';
 import type { ComposeLayerKind } from '../../api/client';
@@ -1033,7 +1034,6 @@ export function ComposeTree() {
   const prompt = usePrompt();
   const { projectId } = useParams<{ projectId: string }>();
   const composeScenes = useEditorStore((s) => s.composeScenes);
-  const addComposeScene = useEditorStore((s) => s.addComposeScene);
   const selectComposeScene = useEditorStore((s) => s.selectComposeScene);
 
   const handleNewComposeScene = async () => {
@@ -1045,11 +1045,7 @@ export function ComposeTree() {
     });
     if (!name?.trim()) return;
     try {
-      const created = await api.createComposeScene(projectId, {
-        name: name.trim(),
-      });
-      addComposeScene(created);
-      selectComposeScene(created.id);
+      selectComposeScene(await commitComposeSceneCreate(name.trim()));
     } catch (e) {
       alert(e instanceof Error ? e.message : t('tree.errors.createFailed'));
     }

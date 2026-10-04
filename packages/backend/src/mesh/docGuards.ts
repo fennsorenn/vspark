@@ -22,6 +22,27 @@ export class SceneNodeInvalid extends Error {
 }
 
 /** The project a scene belongs to, or undefined when it isn't a scene. */
+/** A project of OURS (not one we hold for a collab peer, migration 040). */
+function ownProject(projectId: unknown): boolean {
+  return (
+    typeof projectId === 'string' &&
+    !!getDb()
+      .prepare('SELECT 1 FROM projects WHERE id = ? AND owner_peer_id IS NULL')
+      .get(projectId)
+  );
+}
+
+/** A scene or compose root a tab writes whole must belong to a project of ours
+ *  — or be a collab scene we already hold (its root carries the author's
+ *  project). Without this a tab could plant a root in any project id. */
+function assertClientRoot(d: Record<string, unknown>, what: string): void {
+  if (ownProject(d.projectId)) return;
+  const held = getDb()
+    .prepare('SELECT 1 FROM collab_scenes WHERE scene_id = ?')
+    .get(d.id as string);
+  if (!held) throw new Error(`${what} must belong to a project on this server`);
+}
+
 export function sceneProjectId(sceneId: string): string | undefined {
   const row = getDb()
     .prepare(
@@ -100,8 +121,12 @@ export function guardClientSceneNode(
 ): Record<string, unknown> {
   const rootId =
     typeof d.rootSceneNodeId === 'string' ? d.rootSceneNodeId : undefined;
-  // A scene row itself (kind 'scene') is its own root and isn't client-created.
-  if (!rootId || rootId === d.id) return d;
+  // A scene row itself (kind 'scene') is its own root.
+  if (!rootId || rootId === d.id) {
+    if (d.kind !== 'scene') throw new Error('only a scene can be its own root');
+    assertClientRoot(d, 'a scene');
+    return d;
+  }
   const projectId = sceneProjectId(rootId);
   if (!projectId) return d; // not ours — a collab projection
 
@@ -127,7 +152,12 @@ export function guardClientComposeLayer(
   const rootId =
     typeof d.rootComposeSceneId === 'string' ? d.rootComposeSceneId : undefined;
   // A compose_scene row is its own root and carries no parent scene.
-  if (!rootId || rootId === d.id) return d;
+  if (!rootId || rootId === d.id) {
+    if (d.kind !== 'compose_scene')
+      throw new Error('only a compose scene can be its own root');
+    assertClientRoot(d, 'a compose scene');
+    return d;
+  }
   const row = getDb()
     .prepare('SELECT project_id FROM compose_layers WHERE id = ?')
     .get(rootId) as { project_id: string } | undefined;

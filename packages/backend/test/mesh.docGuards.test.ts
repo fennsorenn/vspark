@@ -150,9 +150,38 @@ describe('scene-node guards', () => {
       expect(guardClientSceneNode(doc)).toBe(doc);
     });
 
-    it('leaves a scene row itself alone (its own root, never client-created)', () => {
-      const doc = { id: 'scene-1', rootSceneNodeId: 'scene-1', kind: 'scene' };
+    it('accepts a client-created scene root in a project of ours', async () => {
+      const { projectId } = await seed();
+      const doc = {
+        id: 'scene-new',
+        rootSceneNodeId: 'scene-new',
+        kind: 'scene',
+        projectId,
+      };
       expect(guardClientSceneNode(doc)).toBe(doc);
+    });
+
+    it('refuses a scene root planted in a project that is not ours', () => {
+      expect(() =>
+        guardClientSceneNode({
+          id: 'scene-x',
+          rootSceneNodeId: 'scene-x',
+          kind: 'scene',
+          projectId: 'not-a-project-here',
+        })
+      ).toThrow(/project on this server/);
+    });
+
+    it('refuses a non-scene that claims to be its own root', async () => {
+      const { projectId } = await seed();
+      expect(() =>
+        guardClientSceneNode({
+          id: 'n',
+          rootSceneNodeId: 'n',
+          kind: 'group',
+          projectId,
+        })
+      ).toThrow(/only a scene/);
     });
   });
 

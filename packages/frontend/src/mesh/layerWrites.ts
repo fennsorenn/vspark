@@ -241,3 +241,47 @@ export async function commitPromoteLayerToNode(
   await commitLayerDelete(layerId);
   return created;
 }
+
+/** Create an empty compose scene (a `kind: 'compose_scene'` root layer) in the
+ *  open project, after the last one. Resolves its id. */
+export async function commitComposeSceneCreate(name: string): Promise<string> {
+  const state = useEditorStore.getState();
+  const projectId = state.projectId ?? '';
+  const col = getMeshHandles()?.collections.compose_layer;
+  if (col?.canWrite()) {
+    const keys = state.composeScenes
+      .map((c) => c.orderKey)
+      .filter((k): k is string => typeof k === 'string')
+      .sort();
+    const last = keys[keys.length - 1];
+    const id = crypto.randomUUID();
+    const outcome = await col.set(id, '', {
+      id,
+      projectId,
+      rootComposeSceneId: null,
+      cameraNodeId: null,
+      parentId: null,
+      name,
+      kind: 'compose_scene',
+      assetId: null,
+      config: {},
+      x: 0,
+      y: 0,
+      width: 1920,
+      height: 1080,
+      rotation: 0,
+      anchorH: 'left',
+      anchorV: 'top',
+      orderKey: keyBetween(last ?? null, null),
+      visible: true,
+    }).ack;
+    if (outcome.status === 'rejected') {
+      reportRejected(actionLabel('compose_layer'), outcome.reason);
+      throw new Error(outcome.reason ?? 'compose scene create refused');
+    }
+    return id;
+  }
+  const created = await api.createComposeScene(projectId, { name });
+  useEditorStore.getState().addComposeScene(created);
+  return created.id;
+}

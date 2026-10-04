@@ -20,7 +20,11 @@ import { seedProjectScene, seedNode } from '../fixtures/seed';
  * Assertions read back through REST, so a pass means the value reached SQLite.
  */
 
-async function open(page: Page, projectId: string, name: string): Promise<void> {
+async function open(
+  page: Page,
+  projectId: string,
+  name: string
+): Promise<void> {
   await page.goto(`/editor/${projectId}`);
   await expect(page.getByText(name, { exact: true })).toBeVisible({
     timeout: 30_000,
@@ -76,7 +80,9 @@ test('deleting a node takes its behaviors, both tabs follow, one undo restores a
   await expect(nodeRowIn(tabA, 'DoomedAvatar')).toHaveCount(0);
   await expect(nodeRowIn(tabB, 'DoomedAvatar')).toHaveCount(0);
   await expect
-    .poll(async () => await nodeRow(request, sceneId, nodeId), { timeout: 15_000 })
+    .poll(async () => await nodeRow(request, sceneId, nodeId), {
+      timeout: 15_000,
+    })
     .toBeUndefined();
   await expect
     .poll(async () => (await behaviorsOf(request, nodeId)).length, {
@@ -86,8 +92,12 @@ test('deleting a node takes its behaviors, both tabs follow, one undo restores a
 
   // One undo in A brings back the node AND its behavior, everywhere.
   await tabA.locator('.vs-topbar-undo').click();
-  await expect(nodeRowIn(tabA, 'DoomedAvatar')).toHaveCount(1, { timeout: 15_000 });
-  await expect(nodeRowIn(tabB, 'DoomedAvatar')).toHaveCount(1, { timeout: 15_000 });
+  await expect(nodeRowIn(tabA, 'DoomedAvatar')).toHaveCount(1, {
+    timeout: 15_000,
+  });
+  await expect(nodeRowIn(tabB, 'DoomedAvatar')).toHaveCount(1, {
+    timeout: 15_000,
+  });
   await expect
     .poll(async () => (await behaviorsOf(request, nodeId)).map((b) => b.id), {
       timeout: 15_000,
@@ -159,6 +169,49 @@ test('a node rename in one tab reaches the other through the mesh', async ({
       timeout: 15_000,
     })
     .toBe('AfterName');
+
+  await context.close();
+});
+
+test('a scene created in one tab appears in the other; deleting it undoes as one step', async ({
+  browser,
+  request,
+}) => {
+  const { projectId } = await seedProjectScene(request);
+  const context = await browser.newContext();
+  const tabA = await context.newPage();
+  const tabB = await context.newPage();
+  for (const tab of [tabA, tabB]) {
+    await tab.goto(`/editor/${projectId}`);
+    await expect(tab.locator('.vs-add-scene')).toBeVisible({ timeout: 30_000 });
+  }
+
+  const sceneName = `Shared stage ${Date.now()}`;
+  await tabA.locator('.vs-add-scene').click();
+  const dialog = tabA.locator('[style*="position: fixed"][style*="inset: 0"]');
+  await dialog.getByRole('textbox').fill(sceneName);
+  await dialog.getByRole('button', { name: 'Create', exact: true }).click();
+
+  const rowIn = (tab: Page) =>
+    tab.locator('.vs-scene-row', { hasText: sceneName });
+  await expect(rowIn(tabA)).toHaveCount(1, { timeout: 15_000 });
+  await expect(rowIn(tabB)).toHaveCount(1, { timeout: 15_000 });
+  const persisted = async () => {
+    const res = await request.get(`/api/projects/${projectId}/scenes`);
+    const body = (await res.json()) as { data: { scenes: { name: string }[] } };
+    return body.data.scenes.some((s) => s.name === sceneName);
+  };
+  await expect.poll(persisted, { timeout: 15_000 }).toBe(true);
+
+  await rowIn(tabA).hover();
+  await rowIn(tabA).locator('.vs-scene-delete').click();
+  await tabA.getByRole('button', { name: 'Delete', exact: true }).click();
+  await expect(rowIn(tabB)).toHaveCount(0, { timeout: 15_000 });
+  await expect.poll(persisted, { timeout: 15_000 }).toBe(false);
+
+  await tabA.locator('.vs-topbar-undo').click();
+  await expect(rowIn(tabB)).toHaveCount(1, { timeout: 15_000 });
+  await expect.poll(persisted, { timeout: 15_000 }).toBe(true);
 
   await context.close();
 });

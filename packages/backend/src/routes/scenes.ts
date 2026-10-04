@@ -452,22 +452,12 @@ router.delete('/scenes/:sceneId', (req, res) => {
   // 018 migration rebuild), so delete explicitly with enforcement off.
   db.exec('PRAGMA foreign_keys = OFF');
   try {
-    // camera_view compose layers that target this scene's cameras: a
-    // reference, not containment, so the tree removal below can't see them.
-    // Removed through their collection while the rows still exist, so each
-    // gets its tombstone (the persist tap skips rows that are already gone).
-    const layerCol = getMeshCollection('compose_layer');
-    for (const nid of nodeIds)
-      for (const { id } of db
-        .prepare('SELECT id FROM compose_layers WHERE camera_node_id = ?')
-        .all(nid) as { id: string }[])
-        layerCol?.remove(id);
-
-    // Everything else hangs off the scene root in the containment tree —
-    // nodes, behaviors, effects, clips, graphs — and goes as one removal,
-    // children first, each document with its own tombstone. FK enforcement is
-    // off, so a parent row's delete can't cascade a dependent out from under
-    // its own remove.
+    // Everything hangs off the scene root in the containment tree — nodes,
+    // behaviors, effects, clips, graphs — and goes as one removal, children
+    // first, each document with its own tombstone; camera_view layers that
+    // show one of the scene's cameras go with it (scene_node binding,
+    // onRemoving). FK enforcement is off, so a parent row's delete can't
+    // cascade a dependent out from under its own remove.
     getMeshPeer()?.removeTree(sceneId);
 
     // Safety net for a bare context with no mesh store: drop the rows the

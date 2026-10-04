@@ -27,6 +27,8 @@ import {
   commitNodeDelete,
   commitNodeDeleteKeepChildren,
   commitNodePatch,
+  commitSceneCreate,
+  commitSceneDelete,
 } from '../../mesh/writes';
 import { ComposeTree } from './ComposeTree';
 import { ClipsSection } from './ClipsSection';
@@ -2254,7 +2256,6 @@ export function SceneGraph() {
   const dockTab = useEditorStore((s) => s.leftTab);
   const setDockTab = useEditorStore((s) => s.setLeftTab);
   const setActiveScene = useEditorStore((s) => s.setActiveScene);
-  const setScenes = useEditorStore((s) => s.setScenes);
   const flashBottomTab = useEditorStore((s) => s.flashBottomTab);
   const requestFocusName = useEditorStore((s) => s.requestFocusName);
   const clipboardPayload = useEditorStore((s) => s.clipboardPayload);
@@ -2347,13 +2348,7 @@ export function SceneGraph() {
     });
     if (!name?.trim()) return;
     try {
-      const scene = await api.createScene(projectId, name.trim());
-      // Reload the full project so the auto-populated nodes (camera, lights,
-      // compose scene) land in the store alongside the new scene row.
-      const data = await api.getScenes(projectId);
-      setScenes(data.scenes);
-      useEditorStore.getState().setNodes(data.nodes);
-      setActiveScene(scene.id);
+      setActiveScene(await commitSceneCreate(name.trim()));
     } catch (e: unknown) {
       alert(e instanceof Error ? e.message : t('scenes.failCreate'));
     }
@@ -2369,8 +2364,7 @@ export function SceneGraph() {
     )
       return;
     try {
-      await api.deleteScene(scene.id);
-      useEditorStore.getState().removeScene(scene.id);
+      if (!(await commitSceneDelete(scene.id))) alert(t('scenes.failDelete'));
     } catch (e: unknown) {
       alert(e instanceof Error ? e.message : t('scenes.failDelete'));
     }

@@ -482,3 +482,72 @@ export function commitNodeCreate(
       }) as Promise<StageObject>
   );
 }
+
+// --- scenes -------------------------------------------------------------------
+
+/** Create an empty scene (a `kind: 'scene'` root node) in the open project.
+ *  Resolves the new scene's id. The feeder puts it into the scenes slice. */
+export async function commitSceneCreate(name: string): Promise<string> {
+  const projectId = useEditorStore.getState().projectId ?? '';
+  const col = getMeshHandles()?.collections.scene_node;
+  if (col?.canWrite()) {
+    const id = crypto.randomUUID();
+    const outcome = await col.set(id, '', {
+      id,
+      rootSceneNodeId: id,
+      projectId,
+      parentId: null,
+      boneAttachment: null,
+      name,
+      kind: 'scene',
+      filePath: null,
+      components: {},
+      properties: {},
+      hidden: false,
+    }).ack;
+    if (outcome.status === 'rejected') {
+      reportRejected(actionLabel('scene_node'), outcome.reason);
+      throw new Error(outcome.reason ?? 'scene create refused');
+    }
+    return id;
+  }
+  const scene = await api.createScene(projectId, name);
+  const data = await api.getScenes(projectId);
+  useEditorStore.getState().setScenes(data.scenes);
+  useEditorStore.getState().setNodes(data.nodes);
+  return scene.id;
+}
+
+/** Delete a scene as ONE undo action: everything in its containment tree,
+ *  plus the compose camera views that show one of its cameras (a reference,
+ *  not containment). */
+export async function commitSceneDelete(sceneId: string): Promise<boolean> {
+  const handles = getMeshHandles();
+  const nodesCol = handles?.collections.scene_node;
+  const layersCol = handles?.collections.compose_layer;
+  if (handles && nodesCol?.canWrite() && nodesCol.get(sceneId)) {
+    const inScene = new Set(
+      useEditorStore
+        .getState()
+        .nodes.filter((n) => n.rootSceneNodeId === sceneId)
+        .map((n) => n.id)
+    );
+    const views = useEditorStore
+      .getState()
+      .composeLayers.filter(
+        (l) => l.cameraNodeId && inScene.has(l.cameraNodeId)
+      );
+    const outcomes = await Promise.all(
+      meshBatch(() => [
+        ...views
+          .filter((l) => layersCol?.get(l.id))
+          .map((l) => layersCol!.remove(l.id)),
+        ...nodesCol.removeTree(sceneId),
+      ]).map((h) => h.ack)
+    );
+    return outcomes.every((o) => o.status !== 'rejected');
+  }
+  await api.deleteScene(sceneId);
+  useEditorStore.getState().removeScene(sceneId);
+  return true;
+}
