@@ -271,8 +271,10 @@ review:
 - **WebRtcTransport**: the smaller id dials, the larger answers; a dialer
   redials after 2s while the peer is still wanted. Two data channels per link
   (`mesh` reliable, `mesh-lossy` unordered without retransmits for
-  `sendLossy`). No ICE servers are configured, same as the legacy client mesh:
-  host candidates only.
+  `sendLossy`). ICE servers (STUN/TURN with short-lived credentials) come
+  from the tab's server, which already fetched them from the rendezvous for
+  its own links: in the `/mesh` welcome and pushed on each 5-minute refresh
+  (a00a5da).
 - **Path reporting**: `MeshStatus.subscriptions` (sources per subscription) and
   `MeshStatus.direct` (on a server: whom each of its tabs gets data from
   first-hand), the latter exposed as `GET /api/mesh/status` for the two-server

@@ -686,8 +686,15 @@ server, or (on a tab) its upstream.
 dials, the larger only answers; a dialer whose link fails redials after
 `redialMs` (2s) while the peer is still wanted. Two data channels per link:
 `mesh` (reliable, ordered) and `mesh-lossy` (unordered, no retransmits) for
-`sendLossy`. No ICE servers are configured by the app (host candidates only,
-same as the legacy client mesh); `iceServers` is an option. ICE arriving before
+`sendLossy`. ICE servers come from the tab's own server: the backend fetches
+STUN/TURN (short-lived TURN credentials, 10 min) from the rendezvous every five
+minutes and when the rendezvous becomes ready (`multiplayer/manager.ts`
+`ensureIce`), and hands them to its authenticated tabs in the `/mesh` welcome
+and as `{ t:'info', iceServers }` frames (`WsServerTransport.push`,
+`WsBackendTransport` `onInfo`, `setTabIceServers` in `backend/src/mesh/index.ts`).
+`WebRtcTransport` reads `iceServers` per connection (it may be a function), so a
+new link always gets current credentials; links already up keep theirs. The
+legacy client mesh still gets none. ICE arriving before
 the remote description is buffered. Tests:
 `packages/mesh-transports/test/webrtc.test.ts` (fake `RTCPeerConnection`) and
 `packages/mesh/test/roster.test.ts`.
