@@ -484,7 +484,7 @@ export async function createLayer(
       config,
       ...sizeDefaults,
     });
-    // The feeder mirrors the replica into the store; just select it.
+    // The created layer is already in the replica; just select it.
     useEditorStore.getState().selectComposeLayer(created.id);
   } catch (e) {
     alert(e instanceof Error ? e.message : 'Failed to add layer');

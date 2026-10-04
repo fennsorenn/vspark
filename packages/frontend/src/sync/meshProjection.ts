@@ -1,5 +1,5 @@
 /**
- * Mesh-driven feeder for shared-object projections (§9 step D).
+ * Mesh-driven shared-object projections (§9 step D).
  *
  * The legacy `_share_snapshot` / `_share_update` document relay is gone: a
  * placed object's docs ride our server's one-way mesh subscription into its
@@ -17,7 +17,7 @@
  *     map and re-projects, so models load from the local cache.
  *
  * Unshare/disconnect teardown stays where it was (useWsSync handlers call
- * removeProjection); this feeder only ever projects the active set.
+ * removeProjection); this module only ever projects the active set.
  */
 import { initMeshPeer, getMeshHandles } from '../mesh/peer';
 import { useEditorStore } from '../store/editorStore';

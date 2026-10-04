@@ -4,7 +4,7 @@
  * Logic was the only document type with no sync at all: the panels re-polled
  * REST every three seconds and the graph canvas PUT the whole descriptor on a
  * debounce. Two people editing one graph overwrote each other, and neither had
- * any way to notice. Reads come from the feeder now; writes come from here.
+ * any way to notice. Reads come from the replica now (mesh/hooks); writes come from here.
  *
  * The descriptor IS the program, so a committed write restarts the running
  * instance — handled in the backend's onCommitted tap (logic/lifecycle.ts), the

@@ -162,8 +162,8 @@ export function ClipsSection({
           targetId: isOwner ? owner.id : e.targetId,
         });
       }
-      // No reload: every write above landed in the replica, and the feeder
-      // mirrors it into the store. (The old REST path needed one, because the
+      // No reload: every write above landed in the replica, which the
+      // timeline reads directly. (The old REST path needed one, because the
       // lane and keyframe calls did not write through the store at all.)
       selectTrackClip(created.id);
       setBottomTab('clips');

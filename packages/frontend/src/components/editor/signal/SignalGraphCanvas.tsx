@@ -417,7 +417,7 @@ function SignalGraphCanvasInner({ graphId, kindMeta }: Props) {
     return () => clearTimeout(t);
   }, [rejectMsg]);
 
-  // A logic graph is READ FROM THE STORE, which the mesh feeder keeps current:
+  // A logic graph is READ FROM THE REPLICA, which the mesh keeps current:
   // another tab's edit — a moved node, a new edge — lands here without a
   // refetch, which is the point of keying the descriptor's elements.
   const storeRecord = useLogicRecord(graphId);
@@ -571,7 +571,7 @@ function SignalGraphCanvasInner({ graphId, kindMeta }: Props) {
   //
   // There is none here any more. Every edit below commits the ELEMENT it
   // changes (`descriptor.nodes.<id>`, `descriptor.edges.<key>`) through
-  // mesh/logicWrites, and the feeder brings it back through the store. The old
+  // mesh/logicWrites, and the replica hands it straight back. The old
   // shape — mutate a local copy, debounce a PUT of the whole descriptor — is
   // what made two people editing one graph overwrite each other, and it needed
   // a flush-on-unmount to avoid losing the last edit.

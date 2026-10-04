@@ -4,8 +4,8 @@
  *
  * INERT. `bindResource` has no callers anywhere in the repo, so BINDINGS is
  * always empty and `applyRemote` returns immediately — every `sync` envelope
- * useWsSync routes here is dropped. Documents reach the store from
- * the tab's mesh replica instead (sync/meshStoreFeeder.ts); the server still
+ * useWsSync routes here is dropped. Documents are read from the tab's mesh
+ * replica instead (src/mesh/); the server still
  * emits envelopes for other consumers, which is the only reason the dispatcher
  * is still called. Kept as a landing pad in case a binding ever returns.
  *

@@ -1,15 +1,16 @@
 /**
- * The tab's mesh peer — parallel-run scaffold.
+ * The tab's mesh peer: its replica IS the app's document store.
  *
- * Mirrors the backend's document collections into an in-tab replica over the
- * /mesh WebSocket. Nothing in the UI reads from it yet; it exists so features
- * can migrate onto mesh bindings (`@vspark/mesh-react`) one by one while the
- * legacy REST + /ws paths keep working. Plan: dev-notes/plans/mesh-sync-refactor.md §8.
+ * Opens one collection per document type the tab holds (`TAB_MODELS`, declared
+ * once in `@vspark/shared/models`) and subscribes to each over the /mesh
+ * WebSocket. Components read through the typed hooks in this directory and
+ * write through the `*Writes` modules; nothing mirrors the replica elsewhere.
  *
- * Lifecycle: `initMeshPeer()` once per tab (idempotent, kicked off from the
- * editor/viewer pages). The participant id is `${serverPeerId}#${tabUuid}` and
- * stable across reloads (sessionStorage), so HLC origins and grants stay
- * consistent per tab. Subscriptions re-arm automatically after reconnects.
+ * Lifecycle: `initMeshPeer()` once per tab (idempotent), awaited in main.tsx
+ * before the first render, so every hook finds its collection open. The
+ * participant id is `${serverPeerId}#${tabUuid}` and stable across reloads
+ * (sessionStorage), so HLC origins and grants stay consistent per tab.
+ * Subscriptions re-arm automatically after reconnects.
  */
 import {
   createMeshPeer,
@@ -67,17 +68,6 @@ export function getMeshHandles(): MeshHandles | null {
 }
 
 let _handles: MeshHandles | null = null;
-
-const _readyObservers = new Set<(h: MeshHandles) => void>();
-
-/** Called once the tab's peer and its collections exist. Fires immediately if
- *  they already do, so a late subscriber is not left waiting for an event that
- *  has already happened. Returns an unsubscribe. */
-export function onMeshReady(cb: (h: MeshHandles) => void): () => void {
-  if (_handles) cb(_handles);
-  else _readyObservers.add(cb);
-  return () => _readyObservers.delete(cb);
-}
 
 // --- undo/redo (tab peer) ----------------------------------------------------
 //
@@ -253,47 +243,15 @@ async function doInit(): Promise<MeshHandles> {
   // granted it — our server, and over a direct link the tabs of a server that
   // shared with ours — and renews it after a reconnect.
   for (const rtype of RTYPES)
-    void peer
-      .subscribe({
-        entityRtype: rtype,
-        entityId: '*',
-        includeDescendants: false,
-        pathPrefix: '',
-      })
-      .then(() => {
-        for (const cb of _snapshotObservers) cb(rtype);
-      });
+    void peer.subscribe({
+      entityRtype: rtype,
+      entityId: '*',
+      includeDescendants: false,
+      pathPrefix: '',
+    });
 
+  // The app renders only once this resolves (main.tsx), so everything reads a
+  // peer that exists.
   _handles = { peer, serverPeerId, collections };
-  // The peer arrives asynchronously, so anything holding a reference to a
-  // collection has to be told when there finally is one. Without this a
-  // component that reads the replica renders empty forever: it mounts before
-  // `doInit` resolves and nothing re-renders it afterwards.
-  for (const cb of _readyObservers) cb(_handles);
   return _handles;
-}
-
-/** Drop rows the mesh has already seen removed.
- *
- *  The editor still loads from the REST scene bundle (W6 of
- *  plans/mesh-sole-channel.md replaces that with the subscription snapshot).
- *  A bundle fetched before another tab's delete can arrive AFTER the delete
- *  reached this tab through the mesh — and would put the deleted document back
- *  into the store. The replica's tombstone is the newer truth. */
-export function withoutRemoved<T extends { id: string }>(
-  rtype: string,
-  rows: T[]
-): T[] {
-  const col = _handles?.collections[rtype];
-  return col ? rows.filter((r) => !col.replica.isTombstoned(r.id)) : rows;
-}
-
-const _snapshotObservers = new Set<(rtype: string) => void>();
-
-/** Be told when the first snapshot of an rtype has been applied: from then on
- *  the replica is the authority for that collection, and anything the store
- *  got elsewhere (the REST bundle) that the replica doesn't hold is stale. */
-export function onSnapshot(cb: (rtype: string) => void): () => void {
-  _snapshotObservers.add(cb);
-  return () => _snapshotObservers.delete(cb);
 }

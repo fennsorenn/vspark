@@ -19,8 +19,8 @@ import { setIkTargets } from '../ikTargetStore';
 import type { IkTargetFrame, AnimationBlendMode } from '@vspark/shared/types';
 import { SYNC_MESSAGE_KIND, type SyncEnvelope } from '@vspark/shared/sync';
 // Legacy 'sync'-envelope bindings are fully retired (§11): every document
-// rtype the tab subscribes to (RTYPES in mesh/peer.ts) feeds the store from
-// the tab's mesh replica (sync/meshStoreFeeder.ts).
+// rtype the tab subscribes to (RTYPES in mesh/peer.ts) is read straight from
+// the tab's mesh replica (src/mesh/).
 // The envelope handler below stays as a harmless no-op dispatcher in case a
 // binding ever returns; the server still emits envelopes for other consumers.
 import { applyRemote } from '../sync/registry';

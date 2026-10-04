@@ -127,10 +127,10 @@ function ensureLoop() {
 
 /** Whether a tween is currently animating this layer.
  *
- *  The mesh feeder uses this to decide how a COMMITTED value should land: mid
+ *  The commit observer below uses this to decide how a COMMITTED value lands: mid
  *  gesture it retargets the running tween so the layer glides into its final
  *  position, but a value arriving cold (page load, a remote panel edit) applies
- *  immediately rather than animating in from wherever the store happened to be. */
+ *  immediately rather than animating in from wherever the live slice happened to be. */
 export function hasLayerTween(id: string): boolean {
   for (const t of scalarTweens.values())
     if (t.scope === 'layer' && t.id === id) return true;
