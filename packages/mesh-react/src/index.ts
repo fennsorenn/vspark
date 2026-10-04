@@ -24,6 +24,7 @@ import {
 } from 'react';
 import {
   getPath,
+  type AppliedChange,
   type Collection,
   type MeshPeer,
   type MeshStatus,
@@ -38,11 +39,16 @@ function selKey(sel: Selector): string {
 }
 
 /** Core helper: subscribe to a selector, recompute a derived value on change,
- *  serve it as a stable snapshot. `compute` must be pure over the collection. */
+ *  serve it as a stable snapshot. `compute` must be pure over the collection.
+ *
+ *  `skip` lets a hook ignore changes its value does not depend on (e.g. a
+ *  preview the app shows some other way), so a high-rate stream of them does
+ *  not re-render every reader. Read once per subscription: keep it stable. */
 export function useMeshSelector<T extends object, R>(
   col: Collection<T>,
   sel: Selector,
-  compute: (col: Collection<T>) => R
+  compute: (col: Collection<T>) => R,
+  opts?: { skip?: (change: AppliedChange<T>) => boolean }
 ): R {
   const state = useRef<{ key: string; value: R } | null>(null);
   const key = `${col.rtype}|${selKey(sel)}`;
@@ -50,7 +56,8 @@ export function useMeshSelector<T extends object, R>(
     state.current = { key, value: compute(col) };
   const subscribe = useCallback(
     (onChange: () => void) =>
-      col.observe(sel, () => {
+      col.observe(sel, (change) => {
+        if (opts?.skip?.(change)) return;
         state.current = { key, value: compute(col) };
         onChange();
       }),

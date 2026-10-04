@@ -76,6 +76,9 @@ export function previewNodeTransform(
   if (projected(nodeId)) return;
   const col = collectionOf(RTYPE);
   if (!col.get(nodeId)) return;
+  // This tab shows its own gesture through `liveNodes` too: node lists skip
+  // transform previews (mesh/nodes.ts). The commit clears it.
+  useEditorStore.getState().setLiveNode(nodeId, transform);
   for (const [f, v] of Object.entries(transform))
     col.set(nodeId, `components.transform.${f}`, v, { channel: 'preview' });
 }

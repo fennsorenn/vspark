@@ -160,7 +160,11 @@ import {
   useNodeSchedule,
 } from '../../mesh/hooks';
 import { collectionOf } from '../../mesh/docs';
-import { sceneNodesNow, useSceneNodes } from '../../mesh/nodes';
+import {
+  sceneNodesNow,
+  useLiveTransform,
+  useSceneNodes,
+} from '../../mesh/nodes';
 import { useDataFields, useRuntimeOverrides } from '../../mesh/runtime';
 
 type GizmoMode = 'translate' | 'rotate' | 'scale';
@@ -925,8 +929,12 @@ interface Transform {
   receiveShadow: boolean;
 }
 
-function getTransform(node: StageObject): Transform {
-  const t = node.components?.transform as Partial<Transform> | undefined;
+function getTransform(
+  node: StageObject,
+  transform: Record<string, unknown> | undefined = node.components
+    ?.transform as Record<string, unknown> | undefined
+): Transform {
+  const t = transform as Partial<Transform> | undefined;
   return {
     x: t?.x ?? 0,
     y: t?.y ?? 0,
@@ -953,7 +961,8 @@ function getTransform(node: StageObject): Transform {
 function useTransformWithOverride(node: StageObject): Transform {
   const clipOverride = useEditorStore((s) => s.nodeTransformOverrides[node.id]);
   const runtimeOverride = useRuntimeOverrides('scene_node', node.id);
-  const base = getTransform(node);
+  // A running gesture or another tab's drag tween (liveNodes), per node.
+  const base = getTransform(node, useLiveTransform(node));
   if (!clipOverride && !runtimeOverride) return base;
   // Base + both override layers keyed by paramPath, folded low → high.
   const baseMap = {
