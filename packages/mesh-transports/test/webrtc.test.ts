@@ -46,7 +46,13 @@ class FakeChannel {
 const offers = new Map<string, FakePC>();
 let nextSdp = 0;
 
+/** The ICE servers each connection was created with. */
+const configs: RTCIceServer[][] = [];
+
 class FakePC {
+  constructor(cfg: RTCConfiguration) {
+    configs.push(cfg.iceServers ?? []);
+  }
   connectionState: RTCPeerConnectionState = 'new';
   localDescription: RTCSessionDescriptionInit | null = null;
   onicecandidate: ((e: { candidate: null }) => void) | null = null;
@@ -127,9 +133,11 @@ function world() {
   const s1s2 = link('S1', 'S2');
   const s1a = link('S1', 'S1#a');
   const s2b = link('S2', 'S2#b');
+  const ice = { current: [{ urls: 'stun:one' }] as RTCIceServer[] };
   const rtc = () =>
     new WebRtcTransport({
       RTCPeerConnection: FakePC as unknown as typeof RTCPeerConnection,
+      iceServers: () => ice.current,
     });
   const s1 = createMeshPeer({
     identity: { peerId: 'S1' },
@@ -160,7 +168,7 @@ function world() {
       await tick();
     }
   };
-  return { s1, s2, a, b, s1Docs, bDocs, share, settle };
+  return { s1, s2, a, b, s1Docs, bDocs, share, settle, ice };
 }
 
 describe('WebRtcTransport', () => {
@@ -188,5 +196,19 @@ describe('WebRtcTransport', () => {
     await t.settle();
     expect(t.b.status().peers.map((p) => p.id)).toEqual(['S2']);
     expect(t.a.status().peers.map((p) => p.id)).toEqual(['S1']);
+  });
+
+  it('each new connection reads the current ICE servers', async () => {
+    const t = world();
+    await t.settle();
+    expect(configs.at(-1)).toEqual([{ urls: 'stun:one' }]);
+    // Credentials refreshed; the share is withdrawn and restored.
+    t.ice.current = [{ urls: 'turn:two', username: 'u', credential: 'c' }];
+    t.s1.grants.revoke(t.share);
+    await t.settle();
+    t.s1.grants.grant(grant('S2'));
+    await t.settle();
+    expect(t.b.status().peers.map((p) => p.id)).toContain('S1#a');
+    expect(configs.at(-1)).toEqual(t.ice.current);
   });
 });

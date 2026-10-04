@@ -6,7 +6,12 @@
  * Handshake (principle 9: every participant authenticates):
  *
  *   tab → `{ t:'hello', participantId, token }`
- *   server → `{ t:'welcome' }`, or closes with code 4401
+ *   server → `{ t:'welcome', ...welcome() }`, or closes with code 4401
+ *
+ * After the welcome the server may push `{ t:'info', ... }` frames (see
+ * `push`): data for the tab's transports rather than for the mesh, such as
+ * ICE servers with short-lived TURN credentials. They go only to tabs that
+ * authenticated.
  *
  * The id is `${serverPeerId}#${tabUuid}` (see shared/sync participant ids —
  * the prefix is what lets a single grant cover all of a server's tabs);
@@ -33,11 +38,15 @@ export interface WsServerTransportOptions {
   /** Accept or refuse a tab's credentials. Required: there is no
    *  unauthenticated mode. */
   authenticate: (hello: { participantId: string; token: string }) => boolean;
+  /** Extra fields for the welcome (current transport info for the tab). */
+  welcome?: () => Record<string, unknown>;
 }
 
 export class WsServerTransport implements MeshTransport {
   private readonly wss = new WebSocketServer({ noServer: true });
   private handlers: TransportHandlers | null = null;
+  /** Sockets that completed the handshake. */
+  private readonly authed = new Set<WebSocket>();
 
   constructor(
     private readonly serverPeerId: string,
@@ -51,6 +60,12 @@ export class WsServerTransport implements MeshTransport {
   stop(): void {
     this.wss.close();
     this.handlers = null;
+  }
+
+  /** Send transport info to every authenticated tab (see the header). */
+  push(info: Record<string, unknown>): void {
+    const frame = JSON.stringify({ ...info, t: 'info' });
+    for (const ws of this.authed) if (ws.readyState === ws.OPEN) ws.send(frame);
   }
 
   /** Wire into `server.on('upgrade')` for the mesh path. */
@@ -82,7 +97,8 @@ export class WsServerTransport implements MeshTransport {
           return;
         }
         pid = requested;
-        ws.send(JSON.stringify({ t: 'welcome' }));
+        this.authed.add(ws);
+        ws.send(JSON.stringify({ ...this.opts.welcome?.(), t: 'welcome' }));
         const link: PeerLink = {
           send: (m) => {
             if (ws.readyState === ws.OPEN) ws.send(encode(m));
@@ -96,6 +112,7 @@ export class WsServerTransport implements MeshTransport {
         this.handlers?.message(pid, msg as MeshMessage);
     });
     ws.on('close', () => {
+      this.authed.delete(ws);
       if (pid !== null) this.handlers?.peerDisconnected(pid);
     });
     ws.on('error', () => {

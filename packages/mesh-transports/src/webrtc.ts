@@ -26,7 +26,9 @@ type Signal =
   | { kind: 'ice'; candidate: RTCIceCandidateInit };
 
 export interface WebRtcTransportOptions {
-  iceServers?: RTCIceServer[];
+  /** Read on every new connection, so short-lived TURN credentials can be
+   *  replaced as they are refreshed. */
+  iceServers?: RTCIceServer[] | (() => RTCIceServer[]);
   /** The platform's RTCPeerConnection (injectable for tests). */
   RTCPeerConnection?: typeof RTCPeerConnection;
   redialMs?: number;
@@ -86,7 +88,10 @@ export class WebRtcTransport implements MeshTransport {
 
   private newLink(id: string): Link {
     const PC = this.opts.RTCPeerConnection ?? RTCPeerConnection;
-    const pc = new PC({ iceServers: this.opts.iceServers ?? [] });
+    const ice = this.opts.iceServers;
+    const pc = new PC({
+      iceServers: (typeof ice === 'function' ? ice() : ice) ?? [],
+    });
     const link: Link = {
       pc,
       reliable: null,

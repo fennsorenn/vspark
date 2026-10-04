@@ -15,6 +15,7 @@ import {
   getMeshPeer,
   mirrorIntoMesh,
   purgeMeshTombstones,
+  setTabIceServers,
 } from '../mesh/index.js';
 import { syncCollabLinks, teardownCollabScene } from '../mesh/collab.js';
 import {
@@ -194,6 +195,10 @@ class MultiplayerManager {
         ),
     };
     this.mesh = new ServerMesh(signaling, () => this.iceServers);
+    // Our tabs' direct links need current ICE servers too, whether or not a
+    // server link is being set up: TURN credentials live ten minutes. The
+    // first fetch happens once the rendezvous is ready (see 'status' below).
+    setInterval(() => void this.ensureIce(true), TURN_REFRESH_MS).unref();
     // Transport facade: resolve a participant id to its link — remote browsers
     // (`serverId#tab`) go over the WebRTC browser edge, remote servers over the
     // ServerMesh. Read lazily so `browserMesh` (built just below) is in place by
@@ -410,9 +415,10 @@ class MultiplayerManager {
         this.broadcast('mp_presence', { peerId, online });
       }
     );
-    this.client.on('status', (s: RvStatus) =>
-      this.broadcast('mp_status', { status: s })
-    );
+    this.client.on('status', (s: RvStatus) => {
+      this.broadcast('mp_status', { status: s });
+      if (s === 'ready') void this.ensureIce(true);
+    });
 
     this.client.start();
   }
@@ -822,9 +828,10 @@ class MultiplayerManager {
     this.sharing?.unsubscribe(peerId, objectId);
   }
 
-  private async ensureIce(): Promise<void> {
+  private async ensureIce(force = false): Promise<void> {
     if (!this.client) return;
     if (
+      !force &&
       Date.now() - this.iceFetchedAt < TURN_REFRESH_MS &&
       this.iceServers.length
     )
@@ -840,6 +847,7 @@ class MultiplayerManager {
         });
       this.iceServers = ice;
       this.iceFetchedAt = Date.now();
+      setTabIceServers(ice);
     } catch {
       /* keep whatever we had; host candidates still work on a LAN/loopback */
     }

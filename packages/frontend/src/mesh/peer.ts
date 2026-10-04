@@ -37,6 +37,10 @@ const RTYPES = TAB_MODELS;
 
 let _init: Promise<MeshHandles> | null = null;
 
+/** ICE servers for direct links, as our server last sent them (STUN, and TURN
+ *  with credentials it refreshes; see WsBackendTransport `onInfo`). */
+let _iceServers: RTCIceServer[] = [];
+
 /** This tab's id, shared by the mesh peer and the client mesh's WebRTC links. */
 export function meshTabUuid(): string {
   return tabUuid();
@@ -222,10 +226,14 @@ async function doInit(): Promise<MeshHandles> {
           storeToken(undefined);
           await enroll();
         },
+        onInfo: (info) => {
+          if (Array.isArray(info.iceServers))
+            _iceServers = info.iceServers as RTCIceServer[];
+        },
       }),
       // Direct links (principle 8) to the tabs of servers ours shares with,
       // as our server reports them; set up through the mesh itself.
-      new WebRtcTransport(),
+      new WebRtcTransport({ iceServers: () => _iceServers }),
     ],
   });
 

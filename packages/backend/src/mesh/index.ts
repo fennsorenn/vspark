@@ -399,6 +399,15 @@ const applyingFromMesh = new Set<string>();
 
 let _peer: MeshPeer | null = null;
 let _transport: WsServerTransport | null = null;
+/** ICE servers for our tabs' direct links (STUN, and TURN with short-lived
+ *  credentials from the rendezvous); sent in the welcome and on refresh. */
+let _tabIce: unknown[] = [];
+
+/** Hand our tabs new ICE servers (multiplayer/manager.ts, on each refresh). */
+export function setTabIceServers(ice: unknown[]): void {
+  _tabIce = ice;
+  _transport?.push({ iceServers: ice });
+}
 const COLLECTIONS = new Map<string, Collection<Dto>>();
 /** rtype → timestamp column used for bootstrap stamps (cached at bind time). */
 const TS_COLS = new Map<string, string | undefined>();
@@ -494,6 +503,7 @@ export function initBackendMesh(): MeshPeer {
   _transport = new WsServerTransport(peerId, {
     // Only enrolled browsers join (principle 9; see auth/clients.ts).
     authenticate: ({ token }) => verifyClientToken(token) !== null,
+    welcome: () => ({ iceServers: _tabIce }),
   });
   const peer = createMeshPeer({
     identity: { peerId },
