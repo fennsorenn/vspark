@@ -285,7 +285,7 @@ while the direct path is unavailable.
 - `useMeshChildren(collection, parentId)` — read immediate children only.
 - `useMeshAll(collection)` — read all entries.
 - `useMeshValue(collection, id, path)` — bind a single path value: `[value, setValue]`.
-- `useMeshSelector(collection, selector, compute)` — the core helper the others are built on; serves a referentially stable derived value.
+- `useMeshSelector(collection, selector, compute, opts?)` — the core helper the others are built on; serves a referentially stable derived value. `opts.skip(change)` ignores changes the value does not depend on (read once per subscription).
 - `useMeshField(collection, id, path, fallback, opts)` — bind one control to one field: draft while editing, throttled `preview` writes (default 33ms, `previewIntervalMs`), one commit on release; `livePreview: false` keeps the draft local until commit.
 - `useMeshStatus(peer)`, `useCanWrite(peer, collection)`, `useMeshCanWrite(collection)` — connection/ack status and authority reachability.
 
@@ -901,11 +901,21 @@ things fall out of that for free:
   (`Replica`/`peer.ts` skip collections with no retained channel on both the send
   and apply side), so nothing arriving at mount can be mistaken for a gesture and
   tween in from wherever the store happened to sit.
+- **Nodes play back from a short buffer** (`previewSmoother.ts`): each node
+  keeps its recent preview samples, spaced evenly in time (half to one and a
+  half sample intervals apart, as close to arrival as that allows), and is
+  shown `playbackDelay()` (~2.5 intervals, 60–160ms) behind them, interpolated
+  between the two samples around that moment (rotation by quaternion slerp).
+  A tween restarted per sample made the speed jump with every uneven arrival
+  and stop in every long gap (choppy remote drags, 2026-10-04). Compose layers
+  still use the per-sample tween.
 - **Mid-gesture the committed value retargets the running tween** rather than
   snapping, because the preview channel is lossy and the last preview frame may
   never have landed (the `hasLayerTween` / `hasNodeTween` branches in
   `startPreviewSmoothing`). The tween shows through the view-only `liveLayers`
-  / `liveNodes` store slices until it ends.
+  / `liveNodes` store slices until it ends. A node's `liveNodes` entry stays
+  after its tween ends and is cleared by the next committed transform (any
+  origin), because the node lists do not show transform previews (below).
 
 **Overlays are cleared by the committed write itself.** A retained upsert deletes
 the doc's overlay map (`Replica.upsert` → `overlays.delete(id)`), so a gesture
@@ -1047,8 +1057,13 @@ the peer already up that is a no-op.) The peer is created with the shared
 over direct links from tabs of servers that shared with ours — and renews them
 after a reconnect.
 
-**Participant ID:** `${serverPeerId}#${tabUuid}` (stable across reloads via
-sessionStorage), so HLC origins and grants stay consistent per tab. The id is
+**Participant ID:** `${serverPeerId}#${tabUuid}`, new on every page load and
+never stored. **Decided (user, 2026-10-04):** it used to live in sessionStorage
+to survive reloads, but browsers copy sessionStorage into a duplicated tab, and
+two tabs under one id shared one server link (the newer tab got the older one's
+acks, so the older one's writes reverted). The server also keeps one socket per
+participant: a hello for a connected id replaces the older socket, closed with
+4409, and a client closed that way does not reconnect. The id is
 also what makes the peer an endpoint: its server decides its writes, it
 forwards nothing, and it reaches everyone else through the server (see
 [Authority](#authority)). It connects with a stored token — see
@@ -1115,8 +1130,16 @@ template/CSS) keeps the edit local until blur.
 
 - `liveLayers` / `liveNodes` — what a local gesture or a received preview's
   tween shows on top of the committed document. Written by
-  `previewSmoother.ts` (and the compose interactions); the read hooks merge
-  them over the replica. Display state, never written back.
+  `previewSmoother.ts`, the compose interactions, and (for this tab's own
+  transform previews) `previewNodeTransform`. Display state, never written
+  back. `liveNodes` changes every animation frame of a drag, so it is merged
+  **per node** — `useSceneNode(id)`, `useLiveTransform(node)` in the Viewport's
+  node renderers, `sceneNodesNow()` — and never into the `useSceneNodes()`
+  list. The lists also skip transform preview ops (`useMeshSelector`'s `skip`
+  option): the list has ~20 readers, and recomputing it per preview op or per
+  tween frame re-rendered the whole editor while another tab dragged (choppy,
+  delayed motion; fixed 2026-10-04). Non-transform previews
+  (`previewNodePath`) still show through the composed documents.
 - `projectedNodes` — placed remote objects (Phase-6 projection,
   `sync/sharedProjection.ts` + `sync/meshProjection.ts`), appended by
   `useSceneNodes`. Kept until mesh-sole-channel W7.
