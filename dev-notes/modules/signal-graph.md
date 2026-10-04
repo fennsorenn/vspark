@@ -164,7 +164,7 @@ weights — with identical shapes and separate registries
 Both are entered from `BroadcastBus._composeAndEmit`: if `start()` reports that a
 chain exists, the bus does NOT emit and the chain's terminal node does, via
 `emitMergedPose` / `emitMergedBlendshapes`. Priority orders the chain (higher runs
-first); ties break by registration order.
+first); ties break by registration order. Interceptors receive the frame after Tracking Mix weighting has been applied by the bus (see [component-managers.md](component-managers.md#broadcastbus--broadcastbusts)).
 
 | Kind | Description |
 |------|-------------|

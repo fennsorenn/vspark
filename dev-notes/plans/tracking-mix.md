@@ -1,6 +1,6 @@
 # Plan: Tracking Mix — per-source, per-bone, per-blendshape tracking composition
 
-> **Status:** design-only
+> **Status:** in progress — implemented on `feature/tracking-mix` (2026-10-06), not yet merged into `dev`.
 
 > Branch: `feature/tracking-mix`
 > This plan is the seed context for a cloud worker. It is a starting point, not an

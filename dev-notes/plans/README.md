@@ -42,10 +42,10 @@ Design → executed → follow-ups. Each supersedes roughly what came before it.
 | [`permissioned-sync-mesh.md`](./permissioned-sync-mesh.md)                 | **design-only** — a design-alignment doc with no implementation slices                      |
 | [`mesh-sync-refactor.md`](./mesh-sync-refactor.md)                         | **shipped — the executed plan.** Cited by the code                                          |
 | [`mesh-native-undo.md`](./mesh-native-undo.md)                             | shipped — engine in `packages/mesh/src/peer.ts` (+ `batch()`, added later than this design) |
-| [`mesh-drop-legacy-sync-and-undo.md`](./mesh-drop-legacy-sync-and-undo.md) | in progress — undo (B) shipped; envelope retirement (A) → W7 of `mesh-sole-channel.md`     |
+| [`mesh-drop-legacy-sync-and-undo.md`](./mesh-drop-legacy-sync-and-undo.md) | in progress — undo (B) shipped; envelope retirement (A) → W7 of `mesh-sole-channel.md`      |
 | [`mesh-frontend-writes.md`](./mesh-frontend-writes.md)                     | shipped — in `dev` at 77bfdb4                                                               |
-| [`mesh-sole-channel.md`](./mesh-sole-channel.md)                           | **in progress — LIVE** (principles 7–9; supersedes §12)                                    |
-| [`mesh-store-surface.md`](./mesh-store-surface.md)                         | **design-only, not started** — sequences the rest of `mesh-sole-channel.md`             |
+| [`mesh-sole-channel.md`](./mesh-sole-channel.md)                           | **in progress — LIVE** (principles 7–9; supersedes §12)                                     |
+| [`mesh-store-surface.md`](./mesh-store-surface.md)                         | **design-only, not started** — sequences the rest of `mesh-sole-channel.md`                 |
 
 ## Multiplayer
 
@@ -55,17 +55,18 @@ Design → executed → follow-ups. Each supersedes roughly what came before it.
 | [`multiplayer-phase6.md`](./multiplayer-phase6.md)               | shipped — owner-authoritative writes; `_share_write` deliberately kept, per `mesh-sync-refactor.md` §12 |
 | [`collaborative-scene-share.md`](./collaborative-scene-share.md) | shipped — live ops + reconcile now ride the mesh (`§9` step B)                                          |
 
-## Feature plans (all shipped)
+## Feature plans
 
-| Plan                                               | Status                                                                               |
-| -------------------------------------------------- | ------------------------------------------------------------------------------------ |
-| [`asset-vrm-metadata.md`](./asset-vrm-metadata.md) | shipped — migration `034`                                                            |
-| [`avatar-animation.md`](./avatar-animation.md)     | shipped — migration `033`, clock-anchored schedule                                   |
-| [`face-calibration.md`](./face-calibration.md)     | shipped — config-driven ARKit heuristic + dev tuning window                          |
-| [`forearm-twist-bone.md`](./forearm-twist-bone.md) | shipped — see [`../modules/twist-bones.md`](../modules/twist-bones.md)               |
-| [`material-editor.md`](./material-editor.md)       | shipped — see [`../modules/material-overrides.md`](../modules/material-overrides.md) |
-| [`phase3-data-feeds.md`](./phase3-data-feeds.md)   | shipped — data channels + template feed layer                                        |
-| [`video-audio-assets.md`](./video-audio-assets.md) | shipped — `video`/`audio` node kinds, media bus, clip event lane                     |
+| Plan                                               | Status                                                                                 |
+| -------------------------------------------------- | -------------------------------------------------------------------------------------- |
+| [`asset-vrm-metadata.md`](./asset-vrm-metadata.md) | shipped — migration `034`                                                              |
+| [`avatar-animation.md`](./avatar-animation.md)     | shipped — migration `033`, clock-anchored schedule                                     |
+| [`face-calibration.md`](./face-calibration.md)     | shipped — config-driven ARKit heuristic + dev tuning window                            |
+| [`forearm-twist-bone.md`](./forearm-twist-bone.md) | shipped — see [`../modules/twist-bones.md`](../modules/twist-bones.md)                 |
+| [`material-editor.md`](./material-editor.md)       | shipped — see [`../modules/material-overrides.md`](../modules/material-overrides.md)   |
+| [`phase3-data-feeds.md`](./phase3-data-feeds.md)   | shipped — data channels + template feed layer                                          |
+| [`video-audio-assets.md`](./video-audio-assets.md) | shipped — `video`/`audio` node kinds, media bus, clip event lane                       |
+| [`tracking-mix.md`](./tracking-mix.md)             | in progress — implemented on `feature/tracking-mix`, migration `044`; not yet in `dev` |
 
 ## Cross-cutting / process
 
