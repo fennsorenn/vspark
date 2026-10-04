@@ -208,6 +208,8 @@ export class MeshPeer implements PeerCore {
     string,
     { qe: number; max: number; ids: Set<number> }
   >();
+  /** Per participant whose home we are: who it reaches directly. */
+  private readonly directLinks = new Map<string, Set<string>>();
   /** Requests awaiting a reply, by request id. */
   private readonly pendingRequests = new Map<
     string,
@@ -904,12 +906,23 @@ export class MeshPeer implements PeerCore {
   private onPeerConnected(peerId: string, link: PeerLink): void {
     this.links.set(peerId, link);
     this.startClockSync(peerId);
+    this.announceLinks();
     this.notifyStatus();
+  }
+
+  /** Tell our home which participants we reach directly (see LinksMsg). */
+  private announceLinks(): void {
+    const home = this.cfg.home;
+    if (!home || !this.links.has(home)) return;
+    const peers = [...this.links.keys()].filter((p) => p !== home);
+    this.transmit(home, { t: 'links', peers });
   }
 
   private onPeerDisconnected(peerId: string): void {
     this.links.delete(peerId);
     this.inSubs.delete(peerId);
+    this.directLinks.delete(peerId);
+    this.announceLinks();
     this.stopClockSync(peerId);
     for (const s of this.outSubs.values())
       if (s.peer === peerId && s.status === 'active') s.status = 'stale';
@@ -918,6 +931,9 @@ export class MeshPeer implements PeerCore {
 
   private onMessage(senderId: string, msg: MeshMessage): void {
     switch (msg.t) {
+      case 'links':
+        this.directLinks.set(senderId, new Set(msg.peers));
+        return;
       case 'op':
         return this.handleOp(senderId, msg);
       case 'sub':
@@ -1497,6 +1513,12 @@ export class MeshPeer implements PeerCore {
     );
     targets.delete(senderId);
     targets.delete(env.origin);
+    // Send once per path: a recipient that reaches the origin directly
+    // already has this lossy op first-hand. Reliable traffic is still
+    // relayed — it is the path that survives a direct link dropping silently.
+    if (this.channels.get(env.ch)?.transport === 'lossy')
+      for (const t of [...targets])
+        if (this.directLinks.get(t)?.has(env.origin)) targets.delete(t);
     this.deliver(env, targets);
   }
 

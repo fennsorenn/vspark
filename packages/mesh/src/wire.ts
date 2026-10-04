@@ -115,7 +115,16 @@ export interface PongMsg {
   tRemote: number;
 }
 
+/** Link state: the participants the sender currently reaches over a direct
+ *  link (principle 8). Sent to its home on every change, so the home stops
+ *  relaying lossy traffic the sender already receives first-hand. */
+export interface LinksMsg {
+  t: 'links';
+  peers: string[];
+}
+
 export type MeshMessage =
+  | LinksMsg
   | OpEnvelope
   | SubscribeMsg
   | SubOkMsg
