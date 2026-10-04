@@ -52,6 +52,7 @@ import { useEditorStore } from '../../../store/editorStore';
 import { api, getSignalGraphStates } from '../../../api/client';
 import { copyToClipboard, pasteFromClipboard } from '../../../clipboard';
 import { HelpButton } from '../../../help/HelpButton';
+import { useLogicRecord } from '../../../mesh/hooks';
 
 /** Mint a short, unique-enough node id for pasted nodes. Graph descriptor
  *  node ids are arbitrary strings (not constrained to UUIDs); using a
@@ -416,10 +417,10 @@ function SignalGraphCanvasInner({ graphId, kindMeta }: Props) {
     return () => clearTimeout(t);
   }, [rejectMsg]);
 
-  // A logic graph is READ FROM THE STORE, which the mesh feeder keeps current:
+  // A logic graph is READ FROM THE REPLICA, which the mesh keeps current:
   // another tab's edit — a moved node, a new edge — lands here without a
   // refetch, which is the point of keying the descriptor's elements.
-  const storeRecord = useEditorStore((s) => s.logic[graphId]);
+  const storeRecord = useLogicRecord(graphId);
 
   // Behavior-owned graphs are not documents: their descriptors are built by the
   // behavior managers, so they are fetched, and read-only.
@@ -570,7 +571,7 @@ function SignalGraphCanvasInner({ graphId, kindMeta }: Props) {
   //
   // There is none here any more. Every edit below commits the ELEMENT it
   // changes (`descriptor.nodes.<id>`, `descriptor.edges.<key>`) through
-  // mesh/logicWrites, and the feeder brings it back through the store. The old
+  // mesh/logicWrites, and the replica hands it straight back. The old
   // shape — mutate a local copy, debounce a PUT of the whole descriptor — is
   // what made two people editing one graph overwrite each other, and it needed
   // a flush-on-unmount to avoid losing the last edit.
@@ -900,11 +901,7 @@ function SignalGraphCanvasInner({ graphId, kindMeta }: Props) {
           zIndex: 10,
         }}
       >
-        <HelpButton
-          topic="logic"
-          anchor="nodes"
-          tip={t('help.nodes')}
-        />
+        <HelpButton topic="logic" anchor="nodes" tip={t('help.nodes')} />
       </div>
       {rejectMsg && (
         <div

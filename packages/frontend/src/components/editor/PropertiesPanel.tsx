@@ -1,7 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import {
-  commitBehaviorPatch,
-} from '../../mesh/behaviorWrites';
+import { commitBehaviorPatch } from '../../mesh/behaviorWrites';
 import { useTranslation } from 'react-i18next';
 import { HelpButton } from '../../help/HelpButton';
 import {
@@ -59,12 +57,9 @@ import {
   ComposeLayerProperties,
   ComposeSceneProperties,
 } from './ComposeLayerProperties';
-import type { AssetFile } from '../../api/client';
+import type { AssetFile, CameraEffectRecord } from '../../api/client';
 import { setLive2dConsent } from '../../lib/puppet2d/live2d/coreLoader';
-import type {
-  Live2dParamMap,
-  ParamMapEntry,
-} from '../../lib/live2dParamMap';
+import type { Live2dParamMap, ParamMapEntry } from '../../lib/live2dParamMap';
 import { MicCapture, type VowelTemplates } from '../../media/MicCapture';
 import { useTrackClipRecorder } from '../../hooks/useTrackClipRecorder';
 import { useMeshField } from '../../hooks/useMeshField';
@@ -117,6 +112,10 @@ import {
   type AlphaMode,
   type EmissiveMapMode,
 } from './materialOverrides';
+import { useCollection, useMeshDoc } from '@vspark/mesh-react';
+import { useAnimationClips, useCameraEffects } from '../../mesh/hooks';
+import { useComposeLayers, useComposeScenes } from '../../mesh/compose';
+import { useSceneNodes, useScenes } from '../../mesh/nodes';
 
 interface Transform {
   x: number;
@@ -1930,12 +1929,9 @@ function liveOrMetaList(
 
 function VmcReceiverProps({ comp }: { comp: Behavior }) {
   const { t } = useTranslation('properties');
-  const {
-    vrmMorphTargetsByNode,
-    vrmExpressionsByNode,
-    nodes,
-    assets,
-  } = useEditorStore();
+  const { vrmMorphTargetsByNode, vrmExpressionsByNode, assets } =
+    useEditorStore();
+  const nodes = useSceneNodes();
   const meta = assetMetaForNode(
     nodes.find((n) => n.id === comp.nodeId)?.filePath,
     assets
@@ -2261,12 +2257,9 @@ function VmcReceiverProps({ comp }: { comp: Behavior }) {
  */
 function IFacialMocapReceiverProps({ comp }: { comp: Behavior }) {
   const { t } = useTranslation('properties');
-  const {
-    vrmMorphTargetsByNode,
-    vrmExpressionsByNode,
-    nodes,
-    assets,
-  } = useEditorStore();
+  const { vrmMorphTargetsByNode, vrmExpressionsByNode, assets } =
+    useEditorStore();
+  const nodes = useSceneNodes();
   const meta = assetMetaForNode(
     nodes.find((n) => n.id === comp.nodeId)?.filePath,
     assets
@@ -3728,12 +3721,9 @@ function NameListEditor({
 
 function BlendshapeLimiterProps({ comp }: { comp: Behavior }) {
   const { t } = useTranslation('properties');
-  const {
-    vrmMorphTargetsByNode,
-    vrmExpressionsByNode,
-    nodes,
-    assets,
-  } = useEditorStore();
+  const { vrmMorphTargetsByNode, vrmExpressionsByNode, assets } =
+    useEditorStore();
+  const nodes = useSceneNodes();
 
   // Names the loaded model actually exposes — offered as datalist suggestions.
   const meta = assetMetaForNode(
@@ -4941,8 +4931,9 @@ function EffectRow({
 
 function EffectPanel({ effectId, kind }: { effectId: string; kind: string }) {
   const { t } = useTranslation('properties');
-  const effect = useEditorStore((s) =>
-    s.cameraEffects.find((e) => e.id === effectId)
+  const effect = useMeshDoc(
+    useCollection<CameraEffectRecord>('camera_effect'),
+    effectId
   );
 
   if (!effect) return null;
@@ -5956,8 +5947,8 @@ function Live2DProperties({ node }: { node: StageObject }) {
           >
             <span style={{ fontSize: 11, color: '#d9b873' }}>
               Live2D rendering uses the proprietary Cubism Core, fetched at
-              runtime from Live2D&apos;s CDN (never bundled). Accepting agrees to
-              the{' '}
+              runtime from Live2D&apos;s CDN (never bundled). Accepting agrees
+              to the{' '}
               <a
                 href="https://www.live2d.com/eula/live2d-proprietary-software-license-agreement_en.html"
                 target="_blank"
@@ -6091,7 +6082,8 @@ function Live2DProperties({ node }: { node: StageObject }) {
                 style={sel}
                 value=""
                 onChange={(ev) => {
-                  if (ev.target.value) setEntry(ev.target.value, { source: '' });
+                  if (ev.target.value)
+                    setEntry(ev.target.value, { source: '' });
                 }}
               >
                 <option value="">+ add parameter override…</option>
@@ -6118,44 +6110,42 @@ export function PropertiesPanel() {
   const { t } = useTranslation('properties');
   const { projectId } = useParams<{ projectId: string }>();
   const {
-    nodes,
     selectedNodeId,
     assets,
     selectedBehaviorId,
-    behaviors,
     fbxDebugVisible,
     setFbxDebugVisible,
     vrmExpressionsByNode,
     vrmMorphTargetsByNode,
     behaviorKinds,
-    cameraEffects,
     selectedEffect,
-    scenes,
     activeSceneId,
     sceneSelected,
-    updateSceneItem,
-    composeLayers,
-    composeScenes,
     activeComposeSceneId,
     selectedComposeLayerId,
     leftTab,
     activeLogicId,
   } = useEditorStore();
+  const nodes = useSceneNodes();
+  const scenes = useScenes();
+  const composeLayers = useComposeLayers();
+  const composeScenes = useComposeScenes();
+  const selectedBehaviorDoc = useMeshDoc(
+    useCollection<Behavior>('behavior'),
+    selectedBehaviorId ?? ''
+  );
   const activeScene = scenes.find((s) => s.id === activeSceneId) ?? null;
   const animAssets: AssetFile[] = assets.filter((a) => a.kind === 'animation');
   const modelAssets: AssetFile[] = assets.filter((a) => a.kind === 'model');
   const node = nodes.find((n) => n.id === selectedNodeId) ?? null;
-  const animationClips = useEditorStore((s) => s.animationClips);
-  const selectedBehavior =
-    behaviors.find((c) => c.id === selectedBehaviorId) ?? null;
+  const animationClips = useAnimationClips();
+  const selectedBehavior = selectedBehaviorDoc ?? null;
   const selectedCompType = selectedBehavior
     ? behaviorKinds.find((ct) => ct.kind === selectedBehavior.kind)
     : null;
+  const selectedNodeEffects = useCameraEffects(selectedEffect?.nodeId);
   const selectedEffectRecord = selectedEffect
-    ? cameraEffects.find(
-        (e) =>
-          e.nodeId === selectedEffect.nodeId && e.kind === selectedEffect.kind
-      )
+    ? selectedNodeEffects.find((e) => e.kind === selectedEffect.kind)
     : null;
   const selectedEffectNode = selectedEffect
     ? nodes.find((n) => n.id === selectedEffect.nodeId)
@@ -6454,13 +6444,7 @@ export function PropertiesPanel() {
         sceneName={activeScene.name}
         broadcastTickHz={activeScene.runtimeSettings.broadcastTickHz ?? 60}
         onChange={(hz) => {
-          // Optimistic store update so the input stays responsive.
-          updateSceneItem(activeScene.id, {
-            runtimeSettings: {
-              ...activeScene.runtimeSettings,
-              broadcastTickHz: hz,
-            },
-          });
+          // The route writes through the mesh, so the change shows everywhere.
           void updateScene(activeScene.id, {
             runtimeSettings: { broadcastTickHz: hz },
           });

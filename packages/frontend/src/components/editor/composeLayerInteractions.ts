@@ -265,6 +265,8 @@ export function startDrag(
     window.removeEventListener('pointerup', up);
     clearSnapGuides();
     if (last) commitLayerPatch(layer.id, last);
+    // The committed write is in the replica now; stop showing the gesture.
+    useEditorStore.getState().setLiveLayer(layer.id, null);
   };
   window.addEventListener('pointermove', move);
   window.addEventListener('pointerup', up);
@@ -440,6 +442,8 @@ export function startResize(
     window.removeEventListener('pointerup', up);
     clearSnapGuides();
     if (last) commitLayerPatch(layer.id, last);
+    // The committed write is in the replica now; stop showing the gesture.
+    useEditorStore.getState().setLiveLayer(layer.id, null);
   };
   window.addEventListener('pointermove', move);
   window.addEventListener('pointerup', up);
@@ -477,6 +481,8 @@ export function startRotate(
     window.removeEventListener('pointermove', move);
     window.removeEventListener('pointerup', up);
     if (last) commitLayerPatch(layer.id, last);
+    // The committed write is in the replica now; stop showing the gesture.
+    useEditorStore.getState().setLiveLayer(layer.id, null);
   };
   window.addEventListener('pointermove', move);
   window.addEventListener('pointerup', up);

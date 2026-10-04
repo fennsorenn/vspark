@@ -13,6 +13,7 @@ import {
 import { ContextMenu } from './ContextMenu';
 import { copyToClipboard, pasteFromClipboard } from '../../clipboard';
 import { HelpButton } from '../../help/HelpButton';
+import { useClipPlaybacks, useTrackClips } from '../../mesh/hooks';
 
 /** Inline, expandable list of track clips owned by a single scene node or
  *  compose layer — mirrors the components/effects sub-sections in the scene
@@ -28,11 +29,11 @@ export function ClipsSection({
   flat?: boolean;
 }) {
   const { t } = useTranslation('clips');
-  const trackClips = useEditorStore((s) => s.trackClips);
+  const trackClips = useTrackClips();
   const selectedTrackClipId = useEditorStore((s) => s.selectedTrackClipId);
   const selectTrackClip = useEditorStore((s) => s.selectTrackClip);
   const setBottomTab = useEditorStore((s) => s.setBottomTab);
-  const playback = useEditorStore((s) => s.clipPlayback);
+  const playback = useClipPlaybacks();
   const clipboardPayload = useEditorStore((s) => s.clipboardPayload);
   const setClipboard = useEditorStore((s) => s.setClipboard);
   const canPasteClip = clipboardPayload?.kind === 'track-clip';
@@ -161,8 +162,8 @@ export function ClipsSection({
           targetId: isOwner ? owner.id : e.targetId,
         });
       }
-      // No reload: every write above landed in the replica, and the feeder
-      // mirrors it into the store. (The old REST path needed one, because the
+      // No reload: every write above landed in the replica, which the
+      // timeline reads directly. (The old REST path needed one, because the
       // lane and keyframe calls did not write through the store at all.)
       selectTrackClip(created.id);
       setBottomTab('clips');
@@ -240,49 +241,56 @@ export function ClipsSection({
         );
       })}
       {!flat && (
-      <div style={{ padding: '3px 6px', display: 'flex', gap: 6, alignItems: 'center' }}>
-        <button
-          className="vs-clip-add"
-          onClick={handleAdd}
+        <div
           style={{
-            background: 'none',
-            border: '1px dashed #2a2a2a',
-            borderRadius: 4,
-            color: '#888',
-            cursor: 'pointer',
-            fontSize: 11,
-            padding: '3px 8px',
-            flex: 1,
-            textAlign: 'left',
+            padding: '3px 6px',
+            display: 'flex',
+            gap: 6,
+            alignItems: 'center',
           }}
         >
-          {t('section.addClip')}
-        </button>
-        {canPasteClip && (
           <button
-            className="vs-clip-paste"
-            onClick={handlePasteClip}
-            title={t('section.pasteClipTitle')}
+            className="vs-clip-add"
+            onClick={handleAdd}
             style={{
               background: 'none',
-              border: '1px dashed #3a5a4a',
+              border: '1px dashed #2a2a2a',
               borderRadius: 4,
-              color: '#9bc090',
+              color: '#888',
               cursor: 'pointer',
               fontSize: 11,
               padding: '3px 8px',
+              flex: 1,
+              textAlign: 'left',
             }}
           >
-            {t('section.pasteClip')}
+            {t('section.addClip')}
           </button>
-        )}
-        <HelpButton
-          topic="track-clips"
-          anchor="what"
-          tip={t('help.clipsSection')}
-          size={12}
-        />
-      </div>
+          {canPasteClip && (
+            <button
+              className="vs-clip-paste"
+              onClick={handlePasteClip}
+              title={t('section.pasteClipTitle')}
+              style={{
+                background: 'none',
+                border: '1px dashed #3a5a4a',
+                borderRadius: 4,
+                color: '#9bc090',
+                cursor: 'pointer',
+                fontSize: 11,
+                padding: '3px 8px',
+              }}
+            >
+              {t('section.pasteClip')}
+            </button>
+          )}
+          <HelpButton
+            topic="track-clips"
+            anchor="what"
+            tip={t('help.clipsSection')}
+            size={12}
+          />
+        </div>
       )}
       {ctxMenu && (
         <ContextMenu

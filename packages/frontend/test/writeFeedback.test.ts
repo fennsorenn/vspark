@@ -175,7 +175,7 @@ describe('write paths report their refusals', () => {
       };
       return {
         getMeshHandles: () => ({
-          peer: {},
+          peer: { collection: () => col },
           serverPeerId: 'server',
           collections: new Proxy({}, { get: () => col }),
         }),
@@ -194,7 +194,6 @@ describe('write paths report their refusals', () => {
     outcome = { status: 'rejected', reason: 'guard said no' } as WriteOutcome;
     const { commitNodePath } = await import('../src/mesh/writes');
     const { useEditorStore } = await import('../src/store/editorStore');
-    useEditorStore.setState({ nodes: [{ id: 'n1', name: 'N' } as never] });
 
     commitNodePath('n1', 'name', 'Renamed');
 
@@ -207,7 +206,6 @@ describe('write paths report their refusals', () => {
     // A toast per accepted keystroke-commit would be worse than none at all.
     const { commitNodePath } = await import('../src/mesh/writes');
     const { useEditorStore } = await import('../src/store/editorStore');
-    useEditorStore.setState({ nodes: [{ id: 'n1', name: 'N' } as never] });
 
     commitNodePath('n1', 'name', 'Renamed');
 

@@ -43,7 +43,6 @@ import {
 } from './docGuards.js';
 import { runtimeOverrideManager } from '../runtime_overrides/manager.js';
 import { initMeshRuntime, resetMeshRuntime } from './runtime.js';
-import { initPeerGrants } from './peerGrants.js';
 import {
   clearStatusOf,
   initServerStatus,
@@ -63,27 +62,27 @@ import {
 import { validateFeedConfig } from '@vspark/shared/feedValidation';
 import { broadcastBus } from '../broadcast/bus.js';
 import { isClientParticipant } from '@vspark/shared/sync';
+import { MODELS } from '@vspark/shared/models';
 import '../sync/resources.js'; // side effect: register the descriptors
 
 type Dto = Record<string, unknown>;
 
+/** What only this server adds to a document type declared in
+ *  `@vspark/shared/models` (parent, channels and clock fields come from there). */
 interface RtypeBinding {
   rtype: string;
   table: string;
-  parent?: (dto: Dto) => { rtype: string; id: string } | null;
-  /** Incoming-doc transform/gate (localize project scope, keep local paths).
-   *  `originId` is the peer the op came from (our own id for local writes) —
-   *  used to localize peer-relative fields like clock-anchored timestamps. */
-  validate?: (data: unknown, originId?: string) => Dto;
+  /** Checks that need this server's data, run after the shared declaration's
+   *  on the composed document of every committed write, whatever its shape (a
+   *  tab's field edit, a REST patch, a collab peer's upsert). Throw to refuse:
+   *  the write is nacked and rolled back on its author. Return a different
+   *  document to correct it. `origin` is the participant the write came from
+   *  (our own id for local writes). */
+  validate?: (data: unknown, ctx: { origin: string }) => Dto;
   /** Whether a committed doc belongs to THIS server's data (persist it) or is
    *  a remote projection riding a placed-object subscription (replica-only:
    *  fans out to our tabs, never touches SQLite). §9 step D. */
   persists?: (dto: Dto) => boolean;
-  /** Refuse a committed doc: throw and the write is nacked and rolled back on
-   *  its author. Runs on the COMPOSED doc in the persistence tap, so unlike
-   *  `validate` it sees dotted-path writes as well as whole-doc ones — use it
-   *  for anything that has to hold however the write was shaped. */
-  guard?: (dto: Dto) => void;
   /** What this server's own tabs may do on the collection. Grants are a
    *  whitelist: tabs get exactly these rights and nothing else. */
   clients: TabRights;
@@ -117,7 +116,7 @@ const clearOverridesOf =
   (id: string): void =>
     runtimeOverrideManager.clearAllForTarget(rtype, id);
 
-type TabRights = {
+export type TabRights = {
   read?: boolean;
   update?: boolean;
   create?: boolean;
@@ -145,9 +144,6 @@ const ownProject = (id: unknown): boolean =>
     .prepare('SELECT 1 FROM projects WHERE id = ? AND owner_peer_id IS NULL')
     .get(id as string);
 
-const childOfNode = (d: Dto) =>
-  typeof d.nodeId === 'string' ? { rtype: 'scene_node', id: d.nodeId } : null;
-
 const BINDINGS: RtypeBinding[] = [
   {
     rtype: 'scene_node',
@@ -162,14 +158,6 @@ const BINDINGS: RtypeBinding[] = [
       if (d.kind === 'scene') broadcastBus.reloadSceneSettings(d.id as string);
     },
     table: 'scene_nodes',
-    // Top-level nodes have parent_id NULL and hang off the scene root via
-    // root_scene_node_id (the scene root itself is its own root → null).
-    parent: (d) =>
-      typeof d.parentId === 'string'
-        ? { rtype: 'scene_node', id: d.parentId }
-        : typeof d.rootSceneNodeId === 'string' && d.rootSceneNodeId !== d.id
-          ? { rtype: 'scene_node', id: d.rootSceneNodeId }
-          : null,
     // Incoming collab docs carry the AUTHOR's project id, and they KEEP it: a
     // document has exactly one truth, so re-scoping it here would give one id
     // different content on two peers (mesh.md principle 2). What used to force
@@ -184,15 +172,15 @@ const BINDINGS: RtypeBinding[] = [
     // local path in the interim (so a converged _shared URL isn't clobbered),
     // and a node with no prior path takes the owner path verbatim until the
     // follow-up corrects it.
-    validate: (data, originId) => {
+    validate: (data, { origin: originId }) => {
       let d = { ...(data as Dto) };
-      // Whole-doc writes from a browser tab are creates (or undo-restores of
-      // one). They bypass the REST route, so its server-authoritative checks
-      // run here instead — a throw nacks the write and the client rolls its
-      // optimistic copy back. Collab peers are servers, not clients, and their
-      // docs are re-scoped below rather than validated against our data.
-      if (originId && isClientParticipant(originId))
-        d = guardClientSceneNode(d);
+      // Writes from a browser tab bypass the REST route, so its
+      // server-authoritative checks run here instead, on the document the
+      // write would leave behind — a throw nacks the write and the client
+      // rolls its optimistic copy back. Collab peers are servers, not
+      // clients, and their docs are re-scoped below rather than validated
+      // against our data.
+      if (isClientParticipant(originId)) d = guardClientSceneNode(d);
       const rootId =
         typeof d.rootSceneNodeId === 'string' ? d.rootSceneNodeId : undefined;
       if (!rootId) return d;
@@ -204,7 +192,7 @@ const BINDINGS: RtypeBinding[] = [
       if (!link || d.projectId === link.project_id) return d;
       // A collab doc from the author's project: hold a row for that project so
       // the FK holds, and leave the document alone.
-      if (originId && typeof d.projectId === 'string')
+      if (typeof d.projectId === 'string')
         ensurePeerProject(d.projectId, originId);
       const incoming = typeof d.filePath === 'string' ? d.filePath : null;
       if (incoming) {
@@ -244,12 +232,11 @@ const BINDINGS: RtypeBinding[] = [
     // Tabs author behaviors directly now, so the route's owner check runs here
     // — and it matters more than for effects, because a committed behavior doc
     // makes the onCommitted tap instantiate its signal graph.
-    validate: (data, originId) =>
-      originId && isClientParticipant(originId)
+    validate: (data, { origin }) =>
+      isClientParticipant(origin)
         ? guardClientNodeChild(data as Dto, 'behavior')
         : (data as Dto),
     table: 'behaviors',
-    parent: childOfNode,
     persists: (d) => rowExists('scene_nodes', d.nodeId),
   },
   {
@@ -258,12 +245,11 @@ const BINDINGS: RtypeBinding[] = [
     // Tabs author effects directly now, so the route's owner check has to run
     // here too — see guardClientNodeChild. Collab peers are servers, not
     // clients, and their docs are gated by `persists` instead.
-    validate: (data, originId) =>
-      originId && isClientParticipant(originId)
+    validate: (data, { origin }) =>
+      isClientParticipant(origin)
         ? guardClientNodeChild(data as Dto, 'camera_effect')
         : (data as Dto),
     table: 'camera_effects',
-    parent: childOfNode,
     persists: (d) => rowExists('scene_nodes', d.nodeId),
   },
   {
@@ -271,45 +257,25 @@ const BINDINGS: RtypeBinding[] = [
     clients: TAB_AUTHORED,
     onRemoving: clearOverridesOf('compose_layer'),
     table: 'compose_layers',
-    // Top-level layers have parent_id NULL and hang off their compose scene
-    // via root_compose_scene_id (the compose scene root itself → null) — the
-    // same fallback shape as scene_node, giving compose content a real
-    // containment scope for subtree grants/subscriptions.
-    parent: (d) =>
-      typeof d.parentId === 'string'
-        ? { rtype: 'compose_layer', id: d.parentId }
-        : typeof d.rootComposeSceneId === 'string' &&
-            d.rootComposeSceneId !== d.id
-          ? { rtype: 'compose_layer', id: d.rootComposeSceneId }
-          : null,
-    // Tabs author layer creates directly (so they land on the authoring tab's
-    // undo stack), bypassing the REST route — so its server-owned fields are
-    // re-derived here instead. Collab peers are servers, not clients.
-    validate: (data, originId) =>
-      originId && isClientParticipant(originId)
+    // Tabs author layers directly (so they land on the authoring tab's undo
+    // stack), bypassing the REST route — so its server-owned fields are
+    // re-derived here instead. Collab peers are servers, not clients. A feed
+    // layer's template/css must compile whoever wrote it: refusing it nacks
+    // the write instead of storing markup that renders nothing.
+    validate: (data, { origin }) => {
+      const d = isClientParticipant(origin)
         ? guardClientComposeLayer({ ...(data as Dto) })
-        : (data as Dto),
-    persists: (d) => rowExists('projects', d.projectId),
-    // A feed layer's template/css must compile however the write was shaped
-    // (a tab's dotted-path edit, a REST patch, a collab peer): refusing it
-    // here nacks the write instead of storing markup that renders nothing.
-    guard: (d) => {
+        : (data as Dto);
       const err = validateFeedConfig(d.config);
       if (err) throw new Error(err);
+      return d;
     },
+    persists: (d) => rowExists('projects', d.projectId),
   },
   {
     rtype: 'track_clip',
     clients: TAB_AUTHORED,
     table: 'track_clips',
-    // Clip → its owning node/layer, so scene-subtree grants and subscriptions
-    // cover clips cross-type (the §9 cutover relies on this).
-    parent: (d) =>
-      typeof d.ownerNodeId === 'string'
-        ? { rtype: 'scene_node', id: d.ownerNodeId }
-        : typeof d.ownerLayerId === 'string'
-          ? { rtype: 'compose_layer', id: d.ownerLayerId }
-          : null,
     persists: (d) =>
       typeof d.ownerNodeId === 'string'
         ? rowExists('scene_nodes', d.ownerNodeId)
@@ -323,12 +289,6 @@ const BINDINGS: RtypeBinding[] = [
     // from it (removeTree), and that delete is the tab's own action.
     clients: TAB_READ_DELETE,
     table: 'animation_clips',
-    // FBX/BVH imports → their source node, so scene-subtree grants and
-    // subscriptions cover them cross-type like track clips.
-    parent: (d) =>
-      typeof d.sourceNodeId === 'string'
-        ? { rtype: 'scene_node', id: d.sourceNodeId }
-        : null,
     persists: (d) => rowExists('scene_nodes', d.sourceNodeId),
     // Path localization. animation_clips has no project column, so foreignness
     // is discriminated by CONTENT resolvability instead (scene_node uses its
@@ -385,27 +345,10 @@ const BINDINGS: RtypeBinding[] = [
     rtype: 'scheduled_animation',
     clients: TAB_READ_DELETE,
     table: 'scheduled_animations',
-    // Timeline entry → its avatar node, so it rides the scene-subtree
-    // grants/subscriptions cross-type. No per-server path: clipId is universal
-    // and hash-transferred. startEpoch is anchored on the AUTHOR's clock, so a
-    // foreign doc is translated onto ours via the mesh peer-clock API (identity
-    // for our own writes, where originId is our own peer). Our tabs then read
-    // it against their local clock exactly like a locally-authored timeline.
-    // (The peer runs real NTP-style offset tracking — a ping burst plus a
-    // steady-state interval per link, folded into a best-RTT offset window —
-    // so this subtracts a genuinely measured offset. Only the first sample
-    // window is zero. A previous comment here called it a no-op stub; it is not.)
-    parent: (d) =>
-      typeof d.avatarNodeId === 'string'
-        ? { rtype: 'scene_node', id: d.avatarNodeId }
-        : null,
-    validate: (data, originId) => {
-      const d = { ...(data as Dto) };
-      const peer = getMeshPeer();
-      if (peer && originId && typeof d.startEpoch === 'number')
-        d.startEpoch = Math.round(peer.toLocalTime(originId, d.startEpoch));
-      return d;
-    },
+    // startEpoch is anchored on the writer's clock: the shared declaration
+    // lists it as a clock field, and the mesh translates it onto ours as it
+    // arrives, so our tabs read it against their clocks like a locally
+    // authored timeline.
     persists: (d) => rowExists('scene_nodes', d.avatarNodeId),
   },
   {
@@ -416,32 +359,21 @@ const BINDINGS: RtypeBinding[] = [
     onSaved: (d) => logicLifecycle.onCommitted(d.id as string),
     onRemoved: (id) => logicLifecycle.onRemoved(id),
     table: 'logic',
-    // Owned polymorphically: by a project, a scene node, or a compose layer.
-    // The two entity kinds parent normally so a scene-subtree grant covers a
-    // node's graphs. A project-owned graph gets a NULL parent — there is no
-    // `project` rtype in the mesh, and grants use entityRtype '*' anyway, so
-    // routing does not consult it. The cost is that project graphs cannot be
-    // subtree-scoped (shared or collab-scoped) until a project rtype exists.
-    parent: (d) =>
-      d.ownerKind === 'scene_node' && typeof d.ownerId === 'string'
-        ? { rtype: 'scene_node', id: d.ownerId }
-        : d.ownerKind === 'compose_layer' && typeof d.ownerId === 'string'
-          ? { rtype: 'compose_layer', id: d.ownerId }
-          : null,
-    // The descriptor IS the program, so an unrunnable one is refused rather
-    // than persisted and left to fail at reconcile. This is the mesh
-    // equivalent of the 400 the PUT route used to return, and now the only
-    // place the check lives, since REST and tabs both write through here.
-    //
-    // A `guard`, not `validate`: the canvas commits `set(id, 'descriptor', …)`,
-    // which is a PATCH op, and patches skip validate entirely — the hook would
-    // be handed the descriptor with no doc around it and wave it through.
-    guard: (d) => {
+    // A project-owned graph has no parent (no `project` rtype), so project
+    // graphs cannot be subtree-scoped (shared or collab-scoped) until one
+    // exists. The descriptor IS the program, so an unrunnable one is refused
+    // rather than persisted and left to fail at reconcile. This is the mesh
+    // equivalent of the 400 the PUT route used to return, and the only place
+    // the check lives, since REST and tabs both write through here. The canvas
+    // commits `set(id, 'descriptor', …)`; the check sees the whole document.
+    validate: (data) => {
+      const d = data as Dto;
       if (d.descriptor)
         validateDescriptor(
           toGraphDescriptor(d.descriptor as GraphDescriptorDoc),
           String(d.ownerKind)
         );
+      return d;
     },
     persists: (d) =>
       d.ownerKind === 'project'
@@ -454,26 +386,8 @@ const BINDINGS: RtypeBinding[] = [
     rtype: 'clip_playback',
     clients: TAB_AUTHORED,
     table: 'clip_playback',
-    // Transport state → its clip, which itself parents to the owning node or
-    // compose layer — so a scene-subtree grant covers playback transitively,
-    // without this needing to know anything about nodes.
-    //
-    // Note the parent is `clipId`, NOT `id`: the mesh ContainmentIndex keys by
-    // id alone across every rtype, so a playback doc sharing its clip's id
-    // would collide with the clip's own index entry.
-    parent: (d) =>
-      typeof d.clipId === 'string'
-        ? { rtype: 'track_clip', id: d.clipId }
-        : null,
-    // startEpoch is anchored on the AUTHOR's clock; translate it onto ours so
-    // every peer derives the same playhead. Identity for our own writes.
-    validate: (data, originId) => {
-      const d = { ...(data as Dto) };
-      const peer = getMeshPeer();
-      if (peer && originId && typeof d.startEpoch === 'number')
-        d.startEpoch = Math.round(peer.toLocalTime(originId, d.startEpoch));
-      return d;
-    },
+    // Parented by clipId (shared declaration); startEpoch is a declared clock
+    // field, translated onto our clock by the mesh.
     persists: (d) => rowExists('track_clips', d.clipId),
   },
 ];
@@ -549,6 +463,24 @@ function clearTombstone(rtype: string, id: string): void {
     .run(rtype, id);
 }
 
+/** Grant this server's tabs `rights` on every document of `rtype`. A grant
+ *  to the server's own id covers its participants (its tabs) and no one else;
+ *  grants are a whitelist, so a type without one is unreachable from tabs. */
+export function grantTabs(
+  peer: MeshPeer,
+  rtype: string,
+  rights: TabRights
+): string {
+  return peer.grants.grant({
+    grantee: peer.id,
+    entityRtype: rtype,
+    entityId: '*',
+    includeDescendants: false,
+    pathPrefix: '',
+    rights,
+  });
+}
+
 /** Create + hydrate the backend mesh peer. Idempotent. */
 export function initBackendMesh(): MeshPeer {
   if (_peer) return _peer;
@@ -565,6 +497,7 @@ export function initBackendMesh(): MeshPeer {
   });
   const peer = createMeshPeer({
     identity: { peerId },
+    models: MODELS,
     transports: [_transport],
   });
 
@@ -576,7 +509,6 @@ export function initBackendMesh(): MeshPeer {
   // collection is silent, and the overrides simply stop arriving.
   initMeshRuntime(peer);
   initServerStatus(peer);
-  initPeerGrants(peer);
   // The animation-clip asset follow-up re-points sourceFilePath through the
   // store once a fetched blob lands.
   const animCol = COLLECTIONS.get('animation_clip');
@@ -636,12 +568,9 @@ function bindCollection(
   b: RtypeBinding
 ): Collection<Dto> {
   const r = getResource(b.rtype);
-  const col = peer.collection<Dto>(b.rtype, {
-    parent: b.parent,
-    validate: b.validate,
-    authority: 'self',
-    clients: b.clients,
-  });
+  const col = peer.collection<Dto>(b.rtype, { validate: b.validate });
+  // A grant to our own id covers our tabs and no one else: what they may do.
+  grantTabs(peer, b.rtype, b.clients);
   COLLECTIONS.set(b.rtype, col);
   if (!r?.load) return col;
 
@@ -675,7 +604,6 @@ function bindCollection(
         if (b.persists && !b.persists(c.doc)) return;
         // Before persisting: a throw here nacks the write and restores the
         // pre-write state on the author.
-        b.guard?.(c.doc);
         r.save?.(c.doc);
         clearTombstone(b.rtype, c.id);
         sync.document.upsert(b.rtype, c.id);

@@ -89,7 +89,7 @@ afterAll(async () => {
 describe('ws transport pair', () => {
   it('handshakes, snapshots, and streams live ops to the tab', async () => {
     serverNodes.create({ id: 'n1', name: 'first' });
-    await tab.subscribe(SERVER_ID, {
+    await tab.subscribe({
       entityRtype: 'node',
       entityId: '*',
       includeDescendants: false,

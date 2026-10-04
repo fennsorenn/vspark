@@ -1,13 +1,21 @@
 /**
- * Collab scenes over the mesh (§9 step B).
+ * Collab scenes over the mesh (§9 step B; one-way since
+ * plans/mesh-store-surface.md step 2).
  *
- * A collab link (collab_scenes row) becomes: a standing RUCD grant for the
- * peer on the scene subtree (entityRtype '*' — covers nodes, clips, effects,
- * behaviors via cross-type containment) + a mutual subscription armed
- * whenever the peer is connected. Snapshot-on-subscribe replaces the legacy
- * `_collab_reconcile`; both sides persist incoming ops through the generic
- * tap. The legacy snapshot/mount path is kept ONLY for the initial mount
- * (asset transfer + path rewriting ride it); live ops + reconcile are mesh.
+ * A collab link (collab_scenes row) is shared ONE way. The author grants the
+ * mounting peer RUCD on the scene subtree (entityRtype '*' — covers nodes,
+ * clips, effects, behaviors via cross-type containment), and the mounting
+ * peer subscribes to the scene. The author decides every write to it: the
+ * mounting peer's writes travel to the author — whoever granted them — and
+ * are acked, corrected or refused there; while the author is offline the
+ * mounted scene is read-only. Working on it without the author is what a
+ * local copy is for.
+ *
+ * The subscription names no peer: the mesh serves it from whoever granted the
+ * scene, renews it after a reconnect, and waits while no grant covers it yet
+ * (the first mount races the author's grant). Snapshot-on-subscribe replaces
+ * the legacy `_collab_reconcile`. The legacy snapshot/mount path is kept ONLY
+ * for the initial mount (asset transfer + path rewriting ride it).
  */
 import type { Grant, MeshPeer, MeshSubscription } from '@vspark/mesh';
 import { listAllCollabScenes } from '../multiplayer/collabScene.js';
@@ -26,10 +34,9 @@ function sceneGrant(granteePeerId: string, sceneId: string): Grant {
 }
 
 const granted = new Map<string, string>(); // `${peerId}:${sceneId}` → grant id
-const subscribed = new Set<string>(); // in-flight/active subscription dedupe
-const subs = new Map<string, MeshSubscription>(); // active subscription handles
+const subs = new Map<string, Promise<MeshSubscription>>(); // mounted scenes
 
-/** Issue the mesh grant for one collab link (idempotent per process). */
+/** Author: issue the mesh grant for one collab link (idempotent). */
 export function grantCollabScene(
   peer: MeshPeer,
   granteePeerId: string,
@@ -40,57 +47,24 @@ export function grantCollabScene(
   granted.set(key, peer.grants.grant(sceneGrant(granteePeerId, sceneId)));
 }
 
-/** First-mount race: we may subscribe before the remote side has issued our
- *  grant (it grants on mount / on snapshot receipt) — retry denials. */
-const SUBSCRIBE_RETRY_MS = 3000;
-const SUBSCRIBE_MAX_RETRIES = 40;
-
-/** Subscribe to one collab link's peer now (if connected) and keep it armed
- *  across reconnects. */
-function armLink(
+/** Mounting peer: subscribe to the scene (idempotent; held by the mesh across
+ *  reconnects). */
+function subscribeCollabScene(
   peer: MeshPeer,
   remotePeerId: string,
-  sceneId: string,
-  attempt = 0
+  sceneId: string
 ): void {
   const key = `${remotePeerId}:${sceneId}`;
-  if (subscribed.has(key)) return;
-  if (!peer.status().peers.some((p) => p.id === remotePeerId)) return;
-  subscribed.add(key);
-  peer
-    .subscribe(remotePeerId, {
+  if (subs.has(key)) return;
+  subs.set(
+    key,
+    peer.subscribe({
       entityRtype: '*',
       entityId: sceneId,
       includeDescendants: true,
       pathPrefix: '',
     })
-    .then((sub) => {
-      if (process.env.COLLAB_DEBUG)
-        console.log(
-          `[collab-dbg] subscribed to ${remotePeerId} for scene ${sceneId} (attempt ${attempt}) — receiver→author ops can now flow`
-        );
-      // Torn down while the subscribe was in flight → drop it immediately.
-      if (subscribed.has(key)) subs.set(key, sub);
-      else sub.unsubscribe();
-    })
-    .catch((e) => {
-      subscribed.delete(key);
-      if (process.env.COLLAB_DEBUG)
-        console.log(
-          `[collab-dbg] subscribe to ${remotePeerId} for scene ${sceneId} DENIED (attempt ${attempt}): ${String((e as Error)?.message ?? e)}`
-        );
-      if (attempt < SUBSCRIBE_MAX_RETRIES) {
-        setTimeout(
-          () => armLink(peer, remotePeerId, sceneId, attempt + 1),
-          SUBSCRIBE_RETRY_MS
-        );
-      } else {
-        console.warn(
-          `[mesh] collab subscribe ${sceneId} @ ${remotePeerId} gave up:`,
-          e
-        );
-      }
-    });
+  );
 }
 
 /** Tear down one collab link's mesh state: revoke our grant to the peer (which
@@ -111,37 +85,22 @@ export function teardownCollabScene(
   }
   const sub = subs.get(key);
   if (sub) {
-    try {
-      sub.unsubscribe();
-    } catch {
-      /* link already gone */
-    }
     subs.delete(key);
+    void sub.then((s) => s.unsubscribe());
   }
-  subscribed.delete(key);
 }
 
-/** (Re-)sync grants + subscriptions against the current collab links. Called
- *  at init, on peer connect/disconnect, and after share/mount. */
+/** Bring grants and subscriptions in line with the current collab links.
+ *  Called at init and after share/mount. */
 export function syncCollabLinks(peer: MeshPeer): void {
-  const connected = new Set(peer.status().peers.map((p) => p.id));
   for (const link of listAllCollabScenes()) {
-    if (process.env.COLLAB_DEBUG)
-      console.log(
-        `[collab-dbg] syncLink role=${link.role} peer=${link.peerId} scene=${link.sceneId} connected=${connected.has(link.peerId)} — granting peer + arming subscription`
-      );
-    grantCollabScene(peer, link.peerId, link.sceneId);
-    const key = `${link.peerId}:${link.sceneId}`;
-    if (!connected.has(link.peerId)) {
-      subscribed.delete(key); // re-arm on reconnect (snapshot = reconcile)
-      continue;
-    }
-    armLink(peer, link.peerId, link.sceneId);
+    if (link.role === 'author')
+      grantCollabScene(peer, link.peerId, link.sceneId);
+    else subscribeCollabScene(peer, link.peerId, link.sceneId);
   }
 }
 
-/** Wire collab links to the mesh peer lifecycle. */
+/** Wire collab links to the mesh peer. */
 export function initMeshCollab(peer: MeshPeer): void {
   syncCollabLinks(peer);
-  peer.onStatus(() => syncCollabLinks(peer));
 }

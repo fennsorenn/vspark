@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next';
 import {
   useEditorStore,
   type ComposeLayerRecord,
+  type OutputWindowStatus,
 } from '../../store/editorStore';
 import type { ComposeAnchorH, ComposeAnchorV } from '../../api/client';
 import { LAYER_KIND_ICON } from '../icons';
@@ -20,6 +21,9 @@ import {
   DEFAULT_COMPOSE_HEIGHT,
   type PreviewBg,
 } from './ComposeView';
+import { useComposeLayers, useComposeScenes } from '../../mesh/compose';
+import { useSceneNodes } from '../../mesh/nodes';
+import { useServerStatus } from '../../mesh/runtime';
 
 // The old `numInput` / `NumberField` / `KfBtn` helpers were removed when the
 // numeric controls were unified — see ./numericInputs.tsx.
@@ -118,9 +122,9 @@ export function ComposeLayerProperties({
 }) {
   const { t } = useTranslation('compose');
   const assets = useEditorStore((s) => s.assets);
-  const composeLayers = useEditorStore((s) => s.composeLayers);
+  const composeLayers = useComposeLayers();
   const flashBottomTab = useEditorStore((s) => s.flashBottomTab);
-  const nodes = useEditorStore((s) => s.nodes);
+  const nodes = useSceneNodes();
   const { canRecord, recordKeyframe, recordKeyframes } = useTrackClipRecorder();
 
   const cameraNode = layer.cameraNodeId
@@ -200,7 +204,7 @@ export function ComposeLayerProperties({
   );
 
   // The compose scene this layer belongs to defines the % reference frame.
-  const composeScenes = useEditorStore((s) => s.composeScenes);
+  const composeScenes = useComposeScenes();
   const parentScene = composeScenes.find(
     (cs) => cs.id === layer.rootComposeSceneId
   );
@@ -1173,7 +1177,6 @@ export function ComposeSceneProperties({
 }) {
   const { t } = useTranslation('compose');
   const assets = useEditorStore((s) => s.assets);
-  const updateSceneLocal = useEditorStore((s) => s.updateComposeSceneLocal);
   const imageAssets = assets.filter((a) => a.kind === 'image');
 
   const w =
@@ -1186,19 +1189,18 @@ export function ComposeSceneProperties({
   const commitSize = (values: number[]) => {
     const nw = Math.max(16, Math.round(values[0]));
     const nh = Math.max(16, Math.round(values[1]));
-    updateSceneLocal({ ...scene, width: nw, height: nh });
     commitLayerPatch(scene.id, { width: nw, height: nh });
   };
   const setPb = (patch: Partial<PreviewBg>) => {
     const config = { ...scene.config, previewBg: { ...pb, ...patch } };
-    updateSceneLocal({ ...scene, config });
     commitLayerPath(scene.id, 'config', config);
   };
   const obsWindow = scene.config?.obsWindowCapture === true;
-  const runtime = useEditorStore((s) => s.outputWindowStatus);
+  const runtime = useServerStatus('output_window', 'main') as
+    | OutputWindowStatus
+    | undefined;
   const setObsWindow = (on: boolean) => {
     const config = { ...scene.config, obsWindowCapture: on };
-    updateSceneLocal({ ...scene, config });
     commitLayerPath(scene.id, 'config', config);
   };
 

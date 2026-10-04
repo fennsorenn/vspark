@@ -136,7 +136,9 @@ function mapAsset(r: Record<string, unknown>): AssetFile {
 }
 
 /** Parse the asset_files.metadata JSON column (string|object|null) → typed. */
-function parseAssetMetadata(raw: unknown): import('@vspark/shared').VrmAssetMetadata | null {
+function parseAssetMetadata(
+  raw: unknown
+): import('@vspark/shared').VrmAssetMetadata | null {
   if (raw == null) return null;
   try {
     return (
@@ -714,13 +716,10 @@ export const uploadLive2dBundle = (
         })
     )
   ).then((encoded) =>
-    request<Record<string, unknown>>(
-      `/projects/${projectId}/assets/bundle`,
-      {
-        method: 'POST',
-        body: JSON.stringify({ rootName, kind: 'live2d', files: encoded }),
-      }
-    ).then(mapAsset)
+    request<Record<string, unknown>>(`/projects/${projectId}/assets/bundle`, {
+      method: 'POST',
+      body: JSON.stringify({ rootName, kind: 'live2d', files: encoded }),
+    }).then(mapAsset)
   );
 
 export const deleteAsset = (id: string) =>
@@ -794,7 +793,6 @@ export const updateComposeLayer = (
 
 export const deleteComposeLayer = (id: string) =>
   request<{ id: string }>(`/compose-layers/${id}`, { method: 'DELETE' });
-
 
 // Compose Scenes
 export const getComposeScenes = (projectId: string) =>
@@ -1716,6 +1714,9 @@ export interface CollabSceneLink {
   sceneId: string;
   peerId: string;
   role: 'author' | 'mounted';
+  /** The project of OURS the scene lives in (a mounted scene's documents keep
+   *  their author's projectId). */
+  projectId: string;
 }
 export const getCollabScenes = () =>
   request<CollabSceneLink[]>('/connections/collab-scenes');

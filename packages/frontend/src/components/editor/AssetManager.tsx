@@ -1,11 +1,7 @@
 import { useState, useRef, useEffect } from 'react';
-import {
-  commitBehaviorCreate,
-} from '../../mesh/behaviorWrites';
+import { commitBehaviorCreate } from '../../mesh/behaviorWrites';
 import { useTranslation } from 'react-i18next';
-import {
-  commitEffectCreate,
-} from '../../mesh/effectWrites';
+import { commitEffectCreate } from '../../mesh/effectWrites';
 import { useEditorStore } from '../../store/editorStore';
 import { api } from '../../api/client';
 import {
@@ -28,8 +24,14 @@ import { PresetLibrary } from './PresetLibrary';
 import { CreatePalette } from './CreatePalette';
 import { AssetThumb } from './AssetThumb';
 import { DND_ASSET } from './dnd';
-import { behaviorCompatibleWith, createNodeFromLive2dAsset } from './createKinds';
+import {
+  behaviorCompatibleWith,
+  createNodeFromLive2dAsset,
+} from './createKinds';
 import { HelpButton } from '../../help/HelpButton';
+import { useCameraEffects, useNodeBehaviors } from '../../mesh/hooks';
+import { useComposeLayers } from '../../mesh/compose';
+import { useSceneNodes } from '../../mesh/nodes';
 
 /** Per-tab contextual help target — one consistent `?` follows the active tab. */
 const tabHelp: Partial<
@@ -60,12 +62,12 @@ export function AssetManager() {
     activeSceneId,
     projectId,
     selectedNodeId,
-    nodes,
-    behaviors,
     behaviorKinds,
-    cameraEffects,
   } = useEditorStore();
+  const nodes = useSceneNodes();
   const selectedNode = nodes.find((n) => n.id === selectedNodeId) ?? null;
+  const selectedEffects = useCameraEffects(selectedNode?.id);
+  const selectedBehaviors = useNodeBehaviors(selectedNode?.id);
   const canApplyAnim =
     selectedNode?.kind === 'avatar' || selectedNode?.kind === 'model';
   const canApplyModel =
@@ -84,10 +86,7 @@ export function AssetManager() {
   const selectedComposeLayerId = useEditorStore(
     (s) => s.selectedComposeLayerId
   );
-  const composeLayers = useEditorStore((s) => s.composeLayers);
-  const updateComposeLayerLocal = useEditorStore(
-    (s) => s.updateComposeLayerLocal
-  );
+  const composeLayers = useComposeLayers();
   const selectedComposeLayer =
     composeLayers.find((l) => l.id === selectedComposeLayerId) ?? null;
   const canApplyImageLayer = selectedComposeLayer?.kind === 'image';
@@ -492,7 +491,6 @@ export function AssetManager() {
     if (!layer) return;
     try {
       commitLayerPath(layer.id, 'assetId', asset.id);
-      updateComposeLayerLocal(layer.id, { assetId: asset.id });
     } catch (e: unknown) {
       alert(e instanceof Error ? e.message : t('alerts.applyMediaFailed'));
     }
@@ -550,7 +548,8 @@ export function AssetManager() {
     // behind would silently pin the avatar to the *previous* idle — the new url
     // would land in the ignored legacy slot. Clearing it lets the Viewport
     // re-derive a fresh clip id for this url, exactly like the panel's edit path.
-    const prevProps = (selectedNode.properties as Record<string, unknown>) ?? {};
+    const prevProps =
+      (selectedNode.properties as Record<string, unknown>) ?? {};
     const prevAnim =
       (prevProps.animation as Record<string, unknown> | undefined) ?? {};
     const prevSpeed =
@@ -562,7 +561,10 @@ export function AssetManager() {
       ...selectedNode.components,
       animation: { idleUrl: asset.url, speed: prevSpeed },
     };
-    const properties = { ...prevProps, animation: { ...prevAnim, idle: undefined } };
+    const properties = {
+      ...prevProps,
+      animation: { ...prevAnim, idle: undefined },
+    };
     try {
       commitNodePatch(selectedNode.id, { components, properties });
     } catch (e: unknown) {
@@ -576,7 +578,8 @@ export function AssetManager() {
   // wholesale so no stale clipId lingers).
   const handleApplyAnimationAsBase = async (asset: AssetFile) => {
     if (!selectedNode) return;
-    const prevProps = (selectedNode.properties as Record<string, unknown>) ?? {};
+    const prevProps =
+      (selectedNode.properties as Record<string, unknown>) ?? {};
     const prevAnim =
       (prevProps.animation as Record<string, unknown> | undefined) ?? {};
     const prevSpeed =
@@ -673,9 +676,7 @@ export function AssetManager() {
     ct: (typeof behaviorKinds)[number],
     dimmed: boolean
   ) => {
-    const alreadyAdded = behaviors.some(
-      (c) => c.nodeId === selectedNode!.id && c.kind === ct.kind
-    );
+    const alreadyAdded = selectedBehaviors.some((c) => c.kind === ct.kind);
     return (
       <div
         key={ct.kind}
@@ -829,10 +830,18 @@ export function AssetManager() {
           flexShrink: 0,
         }}
       >
-        <button className="vs-tab-create" style={tabBtn('create')} onClick={() => setTab('create')}>
+        <button
+          className="vs-tab-create"
+          style={tabBtn('create')}
+          onClick={() => setTab('create')}
+        >
           {t('tabs.create')}
         </button>
-        <button className="vs-tab-models" style={tabBtn('models')} onClick={() => setTab('models')}>
+        <button
+          className="vs-tab-models"
+          style={tabBtn('models')}
+          onClick={() => setTab('models')}
+        >
           {t('tabs.models')}
         </button>
         <button
@@ -842,13 +851,25 @@ export function AssetManager() {
         >
           {t('tabs.animations')}
         </button>
-        <button className="vs-tab-images" style={tabBtn('images')} onClick={() => setTab('images')}>
+        <button
+          className="vs-tab-images"
+          style={tabBtn('images')}
+          onClick={() => setTab('images')}
+        >
           {t('tabs.images')}
         </button>
-        <button className="vs-tab-videos" style={tabBtn('videos')} onClick={() => setTab('videos')}>
+        <button
+          className="vs-tab-videos"
+          style={tabBtn('videos')}
+          onClick={() => setTab('videos')}
+        >
           {t('tabs.videos')}
         </button>
-        <button className="vs-tab-audio" style={tabBtn('audio')} onClick={() => setTab('audio')}>
+        <button
+          className="vs-tab-audio"
+          style={tabBtn('audio')}
+          onClick={() => setTab('audio')}
+        >
           {t('tabs.audio')}
         </button>
         <button
@@ -858,13 +879,25 @@ export function AssetManager() {
         >
           {t('tabs.components')}
         </button>
-        <button className="vs-tab-effects" style={tabBtn('effects')} onClick={() => setTab('effects')}>
+        <button
+          className="vs-tab-effects"
+          style={tabBtn('effects')}
+          onClick={() => setTab('effects')}
+        >
           {t('tabs.effects')}
         </button>
-        <button className="vs-tab-clips" style={tabBtn('clips')} onClick={() => setTab('clips')}>
+        <button
+          className="vs-tab-clips"
+          style={tabBtn('clips')}
+          onClick={() => setTab('clips')}
+        >
           {t('tabs.clips')}
         </button>
-        <button className="vs-tab-presets" style={tabBtn('presets')} onClick={() => setTab('presets')}>
+        <button
+          className="vs-tab-presets"
+          style={tabBtn('presets')}
+          onClick={() => setTab('presets')}
+        >
           {t('tabs.presets')}
         </button>
         {/* One contextual help affordance for the active tab — consistent across
@@ -1120,8 +1153,8 @@ export function AssetManager() {
               {selectedNode && selectedNode.kind === 'camera' && (
                 <div style={cardGrid}>
                   {CAMERA_EFFECT_KINDS.map((ek) => {
-                    const alreadyAdded = cameraEffects.some(
-                      (e) => e.nodeId === selectedNode.id && e.kind === ek.kind
+                    const alreadyAdded = selectedEffects.some(
+                      (e) => e.kind === ek.kind
                     );
                     return (
                       <div
@@ -1145,7 +1178,9 @@ export function AssetManager() {
                           }}
                         >
                           {(() => {
-                            const I = CAMERA_EFFECT_ICON[ek.kind] ?? CAMERA_EFFECT_FALLBACK;
+                            const I =
+                              CAMERA_EFFECT_ICON[ek.kind] ??
+                              CAMERA_EFFECT_FALLBACK;
                             return <I size={20} />;
                           })()}
                         </span>

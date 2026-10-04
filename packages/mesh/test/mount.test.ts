@@ -153,7 +153,7 @@ describe('mount', () => {
     co.set('scene', '', { id: 'scene', name: 'Owned' });
     await flush();
 
-    await recv.subscribe('OWNER', {
+    await recv.subscribe({
       entityRtype: 'node',
       entityId: 'scene',
       includeDescendants: true,

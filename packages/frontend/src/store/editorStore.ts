@@ -8,7 +8,6 @@ import type {
   TrackClipLaneRecord,
   TrackClipKeyframeRecord,
   TrackClipEventRecord,
-  LogicRecord,
 } from '../api/client';
 import type { UpdateChannel } from '@vspark/shared';
 import type { ClipPlaybackDoc } from '@vspark/shared/clipPlayback';
@@ -270,28 +269,19 @@ export {
 export interface EditorState {
   projectId: string | null;
   projectName: string;
-  scenes: SceneItem[];
   activeSceneId: string | null;
-  nodes: StageObject[];
+  /** Nodes projected from a peer's placed object (Phase 6, see
+   *  sync/sharedProjection.ts) — a derived view, read with the project's own
+   *  nodes through mesh/nodes.ts. Goes with the Phase-6 legacy (W7). */
+  projectedNodes: StageObject[];
+  /** What this tab shows for a node's transform while a local gesture or a
+   *  received preview's tween is running, before the documents catch up. View
+   *  state, merged over the documents by mesh/nodes.ts. */
+  liveNodes: Record<string, Record<string, number>>;
   selectedNodeId: string | null;
   sceneSelected: boolean;
   selectedBehaviorId: string | null;
   assets: AssetFile[];
-  behaviors: Behavior[];
-  vmcStatus: Record<string, boolean>; // behaviorId → connected
-  vmcTracking: Record<string, boolean>; // behaviorId → tracking active
-  /** Avatar animation timeline (scheduled_animation docs), keyed by entry id.
-   *  Fed from the mesh replica; the avatar's animation effect reads the entries
-   *  for its node, ordered by startEpoch. */
-  scheduledAnimations: Record<string, ScheduledAnimation>;
-  /** clip_playback docs, keyed by CLIP id (not doc id) — callers look up by clip. */
-  clipPlayback: Record<string, ClipPlayback>;
-  /** logic (signal graph) docs, keyed by id. Fed from the mesh replica; the
-   *  panels used to re-poll REST every 3 seconds for this. */
-  logic: Record<string, LogicRecord>;
-  /** Animation clips (animation_clip docs), keyed by clip id. Resolves a
-   *  timeline/idle clipId to its source asset URL + duration. */
-  animationClips: Record<string, AnimationClipMeta>;
   vrmBonesByNode: Record<string, string[]>; // nodeId → VRM humanoid bone names
   vrmExpressionsByNode: Record<string, string[]>; // nodeId → VRM expression names
   vrmMorphTargetsByNode: Record<string, string[]>; // nodeId → mesh morph target names
@@ -305,9 +295,6 @@ export interface EditorState {
   /** OBS (obs-websocket) connections for the current project. Populated lazily
    *  by the OBS Connections modal; status kept live by `server_status` docs. */
   obsConnections: import('../api/client').ObsConnectionRecord[];
-  /** Backend Electron runtime state for OBS window capture (`server_status`
-   *  document `output_window:main`). */
-  outputWindowStatus: OutputWindowStatus | null;
   activeLogicId: string | null;
   /** True when the active graph is a writable standalone project graph;
    *  false when it's a behavior-owned (read-only) graph or no graph is active.
@@ -316,14 +303,15 @@ export interface EditorState {
   selectedSignalNodeId: string | null;
   boneListExpanded: Record<string, boolean>; // nodeId → bone list open in SceneGraph
   fbxDebugVisible: Record<string, boolean>; // nodeId → FBX debug model shown
-  cameraEffects: CameraEffectRecord[];
   previewEffectsCamera: string | null; // nodeId of the camera with Preview Effects active
   selectedEffect: { nodeId: string; kind: string } | null;
 
-  // Compose view
-  composeScenes: ComposeLayerRecord[];
+  // Compose view. The layers themselves are mesh documents (mesh/compose.ts).
   activeComposeSceneId: string | null;
-  composeLayers: ComposeLayerRecord[];
+  /** What this tab shows for a layer while a local gesture or a received
+   *  preview's tween is running, before the documents catch up. View state:
+   *  merged over the documents by the compose hooks, cleared when it ends. */
+  liveLayers: Record<string, Partial<ComposeLayerRecord>>;
   leftTab: LeftDockTab;
   bottomTab: BottomDockTab;
   /** Bumped (to a fresh timestamp) every time something asks the bottom dock to
@@ -359,24 +347,12 @@ export interface EditorState {
   selectedComposeLayerId: string | null;
 
   // Track clips
-  trackClips: TrackClipRecord[];
   selectedTrackClipId: string | null;
   /** clipId → active playback anchor */
   /** nodeId → ephemeral transform override produced by the evaluator (never persisted) */
   nodeTransformOverrides: Record<string, NodeTransformOverride>;
   /** composeLayerId → ephemeral DOM-space override produced by the evaluator */
   composeLayerOverrides: Record<string, ComposeLayerOverride>;
-  /** nodeId → paramPath → value, driven by signal-graph nodes via the runtime
-   *  override bus. Parallel to nodeTransformOverrides; see RuntimeOverrideMap. */
-  runtimeNodeOverrides: Record<string, RuntimeOverrideMap>;
-  /** composeLayerId → paramPath → value, same as above for compose layers. */
-  runtimeLayerOverrides: Record<string, RuntimeOverrideMap>;
-  /** scope → (field → last-published value), fed by the data-channel bus
-   *  (`set_data` node → the mesh `data_field` collection). Consumed by `feed` compose layers
-   *  (and the 3D billboard), which expose every in-scope field to a user template
-   *  by its bare name. scope `''` is GLOBAL; other scopes are a consumer's own id
-   *  (a layer/node id). A consumer reads `global ∪ its-own-id`. */
-  dataChannels: Record<string, Record<string, unknown>>;
   /** Per-(target, param) suppression set: while a key is present, the evaluator
    *  must NOT apply that lane's value as an override, and the existing override
    *  slot for it should be cleared. Set when the user edits a numeric input on
@@ -388,42 +364,18 @@ export interface EditorState {
 
   // Actions
   setProject: (id: string, name: string) => void;
-  setScenes: (scenes: SceneItem[]) => void;
-  updateSceneItem: (
-    sceneId: string,
-    updates: Partial<Omit<SceneItem, 'id'>>
-  ) => void;
-  removeScene: (sceneId: string) => void;
   setActiveScene: (id: string | null) => void;
   setSceneSelected: (selected: boolean) => void;
-  setNodes: (nodes: StageObject[]) => void;
-  addNode: (node: StageObject) => void;
-  updateNode: (id: string, updates: Partial<StageObject>) => void;
-  deleteNode: (id: string) => void;
+  /** Upsert / drop a projected node (sync/sharedProjection.ts). */
+  putProjectedNode: (node: StageObject) => void;
+  dropProjectedNode: (id: string) => void;
+  /** Merge live transform fields for a node; `null` drops them. */
+  setLiveNode: (id: string, fields: Record<string, number> | null) => void;
   selectNode: (id: string | null) => void;
   selectBehavior: (id: string | null) => void;
   setAssets: (assets: AssetFile[]) => void;
   addAsset: (asset: AssetFile) => void;
   deleteAsset: (id: string) => void;
-  activeSceneNodes: () => StageObject[];
-  setBehaviors: (comps: Behavior[]) => void;
-  addBehavior: (comp: Behavior) => void;
-  updateBehavior: (
-    id: string,
-    updates: Partial<Omit<Behavior, 'id' | 'nodeId'>>
-  ) => void;
-  removeBehavior: (id: string) => void;
-  behaviorsFor: (nodeId: string) => Behavior[];
-  setVmcStatus: (behaviorId: string, connected: boolean) => void;
-  setVmcTracking: (behaviorId: string, tracking: boolean) => void;
-  upsertScheduledAnimation: (entry: ScheduledAnimation) => void;
-  removeScheduledAnimation: (id: string) => void;
-  upsertClipPlayback: (entry: ClipPlayback) => void;
-  removeClipPlayback: (docId: string) => void;
-  upsertLogic: (entry: LogicRecord) => void;
-  removeLogicLocal: (id: string) => void;
-  upsertAnimationClip: (entry: AnimationClipMeta) => void;
-  removeAnimationClip: (id: string) => void;
   setVrmBonesForNode: (nodeId: string, bones: string[]) => void;
   clearVrmBonesForNode: (nodeId: string) => void;
   setVrmExpressionsForNode: (nodeId: string, expressions: string[]) => void;
@@ -442,43 +394,18 @@ export interface EditorState {
   setObsConnections: (
     connections: import('../api/client').ObsConnectionRecord[]
   ) => void;
-  /** Patch one connection's live status from an obs_connection_status message. */
-  patchObsConnectionStatus: (patch: {
-    connectionId: string;
-    status: import('../api/client').ObsConnectionStatus;
-    reason: string | null;
-    message: string | null;
-  }) => void;
-  setOutputWindowStatus: (status: OutputWindowStatus) => void;
   setActiveLogic: (id: string | null) => void;
   setActiveLogicWritable: (writable: boolean) => void;
   setSelectedSignalNode: (id: string | null) => void;
   setBoneListExpanded: (nodeId: string, expanded: boolean) => void;
   setFbxDebugVisible: (nodeId: string, visible: boolean) => void;
-  setCameraEffects: (effects: CameraEffectRecord[]) => void;
-  addCameraEffect: (effect: CameraEffectRecord) => void;
-  updateCameraEffect: (
-    id: string,
-    updates: Partial<Omit<CameraEffectRecord, 'id' | 'nodeId'>>
-  ) => void;
-  removeCameraEffect: (id: string) => void;
-  cameraEffectsFor: (nodeId: string) => CameraEffectRecord[];
   setPreviewEffectsCamera: (nodeId: string | null) => void;
   selectEffect: (nodeId: string, kind: string) => void;
   clearSelectedEffect: () => void;
 
-  setComposeScenes: (scenes: ComposeLayerRecord[]) => void;
-  addComposeScene: (scene: ComposeLayerRecord) => void;
-  updateComposeSceneLocal: (scene: ComposeLayerRecord) => void;
   selectComposeScene: (id: string | null) => void;
-  setComposeLayers: (layers: ComposeLayerRecord[]) => void;
-  addComposeLayer: (layer: ComposeLayerRecord) => void;
-  updateComposeLayerLocal: (
-    id: string,
-    patch: Partial<ComposeLayerRecord>
-  ) => void;
-  removeComposeLayer: (id: string) => void;
-  removeComposeScene: (id: string) => void;
+  /** Merge live display fields for a layer; `null` drops them. */
+  setLiveLayer: (id: string, patch: Partial<ComposeLayerRecord> | null) => void;
   setLeftTab: (tab: LeftDockTab) => void;
   setBottomTab: (tab: BottomDockTab) => void;
   /** Switch the bottom dock to `tab` and pulse it as a hint. */
@@ -509,22 +436,7 @@ export interface EditorState {
   dispatchUiAction: (action: unknown) => void;
 
   // Track clip actions
-  setTrackClips: (clips: TrackClipRecord[]) => void;
-  addTrackClip: (clip: TrackClipRecord) => void;
-  updateTrackClipLocal: (clip: TrackClipRecord) => void;
-  removeTrackClip: (id: string) => void;
   selectTrackClip: (id: string | null) => void;
-  addTrackClipLane: (clipId: string, lane: TrackClipLaneRecord) => void;
-  updateTrackClipLaneLocal: (lane: TrackClipLaneRecord) => void;
-  removeTrackClipLane: (laneId: string, clipId?: string | null) => void;
-  replaceTrackClipLaneKeyframes: (
-    laneId: string,
-    keyframes: TrackClipKeyframeRecord[]
-  ) => void;
-  replaceTrackClipEvents: (
-    clipId: string,
-    events: TrackClipEventRecord[]
-  ) => void;
   /** Bulk replace (used by playback snapshot on (re)connect). */
   setNodeTransformOverride: (
     nodeId: string,
@@ -533,20 +445,6 @@ export interface EditorState {
   setComposeLayerOverride: (
     layerId: string,
     override: ComposeLayerOverride | null
-  ) => void;
-  /** Apply a single runtime override broadcast from the runtime-override bus. */
-  setRuntimeOverride: (
-    targetKind: 'scene_node' | 'compose_layer',
-    targetId: string,
-    paramPath: string,
-    value: RuntimeOverrideValue
-  ) => void;
-  /** Clear a single runtime override, or every override for the target when
-   *  paramPath is omitted. */
-  clearRuntimeOverride: (
-    targetKind: 'scene_node' | 'compose_layer',
-    targetId: string,
-    paramPath?: string
   ) => void;
   /** Mark a (target, param) as user-edited so the evaluator stops overwriting it
    *  until the next clip event. `paramPath` matches the lane's param path. */
@@ -557,12 +455,6 @@ export interface EditorState {
   ) => void;
   /** Drop all suppressions — called when a clip is triggered / paused / scrubbed. */
   clearOverrideSuppressions: () => void;
-
-  // Data channels (generic graph → frontend publish surface)
-  /** Merge a published field-set into a scope. */
-  mergeDataChannels: (scope: string, fields: Record<string, unknown>) => void;
-  /** Clear one field in a scope, or the whole scope when `field` is omitted. */
-  clearDataChannels: (scope: string, field?: string) => void;
 
   // Presets
   presets: PresetSummary[];
@@ -588,20 +480,13 @@ export interface EditorState {
 export const useEditorStore = create<EditorState>((set, get) => ({
   projectId: null,
   projectName: '',
-  scenes: [],
   activeSceneId: null,
-  nodes: [],
+  projectedNodes: [],
+  liveNodes: {},
   selectedNodeId: null,
   sceneSelected: false,
   selectedBehaviorId: null,
   assets: [],
-  behaviors: [],
-  vmcStatus: {},
-  vmcTracking: {},
-  scheduledAnimations: {},
-  clipPlayback: {},
-  logic: {},
-  animationClips: {},
   vrmBonesByNode: {},
   vrmExpressionsByNode: {},
   live2dParamsByNode: {},
@@ -611,20 +496,17 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   behaviorKinds: [],
   overliveAccounts: [],
   obsConnections: [],
-  outputWindowStatus: null,
   activeLogicWritable: false,
   activeLogicId: null,
   selectedSignalNodeId: null,
   boneListExpanded: {},
   fbxDebugVisible: {},
 
-  cameraEffects: [],
   previewEffectsCamera: null,
   selectedEffect: null,
 
-  composeScenes: [],
   activeComposeSceneId: null,
-  composeLayers: [],
+  liveLayers: {},
   leftTab: initialLeftTab(),
   bottomTab: initialBottomTab(),
   bottomTabFlash: 0,
@@ -636,78 +518,30 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   clipboardPayload: null,
   selectedComposeLayerId: null,
 
-  trackClips: [],
   selectedTrackClipId: null,
   nodeTransformOverrides: {},
   composeLayerOverrides: {},
-  runtimeNodeOverrides: {},
-  runtimeLayerOverrides: {},
-  dataChannels: {},
   suppressedOverrides: new Set<string>(),
 
   setProject: (id, name) => set({ projectId: id, projectName: name }),
-  setScenes: (scenes) => set({ scenes }),
-  updateSceneItem: (sceneId, updates) =>
-    set((s) => ({
-      scenes: s.scenes.map((sc) =>
-        sc.id === sceneId ? { ...sc, ...updates } : sc
-      ),
-    })),
-  removeScene: (sceneId) =>
-    set((s) => {
-      const remainingScenes = s.scenes.filter((sc) => sc.id !== sceneId);
-      const removedNodeIds = new Set(
-        s.nodes.filter((n) => n.rootSceneNodeId === sceneId).map((n) => n.id)
-      );
-      // The scene node owns itself by id; clips can be owned by it or any child.
-      removedNodeIds.add(sceneId);
-      const wasActive = s.activeSceneId === sceneId;
-      return {
-        scenes: remainingScenes,
-        nodes: s.nodes.filter((n) => n.rootSceneNodeId !== sceneId),
-        behaviors: s.behaviors.filter((c) => !removedNodeIds.has(c.nodeId)),
-        cameraEffects: s.cameraEffects.filter(
-          (e) => !removedNodeIds.has(e.nodeId)
-        ),
-        trackClips: s.trackClips.filter(
-          (t) => !(t.ownerNodeId != null && removedNodeIds.has(t.ownerNodeId))
-        ),
-        activeSceneId: wasActive
-          ? (remainingScenes[0]?.id ?? null)
-          : s.activeSceneId,
-        selectedNodeId: removedNodeIds.has(s.selectedNodeId ?? '')
-          ? null
-          : s.selectedNodeId,
-        sceneSelected: wasActive ? false : s.sceneSelected,
-      };
-    }),
   setActiveScene: (id) => set({ activeSceneId: id }),
   setSceneSelected: (selected) => set({ sceneSelected: selected }),
-  setNodes: (nodes) => set({ nodes }),
-  addNode: (node) =>
-    set((s) =>
-      // Idempotent by id: a create's REST response and its WS broadcast can race
-      // (either order), and only the broadcast path deduped before. Guard here so
-      // neither can double-insert.
-      s.nodes.some((n) => n.id === node.id) ? {} : { nodes: [...s.nodes, node] }
-    ),
-  updateNode: (id, updates) =>
+  putProjectedNode: (node) =>
     set((s) => ({
-      nodes: s.nodes.map((n) => (n.id === id ? { ...n, ...updates } : n)),
+      projectedNodes: s.projectedNodes.some((n) => n.id === node.id)
+        ? s.projectedNodes.map((n) => (n.id === node.id ? node : n))
+        : [...s.projectedNodes, node],
     })),
-  deleteNode: (id) =>
+  dropProjectedNode: (id) =>
+    set((s) => ({
+      projectedNodes: s.projectedNodes.filter((n) => n.id !== id),
+    })),
+  setLiveNode: (id, fields) =>
     set((s) => {
-      const removedComps = new Set(
-        s.behaviors.filter((c) => c.nodeId === id).map((c) => c.id)
-      );
-      return {
-        nodes: s.nodes.filter((n) => n.id !== id),
-        selectedNodeId: s.selectedNodeId === id ? null : s.selectedNodeId,
-        selectedBehaviorId: removedComps.has(s.selectedBehaviorId ?? '')
-          ? null
-          : s.selectedBehaviorId,
-        behaviors: s.behaviors.filter((c) => c.nodeId !== id),
-      };
+      const next = { ...s.liveNodes };
+      if (fields) next[id] = { ...next[id], ...fields };
+      else delete next[id];
+      return { liveNodes: next };
     }),
   selectNode: (id) =>
     set((s) => ({
@@ -722,100 +556,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   addAsset: (asset) => set((s) => ({ assets: [...s.assets, asset] })),
   deleteAsset: (id) =>
     set((s) => ({ assets: s.assets.filter((a) => a.id !== id) })),
-  activeSceneNodes: () => {
-    const { nodes, activeSceneId } = get();
-    return nodes.filter((n) => n.rootSceneNodeId === activeSceneId);
-  },
-  setBehaviors: (comps) =>
-    set((s) => {
-      // Wholesale replace (scene load, preset apply, WS resync): prune tracking/
-      // connection flags for behaviors that no longer exist, so a stale
-      // `tracking: true` can't outlive the behavior that set it.
-      const live = new Set(comps.map((c) => c.id));
-      const prune = <T,>(rec: Record<string, T>): Record<string, T> =>
-        Object.fromEntries(Object.entries(rec).filter(([id]) => live.has(id)));
-      return {
-        behaviors: comps,
-        vmcTracking: prune(s.vmcTracking),
-        vmcStatus: prune(s.vmcStatus),
-      };
-    }),
-  addBehavior: (comp) => set((s) => ({ behaviors: [...s.behaviors, comp] })),
-  updateBehavior: (id, updates) =>
-    set((s) => ({
-      behaviors: s.behaviors.map((c) =>
-        c.id === id ? { ...c, ...updates } : c
-      ),
-    })),
-  removeBehavior: (id) =>
-    set((s) => {
-      // Drop the per-behavior tracking/connection flags with the behavior. Left
-      // behind, a stale `vmcTracking[id] === true` keeps every consumer thinking
-      // a tracking source is live (avatars pin to their base animation and can
-      // never fall back to idle), and the id is never reused to clear it.
-      const { [id]: _t, ...vmcTracking } = s.vmcTracking;
-      const { [id]: _c, ...vmcStatus } = s.vmcStatus;
-      return {
-        behaviors: s.behaviors.filter((c) => c.id !== id),
-        selectedBehaviorId:
-          s.selectedBehaviorId === id ? null : s.selectedBehaviorId,
-        vmcTracking,
-        vmcStatus,
-      };
-    }),
-  behaviorsFor: (nodeId) => get().behaviors.filter((c) => c.nodeId === nodeId),
-  setVmcStatus: (behaviorId, connected) =>
-    set((s) => ({ vmcStatus: { ...s.vmcStatus, [behaviorId]: connected } })),
-  setVmcTracking: (behaviorId, tracking) =>
-    set((s) => ({
-      vmcTracking: { ...s.vmcTracking, [behaviorId]: tracking },
-    })),
-  upsertScheduledAnimation: (entry) =>
-    set((s) => ({
-      scheduledAnimations: { ...s.scheduledAnimations, [entry.id]: entry },
-    })),
-  removeScheduledAnimation: (id) =>
-    set((s) => {
-      if (!(id in s.scheduledAnimations)) return {};
-      const next = { ...s.scheduledAnimations };
-      delete next[id];
-      return { scheduledAnimations: next };
-    }),
-  // Keyed by CLIP id: every reader has a clip in hand and wants its transport,
-  // never the other way round. The doc's own id only matters for removes, which
-  // arrive carrying it and nothing else.
-  upsertClipPlayback: (entry) =>
-    set((s) => ({ clipPlayback: { ...s.clipPlayback, [entry.clipId]: entry } })),
-  upsertLogic: (entry) =>
-    set((s) => ({ logic: { ...s.logic, [entry.id]: entry } })),
-  removeLogicLocal: (id) =>
-    set((s) => {
-      if (!(id in s.logic)) return {};
-      const next = { ...s.logic };
-      delete next[id];
-      return { logic: next };
-    }),
-  removeClipPlayback: (docId) =>
-    set((s) => {
-      const key = Object.keys(s.clipPlayback).find(
-        (clipId) => s.clipPlayback[clipId].id === docId
-      );
-      if (key === undefined) return {};
-      const next = { ...s.clipPlayback };
-      delete next[key];
-      return { clipPlayback: next };
-    }),
-  upsertAnimationClip: (entry) =>
-    set((s) => ({
-      animationClips: { ...s.animationClips, [entry.id]: entry },
-    })),
-  removeAnimationClip: (id) =>
-    set((s) => {
-      if (!(id in s.animationClips)) return {};
-      const next = { ...s.animationClips };
-      delete next[id];
-      return { animationClips: next };
-    }),
+
   setVrmBonesForNode: (nodeId, bones) =>
     set((s) => ({ vrmBonesByNode: { ...s.vrmBonesByNode, [nodeId]: bones } })),
   clearVrmBonesForNode: (nodeId) =>
@@ -871,20 +612,6 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   setBehaviorKinds: (kinds) => set({ behaviorKinds: kinds }),
   setOverliveAccounts: (accounts) => set({ overliveAccounts: accounts }),
   setObsConnections: (connections) => set({ obsConnections: connections }),
-  setOutputWindowStatus: (status) => set({ outputWindowStatus: status }),
-  patchObsConnectionStatus: (patch) =>
-    set((s) => ({
-      obsConnections: s.obsConnections.map((c) =>
-        c.id === patch.connectionId
-          ? {
-              ...c,
-              status: patch.status,
-              statusReason: patch.reason,
-              statusMessage: patch.message,
-            }
-          : c
-      ),
-    })),
   setActiveLogicWritable: (writable) => set({ activeLogicWritable: writable }),
   setActiveLogic: (id) => {
     // Opening a graph (from any list — including scoped graphs in the scene /
@@ -908,19 +635,6 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     set((s) => ({
       fbxDebugVisible: { ...s.fbxDebugVisible, [nodeId]: visible },
     })),
-  setCameraEffects: (effects) => set({ cameraEffects: effects }),
-  addCameraEffect: (effect) =>
-    set((s) => ({ cameraEffects: [...s.cameraEffects, effect] })),
-  updateCameraEffect: (id, updates) =>
-    set((s) => ({
-      cameraEffects: s.cameraEffects.map((e) =>
-        e.id === id ? { ...e, ...updates } : e
-      ),
-    })),
-  removeCameraEffect: (id) =>
-    set((s) => ({ cameraEffects: s.cameraEffects.filter((e) => e.id !== id) })),
-  cameraEffectsFor: (nodeId) =>
-    get().cameraEffects.filter((e) => e.nodeId === nodeId),
   setPreviewEffectsCamera: (nodeId) =>
     set((s) => ({
       previewEffectsCamera: s.previewEffectsCamera === nodeId ? null : nodeId,
@@ -929,53 +643,13 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     set({ selectedEffect: { nodeId, kind }, selectedBehaviorId: null }),
   clearSelectedEffect: () => set({ selectedEffect: null }),
 
-  setComposeScenes: (scenes) => set({ composeScenes: scenes }),
-  addComposeScene: (scene) =>
-    set((s) =>
-      s.composeScenes.some((cs) => cs.id === scene.id)
-        ? {}
-        : { composeScenes: [...s.composeScenes, scene] }
-    ),
-  updateComposeSceneLocal: (scene) =>
-    set((s) => ({
-      composeScenes: s.composeScenes.map((cs) =>
-        cs.id === scene.id ? scene : cs
-      ),
-    })),
   selectComposeScene: (id) => set({ activeComposeSceneId: id }),
-  setComposeLayers: (layers) => set({ composeLayers: layers }),
-  addComposeLayer: (layer) =>
-    set((s) =>
-      s.composeLayers.some((l) => l.id === layer.id)
-        ? {}
-        : { composeLayers: [...s.composeLayers, layer] }
-    ),
-  updateComposeLayerLocal: (id, patch) =>
-    set((s) => ({
-      composeLayers: s.composeLayers.map((l) =>
-        l.id === id ? { ...l, ...patch } : l
-      ),
-    })),
-  removeComposeLayer: (id) =>
-    set((s) => ({
-      composeLayers: s.composeLayers.filter((l) => l.id !== id),
-      selectedComposeLayerId:
-        s.selectedComposeLayerId === id ? null : s.selectedComposeLayerId,
-    })),
-  removeComposeScene: (id) =>
+  setLiveLayer: (id, patch) =>
     set((s) => {
-      const remaining = s.composeScenes.filter((cs) => cs.id !== id);
-      return {
-        composeScenes: remaining,
-        // Drop layers that belonged to the removed compose scene.
-        composeLayers: s.composeLayers.filter(
-          (l) => l.rootComposeSceneId !== id
-        ),
-        activeComposeSceneId:
-          s.activeComposeSceneId === id
-            ? (remaining[0]?.id ?? null)
-            : s.activeComposeSceneId,
-      };
+      const next = { ...s.liveLayers };
+      if (patch) next[id] = { ...next[id], ...patch };
+      else delete next[id];
+      return { liveLayers: next };
     }),
   setLeftTab: (tab) => {
     lsSet(LS.leftTab, tab);
@@ -1069,10 +743,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
         if (typeof a.topic === 'string')
           useHelpStore
             .getState()
-            .openHelp(
-              a.topic,
-              typeof a.anchor === 'string' ? a.anchor : null
-            );
+            .openHelp(a.topic, typeof a.anchor === 'string' ? a.anchor : null);
         break;
       }
       case 'open_window': {
@@ -1098,91 +769,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     }
   },
 
-  setTrackClips: (clips) => set({ trackClips: clips }),
-  addTrackClip: (clip) =>
-    set((s) =>
-      s.trackClips.some((c) => c.id === clip.id)
-        ? {}
-        : { trackClips: [...s.trackClips, clip] }
-    ),
-  updateTrackClipLocal: (clip) =>
-    set((s) => ({
-      trackClips: s.trackClips.map((c) => (c.id === clip.id ? clip : c)),
-    })),
-  removeTrackClip: (id) =>
-    set((s) => {
-      const nextPlayback = { ...s.clipPlayback };
-      delete nextPlayback[id];
-
-      // Drop any overrides/suppressions this clip's lanes left behind so the
-      // deleted clip can't keep governing a layer/node's position.
-      const clip = s.trackClips.find((c) => c.id === id);
-      const nextLayerOverrides = { ...s.composeLayerOverrides };
-      const nextNodeOverrides = { ...s.nodeTransformOverrides };
-      let suppressionsTouched = false;
-      const nextSuppressed = new Set(s.suppressedOverrides);
-      for (const lane of clip?.lanes ?? []) {
-        if (lane.targetKind === 'compose_layer')
-          delete nextLayerOverrides[lane.targetId];
-        else if (lane.targetKind === 'scene_node')
-          delete nextNodeOverrides[lane.targetId];
-        const key = `${lane.targetKind}:${lane.targetId}:${lane.paramPath}`;
-        if (nextSuppressed.delete(key)) suppressionsTouched = true;
-      }
-
-      return {
-        trackClips: s.trackClips.filter((c) => c.id !== id),
-        selectedTrackClipId:
-          s.selectedTrackClipId === id ? null : s.selectedTrackClipId,
-        clipPlayback: nextPlayback,
-        composeLayerOverrides: nextLayerOverrides,
-        nodeTransformOverrides: nextNodeOverrides,
-        ...(suppressionsTouched ? { suppressedOverrides: nextSuppressed } : {}),
-      };
-    }),
   selectTrackClip: (id) => set({ selectedTrackClipId: id }),
-  addTrackClipLane: (clipId, lane) =>
-    set((s) => ({
-      trackClips: s.trackClips.map((c) =>
-        c.id === clipId
-          ? {
-              ...c,
-              lanes: c.lanes.some((l) => l.id === lane.id)
-                ? c.lanes
-                : [...c.lanes, lane],
-            }
-          : c
-      ),
-    })),
-  updateTrackClipLaneLocal: (lane) =>
-    set((s) => ({
-      trackClips: s.trackClips.map((c) =>
-        c.id === lane.clipId
-          ? { ...c, lanes: c.lanes.map((l) => (l.id === lane.id ? lane : l)) }
-          : c
-      ),
-    })),
-  removeTrackClipLane: (laneId, clipId) =>
-    set((s) => ({
-      trackClips: s.trackClips.map((c) =>
-        clipId == null || c.id === clipId
-          ? { ...c, lanes: c.lanes.filter((l) => l.id !== laneId) }
-          : c
-      ),
-    })),
-  replaceTrackClipLaneKeyframes: (laneId, keyframes) =>
-    set((s) => ({
-      trackClips: s.trackClips.map((c) => ({
-        ...c,
-        lanes: c.lanes.map((l) => (l.id === laneId ? { ...l, keyframes } : l)),
-      })),
-    })),
-  replaceTrackClipEvents: (clipId, events) =>
-    set((s) => ({
-      trackClips: s.trackClips.map((c) =>
-        c.id === clipId ? { ...c, events } : c
-      ),
-    })),
   setNodeTransformOverride: (nodeId, override) =>
     set((s) => {
       const next = { ...s.nodeTransformOverrides };
@@ -1211,64 +798,6 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       else next[layerId] = override;
       return { composeLayerOverrides: next };
     }),
-  setRuntimeOverride: (targetKind, targetId, paramPath, value) =>
-    set((s) => {
-      const slice =
-        targetKind === 'scene_node'
-          ? s.runtimeNodeOverrides
-          : s.runtimeLayerOverrides;
-      const next = { ...slice };
-      const prev = next[targetId] ?? {};
-      if (prev[paramPath] === value) return {};
-      next[targetId] = { ...prev, [paramPath]: value };
-      return targetKind === 'scene_node'
-        ? { runtimeNodeOverrides: next }
-        : { runtimeLayerOverrides: next };
-    }),
-  clearRuntimeOverride: (targetKind, targetId, paramPath) =>
-    set((s) => {
-      const slice =
-        targetKind === 'scene_node'
-          ? s.runtimeNodeOverrides
-          : s.runtimeLayerOverrides;
-      const prev = slice[targetId];
-      if (!prev) return {};
-      const next = { ...slice };
-      if (paramPath === undefined) {
-        delete next[targetId];
-      } else {
-        if (!(paramPath in prev)) return {};
-        const { [paramPath]: _, ...rest } = prev;
-        if (Object.keys(rest).length === 0) delete next[targetId];
-        else next[targetId] = rest;
-      }
-      return targetKind === 'scene_node'
-        ? { runtimeNodeOverrides: next }
-        : { runtimeLayerOverrides: next };
-    }),
-  mergeDataChannels: (scope, fields) =>
-    set((s) => ({
-      dataChannels: {
-        ...s.dataChannels,
-        [scope]: { ...(s.dataChannels[scope] ?? {}), ...fields },
-      },
-    })),
-  clearDataChannels: (scope, field) =>
-    set((s) => {
-      const bucket = s.dataChannels[scope];
-      if (!bucket) return {};
-      if (field === undefined) {
-        const { [scope]: _, ...rest } = s.dataChannels;
-        return { dataChannels: rest };
-      }
-      if (!(field in bucket)) return {};
-      const { [field]: _, ...restFields } = bucket;
-      const next = { ...s.dataChannels };
-      if (Object.keys(restFields).length === 0) delete next[scope];
-      else next[scope] = restFields;
-      return { dataChannels: next };
-    }),
-
   presets: [],
   setPresets: (presets) => set({ presets }),
   addPreset: (preset) => set((s) => ({ presets: [preset, ...s.presets] })),

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   commitLogicCreate,
@@ -11,6 +11,7 @@ import { copyToClipboard, pasteFromClipboard } from '../../clipboard';
 import { ContextMenu, type ContextMenuItem } from './ContextMenu';
 import { HelpButton } from '../../help/HelpButton';
 import { useConfirm, usePrompt } from '../DialogProvider';
+import { useLogicRecords } from '../../mesh/hooks';
 
 /** Inline, expandable list of standalone logic attached to a single scene
  *  node or compose layer — mirrors ClipsSection. Selecting a graph opens it
@@ -42,15 +43,18 @@ export function LogicSection({
   // Fed from the mesh replica. This used to be local state refreshed by a
   // 3-second REST poll, which is why another tab's edit took up to 3s to show
   // and two people editing one graph silently overwrote each other.
-  const logic = useEditorStore((s) =>
-    Object.values(s.logic)
-      .filter(
-        (g) =>
-          g.ownerKind ===
-            (owner.kind === 'node' ? 'scene_node' : 'compose_layer') &&
-          g.ownerId === owner.id
-      )
-      .sort((a, b) => (a.createdAt ?? '').localeCompare(b.createdAt ?? ''))
+  const allLogic = useLogicRecords();
+  const logic = useMemo(
+    () =>
+      Object.values(allLogic)
+        .filter(
+          (g) =>
+            g.ownerKind ===
+              (owner.kind === 'node' ? 'scene_node' : 'compose_layer') &&
+            g.ownerId === owner.id
+        )
+        .sort((a, b) => (a.createdAt ?? '').localeCompare(b.createdAt ?? '')),
+    [allLogic, owner.kind, owner.id]
   );
   /** Open context menu state. Null when no menu is currently up. */
   const [ctxMenu, setCtxMenu] = useState<{
@@ -245,55 +249,55 @@ export function LogicSection({
         );
       })}
       {!flat && (
-      <div
-        style={{
-          padding: '3px 6px',
-          display: 'flex',
-          gap: 6,
-          alignItems: 'center',
-        }}
-      >
-        <button
-          onClick={handleAdd}
+        <div
           style={{
-            background: 'none',
-            border: '1px dashed #2a2a2a',
-            borderRadius: 4,
-            color: '#888',
-            cursor: 'pointer',
-            fontSize: 11,
-            padding: '3px 8px',
-            flex: 1,
-            textAlign: 'left',
+            padding: '3px 6px',
+            display: 'flex',
+            gap: 6,
+            alignItems: 'center',
           }}
         >
-          {t('logic.addButton')}
-        </button>
-        {canPasteLogic && (
           <button
-            onClick={handlePaste}
-            title={t('logic.pasteTitle')}
+            onClick={handleAdd}
             style={{
               background: 'none',
-              border: '1px dashed #3a5a4a',
+              border: '1px dashed #2a2a2a',
               borderRadius: 4,
-              color: '#9bc090',
+              color: '#888',
               cursor: 'pointer',
               fontSize: 11,
               padding: '3px 8px',
+              flex: 1,
               textAlign: 'left',
             }}
           >
-            {t('logic.pasteButton')}
+            {t('logic.addButton')}
           </button>
-        )}
-        <HelpButton
-          topic="logic"
-          anchor="automations"
-          tip={t('help.automations')}
-          size={12}
-        />
-      </div>
+          {canPasteLogic && (
+            <button
+              onClick={handlePaste}
+              title={t('logic.pasteTitle')}
+              style={{
+                background: 'none',
+                border: '1px dashed #3a5a4a',
+                borderRadius: 4,
+                color: '#9bc090',
+                cursor: 'pointer',
+                fontSize: 11,
+                padding: '3px 8px',
+                textAlign: 'left',
+              }}
+            >
+              {t('logic.pasteButton')}
+            </button>
+          )}
+          <HelpButton
+            topic="logic"
+            anchor="automations"
+            tip={t('help.automations')}
+            size={12}
+          />
+        </div>
       )}
       {ctxMenu && (
         <ContextMenu

@@ -1,10 +1,8 @@
 /**
  * Applying an in-flight node gesture from the mesh `preview` channel.
  *
- * Two feeders need this and must agree on it: {@link ./meshStoreFeeder} for
- * nodes of the open project, and {@link ./meshProjection} for the nodes of a
- * placed object projected from a peer. Same overlays, same tween — the only
- * difference is which set of nodes each one cares about.
+ * Used by the scene_node preview observer ({@link ../previewSmoother}), which
+ * turns another tab's gesture into the live-node overlay and its tween.
  *
  * An ephemeral op IS a gesture by construction: that is what the lossy channel
  * carries, so it tweens rather than snapping. Retained ops are model state and

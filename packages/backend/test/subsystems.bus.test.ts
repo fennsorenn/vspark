@@ -24,6 +24,7 @@
  */
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { MODELS } from '@vspark/shared/models';
 import { createMeshPeer } from '@vspark/mesh';
 import { RuntimeOverrideManager } from '../src/runtime_overrides/manager.js';
 import {
@@ -65,11 +66,7 @@ function makeWsStub() {
     broadcast(kind: string, payload: Record<string, unknown>) {
       broadcasts.push({ kind, payload });
     },
-    sendTo(
-      _client: unknown,
-      kind: string,
-      payload: Record<string, unknown>
-    ) {
+    sendTo(_client: unknown, kind: string, payload: Record<string, unknown>) {
       broadcasts.push({ kind, payload });
     },
     onClientConnected(_fn: unknown) {},
@@ -99,7 +96,11 @@ describe('RuntimeOverrideManager', () => {
   beforeEach(() => {
     resetMeshRuntime();
     initMeshRuntime(
-      createMeshPeer({ identity: { peerId: 'test-peer' }, transports: [] })
+      createMeshPeer({
+        identity: { peerId: 'test-peer' },
+        models: MODELS,
+        transports: [],
+      })
     );
     manager = new RuntimeOverrideManager();
     manager.init();
@@ -127,8 +128,12 @@ describe('RuntimeOverrideManager', () => {
 
       // Two params of one node are two documents, so two graphs overriding
       // different params of the same node cannot clobber each other.
-      expect(overrideCollection()!.get('scene_node:node-2:rotation.y')).toBeDefined();
-      expect(overrideCollection()!.get('scene_node:node-2:opacity')).toBeDefined();
+      expect(
+        overrideCollection()!.get('scene_node:node-2:rotation.y')
+      ).toBeDefined();
+      expect(
+        overrideCollection()!.get('scene_node:node-2:opacity')
+      ).toBeDefined();
     });
 
     it('hangs the document off the target, so scene grants route it', () => {
@@ -242,7 +247,9 @@ describe('RuntimeOverrideManager', () => {
       m.registerTarget('node-14', 'scene-m');
       // An override is best-effort: a missing store logs and drops rather than
       // throwing into a running graph.
-      expect(() => m.set('scene_node', 'node-14', 'opacity', 0.5)).not.toThrow();
+      expect(() =>
+        m.set('scene_node', 'node-14', 'opacity', 0.5)
+      ).not.toThrow();
       expect(() => m.clear('scene_node', 'node-14')).not.toThrow();
     });
   });
@@ -265,7 +272,11 @@ describe('DataChannelManager', () => {
   beforeEach(() => {
     resetMeshRuntime();
     initMeshRuntime(
-      createMeshPeer({ identity: { peerId: 'test-peer' }, transports: [] })
+      createMeshPeer({
+        identity: { peerId: 'test-peer' },
+        models: MODELS,
+        transports: [],
+      })
     );
     manager = new DataChannelManager();
   });
@@ -383,7 +394,11 @@ describe('MediaControlManager', () => {
   beforeEach(() => {
     resetMeshRuntime();
     initMeshRuntime(
-      createMeshPeer({ identity: { peerId: 'test-peer' }, transports: [] })
+      createMeshPeer({
+        identity: { peerId: 'test-peer' },
+        models: MODELS,
+        transports: [],
+      })
     );
     seen = [];
     mediaControlCollection()!.observe('**', (c) => {

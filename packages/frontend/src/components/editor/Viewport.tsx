@@ -153,6 +153,15 @@ import {
 } from '../../particleUtils';
 import type { ParticlePool } from '../../particleUtils';
 import { resolveParticleTextureUrl } from '../../particleTextures';
+import {
+  useAnimationClips,
+  useCameraEffects,
+  useNodeBehaviors,
+  useNodeSchedule,
+} from '../../mesh/hooks';
+import { collectionOf } from '../../mesh/docs';
+import { sceneNodesNow, useSceneNodes } from '../../mesh/nodes';
+import { useDataFields, useRuntimeOverrides } from '../../mesh/runtime';
 
 type GizmoMode = 'translate' | 'rotate' | 'scale';
 
@@ -943,9 +952,7 @@ function getTransform(node: StageObject): Transform {
  *  wins). See dev-notes/plans/unified-sync-layer.md. */
 function useTransformWithOverride(node: StageObject): Transform {
   const clipOverride = useEditorStore((s) => s.nodeTransformOverrides[node.id]);
-  const runtimeOverride = useEditorStore(
-    (s) => s.runtimeNodeOverrides[node.id]
-  );
+  const runtimeOverride = useRuntimeOverrides('scene_node', node.id);
   const base = getTransform(node);
   if (!clipOverride && !runtimeOverride) return base;
   // Base + both override layers keyed by paramPath, folded low → high.
@@ -2150,32 +2157,24 @@ function AvatarNode({
   }, [showFbxDebug]);
 
   // Track active pose-driving component without causing useFrame re-subscription
-  const vmcComp = useEditorStore(
-    (s) =>
-      s
-        .behaviorsFor(node.id)
-        .find(
-          (c) =>
-            (c.kind === 'vmc_receiver' || c.kind === 'mediapipe_tracker') &&
-            c.enabled
-        ) ?? null
-  );
+  const nodeBehaviors = useNodeBehaviors(node.id);
+  const vmcComp =
+    nodeBehaviors.find(
+      (c) =>
+        (c.kind === 'vmc_receiver' || c.kind === 'mediapipe_tracker') &&
+        c.enabled
+    ) ?? null;
   useEffect(() => {
     vmcCompRef.current = vmcComp;
   }, [vmcComp]);
 
   // Track active blendshape-driving component (lipsync, face tracking)
-  const lipsyncComp = useEditorStore(
-    (s) =>
-      s
-        .behaviorsFor(node.id)
-        .find(
-          (c) =>
-            (c.kind === 'lipsync_processor' ||
-              c.kind === 'mediapipe_tracker') &&
-            c.enabled
-        ) ?? null
-  );
+  const lipsyncComp =
+    nodeBehaviors.find(
+      (c) =>
+        (c.kind === 'lipsync_processor' || c.kind === 'mediapipe_tracker') &&
+        c.enabled
+    ) ?? null;
   useEffect(() => {
     lipsyncCompRef.current = lipsyncComp;
   }, [lipsyncComp]);
@@ -2214,12 +2213,8 @@ function AvatarNode({
   const legacyAnim = node.components?.animation as
     | { idleUrl?: string; speed?: number }
     | undefined;
-  const scheduledMap = useEditorStore((s) => s.scheduledAnimations);
-  const animationClips = useEditorStore((s) => s.animationClips);
-  const scheduledForNode = useMemo(
-    () => Object.values(scheduledMap).filter((e) => e.avatarNodeId === node.id),
-    [scheduledMap, node.id]
-  );
+  const scheduledForNode = useNodeSchedule(node.id);
+  const animationClips = useAnimationClips();
   const idleClip = animIdle?.clipId
     ? animationClips[animIdle.clipId]
     : undefined;
@@ -3001,10 +2996,10 @@ function AvatarNode({
     // avatar to the base loop and never fall back to idle. Tracking sources
     // publish a `tracking` status (→ store.vmcTracking); ambient ones don't, so
     // they can't mask a loss.
-    const store = useEditorStore.getState();
-    const trackingLive = store.behaviors.some(
-      (b) => b.nodeId === node.id && store.vmcTracking[b.id] === true
-    );
+    const statuses = collectionOf<{ tracking?: boolean }>('server_status');
+    const trackingLive = collectionOf<{ id: string }>('behavior')
+      .children(node.id)
+      .some((b) => statuses.get(`tracking:${b.id}`)?.tracking === true);
 
     // Transition detection: reset filters + clear the applied pose when the
     // composition leaves the tracked path. Keyed on `trackingLive`, matching the
@@ -4262,10 +4257,10 @@ function Live2DNode({
     ...LIVE2D_NODE_DEFAULTS,
     ...((node.components?.live2d ?? {}) as Partial<Live2DConfig>),
   };
-  const rawMap = (node.components?.live2d as Record<string, unknown> | undefined)
-    ?.paramMap as Live2dParamMap | undefined;
-  const userMap =
-    rawMap && Object.keys(rawMap).length > 0 ? rawMap : undefined;
+  const rawMap = (
+    node.components?.live2d as Record<string, unknown> | undefined
+  )?.paramMap as Live2dParamMap | undefined;
+  const userMap = rawMap && Object.keys(rawMap).length > 0 ? rawMap : undefined;
 
   const runtimeRef = useRef<Live2DRuntime | null>(null);
   const [texture, setTexture] = useState<THREE.Texture | null>(null);
@@ -4903,10 +4898,8 @@ function makeInstancedParticleMaterial(
 /** Read the live text content for a text scene node, preferring the runtime
  *  override on `text.content` over the persisted `components.text.content`. */
 function useTextContent(node: StageObject): string {
-  const override = useEditorStore((s) => {
-    const v = s.runtimeNodeOverrides[node.id]?.['text.content'];
-    return typeof v === 'string' ? v : undefined;
-  });
+  const v = useRuntimeOverrides('scene_node', node.id)?.['text.content'];
+  const override = typeof v === 'string' ? v : undefined;
   if (override !== undefined) return override;
   const tc = (node.components?.text as { content?: string } | undefined)
     ?.content;
@@ -5200,8 +5193,8 @@ function FeedCanvasNode({
 
   // Fields visible to this node: GLOBAL ∪ its own id (own wins), mirroring the
   // 2D feed layer's consumer-by-identity model.
-  const globalFields = useEditorStore((s) => s.dataChannels['']);
-  const ownFields = useEditorStore((s) => s.dataChannels[node.id]);
+  const globalFields = useDataFields('');
+  const ownFields = useDataFields(node.id);
   const channels = useMemo(
     () => ({ ...(globalFields ?? {}), ...(ownFields ?? {}) }),
     [globalFields, ownFields]
@@ -5754,7 +5747,7 @@ function ModelNode({
 }
 
 function SceneInstanceContent({ sourceSceneId }: { sourceSceneId: string }) {
-  const nodes = useEditorStore((s) => s.nodes);
+  const nodes = useSceneNodes();
   const sourceNodes = nodes.filter(
     (n) => n.rootSceneNodeId === sourceSceneId && n.kind !== 'scene'
   );
@@ -5885,7 +5878,8 @@ export function SceneNodes({
   /** Scene whose nodes to render. Defaults to the store's active scene. */
   sceneId?: string;
 } = {}) {
-  const { nodes, activeSceneId } = useEditorStore();
+  const { activeSceneId } = useEditorStore();
+  const nodes = useSceneNodes();
   const effectiveSceneId = sceneId ?? activeSceneId;
   const sceneNodes = nodes.filter(
     (n) =>
@@ -6012,9 +6006,7 @@ function TransformGizmo({
 
   const onEnd = () => {
     if (orbitRef.current) orbitRef.current.enabled = true;
-    const node = useEditorStore
-      .getState()
-      .nodes.find((n) => n.id === selectedNodeId);
+    const node = sceneNodesNow().find((n) => n.id === selectedNodeId);
     if (!node) return;
     // Gizmo drag settles: one committed write, so one undo step for the drag.
     // Merged, not replaced — see mergedTransform: this write REPLACES the whole
@@ -6292,14 +6284,14 @@ export function CameraEffects({
   forceNodeId,
   sceneId,
 }: { forceNodeId?: string; sceneId?: string } = {}) {
-  const { previewEffectsCamera, cameraEffects, nodes, activeSceneId } =
-    useEditorStore();
+  const { previewEffectsCamera, activeSceneId } = useEditorStore();
+  const nodes = useSceneNodes();
   const effectiveSceneId = sceneId ?? activeSceneId;
 
   const effectsNodeId = forceNodeId ?? previewEffectsCamera;
-  const activeEffects = effectsNodeId
-    ? cameraEffects.filter((e) => e.nodeId === effectsNodeId && e.enabled)
-    : [];
+  const activeEffects = useCameraEffects(effectsNodeId).filter(
+    (e) => e.enabled
+  );
 
   const get = <T,>(kind: string, key: string, fallback: T): T => {
     const e = activeEffects.find((e) => e.kind === kind);
@@ -6622,12 +6614,13 @@ export function ViewportCapture() {
  *  free authoring view (not a camera), so it previews shadows whenever any
  *  camera does, picking the highest requested quality. */
 function useEditorShadowQuality(): ShadowQuality | null {
-  return useEditorStore((s) => {
+  const nodes = useSceneNodes();
+  const activeSceneId = useEditorStore((s) => s.activeSceneId);
+  return useMemo(() => {
     let best: ShadowQuality | null = null;
     const rank = { low: 1, medium: 2, high: 3 } as const;
-    for (const n of s.nodes) {
-      if (n.kind !== 'camera' || n.rootSceneNodeId !== s.activeSceneId)
-        continue;
+    for (const n of nodes) {
+      if (n.kind !== 'camera' || n.rootSceneNodeId !== activeSceneId) continue;
       const cam = n.components?.camera as
         | { shadowsEnabled?: boolean; shadowQuality?: ShadowQuality }
         | undefined;
@@ -6636,7 +6629,7 @@ function useEditorShadowQuality(): ShadowQuality | null {
       if (!best || rank[q] > rank[best]) best = q;
     }
     return best;
-  });
+  }, [nodes, activeSceneId]);
 }
 
 export function Viewport() {

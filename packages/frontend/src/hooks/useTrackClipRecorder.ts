@@ -8,6 +8,12 @@ import type {
   TrackClipTargetKind,
 } from '../api/client';
 import { defaultBezierHandles } from '../components/editor/TrackClipTimeline';
+import {
+  trackClipRecordOf,
+  useClipPlaybacks,
+  useTrackClip,
+} from '../mesh/hooks';
+import { collectionOf } from '../mesh/docs';
 
 const KF_TIME_EPSILON = 1e-3;
 
@@ -28,10 +34,8 @@ export function useTrackClipRecorder(): {
 } {
   const bottomTab = useEditorStore((s) => s.bottomTab);
   const selectedClipId = useEditorStore((s) => s.selectedTrackClipId);
-  const trackClips = useEditorStore((s) => s.trackClips);
-  const playback = useEditorStore((s) => s.clipPlayback);
-
-  const selectedClip = trackClips.find((c) => c.id === selectedClipId) ?? null;
+  const playback = useClipPlaybacks();
+  const selectedClip = useTrackClip(selectedClipId) ?? null;
   const canRecord = bottomTab === 'clips' && selectedClip != null;
 
   const currentPlayhead = useCallback((): number => {
@@ -54,10 +58,8 @@ export function useTrackClipRecorder(): {
         defaultValue: number;
       }
     ): Promise<TrackClipLaneRecord> => {
-      // Re-read from store each time so we don't stale-cache between calls within one frame.
-      const clip = useEditorStore
-        .getState()
-        .trackClips.find((c) => c.id === clipId);
+      // Re-read from the replica each time so we don't stale-cache between calls within one frame.
+      const clip = trackClipRecordOf(collectionOf('track_clip').get(clipId));
       const existing = clip?.lanes.find(
         (l) =>
           l.targetKind === opts.targetKind &&
@@ -121,12 +123,11 @@ export function useTrackClipRecorder(): {
         paramPath: opts.paramPath,
         defaultValue: opts.value,
       });
-      // Re-fetch the lane from the store after possible creation, so we have the latest keyframes.
+      // Re-read the lane after possible creation, so we have the latest keyframes.
       const liveLane =
-        useEditorStore
-          .getState()
-          .trackClips.find((c) => c.id === selectedClip.id)
-          ?.lanes.find((l) => l.id === lane.id) ?? lane;
+        trackClipRecordOf(
+          collectionOf('track_clip').get(selectedClip.id)
+        )?.lanes.find((l) => l.id === lane.id) ?? lane;
       await upsertKeyframe(liveLane, t, opts.value);
     },
     [selectedClip, currentPlayhead, ensureLane, upsertKeyframe]

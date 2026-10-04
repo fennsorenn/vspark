@@ -1,30 +1,27 @@
 /**
- * The tab's mesh peer — parallel-run scaffold.
+ * The tab's mesh peer: its replica IS the app's document store.
  *
- * Mirrors the backend's document collections into an in-tab replica over the
- * /mesh WebSocket. Nothing in the UI reads from it yet; it exists so features
- * can migrate onto mesh bindings (`@vspark/mesh-react`) one by one while the
- * legacy REST + /ws paths keep working. Plan: dev-notes/plans/mesh-sync-refactor.md §8.
+ * Opens one collection per document type the tab holds (`TAB_MODELS`, declared
+ * once in `@vspark/shared/models`) and subscribes to each over the /mesh
+ * WebSocket. Components read through the typed hooks in this directory and
+ * write through the `*Writes` modules; nothing mirrors the replica elsewhere.
  *
- * Lifecycle: `initMeshPeer()` once per tab (idempotent, kicked off from the
- * editor/viewer pages). The participant id is `${serverPeerId}#${tabUuid}` and
- * stable across reloads (sessionStorage), so HLC origins and grants stay
- * consistent per tab. Subscriptions re-arm automatically after reconnects.
+ * Lifecycle: `initMeshPeer()` once per tab (idempotent), awaited in main.tsx
+ * before the first render, so every hook finds its collection open. The
+ * participant id is `${serverPeerId}#${tabUuid}` and stable across reloads
+ * (sessionStorage), so HLC origins and grants stay consistent per tab.
+ * Subscriptions re-arm automatically after reconnects.
  */
 import {
   createMeshPeer,
   type Collection,
-  type Grant,
   type MeshPeer,
   type UndoStatus,
 } from '@vspark/mesh';
 import { WsBackendTransport } from '@vspark/mesh-transports/wsClient';
-import {
-  isClientParticipant,
-  makeClientParticipantId,
-  randomUUID,
-} from '@vspark/shared/sync';
+import { makeClientParticipantId, randomUUID } from '@vspark/shared/sync';
 import { DirectTransport } from './directTransport';
+import { MODELS, TAB_MODELS } from '@vspark/shared/models';
 
 type Dto = Record<string, unknown>;
 
@@ -34,121 +31,9 @@ export interface MeshHandles {
   collections: Record<string, Collection<Dto>>;
 }
 
-const RTYPES = [
-  'scene_node',
-  'behavior',
-  'camera_effect',
-  'compose_layer',
-  'track_clip',
-  'animation_clip',
-  'scheduled_animation',
-  'clip_playback',
-  'logic',
-  'runtime_override',
-  'data_field',
-  'media_control',
-  'server_status',
-  'peer_grant',
-] as const;
-
-/** Built-in mesh channels (packages/mesh/src/channels.ts): `runtime` is
- *  retained state without undo, `control` is commands that are never replayed
- *  to a tab that connects later. */
-const RUNTIME_CHANNEL = 'runtime';
-const CONTROL_CHANNEL = 'control';
-
-/** rtypes that live on a channel other than the default committed/preview
- *  pair. The collection's allowed set has to include the channel its writes
- *  arrive on, or they never apply. */
-const CHANNELS: Partial<Record<string, string[]>> = {
-  runtime_override: [RUNTIME_CHANNEL],
-  data_field: [RUNTIME_CHANNEL],
-  media_control: [CONTROL_CHANNEL],
-  server_status: [RUNTIME_CHANNEL],
-  peer_grant: [RUNTIME_CHANNEL],
-};
-
-const childOfNode = (d: Dto) =>
-  typeof d.nodeId === 'string' ? { rtype: 'scene_node', id: d.nodeId } : null;
-
-// Transport state → its clip. Keyed on `clipId`, NOT `id`: the mesh
-// ContainmentIndex keys by id alone across every rtype, so a playback doc
-// sharing its clip's id would collide with the clip's own entry. Must match
-// the backend BINDINGS entry exactly or the two indexes diverge silently.
-const childOfClip = (d: Dto) =>
-  typeof d.clipId === 'string' ? { rtype: 'track_clip', id: d.clipId } : null;
-
-const PARENTS: Partial<
-  Record<string, (d: Dto) => { rtype: string; id: string } | null>
-> = {
-  scene_node: (d) =>
-    typeof d.parentId === 'string'
-      ? { rtype: 'scene_node', id: d.parentId }
-      : typeof d.rootSceneNodeId === 'string' && d.rootSceneNodeId !== d.id
-        ? { rtype: 'scene_node', id: d.rootSceneNodeId }
-        : null,
-  behavior: childOfNode,
-  camera_effect: childOfNode,
-  compose_layer: (d) =>
-    typeof d.parentId === 'string'
-      ? { rtype: 'compose_layer', id: d.parentId }
-      : typeof d.rootComposeSceneId === 'string' &&
-          d.rootComposeSceneId !== d.id
-        ? { rtype: 'compose_layer', id: d.rootComposeSceneId }
-        : null,
-  track_clip: (d) =>
-    typeof d.ownerNodeId === 'string'
-      ? { rtype: 'scene_node', id: d.ownerNodeId }
-      : typeof d.ownerLayerId === 'string'
-        ? { rtype: 'compose_layer', id: d.ownerLayerId }
-        : null,
-  animation_clip: (d) =>
-    typeof d.sourceNodeId === 'string'
-      ? { rtype: 'scene_node', id: d.sourceNodeId }
-      : null,
-  scheduled_animation: (d) =>
-    typeof d.avatarNodeId === 'string'
-      ? { rtype: 'scene_node', id: d.avatarNodeId }
-      : null,
-  clip_playback: childOfClip,
-  // A runtime override hangs off the entity it overrides, so a scene-subtree
-  // grant covers every override inside it. Must match the backend
-  // (mesh/runtime.ts `overrideParent`) or the two indexes diverge silently.
-  runtime_override: (d) =>
-    (d.targetKind === 'scene_node' || d.targetKind === 'compose_layer') &&
-    typeof d.targetId === 'string'
-      ? { rtype: d.targetKind, id: d.targetId }
-      : null,
-  // A scoped data field hangs off the entity it is scoped to; a GLOBAL field
-  // (scope '') belongs to no entity and has no parent. The document carries
-  // `scopeKind` so this stays a pure function on both peers.
-  data_field: (d) =>
-    (d.scopeKind === 'scene_node' || d.scopeKind === 'compose_layer') &&
-    typeof d.scope === 'string' &&
-    d.scope !== ''
-      ? { rtype: d.scopeKind, id: d.scope }
-      : null,
-  media_control: (d) =>
-    (d.targetKind === 'scene_node' || d.targetKind === 'compose_layer') &&
-    typeof d.targetId === 'string'
-      ? { rtype: d.targetKind, id: d.targetId }
-      : null,
-  // A status about a document hangs off it (backend mesh/status.ts `of`).
-  server_status: (d) => {
-    const of = d.of as { rtype?: unknown; id?: unknown } | null | undefined;
-    return of && typeof of.rtype === 'string' && typeof of.id === 'string'
-      ? { rtype: of.rtype, id: of.id }
-      : null;
-  },
-  // Owned polymorphically. A project-owned graph has no parent: there is no
-  // `project` rtype in the mesh. Must match the backend BINDINGS entry exactly.
-  logic: (d) =>
-    d.ownerKind === 'scene_node' && typeof d.ownerId === 'string'
-      ? { rtype: 'scene_node', id: d.ownerId }
-      : d.ownerKind === 'compose_layer' && typeof d.ownerId === 'string'
-        ? { rtype: 'compose_layer', id: d.ownerId }
-        : null,
-};
+/** Document types this tab opens; their parents, channels and clock fields
+ *  are declared once in `@vspark/shared/models`, shared with the backend. */
+const RTYPES = TAB_MODELS;
 
 let _init: Promise<MeshHandles> | null = null;
 
@@ -168,7 +53,12 @@ function tabUuid(): string {
 }
 
 export function initMeshPeer(): Promise<MeshHandles> {
-  if (!_init) _init = doInit();
+  // A failed start (server not answering yet) may be retried.
+  if (!_init)
+    _init = doInit().catch((e) => {
+      _init = null;
+      throw e;
+    });
   return _init;
 }
 
@@ -178,17 +68,6 @@ export function getMeshHandles(): MeshHandles | null {
 }
 
 let _handles: MeshHandles | null = null;
-
-const _readyObservers = new Set<(h: MeshHandles) => void>();
-
-/** Called once the tab's peer and its collections exist. Fires immediately if
- *  they already do, so a late subscriber is not left waiting for an event that
- *  has already happened. Returns an unsubscribe. */
-export function onMeshReady(cb: (h: MeshHandles) => void): () => void {
-  if (_handles) cb(_handles);
-  else _readyObservers.add(cb);
-  return () => _readyObservers.delete(cb);
-}
 
 // --- undo/redo (tab peer) ----------------------------------------------------
 //
@@ -325,12 +204,11 @@ async function doInit(): Promise<MeshHandles> {
   const { serverPeerId } = (await res.json()) as { serverPeerId: string };
   const participantId = makeClientParticipantId(serverPeerId, tabUuid());
   const wsProto = window.location.protocol === 'https:' ? 'wss' : 'ws';
+  // A tab's own server decides its writes and delivers its grants; the mesh
+  // derives that from the participant id, so nothing here configures it.
   const peer = createMeshPeer({
     identity: { peerId: participantId },
-    // Our server is the source of our grants, not a recipient they gate.
-    home: serverPeerId,
-    // A tab is an endpoint: a direct subscriber gets only what it authors.
-    relay: false,
+    models: MODELS,
     transports: [
       new WsBackendTransport({
         url: `${wsProto}://${window.location.host}/mesh`,
@@ -345,68 +223,13 @@ async function doInit(): Promise<MeshHandles> {
           await enroll();
         },
       }),
+      // Direct links (principle 8) to tabs of other servers over WebRTC.
+      new DirectTransport(serverPeerId),
     ],
   });
 
   const collections: Record<string, Collection<Dto>> = {};
-  for (const rtype of RTYPES)
-    collections[rtype] = peer.collection<Dto>(rtype, {
-      parent: PARENTS[rtype],
-      channels: CHANNELS[rtype],
-      authority: serverPeerId,
-    });
-
-  // Grants for participants of other servers, delivered by our server — the
-  // grant source of truth (backend mesh/peerGrants.ts). When one of them links
-  // to this tab directly, it gets exactly what those grants allow.
-  const mirrored = new Map<string, string>();
-  collections.peer_grant.observe('**', (c) => {
-    const old = mirrored.get(c.id);
-    if (old) {
-      peer.grants.revoke(old);
-      mirrored.delete(c.id);
-    }
-    const grant = (c.doc as { grant?: Grant } | undefined)?.grant;
-    if (c.op !== 'remove' && grant)
-      mirrored.set(c.id, peer.grants.grant(grant));
-  });
-
-  // Direct links (principle 8): tabs of other servers reached over WebRTC.
-  // Each gets a preview-only subscription — committed state keeps arriving
-  // through our server, which validates it (plan F6). The other tab may not
-  // hold the grants for us yet (its server delivers them a moment later), so
-  // a refused subscription is retried with backoff while the link is up.
-  peer.addTransport(new DirectTransport(serverPeerId));
-  const direct = new Set<string>();
-  const subscribeDirect = (id: string, attempt = 0): void => {
-    void peer
-      .subscribe(id, {
-        entityRtype: '*',
-        entityId: '*',
-        includeDescendants: false,
-        pathPrefix: '',
-        channels: ['preview'],
-        exact: true,
-      })
-      .catch(() => {
-        const delay = Math.min(30_000, 1000 * 2 ** attempt);
-        setTimeout(() => {
-          if (peer.status().peers.some((p) => p.id === id))
-            subscribeDirect(id, attempt + 1);
-          else direct.delete(id);
-        }, delay);
-      });
-  };
-  peer.onStatus((s) => {
-    const linked = new Set(s.peers.map((p) => p.id));
-    for (const id of [...direct]) if (!linked.has(id)) direct.delete(id);
-    for (const id of linked) {
-      if (id === serverPeerId || direct.has(id) || !isClientParticipant(id))
-        continue;
-      direct.add(id);
-      subscribeDirect(id);
-    }
-  });
+  for (const rtype of RTYPES) collections[rtype] = peer.collection<Dto>(rtype);
 
   // Bridge the peer's undo/redo availability to the module-level observers the
   // TopBar/keybindings subscribe to.
@@ -416,65 +239,19 @@ async function doInit(): Promise<MeshHandles> {
     for (const cb of _undoObservers) cb(s);
   });
 
-  // Subscribe to every rtype once. The peer renews them itself after a
-  // reconnect; this only retries the ones that never got through.
-  const subscribed = new Set<string>();
-  let arming = false;
-  const armSubscriptions = async () => {
-    const connected = peer.status().peers.some((p) => p.id === serverPeerId);
-    if (!connected || arming) return;
-    arming = true;
-    try {
-      for (const rtype of RTYPES) {
-        if (subscribed.has(rtype)) continue;
-        await peer.subscribe(serverPeerId, {
-          entityRtype: rtype,
-          entityId: '*',
-          includeDescendants: false,
-          pathPrefix: '',
-        });
-        subscribed.add(rtype);
-        for (const cb of _snapshotObservers) cb(rtype);
-      }
-    } catch (e) {
-      console.warn('[mesh] subscribe failed (will retry on reconnect):', e);
-    } finally {
-      arming = false;
-    }
-  };
-  peer.onStatus(() => void armSubscriptions());
-  void armSubscriptions();
+  // One subscription per document type. The mesh serves each from whoever
+  // granted it — our server, and over a direct link the tabs of a server that
+  // shared with ours — and renews it after a reconnect.
+  for (const rtype of RTYPES)
+    void peer.subscribe({
+      entityRtype: rtype,
+      entityId: '*',
+      includeDescendants: false,
+      pathPrefix: '',
+    });
 
+  // The app renders only once this resolves (main.tsx), so everything reads a
+  // peer that exists.
   _handles = { peer, serverPeerId, collections };
-  // The peer arrives asynchronously, so anything holding a reference to a
-  // collection has to be told when there finally is one. Without this a
-  // component that reads the replica renders empty forever: it mounts before
-  // `doInit` resolves and nothing re-renders it afterwards.
-  for (const cb of _readyObservers) cb(_handles);
   return _handles;
-}
-
-/** Drop rows the mesh has already seen removed.
- *
- *  The editor still loads from the REST scene bundle (W6 of
- *  plans/mesh-sole-channel.md replaces that with the subscription snapshot).
- *  A bundle fetched before another tab's delete can arrive AFTER the delete
- *  reached this tab through the mesh — and would put the deleted document back
- *  into the store. The replica's tombstone is the newer truth. */
-export function withoutRemoved<T extends { id: string }>(
-  rtype: string,
-  rows: T[]
-): T[] {
-  const col = _handles?.collections[rtype];
-  return col ? rows.filter((r) => !col.replica.isTombstoned(r.id)) : rows;
-}
-
-const _snapshotObservers = new Set<(rtype: string) => void>();
-
-/** Be told when the first snapshot of an rtype has been applied: from then on
- *  the replica is the authority for that collection, and anything the store
- *  got elsewhere (the REST bundle) that the replica doesn't hold is stale. */
-export function onSnapshot(cb: (rtype: string) => void): () => void {
-  _snapshotObservers.add(cb);
-  return () => _snapshotObservers.delete(cb);
 }

@@ -19,6 +19,7 @@
     "./style_rig": "./src/style_rig.ts",
     "./blendshapeLimits": "./src/blendshapeLimits.ts",
     "./sync": "./src/sync.ts",
+    "./models": "./src/models.ts",
     "./fracIndex": "./src/fracIndex.ts",
     "./clipPlayback": "./src/clipPlayback.ts",
     "./idMap": "./src/idMap.ts"

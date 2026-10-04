@@ -92,7 +92,7 @@ describe('mesh peer pair', () => {
   it('subscribe delivers a snapshot, then live ops', async () => {
     const r = rig();
     r.na.create({ id: 'n1', name: 'first' });
-    await r.b.subscribe('A', subAll());
+    await r.b.subscribe(subAll());
     expect(r.nb.get('n1')?.name).toBe('first');
 
     r.na.set('n1', 'name', 'renamed');
@@ -107,14 +107,14 @@ describe('mesh peer pair', () => {
     r.na.create({ id: 'gone', name: 'x' });
     r.na.remove('gone');
     // B has a stale copy from an out-of-band path; the snapshot must kill it.
-    await r.b.subscribe('A', subAll());
+    await r.b.subscribe(subAll());
     expect(r.nb.get('gone')).toBeUndefined();
   });
 
   it('granted subscriber writes converge AND persist on the authority', async () => {
     const r = rig();
     r.na.create({ id: 'n1', name: 'orig', pos: { x: 0, y: 0 } });
-    await r.b.subscribe('A', subAll());
+    await r.b.subscribe(subAll());
 
     const h = r.nb.update('n1', { name: 'edited-by-B' });
     expect(r.nb.get('n1')?.name).toBe('edited-by-B'); // optimistic
@@ -139,7 +139,7 @@ describe('mesh peer pair', () => {
         return { ...d, val: Math.min(d.val ?? 0, 1) }; // clamp
       },
     });
-    await r.b.subscribe('A', subAll());
+    await r.b.subscribe(subAll());
 
     const h = r.nb.create({ id: 'n1', name: 'n', val: 5 });
     expect(r.nb.get('n1')?.val).toBe(5); // optimistic
@@ -160,7 +160,7 @@ describe('mesh peer pair', () => {
       },
     });
     r.na.create({ id: 'n1', name: 'good' });
-    await r.b.subscribe('A', subAll());
+    await r.b.subscribe(subAll());
 
     const h = r.nb.set('n1', '', { id: 'n1', name: 'bad' });
     expect(r.nb.get('n1')?.name).toBe('bad'); // optimistic
@@ -173,7 +173,7 @@ describe('mesh peer pair', () => {
   it('gates guarded writes while the authority is down', async () => {
     const r = rig();
     r.na.create({ id: 'n1', name: 'x' });
-    await r.b.subscribe('A', subAll());
+    await r.b.subscribe(subAll());
     r.disconnect();
     expect(r.nb.canWrite()).toBe(false);
     const outcome = await r.nb.update('n1', { name: 'nope' }).ack;
@@ -187,7 +187,7 @@ describe('mesh peer pair', () => {
   it('ack timeout reverts the optimistic write (recency-gated)', async () => {
     const r = rig();
     r.na.create({ id: 'n1', name: 'before' });
-    await r.b.subscribe('A', subAll());
+    await r.b.subscribe(subAll());
 
     const h = r.nb.update('n1', { name: 'lost' }); // passes the gate…
     r.disconnect(); // …but the op dies on the wire
@@ -200,7 +200,7 @@ describe('mesh peer pair', () => {
   it('ephemeral channel: overlays flow, nothing persists, committed clears', async () => {
     const r = rig();
     r.na.create({ id: 'n1', name: 'x', pos: { x: 0, y: 0 } });
-    await r.b.subscribe('A', subAll());
+    await r.b.subscribe(subAll());
 
     r.nb.set('n1', 'pos', { x: 9, y: 9 }, { channel: 'preview' });
     await r.flush();
@@ -218,7 +218,7 @@ describe('mesh peer pair', () => {
   it('committed-only subscriptions never see preview traffic', async () => {
     const r = rig();
     r.na.create({ id: 'n1', name: 'x', pos: { x: 0, y: 0 } });
-    await r.b.subscribe('A', subAll(['committed']));
+    await r.b.subscribe(subAll(['committed']));
 
     r.na.set('n1', 'pos', { x: 7, y: 7 }, { channel: 'preview' });
     await r.flush();
@@ -232,7 +232,7 @@ describe('mesh peer pair', () => {
   it('removes propagate and tombstone the subscriber replica', async () => {
     const r = rig();
     r.na.create({ id: 'n1', name: 'x' });
-    await r.b.subscribe('A', subAll());
+    await r.b.subscribe(subAll());
     expect(r.nb.get('n1')).toBeDefined();
 
     await r.nb.remove('n1').ack;
@@ -248,20 +248,31 @@ describe('mesh peer pair', () => {
     r.na.create({ id: 'c1', name: 'child1', parentId: 'root' });
     r.na.create({ id: 'g1', name: 'grandchild', parentId: 'c1' });
     expect(r.na.children('root').map((n) => n.id)).toEqual(['c1']);
-    expect(r.na.subtree('root').map((n) => n.id).sort()).toEqual([
-      'c1',
-      'g1',
-      'root',
-    ]);
+    expect(
+      r.na
+        .subtree('root')
+        .map((n) => n.id)
+        .sort()
+    ).toEqual(['c1', 'g1', 'root']);
   });
 
-  it('ungranted peers cannot subscribe', async () => {
+  it('ungranted peers get nothing: no source, no data', async () => {
     const lb = createLoopbackPair('A', 'C');
     const a = createMeshPeer({ identity: { peerId: 'A' }, transports: [lb.a] });
     const c = createMeshPeer({ identity: { peerId: 'C' }, transports: [lb.b] });
-    a.collection<Node>('node', {});
-    c.collection<Node>('node', { authority: 'A' });
-    await expect(c.subscribe('A', subAll())).rejects.toThrow(/denied/);
+    const na = a.collection<Node>('node', {});
+    const nc = c.collection<Node>('node', { authority: 'A' });
+    na.create({ id: 'n1', name: 'secret' });
+    let resolved = false;
+    void c.subscribe(subAll()).then(() => (resolved = true));
+    await lb.flush();
+    expect(resolved).toBe(false);
+    expect(nc.get('n1')).toBeUndefined();
+    // Not even asked: C knows of no grant, so A is no source for it.
+    expect((await nc.create({ id: 'n2', name: 'x' }).ack).status).toBe(
+      'rejected'
+    );
+    expect(na.get('n2')).toBeUndefined();
   });
 
   it('hydration puts restore stamps and skip the tap', async () => {
@@ -305,7 +316,7 @@ describe('one-way place (read grant + subscribe, no write rights)', () => {
 
   it("owner's docs + live edits flow; the receiver's writes never reach back", async () => {
     const t = placeRig();
-    await t.r.subscribe('O', {
+    await t.r.subscribe({
       entityRtype: '*',
       entityId: 'obj',
       includeDescendants: true,
@@ -327,7 +338,7 @@ describe('one-way place (read grant + subscribe, no write rights)', () => {
 });
 
 describe('pure-stream collections (preview-only, routed by containment)', () => {
-  it('frames keyed by another collection\'s ids ride subtree subscriptions', async () => {
+  it("frames keyed by another collection's ids ride subtree subscriptions", async () => {
     const lb = createLoopbackPair('A', 'B');
     const a = createMeshPeer({ identity: { peerId: 'A' }, transports: [lb.a] });
     const b = createMeshPeer({ identity: { peerId: 'B' }, transports: [lb.b] });
@@ -357,7 +368,7 @@ describe('pure-stream collections (preview-only, routed by containment)', () => 
       pathPrefix: '',
       rights: { read: true },
     });
-    await b.subscribe('A', {
+    await b.subscribe({
       entityRtype: '*',
       entityId: 'root',
       includeDescendants: true,
@@ -366,7 +377,12 @@ describe('pure-stream collections (preview-only, routed by containment)', () => 
 
     // Frame keyed by a scene-node id: containment (from the 'node' collection)
     // routes it through the subtree subscription; nothing is retained.
-    sa.set('avatar', '', { id: 'avatar', kind: 'pose' }, { channel: 'preview' });
+    sa.set(
+      'avatar',
+      '',
+      { id: 'avatar', kind: 'pose' },
+      { channel: 'preview' }
+    );
     await lb.flush();
     expect(seen.map((f) => f.kind)).toEqual(['pose']);
     // Delivered to observers, not kept: with no retained channel there is no
@@ -375,7 +391,12 @@ describe('pure-stream collections (preview-only, routed by containment)', () => 
     expect(sb.replica.raw('avatar')).toBeUndefined();
 
     // A frame keyed OUTSIDE the granted subtree never crosses.
-    sa.set('elsewhere', '', { id: 'elsewhere', kind: 'x' }, { channel: 'preview' });
+    sa.set(
+      'elsewhere',
+      '',
+      { id: 'elsewhere', kind: 'x' },
+      { channel: 'preview' }
+    );
     await lb.flush();
     expect(sb.get('elsewhere')).toBeUndefined();
   });
@@ -393,8 +414,14 @@ describe('relay carries the validated (localized) doc to subscribers', () => {
     const t = createMeshPeer({ identity: { peerId: 'T' }, transports: [bt.b] });
     b.addTransport(bt.a);
 
-    interface Doc { id: string; projectId: string; parentId?: string | null; [k: string]: unknown }
-    const parent = (d: Doc) => (d.parentId ? { rtype: 'node', id: d.parentId } : null);
+    interface Doc {
+      id: string;
+      projectId: string;
+      parentId?: string | null;
+      [k: string]: unknown;
+    }
+    const parent = (d: Doc) =>
+      d.parentId ? { rtype: 'node', id: d.parentId } : null;
     const na = a.collection<Doc>('node', { parent });
     // B re-scopes every incoming doc's projectId to 'B-proj' (the collab localize).
     const nb = b.collection<Doc>('node', {
@@ -404,10 +431,34 @@ describe('relay carries the validated (localized) doc to subscribers', () => {
     const nt = t.collection<Doc>('node', { parent, authority: 'B' });
 
     // A grants B (collab subtree), B grants T (its tab — full rights).
-    a.grants.grant({ grantee: 'B', entityRtype: '*', entityId: '*', includeDescendants: false, pathPrefix: '', rights: { read: true } });
-    b.grants.grant({ grantee: 'T', entityRtype: '*', entityId: '*', includeDescendants: false, pathPrefix: '', rights: { read: true, update: true, create: true, delete: true } });
-    await t.subscribe('B', { entityRtype: 'node', entityId: '*', includeDescendants: false, pathPrefix: '' });
-    await b.subscribe('A', { entityRtype: 'node', entityId: '*', includeDescendants: false, pathPrefix: '' });
+    a.grants.grant({
+      grantee: 'B',
+      entityRtype: '*',
+      entityId: '*',
+      includeDescendants: false,
+      pathPrefix: '',
+      rights: { read: true },
+    });
+    b.grants.grant({
+      grantee: 'T',
+      entityRtype: '*',
+      entityId: '*',
+      includeDescendants: false,
+      pathPrefix: '',
+      rights: { read: true, update: true, create: true, delete: true },
+    });
+    await t.subscribe({
+      entityRtype: 'node',
+      entityId: '*',
+      includeDescendants: false,
+      pathPrefix: '',
+    });
+    await b.subscribe({
+      entityRtype: 'node',
+      entityId: '*',
+      includeDescendants: false,
+      pathPrefix: '',
+    });
 
     // A creates a node with A's project id; it flows A → B (re-scope) → T.
     na.create({ id: 'n1', projectId: 'A-proj', parentId: null });
@@ -419,7 +470,9 @@ describe('relay carries the validated (localized) doc to subscribers', () => {
     // dropped it. The fix relays B's validated doc, so T sees B-proj.
     expect(nt.get('n1')?.projectId).toBe('B-proj');
 
-    a.close(); b.close(); t.close();
+    a.close();
+    b.close();
+    t.close();
   });
 });
 
@@ -485,8 +538,14 @@ describe('tombstone scoping + epoch reset', () => {
 
     // B independently holds scene X (e.g. a preserved copy of a dissolved
     // collaboration) with the SAME ids A once had and has since deleted.
-    nb.put({ id: 'x-root', name: 'X', parentId: null }, { v: { t: 10, c: 0, n: 'B' } });
-    nb.put({ id: 'x-child', name: 'xc', parentId: 'x-root' }, { v: { t: 10, c: 0, n: 'B' } });
+    nb.put(
+      { id: 'x-root', name: 'X', parentId: null },
+      { v: { t: 10, c: 0, n: 'B' } }
+    );
+    nb.put(
+      { id: 'x-child', name: 'xc', parentId: 'x-root' },
+      { v: { t: 10, c: 0, n: 'B' } }
+    );
     // A's tombstones for those ids are NEWER than B's docs.
     na.putTombstone('x-root', { t: 99, c: 0, n: 'A' });
     na.putTombstone('x-child', { t: 99, c: 0, n: 'A' });
@@ -495,7 +554,7 @@ describe('tombstone scoping + epoch reset', () => {
     na.create({ id: 'y-child', name: 'yc', parentId: 'y-root' });
     a.grants.grant(subtreeGrant('B', 'y-root'));
 
-    await b.subscribe('A', subtreeSub('y-root'));
+    await b.subscribe(subtreeSub('y-root'));
     expect(nb.get('y-child')?.name).toBe('yc'); // snapshot delivered Y
     // The coarse tombstone set for X rode the snapshot but is OUT of the
     // subscription's scope — B's X docs must survive.
@@ -512,14 +571,20 @@ describe('tombstone scoping + epoch reset', () => {
 
     // Shared scene S on both sides; A deleted a child while B was offline.
     na.create({ id: 's-root', name: 'S', parentId: null });
-    nb.put({ id: 's-root', name: 'S', parentId: null }, { v: { t: 10, c: 0, n: 'A' } });
-    nb.put({ id: 's-gone', name: 'dead', parentId: 's-root' }, { v: { t: 10, c: 0, n: 'A' } });
+    nb.put(
+      { id: 's-root', name: 'S', parentId: null },
+      { v: { t: 10, c: 0, n: 'A' } }
+    );
+    nb.put(
+      { id: 's-gone', name: 'dead', parentId: 's-root' },
+      { v: { t: 10, c: 0, n: 'A' } }
+    );
     // Hydrated with the ancestry a durable peer persists next to the stamp —
     // the subtree grant can only be checked against where the entity WAS.
     na.putTombstone('s-gone', { t: 99, c: 0, n: 'A' }, ['s-root']);
     a.grants.grant(subtreeGrant('B', 's-root'));
 
-    await b.subscribe('A', subtreeSub('s-root'));
+    await b.subscribe(subtreeSub('s-root'));
     expect(nb.get('s-gone')).toBeUndefined(); // in-scope tombstone applied
     expect(nb.get('s-root')?.name).toBe('S');
   });
@@ -529,14 +594,23 @@ describe('tombstone scoping + epoch reset', () => {
     const a = createMeshPeer({ identity: { peerId: 'A' }, transports: [lb.a] });
     const na = a.collection<Node>('node', { parent });
 
-    na.put({ id: 'n1', name: 'v1', parentId: null }, { v: { t: 10, c: 0, n: 'A' } });
+    na.put(
+      { id: 'n1', name: 'v1', parentId: null },
+      { v: { t: 10, c: 0, n: 'A' } }
+    );
     na.remove('n1'); // fresh-stamped tombstone — re-put with the old stamp loses
-    na.put({ id: 'n1', name: 'v1', parentId: null }, { v: { t: 10, c: 0, n: 'A' } });
+    na.put(
+      { id: 'n1', name: 'v1', parentId: null },
+      { v: { t: 10, c: 0, n: 'A' } }
+    );
     expect(na.get('n1')).toBeUndefined();
     expect(na.replica.tombstones().some((t) => t.id === 'n1')).toBe(true);
 
     expect(na.clearTombstone('n1')).toBe(true); // epoch reset
-    na.put({ id: 'n1', name: 'v1', parentId: null }, { v: { t: 10, c: 0, n: 'A' } });
+    na.put(
+      { id: 'n1', name: 'v1', parentId: null },
+      { v: { t: 10, c: 0, n: 'A' } }
+    );
     expect(na.get('n1')?.name).toBe('v1');
     expect(na.replica.tombstones().some((t) => t.id === 'n1')).toBe(false); // not re-exported
   });
@@ -577,10 +651,10 @@ describe('snapshot relay (subscribe-through topology)', () => {
       rights: { read: true },
     });
 
-    await t.subscribe('S', subAll()); // tab first — replica empty
+    await t.subscribe(subAll()); // tab first — replica empty
     expect(nt.get('obj')).toBeUndefined();
 
-    await s.subscribe('O', {
+    await s.subscribe({
       entityRtype: '*',
       entityId: 'obj',
       includeDescendants: true,
@@ -619,7 +693,7 @@ describe('subtree-scoped collab (grant on a root, not the rtype)', () => {
       pathPrefix: '',
       rights: { read: true, update: true, create: true, delete: true },
     });
-    await b.subscribe('A', {
+    await b.subscribe({
       entityRtype: '*',
       entityId: 'root',
       includeDescendants: true,

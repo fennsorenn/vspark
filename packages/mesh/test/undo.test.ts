@@ -229,7 +229,7 @@ describe('mesh undo/redo — collaboration', () => {
   it('remote-authority write logs only once acked', async () => {
     const r = pair();
     // B subscribes so its writes fan home and it observes the acked state.
-    await r.b.subscribe('A', {
+    await r.b.subscribe({
       entityRtype: 'node',
       entityId: '*',
       includeDescendants: false,
@@ -263,7 +263,7 @@ describe('mesh undo/redo — collaboration', () => {
 
   it('undo stacks are per-peer (A cannot undo B’s action)', async () => {
     const r = pair();
-    await r.b.subscribe('A', {
+    await r.b.subscribe({
       entityRtype: 'node',
       entityId: '*',
       includeDescendants: false,
@@ -285,7 +285,7 @@ describe('mesh undo/redo — collaboration', () => {
 
   it('guarded undo no-ops when a collaborator changed the doc', async () => {
     const r = pair(); // guarded default
-    await r.b.subscribe('A', {
+    await r.b.subscribe({
       entityRtype: 'node',
       entityId: '*',
       includeDescendants: false,
@@ -419,7 +419,7 @@ describe('mesh undo/redo — batch()', () => {
 
   it('groups across async acks from a remote authority', async () => {
     const r = pair();
-    await r.b.subscribe('A', {
+    await r.b.subscribe({
       entityRtype: 'node',
       entityId: '*',
       includeDescendants: false,
@@ -533,7 +533,7 @@ describe('mesh undo/redo — the undo:false opt-out', () => {
     // The point of the opt-out is undo, not visibility: a Play pressed in one
     // tab has to reach the others.
     const r = pair();
-    await r.b.subscribe('A', {
+    await r.b.subscribe({
       entityRtype: 'node',
       entityId: '*',
       includeDescendants: false,
@@ -553,7 +553,6 @@ describe('removeTree', () => {
     const s = createMeshPeer({ identity: { peerId: 'S' }, transports: [lb.a] });
     const t = createMeshPeer({
       identity: { peerId: 'T' },
-      home: 'S',
       transports: [lb.b],
     });
     type D = { id: string; parentId?: string | null; nodeId?: string };
@@ -561,14 +560,8 @@ describe('removeTree', () => {
       d.parentId ? { rtype: 'node', id: d.parentId } : null;
     const behParent = (d: D) =>
       d.nodeId ? { rtype: 'node', id: d.nodeId } : null;
-    const sn = s.collection<D>('node', {
-      parent: nodeParent,
-      clients: { read: true, update: true, create: true, delete: true },
-    });
-    const sb = s.collection<D>('beh', {
-      parent: behParent,
-      clients: { read: true, update: true, create: true, delete: true },
-    });
+    const sn = s.collection<D>('node', { parent: nodeParent });
+    const sb = s.collection<D>('beh', { parent: behParent });
     const tn = t.collection<D>('node', { parent: nodeParent, authority: 'S' });
     const tb = t.collection<D>('beh', { parent: behParent, authority: 'S' });
     const all = (rtype: string) => ({
@@ -585,8 +578,8 @@ describe('removeTree', () => {
       pathPrefix: '',
       rights: { read: true, update: true, create: true, delete: true },
     });
-    await t.subscribe('S', all('node'));
-    await t.subscribe('S', all('beh'));
+    await t.subscribe(all('node'));
+    await t.subscribe(all('beh'));
 
     tn.create({ id: 'root', parentId: null });
     tn.create({ id: 'child', parentId: 'root' });

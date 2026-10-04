@@ -3,7 +3,7 @@
  * carry them opaquely. Reuses the HLC + subscription shapes from
  * @vspark/shared/sync.
  */
-import type { HLC, Subscription } from '@vspark/shared/sync';
+import type { Grant, HLC, Subscription } from '@vspark/shared/sync';
 
 export type DocOp = 'upsert' | 'patch' | 'remove';
 
@@ -42,14 +42,9 @@ export interface OpEnvelope {
 }
 
 /** Subscription interest + optional channel selection. Selecting an ephemeral
- *  channel implicitly includes the collection's retained channel — unless
- *  `exact`: then only the listed channels flow, and no snapshot is sent when
- *  the retained channel isn't among them. A direct link subscribes that way to
- *  `preview` alone: committed state keeps reaching it through the authority,
- *  which validates and corrects it. */
+ *  channel implicitly includes the collection's retained channel. */
 export type SubscriptionRequest = Subscription & {
   channels?: string[];
-  exact?: boolean;
 };
 
 export interface SubscribeMsg {
@@ -89,6 +84,32 @@ export interface SubErrMsg {
   t: 'sub_err';
   subId: string;
   reason: string;
+}
+
+/** The subscription is held, not refused: no grant covers it yet. It is
+ *  admitted — and answered with `sub_ok` — when one appears. */
+export interface SubWaitMsg {
+  t: 'sub_wait';
+  subId: string;
+}
+
+/** A grant as delivered to the participant it concerns, with the peer that
+ *  issued it. */
+export type DeliveredGrant = Grant & {
+  grantor: string;
+  /** Issued by the recipient's own server to someone else: the recipient
+   *  serves that participant on its server's behalf (a direct link). */
+  delegated?: boolean;
+};
+
+/** Grant delivery: everything the sender knows that concerns the recipient,
+ *  replacing what it delivered before. Sent when the link comes up and on
+ *  every change. A peer delivers the grants it issued that cover the
+ *  recipient; to its own participants also the grants it received from
+ *  others that cover them, and (delegated) the grants it issued to others. */
+export interface GrantsMsg {
+  t: 'grants';
+  grants: DeliveredGrant[];
 }
 
 export interface UnsubMsg {
@@ -139,6 +160,8 @@ export interface LinksMsg {
 
 export type MeshMessage =
   | LinksMsg
+  | GrantsMsg
+  | SubWaitMsg
   | OpEnvelope
   | SubscribeMsg
   | SubOkMsg

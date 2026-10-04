@@ -7,6 +7,8 @@ import {
 import { layerFrame } from './composeHitTest';
 import { commitPromoteLayerToNode } from '../../mesh/layerWrites';
 import { DEFAULT_COMPOSE_WIDTH, DEFAULT_COMPOSE_HEIGHT } from './ComposeView';
+import { composeLayersNow, composeScenesNow } from '../../mesh/compose';
+import { sceneNodesNow } from '../../mesh/nodes';
 
 /** Placement for a node sent from a 2D compose layer into a camera's 3D scene:
  *  a world position + the billboard/video quad size (world units) chosen so the
@@ -135,9 +137,9 @@ function sceneResolution(source: ComposeLayerRecord): {
   w: number;
   h: number;
 } {
-  const scene = useEditorStore
-    .getState()
-    .composeScenes.find((s) => s.id === source.rootComposeSceneId);
+  const scene = composeScenesNow().find(
+    (s) => s.id === source.rootComposeSceneId
+  );
   return {
     w: scene?.width && scene.width > 0 ? scene.width : DEFAULT_COMPOSE_WIDTH,
     h:
@@ -149,10 +151,9 @@ function sceneResolution(source: ComposeLayerRecord): {
  *  camera-view layer wired to a camera in the current scene set). */
 export function canSendTo3D(source: ComposeLayerRecord): boolean {
   if (source.kind !== 'image' && source.kind !== 'video') return false;
-  const store = useEditorStore.getState();
   const { w, h } = sceneResolution(source);
-  const cv = findOverlappingCameraView(source, store.composeLayers, w, h);
-  return !!(cv && store.nodes.some((n) => n.id === cv.cameraNodeId));
+  const cv = findOverlappingCameraView(source, composeLayersNow(), w, h);
+  return !!(cv && sceneNodesNow().some((n) => n.id === cv.cameraNodeId));
 }
 
 /** Create a screen-facing billboard (image) or video node in the overlapped
@@ -164,13 +165,13 @@ export async function sendComposeLayerTo3D(
 ): Promise<void> {
   const store = useEditorStore.getState();
   const { w, h } = sceneResolution(source);
-  const camView = findOverlappingCameraView(source, store.composeLayers, w, h);
+  const camView = findOverlappingCameraView(source, composeLayersNow(), w, h);
   if (!camView?.cameraNodeId) return;
-  const cameraNode = store.nodes.find((n) => n.id === camView.cameraNodeId);
+  const cameraNode = sceneNodesNow().find((n) => n.id === camView.cameraNodeId);
   if (!cameraNode) return;
   const sceneId = cameraNode.rootSceneNodeId;
 
-  const byId = new Map(store.composeLayers.map((l) => [l.id, l] as const));
+  const byId = new Map(composeLayersNow().map((l) => [l.id, l] as const));
   const place = computeSendTo3DPlacement(
     cameraNode,
     camView,

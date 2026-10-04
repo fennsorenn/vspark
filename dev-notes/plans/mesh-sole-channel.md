@@ -1,6 +1,8 @@
 # Plan: The mesh as the sole client↔server channel
 
-> **Status:** in progress — foundation largely done on `feature/mesh-foundation`
+> **Status:** in progress. Foundation and direct links merged into `dev` (2026-10-04).
+> The remaining workstreams are sequenced by [`mesh-store-surface.md`](./mesh-store-surface.md)
+> (design-only, not started). W6 is that plan's step 3.
 > **Follows:** [`mesh-frontend-writes.md`](./mesh-frontend-writes.md) (shipped, in `dev`
 > at 77bfdb4). **Supersedes** the Phase-6 recommendation in
 > [`mesh-sync-refactor.md`](./mesh-sync-refactor.md) §12 ("keep Phase-6 on the legacy

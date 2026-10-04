@@ -243,7 +243,7 @@ describe('peer: field-level reads', () => {
     ca.create(full);
     a.grants.grant(grant({ pathPrefix: 'label' }));
     a.grants.grant(grant({ pathPrefix: 'settings' }));
-    await b.subscribe('A', allSub);
+    await b.subscribe(allSub);
     expect(cb.get('c1')).toEqual({
       label: 'Studio',
       settings: { host: 'localhost', port: 4455 },
@@ -267,7 +267,7 @@ describe('peer: field-level reads', () => {
     const { a, b, ca, cb, flush } = pair();
     ca.create(full);
     a.grants.grant(grant({ pathPrefix: 'label' }));
-    await b.subscribe('A', allSub);
+    await b.subscribe(allSub);
     ca.set('c1', '', {
       ...full,
       label: 'Swapped',
@@ -281,7 +281,7 @@ describe('peer: field-level reads', () => {
     const { a, b, ca, cb, flush } = pair();
     ca.create(full);
     a.grants.grant(grant({ pathPrefix: 'label' }));
-    await b.subscribe('A', { ...allSub, channels: ['preview'] } as never);
+    await b.subscribe({ ...allSub, channels: ['preview'] } as never);
     ca.set('c1', 'secret.password', 'peek', { channel: 'preview' });
     ca.set('c1', 'label', 'Dragging', { channel: 'preview' });
     await flush();
@@ -289,17 +289,27 @@ describe('peer: field-level reads', () => {
     expect(cb.get('c1')?.label).toBe('Dragging');
   });
 
-  it('a subscription without any read grant is refused', async () => {
-    const { a, b } = pair();
+  it('a subscription without any read grant gets nothing, and waits', async () => {
+    const { a, b, ca, cb, flush } = pair();
+    ca.create(full);
     a.grants.grant(grant({ rights: { update: true } }));
-    await expect(b.subscribe('A', allSub)).rejects.toThrow(/denied/);
+    let resolved = false;
+    void b.subscribe(allSub).then(() => (resolved = true));
+    await flush();
+    expect(resolved).toBe(false);
+    expect(cb.get('c1')).toBeUndefined();
+    // A read grant arriving later admits it: snapshot, then live ops.
+    a.grants.grant(grant({ pathPrefix: 'label' }));
+    await flush();
+    expect(resolved).toBe(true);
+    expect(cb.get('c1')).toEqual({ label: 'Studio' });
   });
 
   it('revoking a grant stops delivery immediately', async () => {
     const { a, b, ca, cb, flush } = pair();
     ca.create(full);
     const gid = a.grants.grant(grant({}));
-    await b.subscribe('A', allSub);
+    await b.subscribe(allSub);
     a.grants.revoke(gid);
     ca.set('c1', 'label', 'After revoke');
     await flush();
@@ -313,7 +323,7 @@ describe('peer: field-level writes', () => {
     ca.create(full);
     a.grants.grant(grant({ rights: { read: true } }));
     a.grants.grant(grant({ pathPrefix: 'settings', rights: { update: true } }));
-    await b.subscribe('A', allSub);
+    await b.subscribe(allSub);
     const ok = cb.update('c1', { settings: { port: 1 } });
     expect((await ok.ack).status).toBe('acked');
     await flush();
@@ -325,7 +335,7 @@ describe('peer: field-level writes', () => {
     ca.create(full);
     a.grants.grant(grant({ rights: { read: true } }));
     a.grants.grant(grant({ pathPrefix: 'settings', rights: { update: true } }));
-    await b.subscribe('A', allSub);
+    await b.subscribe(allSub);
     const res = await cb.update('c1', { settings: { port: 2 }, label: 'X' })
       .ack;
     expect(res.status).toBe('rejected');
@@ -340,7 +350,7 @@ describe('peer: field-level writes', () => {
     a.grants.grant(grant({ pathPrefix: 'label' }));
     a.grants.grant(grant({ pathPrefix: 'settings' }));
     a.grants.grant(grant({ pathPrefix: 'settings', rights: { update: true } }));
-    await b.subscribe('A', allSub);
+    await b.subscribe(allSub);
     // B holds a partial view and writes it back whole (e.g. an undo).
     const view = cb.get('c1')!;
     cb.set('c1', '', {
@@ -360,7 +370,7 @@ describe('peer: field-level writes', () => {
     ca.create(full);
     a.grants.grant(grant({ pathPrefix: 'label' }));
     a.grants.grant(grant({ pathPrefix: 'secret', rights: { update: true } }));
-    await b.subscribe('A', allSub);
+    await b.subscribe(allSub);
     expect((await cb.set('c1', 'secret.password', 'typed').ack).status).toBe(
       'acked'
     );
@@ -378,7 +388,7 @@ describe('peer: the nack leak', () => {
     const { a, b, ca, cb } = pair();
     ca.create(full);
     a.grants.grant(grant({ pathPrefix: 'label' }));
-    await b.subscribe('A', allSub);
+    await b.subscribe(allSub);
     // No update grant: rejected. The nack must not carry the secret.
     const res = await cb.set('c1', 'label', 'Nope').ack;
     expect(res.status).toBe('rejected');
@@ -391,7 +401,7 @@ describe('peer: the nack leak', () => {
     const { a, b, ca, cb, flush } = pair();
     ca.create(full);
     a.grants.grant(grant({ pathPrefix: 'label', rights: { read: true } }));
-    await b.subscribe('A', allSub);
+    await b.subscribe(allSub);
     a.grants.grant(grant({ entityId: 'c2', rights: { read: true } }));
     ca.create({ id: 'c2', label: 'other', secret: { password: 'zz' } });
     await flush();
@@ -446,7 +456,7 @@ describe('peer: tombstone scoping', () => {
       if (out?.t === 'sub_ok') seen = (out.tombstones ?? []).map((t) => t.id);
       return out;
     };
-    await b.subscribe('A', {
+    await b.subscribe({
       entityRtype: 'node',
       entityId: 'mine',
       includeDescendants: true,
@@ -466,7 +476,7 @@ describe('peer: tombstone scoping', () => {
     nb.put({ id: 'orphan', parentId: 'root' }, { v: { t: 1, c: 0, n: 'A' } });
     na.putTombstone('orphan', { t: 99, c: 0, n: 'A' }); // no ancestry
     a.grants.grant(subtree('root'));
-    await b.subscribe('A', {
+    await b.subscribe({
       entityRtype: 'node',
       entityId: 'root',
       includeDescendants: true,

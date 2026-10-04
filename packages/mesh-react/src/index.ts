@@ -6,8 +6,22 @@
  * derived arrays), so components re-render exactly when the selected data
  * changes. Writes go straight to the collection — "bind a value, write a
  * value" with no store-mirroring plumbing.
+ *
+ * An app provides its peer once (`<MeshProvider peer={peer}>`); components then
+ * reach any collection by name (`useCollection('scene_node')`) and bind fields
+ * to documents (`useMeshField`).
  */
-import { useCallback, useRef, useSyncExternalStore } from 'react';
+import {
+  createContext,
+  createElement,
+  useCallback,
+  useContext,
+  useEffect,
+  useRef,
+  useState,
+  useSyncExternalStore,
+  type ReactNode,
+} from 'react';
 import {
   getPath,
   type Collection,
@@ -81,7 +95,10 @@ export function useMeshAll<T extends object>(col: Collection<T>): T[] {
  *  `setValue(v)` writes the collection's retained channel;
  *  `setValue(v, { channel: 'preview' })` writes lossily while interacting —
  *  the landing committed write clears the preview overlay everywhere. */
-export function useMeshValue<V = unknown, T extends object = Record<string, unknown>>(
+export function useMeshValue<
+  V = unknown,
+  T extends object = Record<string, unknown>,
+>(
   col: Collection<T>,
   id: string,
   path: string,
@@ -124,4 +141,169 @@ export function useCanWrite<T extends object>(
 ): boolean {
   useMeshStatus(peer); // re-render on connectivity changes
   return col.canWrite();
+}
+
+// --- the peer as the app's store ------------------------------------------------
+
+const MeshContext = createContext<MeshPeer | null>(null);
+
+/** Provide the app's peer to every hook below. */
+export function MeshProvider(props: {
+  peer: MeshPeer;
+  children?: ReactNode;
+}): ReturnType<typeof createElement> {
+  return createElement(
+    MeshContext.Provider,
+    { value: props.peer },
+    props.children
+  );
+}
+
+/** The provided peer. */
+export function useMesh(): MeshPeer {
+  const peer = useContext(MeshContext);
+  if (!peer)
+    throw new Error('mesh-react: no <MeshProvider> above this component');
+  return peer;
+}
+
+/** A collection of the provided peer, by name. */
+export function useCollection<T extends object = Record<string, unknown>>(
+  rtype: string
+): Collection<T> {
+  return useMesh().collection<T>(rtype);
+}
+
+/** Whether a committed write to `col` can be decided right now (its authority
+ *  is reachable). Re-renders on connectivity changes. */
+export function useMeshCanWrite<T extends object>(col: Collection<T>): boolean {
+  useMeshStatus(useMesh());
+  return col.canWrite();
+}
+
+// --- binding a control to a field ------------------------------------------------
+
+export interface MeshField<V> {
+  /** Current value: the in-flight draft while editing, else the document's. */
+  value: V;
+  /** Live, uncommitted change: a preview everyone sees, no undo entry. */
+  preview: (v: V) => void;
+  /** Commit — one undo step. Omit `v` to commit the current draft. */
+  commit: (v?: V) => void;
+  /** Preview + commit in one, for controls without a gesture (checkbox, select). */
+  set: (v: V) => void;
+  /** Spread onto an `<input>`: `{...field.bind()}`. */
+  bind: () => {
+    value: V;
+    onChange: (e: { target: { value: string } }) => void;
+    onBlur: () => void;
+  };
+}
+
+export interface MeshFieldOptions<V> {
+  /** Convert the raw input string for `bind()`. Defaults to identity (string);
+   *  pass `Number` for numeric inputs. */
+  parse?: (raw: string) => V;
+  /** Show the in-progress edit to everyone while it's being typed (default).
+   *  Turn off for values that are expensive or broken half-typed, so only the
+   *  draft changes until commit. */
+  livePreview?: boolean;
+  /** Minimum ms between previews sent while editing (default 33 — about 30
+   *  per second). The control shows every change at once regardless; the
+   *  commit carries the final value. */
+  previewIntervalMs?: number;
+}
+
+/**
+ * Bind one control to one field of one document.
+ *
+ *   const name = useMeshField(nodes, node.id, 'name', '');
+ *   <input {...name.bind()} />
+ *
+ * Typing previews (the `preview` channel: everyone sees it, nothing is
+ * persisted or logged); blur commits once — one undo step. While the user is
+ * mid-edit the draft wins, so a concurrent edit from another peer can't yank
+ * the text out from under them; outside an edit the field tracks the document
+ * live. The draft holds exactly what was typed, so intermediate states ('1.',
+ * '-') survive until commit.
+ */
+export function useMeshField<V, T extends object = Record<string, unknown>>(
+  col: Collection<T>,
+  id: string,
+  path: string,
+  fallback: V,
+  opts: MeshFieldOptions<V> = {}
+): MeshField<V> {
+  const live = opts.livePreview !== false;
+  const stored = useMeshSelector(
+    col,
+    id,
+    (c) => getPath(c.get(id), path) as V | undefined
+  );
+  const [draft, setDraft] = useState<{ v: V } | null>(null);
+  // The committed value this gesture started from. A live preview overlays
+  // the document, so by commit time the *read* value has caught up with the
+  // draft — comparing against it would drop every edit as a no-op.
+  const gesture = useRef<{ base: V | undefined } | null>(null);
+  const lastPreviewAt = useRef(0);
+  const interval = opts.previewIntervalMs ?? 33;
+
+  // A draft belongs to the field it was typed into.
+  useEffect(() => {
+    setDraft(null);
+    gesture.current = null;
+  }, [col, id, path]);
+
+  const committed = useCallback(
+    () => getPath(col.replica.raw(id), path) as V | undefined,
+    [col, id, path]
+  );
+
+  const preview = useCallback(
+    (v: V) => {
+      if (!gesture.current) gesture.current = { base: committed() };
+      setDraft({ v });
+      if (!live || !col.get(id)) return;
+      const now = Date.now();
+      if (now - lastPreviewAt.current < interval) return;
+      lastPreviewAt.current = now;
+      col.set(id, path, v, { channel: 'preview' });
+    },
+    [col, id, path, live, committed, interval]
+  );
+
+  const commit = useCallback(
+    (v?: V) => {
+      const g = gesture.current;
+      gesture.current = null;
+      const next = v !== undefined ? v : draft?.v;
+      setDraft(null);
+      if (next === undefined) return;
+      if (next === (g ? g.base : committed())) return; // genuinely unchanged
+      if (col.get(id)) col.set(id, path, next);
+    },
+    [col, id, path, draft, committed]
+  );
+
+  const set = useCallback((v: V) => commit(v), [commit]);
+
+  const bind = useCallback(
+    () => ({
+      value: draft ? draft.v : (stored ?? fallback),
+      onChange: (e: { target: { value: string } }) =>
+        preview(
+          (opts.parse ?? ((raw: string) => raw as unknown as V))(e.target.value)
+        ),
+      onBlur: () => commit(),
+    }),
+    [draft, stored, fallback, preview, commit, opts.parse]
+  );
+
+  return {
+    value: draft ? draft.v : (stored ?? fallback),
+    preview,
+    commit,
+    set,
+    bind,
+  };
 }

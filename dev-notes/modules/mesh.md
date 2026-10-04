@@ -1,6 +1,6 @@
 # Mesh — Replicated Store (@vspark/mesh, @vspark/mesh-react, @vspark/mesh-transports)
 
-**Status:** Core package implemented (119 vitest tests across `packages/mesh/test/`); three packages (mesh / mesh-react / mesh-transports WS pair) shipped; backend hydration + persistence complete; reads fully mesh-fed (`sync/meshStoreFeeder.ts`); writes mesh-authored for every document rtype (see the per-rtype table under [Undo / redo](#undo--redo-per-peer)); whitelist grants with one egress filter ([Grants](#grants)); every tab authenticates before joining ([Tab authentication](#tab-authentication)). See [Remaining](#remaining) for the rest.
+**Status:** Core package implemented (119 vitest tests across `packages/mesh/test/`); three packages (mesh / mesh-react / mesh-transports WS pair) shipped; backend hydration + persistence complete; the replica is the frontend's document store — components read it through per-type hooks on `@vspark/mesh-react`, the store feeder is deleted ([Frontend wiring](#frontend-wiring)); writes mesh-authored for every document rtype (see the per-rtype table under [Undo / redo](#undo--redo-per-peer)); whitelist grants with one egress filter ([Grants](#grants)); every tab authenticates before joining ([Tab authentication](#tab-authentication)). See [Remaining](#remaining) for the rest.
 
 A **schema-agnostic in-memory replicated store** with symmetric read/write API on both frontend and backend, HLC last-write-wins convergence, grant-gated access control, and authority-driven ack lifecycle. No durability in the package itself; durable peers hydrate from persistent store and persist incoming mutations via observe taps. Designed to replace both the legacy sync layer and the entity-aware collab-scene sharing model.
 
@@ -17,13 +17,14 @@ is the index into that chain:
 | [plans/mesh-sync-refactor.md](../plans/mesh-sync-refactor.md) | The plan that was actually **executed**. §8 defines the interface; the code cites §§8/9/10/11 by name. This is the spec. |
 | [plans/mesh-native-undo.md](../plans/mesh-native-undo.md) | Undo/redo as a peer primitive. |
 | [plans/mesh-drop-legacy-sync-and-undo.md](../plans/mesh-drop-legacy-sync-and-undo.md) → [plans/mesh-frontend-writes.md](../plans/mesh-frontend-writes.md) | Retiring the legacy envelope, then moving UI writes onto the tab peer. |
+| [plans/mesh-store-surface.md](../plans/mesh-store-surface.md) | The mesh as a store: models declared once (step 1), target-less subscriptions + grants (step 2), the replica as the frontend store (step 3, done), direct links as a `mesh-transports` WebRTC transport (step 4, next). |
 
 **Comments claiming a legacy path is deliberate are debt, not design.** Several
 in this area ("kept on purpose", "low value", "smoothing-aware broadcast") turned
 out to describe what nobody got to, and two of them had gone actively wrong when
 the model underneath them changed. Judge a path by whether a mesh-native
 equivalent *exists and is wired* — read the collection registration and the
-feeder — never by what a comment next to it asserts.
+read hooks (`frontend/src/mesh/`) — never by what a comment next to it asserts.
 
 ## Core principles
 
@@ -73,8 +74,11 @@ them.
 Consequences worth knowing:
 
 - "Everything with my project id" no longer finds a mounted scene, so the scene
-  bundle unions own scenes with the links, and the feeder adopts a node when its
-  SCENE is one we hold rather than when its project matches.
+  bundle unions own scenes with the links, and the frontend's node hooks
+  (`mesh/nodes.ts`) admit a node when its SCENE is mounted into the open
+  project (the connections store's `collabScenes[sceneId].projectId`, still
+  fed from REST/`/ws`) rather than only when its project matches. *(Before
+  step 3 of mesh-store-surface this was the store feeder's job.)*
 - Peer-owned projects are excluded from the project list. They are places to
   keep documents, not places to author.
 - `persists` for `scene_node` can no longer be "does a projects row exist" —
@@ -104,6 +108,13 @@ restocked on (re)subscribe.
 > version that matches the placed-object path exactly — remove co-editing
 > altogether. Neither is wanted, so the container is not coming to mounted
 > scenes.
+>
+> **Decided by the user, 2026-10-04:** the grant is now one way. The author
+> grants the mounting peer RUCD on the scene subtree, the mounting peer
+> subscribes, and the author decides every write (see [Authority](#authority)).
+> The scene is still persisted and co-edited in both projects; while the author
+> is offline it is read-only for the mounting peer, and working on it without
+> the author is what a local copy is for (planned).
 
 This principle no longer carries principle 2, which is the job it was originally
 written for. The field rewriting existed to force a foreign tree into the local
@@ -122,9 +133,9 @@ Two distinct operations, and they must not be inferred from each other:
   against `max(document write stamp, mount stamp)`.
 
 Without this, mounting a scene whose ids you once deleted lets your tombstones
-out-stamp the author's live documents: the mount lands empty, and the mutual
-subscription then propagates those tombstones back and deletes the author's
-scene.
+out-stamp the author's live documents and the mount lands empty. (While
+collab subscriptions were mutual, they then carried those tombstones back and
+deleted the author's scene.)
 
 **The mount stamp goes on the share, never on the document.** Re-stamping the
 incoming documents would work, and it would violate principle 2 — the same
@@ -246,7 +257,10 @@ while the direct path is unavailable.
   every outgoing message is projected through the recipient's grants at one
   egress point, and a peer with a partial view never overwrites what it cannot
   see.
-- Collections declare their default grants; nothing is reachable by default.
+- Nothing is reachable without a grant, and nothing stands in for one: there
+  are no collection-declared rights or exempt recipients. **Decided by the
+  user, 2026-10-04:** the mesh is project-agnostic, so even a server's own tabs
+  get their rights as (very permissive) grants, not as a blank check.
 - Grants for a direct link are delivered by the brokering server at link setup.
 - Blob grants are derived from the documents that reference the blob.
 - Secrets are a grant pattern (own rtype, write-only, never granted to remote
@@ -264,15 +278,16 @@ while the direct path is unavailable.
 - `GrantStore` + pure projection functions (`grants.ts`) — the whitelist access model; see [Grants](#grants).
 - Transport SPI + loopback implementation for testing.
 
-**`@vspark/mesh-react`** — React hooks (useSyncExternalStore):
-- `useMeshDoc(collection, id)` — read a single document.
+**`@vspark/mesh-react`** — React hooks (useSyncExternalStore), all in `packages/mesh-react/src/index.ts`:
+- `MeshProvider` (`<MeshProvider peer>`), `useMesh()`, `useCollection(rtype)` — provide the app's peer once, reach any collection by name.
+- `useMeshDoc(collection, id)` — read a single document (overlay-aware).
 - `useMeshSubtree(collection, rootId)` — read a subtree + descendant list.
 - `useMeshChildren(collection, parentId)` — read immediate children only.
 - `useMeshAll(collection)` — read all entries.
-- `useMeshValue(collection, id, path)` — read a single scalar/path value.
-- `useMeshStatus(collection)` — connection + ack status.
-- `useMeshCanWrite(collection)` — authority reachability gate.
-- `useMeshSelector(collection, selector)` — composable selector helper.
+- `useMeshValue(collection, id, path)` — bind a single path value: `[value, setValue]`.
+- `useMeshSelector(collection, selector, compute)` — the core helper the others are built on; serves a referentially stable derived value.
+- `useMeshField(collection, id, path, fallback, opts)` — bind one control to one field: draft while editing, throttled `preview` writes (default 33ms, `previewIntervalMs`), one commit on release; `livePreview: false` keeps the draft local until commit.
+- `useMeshStatus(peer)`, `useCanWrite(peer, collection)`, `useMeshCanWrite(collection)` — connection/ack status and authority reachability.
 
 All subscribe to the replica via `useSyncExternalStore` and auto-unsubscribe on unmount.
 
@@ -289,7 +304,7 @@ All subscribe to the replica via `useSyncExternalStore` and auto-unsubscribe on 
 
 **Channels are delivery semantics, not data layers.** A channel declares transport reliability, HLC stamping, retention, and ack requirements. Composition of multiple sources driving one value (e.g., base / clip-override / runtime-override) happens via app-level conventions on sub-paths with a shared deterministic resolver, not via channels. But the channel a write arrived on *is* the authoritative statement of what the write means — see [Committed vs preview](#committed-vs-preview--the-channel-is-the-discriminator).
 
-**At most one ack authority per collection**, gated while reachable, with three-outcome acks:
+**One authority per document**, gated while reachable, with three-outcome acks (who it is: [Authority](#authority)):
 - `acked` — applied + persisted by authority.
 - `corrected` — authority applied a normalized/clamped value; the corrected value supersedes everywhere.
 - `rejected` — authority refused; current value included in the nack so no refetch round-trip needed.
@@ -297,6 +312,28 @@ All subscribe to the replica via `useSyncExternalStore` and auto-unsubscribe on 
 **Recency-gated revert on ack timeout.** Authority unreachable mid-flight: reverted *only if the current value still carries the write's HLC stamp* — a read-only check that's safe under concurrent writes. Revert is *local-only* (no compensating broadcast); reconnect reconciliation from the authority is the real repair. Brief divergence among non-authority peers during an outage is accepted.
 
 **Legacy bridge echo guard.** The legacy sync.document ↔ mesh replica mirror taps sync.document.upsert to watch for writes from the mesh side; when a write originates from the mesh (`origin === peerId`), the bridge skips applying it back to the document (detected via `applyFromMesh` ids). This prevents echo feedback while the two layers converge.
+
+### Authority
+
+Who decides — acks, corrects or refuses — a committed write to a document, in
+order (`MeshPeer.authorityFor`):
+1. the collection's `authority`, if configured (an override; nothing in vspark
+   sets it);
+2. for a participant (a tab), its own server;
+3. whoever granted this peer a write on the document — a space shared with us is
+   the sharer's to decide;
+4. otherwise this peer.
+
+Nothing is configured per peer: the authority follows from identity and
+grants. A server that holds a write for a document someone else decides applies
+it, passes it on to them, and carries their ack back to the writer
+(`forwardAck`). A refused write that came through such a forwarder is restated
+by the deciding peer — the current document, or its removal, under a fresh
+stamp — to every subscriber (`issueCanonical`), so the forwarder and its tabs
+converge too. A correction reaches the forwarder with the ack and goes on to its
+subscribers. While the deciding peer is unreachable the write is rejected
+(`authority-offline`): a shared space is read-only on the other side then.
+Tests: `packages/mesh/test/sharedSpace.test.ts`.
 
 ## Collection API
 
@@ -378,12 +415,20 @@ collection.canWrite(): boolean  // false while ack authority is known down
 
 ### Config
 
-`CollectionConfig` (`packages/mesh/src/collection.ts`): `parent`, `validate`,
-`channels`, `authority`, and `clients` — the rights (`read` / `update` /
-`create` / `delete`) this peer's own tabs hold on every document of the
-collection. Declaring `clients` adds one grant to the peer's own id, which
-covers its client participants and no one else. A collection without it is
-unreachable from tabs. See [Grants](#grants).
+Document types are declared once and handed to every peer:
+`createMeshPeer({ models, channels })`. A `ModelDecl`
+(`packages/mesh/src/collection.ts`) holds what every peer knows about a type:
+`parent`, `validate`, `channels`, `clockFields`. vspark's declarations live in
+`@vspark/shared/models` (`MODELS`, plus `TAB_MODELS`, the types a tab opens),
+so backend and frontend can't disagree on a parent or a channel list.
+`peer.collection(rtype, local)` opens a declared type, and `local` adds what
+only this peer contributes. A local `validate` runs after the declared one, on
+its result.
+
+`CollectionConfig` adds one peer-local field to a `ModelDecl`: `authority`, an
+explicit override of who decides writes. Normally it is left out and derived
+(see [Authority](#authority)). What other participants may do is not
+collection config at all: it is grants (see [Grants](#grants)).
 
 ## Undo / redo (per peer)
 
@@ -466,11 +511,14 @@ Current state, per rtype:
 | `logic` | tab peer (`frontend/src/mesh/logicWrites.ts`) | yes |
 | `clip_playback` | tab peer (`frontend/src/mesh/playbackWrites.ts`), `undo: false` | no — deliberately; transport is a view action, not a document edit |
 
-The fallback ladder in `writes.ts` drops a *mesh-eligible* write back to REST
-when the doc is owner-authoritative (a Phase-6 projection), the tab peer isn't
-armed / the authority is offline (`canWrite()`), or the replica doesn't hold the
-doc. A write that took the fallback is likewise not undoable — by design, since
-the tab never authored it.
+Tab writes are mesh-only: the REST fallback ladder that used to live in
+`writes.ts` is gone (mesh-store-surface step 3). A write while offline or
+without a grant fails and is reported ([Write outcomes](#write-outcomes-are-visible)).
+The one REST path left is a **projected remote node** (a Phase-6 placed
+object, owner-authoritative): `commitNodePath` / `commitNodePatch` / the node
+delete in `writes.ts` send it through `api.updateNode` / `api.deleteNode`,
+until mesh-sole-channel W7. Those writes are not undoable, since the tab never
+authored them.
 
 Frontend plumbing (`meshUndo` / `meshRedo` / `meshBatch` / `onMeshUndoChange` in
 `frontend/src/mesh/peer.ts`, keybindings, TopBar buttons, i18n, help) is in place
@@ -480,21 +528,22 @@ for assistant undo is not yet built.
 **Commit granularity is a UI decision, and it is part of the undo model.** Every
 committed write is one undo step, so a control that commits per keystroke makes
 undo useless. `frontend/src/hooks/useMeshField.ts` owns that split for bound
-controls (`onChange` previews locally, `onBlur` commits once; `set()` for
+controls (`onChange` previews on the `preview` channel, throttled to 33ms,
+`onBlur` commits once; `set()` for
 discrete controls that have no gesture); call the imperative helpers directly
 only from call sites that can't obey hook rules.
 
 ## Channel mechanics
 
-Channels are declared when creating the collection:
+A collection's channels come from its declaration (or the local config):
 
 ```ts
+const mesh = createMeshPeer({ identity, models: MODELS, transports });
 const nodes = mesh.collection<Node>('scene_node', {
-  validate?: (data: unknown, originId?: string) => Node,  // originId = origin peer (peer-clock localization)
-  channels?: string[],  // default ['committed', 'preview']
-  authority?: 'self' | PeerId,
-  clients?: { read?, update?, create?, delete? },  // tab rights, see Grants
+  authority?: 'self' | PeerId,  // override; normally derived, see Authority
+  validate?: (doc: unknown, ctx: { origin, prev }) => Node,  // runs after the declared one
 });
+// ModelDecl: { parent?, validate?, channels? (default ['committed', 'preview']), clockFields? }
 ```
 
 Four channels are built in (`BUILTIN_CHANNELS` in `packages/mesh/src/channels.ts`),
@@ -530,10 +579,9 @@ not apply it; it sends it to `nextHop(to)` and resolves `unguarded` (or
 addressed to someone else forwards it to its own next hop and applies nothing;
 only the addressee applies it.
 
-`nextHop` is the **routing seam**: today it picks the first linked candidate of
-the participant itself, its server (`participantServer`), then this peer's
-`home`. Direct links (principle 8) are meant to plug in here without changing
-callers.
+`nextHop` is the **routing seam**: it picks the first linked candidate of the
+participant itself (a direct link), its server (`participantServer`), then this
+peer's own server when it is a participant (a tab).
 
 On top of addressing:
 
@@ -549,36 +597,69 @@ forward a request answers `unreachable` on the addressee's behalf; any other
 reply is accepted only from the addressee. Delivery is at most once, so a lost
 request or reply ends in `timeout`. Tests: `packages/mesh/test/control.test.ts`.
 
+### Subscriptions and grant delivery
+
+```ts
+const sub = await mesh.subscribe({ entityRtype, entityId, includeDescendants, pathPrefix, channels? });
+sub.sources();      // the peers currently serving it
+sub.unsubscribe();
+```
+
+A subscription names **what**, never **from whom**. The peer serves it from
+every linked peer that granted it read on any of it (`sourcesFor`), plus that
+grantor's own participants over a direct link, who serve on their server's
+behalf. It never subscribes to another tab of its own server: those meet through
+the server. The set of sources follows grants and links as they change
+(`reconcileInterest`), and the caller keeps one handle throughout, across
+reconnects. `subscribe()` resolves when the first source has sent its snapshot.
+
+A peer learns its sources from **grant delivery**: when a link comes up, and on
+every change, each peer sends the other a `grants` message (`GrantsMsg` in
+`wire.ts`) with the grants that concern it, each with its grantor:
+- the grants it issued that cover the recipient;
+- to its own participants (its tabs), also the grants it *received* that cover
+  them, so a tab knows that the scene another server shared with its server is
+  readable at that server;
+- to its own participants, the grants it issued to others, marked `delegated`,
+  so a tab can serve them on its server's behalf over a direct link.
+
+Delivered grants outlive a dropped link: a space someone shared with us stays
+theirs while they are away. The next delivery replaces them.
+
+A subscription that reaches a source before the source's grant covers it is
+**held**, not refused: the source answers `sub_wait` and admits it (`sub_ok` with
+the snapshot) when a grant appears. That replaced the retry loops collab, shares
+and the tab used to need. Revoking a grant drops what it no longer covers.
+
 ### Link state
 
-A peer with a `home` tells it which participants it reaches directly: a `links`
-message (`LinksMsg` in `wire.ts`) on every link change. The home records it per
-sender (`directLinks`) and, when relaying a **lossy** op, skips recipients that
-reach the op's origin directly — they already have it first-hand. Reliable ops
-are still relayed, as the path that survives a direct link dropping silently;
-the receiver's dedup (or LWW, for a stamped op) absorbs the second copy. A link
-counts only once a subscription over it is active — a link whose subscription
-was refused doesn't stop the relay. Tests: `packages/mesh/test/links.test.ts`.
+A tab tells its own server which participants it gets data from directly: a
+`links` message (`LinksMsg` in `wire.ts`) listing the peers it holds an active
+subscription leg with. The server records it per sender (`directLinks`) and,
+when relaying a **lossy** op, skips recipients that reach the op's origin
+directly — they already have it first-hand. Reliable ops are still relayed, as
+the path that survives a direct link dropping silently; the receiver's dedup
+(or LWW, for a stamped op) absorbs the second copy. Tests:
+`packages/mesh/test/links.test.ts`.
 
 ### Direct links (tabs)
 
 A tab links over WebRTC to tabs of **other** servers (`DirectTransport` in
-`frontend/src/mesh/directTransport.ts`, carried by `clientMesh.ts`) and takes an
-`exact` subscription to each with `channels: ['preview']`: no snapshot and no
-committed ops. Committed state keeps arriving through the tab's own server,
-which validates it. A refused subscription is retried with backoff while the link
-is up, because the other tab may not hold its grants yet. Tabs of the same server
-don't link; they meet through it.
+`frontend/src/mesh/directTransport.ts`, carried by `clientMesh.ts`; step 4 of
+[plans/mesh-store-surface.md](../plans/mesh-store-surface.md) replaces it with a
+transport in `mesh-transports`). Nothing in the app wires the link up: once it
+is there, the subscriptions the tab already holds gain the other tab as a
+source if its server granted ours read. All channels travel it, committed ones
+included, since the deciding peer restates what stands after a refusal.
 
-- `relay: false` makes a peer an endpoint: it doesn't forward what it receives,
-  so a direct subscriber gets only what that tab authored.
-- Grants for a direct link: the backend mirrors every grant it issued to someone
-  other than itself into the `peer_grant` runtime collection (tabs read it,
-  `backend/src/mesh/peerGrants.ts`). The tab copies them into its `GrantStore`.
-  A grant to a server covers that server's tabs (`granteeCandidates`).
-- Admission: an op matching our own subscription to a *server* is accepted as is.
-  The same op from a *tab* must pass that tab's write grants, as any write
-  does.
+- A participant (a tab) is an endpoint: it forwards nothing it receives, so a
+  direct subscriber gets from it only what it authored.
+- It admits a direct subscriber with the grants its server delegated to it,
+  and a revoke at the server reaches it as the next delivery.
+- **Asymmetry:** with a space shared one way, the author's tabs serve the
+  mounting server's tabs directly, but not the other way round — the mounting
+  server granted the author nothing. Previews from a mounting tab reach the
+  author's tabs through the two servers.
 
 ### Snapshot & apply
 
@@ -587,19 +668,46 @@ On subscription with an unmet grant, the subscriber receives:
 2. A watermark (HLC timestamp) bounding the snapshot's consistency.
 3. Live ops after the watermark.
 
-Applying a remote op checks the origin's write grants ([Grants](#grants)) and runs the resource's `validate` function before touching the replica. The snapshot and every later op are projected through the subscriber's read grants on the way out.
+Applying a remote op checks the origin's write grants ([Grants](#grants)), translates declared clock fields, and runs the collection's `validate` before touching the replica. The snapshot and every later op are projected through the subscriber's read grants on the way out.
 
-### Peer-clock localization (validate origin id)
+### Validation: one check, on the composed document
 
-`validate` receives the **origin peer id** as a second argument, so a collection can localize peer-relative fields (clock-anchored timestamps) when a foreign doc arrives:
+`validate(doc, { origin, prev })` always receives the **whole document a
+committed write would leave behind**, whatever shape the write had: a create, a
+whole-document upsert, a merge-patch or a single-path `set`. The peer composes
+the patch onto its current copy first (`MeshPeer.composeCandidate`), so a check
+can't be bypassed by editing one field. It runs on every peer, for local writes
+(fail fast), incoming ops and snapshot documents. Previews aren't checked.
 
-```ts
-validate?: (data: unknown, originId?: string) => T   // packages/mesh/src/collection.ts
-```
+- Throwing rejects. On the authority this nacks the author, who rolls back.
+- Returning a different document corrects. A corrected write is applied as an
+  upsert of the corrected document; on the authority it is issued with a fresh
+  stamp as its own write, and the `corrected` ack carries the whole document,
+  which the author applies in place of its write.
+- A patch to a document this peer doesn't hold yet isn't checked: the replica
+  parks it until the document arrives.
 
-`Collection.validateDoc(data, originId?)` forwards it. `MeshPeer` (`packages/mesh/src/peer.ts`) threads the origin through every apply path: `this.id` for local writes, `env.origin` for remote ops, and `senderId` for snapshots. The peer also exposes a peer-clock API `toLocalTime(originId, t)` that maps a timestamp authored on `originId`'s clock onto the local clock (identity when `originId` is this peer, since local writes are already local).
+Before this, `validate` ran on whole-document upserts only and the backend had a
+second hook, `guard`, on the composed document in the persistence tap. A check
+in the wrong one was skipped by field edits (a scene instance could be made to
+embed its own scene by setting `properties.sourceSceneId`). `guard` is gone.
 
-First use: the `scheduled_animation` collection's `validate` rewrites `startEpoch` via `peer.toLocalTime(originId, startEpoch)` so a timeline authored on one peer activates at the same wall-clock instant everywhere (see [animation.md](animation.md)). The clock is a synchronized-clocks stub today, so the translation is numerically a no-op, but the mechanism and call sites are final.
+### Clock fields
+
+A declaration's `clockFields` lists top-level wall-clock timestamps (ms) that a
+writer sets on its own clock (`startEpoch` on `scheduled_animation` and
+`clip_playback`). Each peer translates them onto its own clock as data arrives,
+using the measured offset to the peer that **sent** it (`toLocalTime(senderId,
+t)`): ops, snapshot documents, and the documents carried by correction and
+rejection acks. Translation is per hop, so data on a link is always on its
+sender's clock, and a relay forwards it already translated. Local writes keep
+the writer's frame. A browser tab translates too: it reads `startEpoch`
+against its own `Date.now()`, whatever the clock of the machine its server
+runs on.
+
+This used to live inside the backend's `validate` hooks. Run on the composed
+document, that would have translated again on every field edit, and it used
+the author's id, which has no measured offset when the op was relayed.
 
 ## Grants
 
@@ -614,22 +722,24 @@ participant's access is the union of every grant that names it, its server
 (`participantServer`) or `'*'` (`granteeCandidates`). There are no deny rules,
 and nothing is reachable without a grant. API: `peer.grants.grant(g) → gid`,
 `revoke(gid)` (re-checks admitted subscriptions and drops those no grant
-overlaps any more), `list()`, `observe(cb)`.
+overlaps any more), `list()`, `observe(cb)`. Grants reach the participants they
+concern by [grant delivery](#subscriptions-and-grant-delivery).
 
 **Where grants come from today.**
-- `CollectionConfig.clients` — the tab rights a collection declares (one grant
-  to the peer's own id, which `granteeCandidates` matches for its tabs only).
-  The backend sets them per binding in `packages/backend/src/mesh/index.ts`:
-  `TAB_AUTHORED` (all four rights) for the rtypes tabs author (`scene_node`,
-  `behavior`, `camera_effect`, `compose_layer`, `track_clip`, `logic`,
-  `clip_playback`), `TAB_READ_DELETE` for `animation_clip` and
-  `scheduled_animation` (servers write them; a tab removes them only as part of
-  deleting their node via `removeTree`). The runtime collections
-  (`runtime_override`, `data_field`, `media_control`, `server_status`) are
-  `{ read: true }`. `node_stream` and `runtime_control` declare none — they are
-  server-to-server only. The former blanket `'*'/'*'` grant to tabs is gone.
-- Collab-scene grants (`mesh/collab.ts`) and object-share grants
-  (`mesh/shares.ts`) for server peers, as before.
+- Tab rights: the backend grants its own id — which `granteeCandidates` matches
+  for its tabs only — per binding (`grantTabs` in
+  `packages/backend/src/mesh/index.ts`): `TAB_AUTHORED` (all four rights) for
+  the rtypes tabs author (`scene_node`, `behavior`, `camera_effect`,
+  `compose_layer`, `track_clip`, `logic`, `clip_playback`), `TAB_READ_DELETE`
+  for `animation_clip` and `scheduled_animation` (servers write them; a tab
+  removes them only as part of deleting their node via `removeTree`). The
+  runtime collections (`runtime_override`, `data_field`, `media_control`,
+  `server_status`) get `{ read: true }` where they are created. `node_stream`
+  and `runtime_control` get none — they are server-to-server only. There is no
+  blanket grant and no collection flag standing in for one.
+- Collab scenes (`mesh/collab.ts`): the author grants the mounting peer RUCD on
+  the scene subtree, one way. Object shares (`mesh/shares.ts`): the owner
+  mirrors each share grant.
 
 **Reads are projected at one egress point.** Every message a peer sends goes
 through `MeshPeer.transmit` → `egress`, which cuts it down to what the recipient
@@ -641,20 +751,23 @@ through it. Removes go out whole to anyone who can read some part of the entity.
 A nack's `value` is projected too, so a rejected writer does not learn a value
 it cannot read. Field-level read grants depend on nothing bypassing `transmit`.
 
-**Exempt recipients.** Two recipients are not projected: the peer's `home`
-(`MeshPeerConfig.home` — a tab's own server, which is the source of its grants
-rather than a recipient they gate), and, for ops, a collection's `authority`
-(writes flow to it to be decided). Tabs set `home: serverPeerId`; the backend
-peer has no home.
+**Writes go to whoever granted them.** No recipient is exempt from projection.
+A write may additionally go, whole, to a peer that granted us a write on the
+document (`grantorOfWrite`): a tab's write to its server, a mounting server's
+write to the author. Whether each leaf is allowed is the grantor's check. A
+write no grant allows fails fast with `rejected: 'denied'` and never leaves the
+peer.
 
 **Subscription admission.** A subscription is admitted when any read grant
 *overlaps* it (entity and path, either direction — `grantOverlapsSubscription`),
 not only when one covers it. What it then receives is the union of the paths
-its grants allow, by projection per message.
+its grants allow, by projection per message. One that no grant covers yet is
+held until one does.
 
-**Writes are checked per leaf.** `admitOp` accepts an op that matches one of
-this peer's own active subscriptions to the sender without a grant check (data
-we asked for). Otherwise: a remove needs `delete`; an upsert of an unknown id
+**Writes are checked per leaf.** `admitOp` accepts what a **source** sends: the
+grantor of a read grant we hold on the document, or one of its own
+participants (`isSourceFor`) — it already projected the op to what we may read.
+Anything else must pass the origin's write grants: a remove needs `delete`; an upsert of an unknown id
 needs `create`; a patch needs `update` on its path, a merge-patch on every leaf.
 An upsert of an existing doc from an origin without whole-document `update` is
 applied as a **merge-patch of the leaves it may write** — a peer with a partial
@@ -672,7 +785,7 @@ are filtered by subscription scope with it, then by egress. Tombstones written
 before migration 042 have no chain and reach only rtype-wide grants.
 
 **Not done yet** (see [plans/mesh-sole-channel.md](../plans/mesh-sole-channel.md)
-F6): delivering grants for direct links at link setup, and blob grants derived
+W5): blob grants derived
 from referencing documents.
 
 ## Tab authentication
@@ -721,10 +834,13 @@ load from animating.
 **The channel is the discriminator — do not re-derive intent from the payload.**
 `Replica.get()` composes overlays over the retained doc, and the change handed to
 `observe()` carries its `op` and `channel`. So in
-`frontend/src/sync/meshStoreFeeder.ts` an `op === 'ephemeral'` change *is* an
-in-flight gesture by construction and is routed into the tween
-(`smoothComposeLayer`), while a retained op is model state and is applied
-directly. Two things fall out of that for free:
+`frontend/src/previewSmoother.ts` (`startPreviewSmoothing`, started from
+`main.tsx`) an `op === 'ephemeral'` change from another peer *is* an in-flight
+gesture by construction and is routed into the tween (`smoothComposeLayer`,
+`applyNodePreview`), while a retained op is model state and the read hooks show
+it straight from the replica. *(Before mesh-store-surface step 3 this split
+lived in the store feeder, `sync/meshStoreFeeder.ts`, now deleted.)* Two
+things fall out of that for free:
 
 - **A cold page load cannot animate.** Snapshots only carry retained channels
   (`Replica`/`peer.ts` skip collections with no retained channel on both the send
@@ -732,7 +848,9 @@ directly. Two things fall out of that for free:
   tween in from wherever the store happened to sit.
 - **Mid-gesture the committed value retargets the running tween** rather than
   snapping, because the preview channel is lossy and the last preview frame may
-  never have landed (`hasLayerTween` branch in the feeder).
+  never have landed (the `hasLayerTween` / `hasNodeTween` branches in
+  `startPreviewSmoothing`). The tween shows through the view-only `liveLayers`
+  / `liveNodes` store slices until it ends.
 
 **Overlays are cleared by the committed write itself.** A retained upsert deletes
 the doc's overlay map (`Replica.upsert` → `overlays.delete(id)`), so a gesture
@@ -798,8 +916,7 @@ which replays a group in reverse — restores parents first.
 const nodes = mesh.collection<SceneNode>('scene_node', {
   parent: (doc) => doc.sceneRootId ? { rtype: 'scene', id: doc.sceneRootId } : null,
   channels: ['committed', 'preview'],
-  authority: 'self',  // on the home peer; other peers have `authority: homeServerId`
-});
+});  // normally declared once in `models` and opened with mesh.collection('scene_node')
 
 nodes.create({ name, transform, ... });
 nodes.update(id, { name: 'new' });
@@ -833,7 +950,7 @@ Location: `packages/backend/src/mesh/index.ts`.
 - `camera_effect` (parent: owning scene)
 - `compose_layer` (parent: owning scene)
 - `track_clip` (parent: owning scene)
-- `scheduled_animation` (parent: owning avatar `scene_node`) — per-avatar clip timeline; see [animation.md](animation.md). Its `validate` localizes the author-anchored `startEpoch` onto the receiver clock (peer-clock localization, below).
+- `scheduled_animation` (parent: owning avatar `scene_node`) — per-avatar clip timeline; see [animation.md](animation.md). `startEpoch` is a declared clock field, translated onto each receiver's clock (see [Clock fields](#clock-fields)).
 
 **Hydration (boot):**
 ```ts
@@ -862,34 +979,107 @@ All collections are wired identically (`scene_node`, `behavior`, `camera_effect`
 ## Frontend wiring
 
 Location: `packages/frontend/src/mesh/peer.ts` — one peer per tab, created once by
-`initMeshPeer()` (idempotent; started from both `Editor.tsx` and `ViewerPage.tsx`,
-since both render live state). It registers a collection per rtype in `RTYPES`
-(`scene_node`, `behavior`, `camera_effect`, `compose_layer`, `track_clip`,
-`animation_clip`, `scheduled_animation`) with `authority: serverPeerId`, and the
-containment schema from `PARENTS` in the same file.
+`initMeshPeer()` (idempotent). `packages/frontend/src/main.tsx` awaits it
+**before the first render** (retrying with a "connecting" message until the
+server's identity answers), starts `startPreviewSmoothing(peer)` and
+`startMediaCommands(peer)`, and wraps `<App>` in `<MeshProvider peer>`. So every
+component reaches a collection that exists, and there is no load window to
+guard. (`Editor.tsx` and `meshProjection.ts` still call `initMeshPeer()`; with
+the peer already up that is a no-op.) The peer is created with the shared
+`MODELS`, opens a collection per rtype in `TAB_MODELS`
+(`@vspark/shared/models`) with no further config, and subscribes to each once
+(`entityId: '*'`). The mesh serves those subscriptions — from the server, and
+over direct links from tabs of servers that shared with ours — and renews them
+after a reconnect.
 
 **Participant ID:** `${serverPeerId}#${tabUuid}` (stable across reloads via
-sessionStorage), so HLC origins and grants stay consistent per tab. The peer is
-created with `home: serverPeerId` (exempt from egress projection, receives the
-`links` announcements) and connects with a stored token — see
+sessionStorage), so HLC origins and grants stay consistent per tab. The id is
+also what makes the peer an endpoint: its server decides its writes, it
+forwards nothing, and it reaches everyone else through the server (see
+[Authority](#authority)). It connects with a stored token — see
 [Tab authentication](#tab-authentication).
-
-**Auto-subscription re-arming:** the peer marks outgoing subscriptions stale on
-disconnect and they do not auto-renew, so `armSubscriptions()` re-subscribes every
-rtype (`entityId: '*'`) on each `onStatus` transition back to connected.
 
 **Vite proxy:** `/mesh` route proxied to backend during dev.
 
-**Reads** are mesh-fed but not yet mesh-*bound*: `sync/meshStoreFeeder.ts` mirrors
-the replica into Zustand `editorStore` and components read the store. Moving
-components onto `@vspark/mesh-react` hooks is still open.
+### The replica is the store
 
-**Writes** are tab-authored for every document rtype (`mesh/writes.ts`,
-`mesh/layerWrites.ts` and the sibling `*Writes.ts` files); see the Undo/redo
-table. Bound controls go through `hooks/useMeshField.ts`: `useMeshField` for
-node fields, `useLayerField` for compose-layer fields, with a `livePreview`
-option (default on) that fields which must not apply half-typed — browser URL,
-feed template/CSS — turn off so they commit only on blur.
+Done in step 3 of [plans/mesh-store-surface.md](../plans/mesh-store-surface.md).
+The tab's replica *is* the document store: there is no mirror. The store feeder
+(`sync/meshStoreFeeder.ts`) is deleted, and `editorStore` no longer holds the
+synced slices (nodes, scenes, behaviors, camera effects, compose layers/scenes,
+track clips, logic, clip playback, schedules, animation clips, statuses,
+runtime overrides, data channels). The editor no longer loads documents from
+the REST scene bundle; it renders what the subscription delivers.
+
+**Reads** — per-type hook modules in `packages/frontend/src/mesh/`, built on the
+generic `@vspark/mesh-react` hooks (`useCollection`, `useMeshDoc`,
+`useMeshChildren`, `useMeshAll`, `useMeshSelector`). `compose.ts` and
+`nodes.ts` also export `*Now()` twins for non-React callers (actions, event
+handlers); elsewhere non-React code reads through `mesh/docs.ts`
+(`collectionOf` / `readDoc`):
+
+| Module | Reads |
+|---|---|
+| `mesh/hooks.ts` | behaviors (`useNodeBehaviors`, `useAllBehaviors`), camera effects, `useComposeLayer`, clip playback, animation clips, schedules, logic records, track clips (+ the `logicRecordOf` / `trackClipRecordOf` doc→record mappers), tracking statuses; re-exports `useSceneNode` |
+| `mesh/compose.ts` | `useComposeLayers` / `useComposeScenes` / `useComposeAll` + `composeLayersNow` / `composeScenesNow` / `composeAllNow` / `composeDocNow` |
+| `mesh/nodes.ts` | `useSceneNodes` / `useScenes` / `useSceneNode` + `sceneNodesNow` / `scenesNow` / `sceneNodeNow` |
+| `mesh/runtime.ts` | `useRuntimeOverrides`, `useDataFields`, `useServerStatus` / `useServerStatuses` (+ `withLiveStatus`) |
+
+The tab subscribes server-wide, so the compose and node hooks filter to the open
+project. The node filter also admits scenes mounted into the open project:
+mounted collab scenes keep their author's `projectId`, so `mesh/nodes.ts` checks
+`useConnectionsStore` `collabScenes[sceneId]` (`role: 'mounted'`, its
+`projectId`) — that mount list still comes from REST/`/ws`.
+
+Granularity is why reads are per-document where they can be: `useMeshDoc(col,
+id)` re-renders when THAT document changes, a whole-collection hook on any
+change in it.
+
+**Primitives** — `mesh/docs.ts`, the imperative side: `collectionOf(rtype)`,
+`readDoc`, `setField` (one undo step), `previewField` (lossy `preview`
+channel, throttled to one per 33ms per field), `patchDoc` (merge-patch, one
+undo step), `createDoc`, `removeDoc` (the doc and everything contained in it,
+via `peer.removeTree`, as one undo action). Refusals are reported through
+`writeFeedback.ts`.
+
+**Writes** — `mesh/writes.ts` (scene nodes), `layerWrites.ts`, `clipWrites.ts`,
+`logicWrites.ts`, `effectWrites.ts`, `behaviorWrites.ts`, `playbackWrites.ts`;
+see the Undo/redo table. Mesh-only, no REST fallback; the exception is
+projected remote nodes, which still go through `api.updateNode` /
+`api.deleteNode` (Phase 6, until W7). Domain operations that span documents
+(promoting a layer to a node, pasting a graph, sibling order keys) stay as app
+functions over a batch.
+
+**Forms** — `hooks/useMeshField.ts` wraps the generic mesh-react `useMeshField`:
+`useMeshField(nodeId, path, fallback, opts)` on `scene_node`, `useLayerField`
+on `compose_layer`. Preview while editing (33ms throttle), commit on release —
+one undo step per commit. `livePreview: false` (browser URL, feed
+template/CSS) keeps the edit local until blur.
+
+**View-only store slices** that remain in `editorStore`:
+
+- `liveLayers` / `liveNodes` — what a local gesture or a received preview's
+  tween shows on top of the committed document. Written by
+  `previewSmoother.ts` (and the compose interactions); the read hooks merge
+  them over the replica. Display state, never written back.
+- `projectedNodes` — placed remote objects (Phase-6 projection,
+  `sync/sharedProjection.ts` + `sync/meshProjection.ts`), appended by
+  `useSceneNodes`. Kept until mesh-sole-channel W7.
+
+These three were calls made during step 3 and are recorded in the plan "for
+review" — descriptive, not a user decision. Two behaviour changes from the same
+step, also recorded there: `previewNodePath` now fans out to other tabs
+(throttled, 33ms) like every other preview write, and placed objects' global
+data fields are no longer delivered to the tab (data fields are read from the
+replica only).
+
+**Tests** — `packages/frontend/test/helpers/mesh.ts` gives each test a local,
+network-free peer (`testPeer`, `testHandles`, reset after each test);
+`seedEditor` puts the document keys of a state object into it and the rest into
+zustand; `docsOf`, `seedClip`, `clipDoc` help with read-back and clip docs.
+`test/setup.ts` mocks `src/mesh/peer` (`getMeshHandles`, `meshBatch`) onto the
+test peer, and `renderWithProviders` (`test/helpers/render.tsx`) wraps
+`<MeshProvider>`. See [testing.md](testing.md).
 
 ## Extending: adding a new synced rtype
 
@@ -904,9 +1094,11 @@ Two failures worth knowing in advance, because neither announces itself:
 
 - An rtype registered on only ONE peer: the receiving side drops the op and
   sends no ack, so the write reverts ~4s later with nothing logged.
-- A collection missing from the frontend list: the feeder throws on
-  `.observe`, catches it into a console warning, and **every other observer
-  stops being registered too**. The tab goes quiet, not red.
+- A collection missing from `TAB_MODELS`: `peer.collection(rtype)` still
+  opens it lazily when a hook asks, but the tab never subscribed to it, so it
+  stays empty. The panel renders nothing, not an error. *(Before
+  mesh-store-surface step 3 the failure was the feeder throwing on `.observe`
+  and silently skipping every later observer.)*
 
 ### Backend
 
@@ -921,37 +1113,31 @@ Two failures worth knowing in advance, because neither announces itself:
    tombstone rehydration are all driven from it; `bindCollection` returns early
    without one, leaving a replicate-only collection.
 4. **Binding** — a row in `BINDINGS` in `packages/backend/src/mesh/index.ts`:
-   `rtype`, `table`, `parent`, `clients` (the tab rights — `TAB_AUTHORED`,
+   `rtype`, `table`, `clients` (the tab rights — `TAB_AUTHORED`,
    `TAB_READ_DELETE`, or narrower; required by the type, and without a read
-   right the tab's subscription is denied), optional `validate` / `guard`, and
+   right the tab's subscription is denied), optional `validate` (checks that
+   need this server's data; it sees the composed document of every write, see
+   [Validation](#validation-one-check-on-the-composed-document)), and
    `persists` (which gates SQLite only — a doc that fails it still fans out to
-   every replica).
-
-   `validate` vs `guard`, which is easy to get wrong: **`validate` only runs on
-   whole-doc writes.** A dotted-path write is a `patch` op, and patches pass
-   through unvalidated — the hook is never called, so a check placed there is
-   silently skipped by exactly the writes a UI makes most (`set(id, 'field',
-   v)`). `validate` is for transforming an incoming doc (localizing a
-   peer-relative timestamp, say); it can also reject by throwing. `guard` runs
-   in the persistence tap on the COMPOSED doc, so it sees every write shape;
-   throwing there nacks the write and restores the author's pre-write state.
-   Anything that must hold regardless of how the write was shaped belongs in
-   `guard` (`logic` validates its descriptor there).
+   every replica). Parent, channels and clock fields come from the shared
+   declaration (step 5).
 
 ### Frontend
 
-5. **`RTYPES`** in `packages/frontend/src/mesh/peer.ts` — creates the collection
-   and subscribes to it.
-6. **`PARENTS`** in the same file. It must match the backend `parent` **exactly**;
-   the two containment indexes diverge with no error otherwise.
-7. **Store slice** — state + actions in
-   `packages/frontend/src/store/editorStore.ts`.
-8. **Feeder observer** — `packages/frontend/src/sync/meshStoreFeeder.ts`,
-   mirroring the replica into that slice. Handle `remove` explicitly, and decide
-   whether `ephemeral` ops mean anything for this rtype.
-9. **Writes** — a `MeshDocAdapter` in `packages/frontend/src/mesh/writes.ts`
-   (or a sibling like `layerWrites.ts`) rather than REST calls, so the write is
-   authored by the tab and lands on its undo stack.
+5. **Declaration** in `@vspark/shared/models` (`packages/shared/src/models.ts`):
+   `parent`, `channels` if not the default pair, `clockFields`. Backend and
+   frontend both read it, so the two containment indexes can't diverge.
+6. **`TAB_MODELS`** in the same file, if tabs should open and subscribe to the
+   type.
+7. **Read hooks** — a hook in
+   `packages/frontend/src/mesh/hooks.ts`, or a module of its own like
+   `compose.ts` / `nodes.ts` / `runtime.ts`, built on `@vspark/mesh-react`.
+   No `editorStore` slice: the replica is the store. If received `ephemeral`
+   ops need smoothing for this rtype, that goes in `previewSmoother.ts`.
+8. **Writes** — a `mesh/<name>Writes.ts` module over the `mesh/docs.ts`
+   primitives (`setField`, `patchDoc`, `createDoc`, `removeDoc`), rather than
+   REST calls, so the write is authored by the tab and lands on its undo stack.
+   Bound form controls use `useMeshField` (generic, from mesh-react).
 
 ### Three constraints on the doc shape
 
@@ -967,8 +1153,9 @@ Two failures worth knowing in advance, because neither announces itself:
   (`packages/shared/src/containment.ts`) keys by id alone, so a doc must not
   reuse its parent's id — carry the parent as a field instead. `clip_playback`
   has its own uuid plus a `clipId`, precisely for this.
-- **Nothing in `packages/shared` needs changing.** `SyncEnvelope.rtype` is a
-  free-form string; there is no rtype union or zod schema to extend. Nor is
+- **Only the declaration in `packages/shared/src/models.ts` changes in
+  shared.** `SyncEnvelope.rtype` is a free-form string; there is no rtype union
+  or zod schema to extend. Nor is
   `backend/src/sync/containmentIndex.ts` a registration point — that index
   serves the legacy object-share code, and `MeshPeer` keeps its own private one.
 
@@ -1013,6 +1200,7 @@ three catch every wiring break above; behaviour tests do not.
   - `packages/frontend/src/sync/meshStoreFeeder.ts` (new) — observes each collection via `collection.observe('**')` and writes changes into the editorStore's synced slices: `scene_node`, `behavior`, `camera_effect`, `compose_layer` (incl. the `compose_scene` kind branch) and `track_clip`. The whole `'sync'`-envelope bindings file (`sync/resources.ts`) is deleted; no tab reads the envelope. The replica does HLC LWW internally, so `observe()` only ever fires for applied changes and the client-side stale-drop (`lastVersion`) is obsolete.
   - Foreign docs riding placed-object subscriptions are filtered by the parent node's `remote` flag (projections stay inert and remain owned by `sync/meshProjection.ts`).
   - ViewerPage starts the mesh peer + feeder alongside the editor, since it renders the same live state.
+  - *(Since deleted: mesh-store-surface step 3 made the replica the store and removed the feeder; see [The replica is the store](#the-replica-is-the-store).)*
   - The migration re-points the store's TRANSPORT (envelope → replica observation); components still read the Zustand store (mesh-react hooks remain open). Its file header still says "Smoothing-sensitive patches … still ride their dedicated /ws messages" — true at the time for `node_transform_preview` and `node_updated`, **stale for `compose_layer_preview`**, which now rides the mesh `preview` channel a few lines below. (`node_transform_preview` has since been deleted outright.)
 - **Compose containment scope DONE** (a0d4da0): top-level compose layers anchor to their compose scene via `rootComposeSceneId` (scene_node-style fallback) in both backend BINDINGS (`packages/backend/src/mesh/index.ts`) and frontend PARENTS (`packages/frontend/src/mesh/peer.ts`). Closes the 'compose layers need a containment scope' deferred item from §9 status; compose subtrees are now correctly grant-routed.
   - See [plans/mesh-sync-refactor.md §11](../plans/mesh-sync-refactor.md) for the full slice spec and verification log.
@@ -1074,8 +1262,8 @@ scene-subtree grants route them cross-type:
 | `data_field` | `${scope}:${field}` | one document per published field, which is what makes `set`'s merge structural; carries `scopeKind` so both peers derive the same parent without a DB lookup. Scope `''` is global and has no parent |
 | `server_status` | `${kind}:${key}` | server-authored status (`mesh/status.ts`), see below |
 
-All three declare `clients: { read: true }`: tabs read them, only the server
-writes them.
+The backend grants its tabs `{ read: true }` on all three: tabs read them, only
+the server writes them.
 
 **Server status** (`packages/backend/src/mesh/status.ts`) replaces the
 `vmc_status`, `vmc_tracking_state`, `obs_connection_status`,
@@ -1088,9 +1276,10 @@ doc) or `publishTracking({ behaviorId, ... })`, and `clearStatus(kind, key)` to
 drop one. A status about a document names it in `of`, which becomes its
 containment parent: it is visible wherever that document is, and
 `clearStatusOf(id)` — called from the persistence tap on every remove — drops it
-with the document. All of these no-op before the mesh is up. The frontend feeder
-maps the docs into the existing store slices (`applyStatus` in
-`sync/meshStoreFeeder.ts`).
+with the document. All of these no-op before the mesh is up. The frontend reads
+them straight from the replica: `useServerStatus` / `useServerStatuses` in
+`mesh/runtime.ts`, `useTrackingStatuses` in `mesh/hooks.ts`. *(Formerly mapped
+into store slices by `applyStatus` in the deleted `sync/meshStoreFeeder.ts`.)*
 
 **Media commands are the counter-example.** They are events, so they stay on the
 unretained `control` channel (`media_control`, keyed by target). Retaining them
@@ -1125,31 +1314,15 @@ raises one.
 
 ### Reading a document directly
 
-`@vspark/mesh-react` shipped written, tested, and imported by nothing — because
-its hooks take a `Collection` argument and this tab's collections only exist once
-`initMeshPeer()` resolves, so a component had no way to obtain one. The bridge is
-`frontend/src/mesh/hooks.ts`: `useMeshCollection(rtype)`, `useMeshPeer()`,
-`useMeshCanWrite(rtype)`, and the per-document `useSceneNode` / `useComposeLayer`.
-`onMeshReady` (in `mesh/peer.ts`) is what re-renders a component that mounted
-before the peer arrived.
-
-**What this buys is granularity, not liveness.** The feeder already keeps the
-store live and most components read it perfectly well. What a per-document hook
-adds is that `useSceneNode(id)` re-renders when THAT node changes, where
-`useEditorStore((s) => s.nodes)` re-renders every subscriber whenever any node
-anywhere changes. So it is worth reaching for when a component watches one
-document out of many — `CameraViewLayer` (the first conversion) owns a Three.js
-canvas per instance and was re-rendering all of them on every unrelated node
-edit — and not worth it for a component that wants the whole slice anyway.
-
-**The store is still the load path**, and that is what gates converting the rest.
-The editor hydrates from the REST scene bundle, which usually lands before the
-mesh subscription snapshot; a component reading only the replica would render
-empty in that window. `useSceneNode` therefore falls back to the store when the
-replica has no document yet — the two cannot disagree, since the feeder is what
-fills the store — and that fallback is written once, in the hook, so it can be
-deleted in one place when the snapshot becomes the load path. Converting reads
-wholesale before then would trade a working editor for a flashing one.
+*Historical:* `@vspark/mesh-react` first shipped imported by nothing, because
+its hooks take a `Collection` and the tab's collections only existed once
+`initMeshPeer()` resolved. A bridge in `frontend/src/mesh/hooks.ts`
+(`useMeshCollection`, `onMeshReady`, a store fallback in `useSceneNode` while
+the REST scene bundle was the load path) covered that window. Step 3 of
+mesh-store-surface removed the window — the peer is created before the first
+render — and with it the bridge, the fallback and the store feeder. Every
+document read now goes through the per-type hooks; see
+[The replica is the store](#the-replica-is-the-store).
 
 <a id="remaining"></a>
 
@@ -1167,10 +1340,10 @@ the advertise/offer flow).
 
 Outside that plan:
 
-- Component reads → mesh-react hooks, **partially done**. The bridge exists
-  (`frontend/src/mesh/hooks.ts`) and the first read is converted; the rest is
-  case-by-case, not a sweep — see "Reading a document directly" above for when
-  it is worth it and what still gates a wholesale conversion.
+- Step 4 of [plans/mesh-store-surface.md](../plans/mesh-store-surface.md),
+  **next**: a WebRTC direct-link transport in `mesh-transports`, replacing
+  `frontend/src/mesh/directTransport.ts` and the mesh frames in `clientMesh.ts`.
+- `projectedNodes` and the projected-node REST writes go with W7.
 
 **Closed, not done:** principle 3's share container for mounted scenes. It was
 on this list; it is now a decision instead — see principle 3 above. Collab
@@ -1178,7 +1351,8 @@ scenes stay scenes because they are co-edited by design (migration 031), and the
 container belongs to the placed-object path, which already has it.
 
 **Done since this list was first written** (kept short deliberately — the
-details live in the sections above): writes are mesh-authored for every document
+details live in the sections above): component reads moved onto mesh-react
+hooks and the store feeder deleted (mesh-store-surface step 3); writes are mesh-authored for every document
 rtype; `logic` has a collection and no polls; clip playback is a document and
 the backend playhead is gone; node and clip previews ride the `preview` channel,
 including for object-share subscribers, so `node_transform_preview` is deleted;
@@ -1213,8 +1387,11 @@ lost to its own copy of the document.
 - `packages/backend/src/auth/clients.ts`, `auth/routes.ts` — tab credentials, pairing code, enrollment routes.
 - `packages/backend/src/mesh/assets.ts` — `initMeshAssets()`: mid-session asset fetch for mesh docs with unresolvable file paths (COLLAB + PLACE paths; inert without multiplayer).
 - `packages/frontend/src/mesh/peer.ts` — frontend peer creation + wiring, the containment schema (`PARENTS`) and the subscribed rtype list (`RTYPES`), plus `meshUndo` / `meshRedo` / `meshBatch`.
-- `packages/frontend/src/mesh/writes.ts` — generic UI write helpers (`MeshDocAdapter`, fallback ladder, batched bottom-up subtree delete) + the `scene_node` wrappers.
+- `packages/frontend/src/mesh/docs.ts` — imperative primitives over the tab's collections (`collectionOf`, `readDoc`, `setField`, `previewField`, `patchDoc`, `createDoc`, `removeDoc`).
+- `packages/frontend/src/mesh/hooks.ts`, `compose.ts`, `nodes.ts`, `runtime.ts` — the per-type read hooks (compose/nodes with `*Now()` twins); the replica is the store.
+- `packages/frontend/src/mesh/writes.ts` — the `scene_node` writes (mesh-only; projected remote nodes still via REST).
 - `packages/frontend/src/mesh/layerWrites.ts` — the compose-layer half: fractional `orderKey` generation and the one-overlay-per-field `preview` write.
 - `packages/frontend/src/hooks/useMeshField.ts` — binds one control to one field; owns the preview/commit split that makes undo usable.
-- `packages/frontend/src/sync/meshStoreFeeder.ts` — replica → Zustand feeder; where the committed/ephemeral channel discrimination is applied.
+- `packages/frontend/src/previewSmoother.ts` — `startPreviewSmoothing(peer)`: received `preview` ops → tweens shown through `liveLayers` / `liveNodes`; where the committed/ephemeral channel discrimination is applied. (Replaces the deleted `sync/meshStoreFeeder.ts`.)
+- `packages/frontend/test/helpers/mesh.ts` — the test peer and `seedEditor`.
 - [plans/mesh-sync-refactor.md](../plans/mesh-sync-refactor.md) — full design spec (§8). See [Which plan is which](#which-plan-is-which) before reading the other plan docs.

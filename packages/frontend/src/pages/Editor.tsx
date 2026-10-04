@@ -1,4 +1,4 @@
-import { useEffect, useCallback, useState } from 'react';
+import { useEffect, useCallback, useRef, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import {
@@ -18,11 +18,9 @@ import {
   meshUndo,
   meshRedo,
   setPairingPrompt,
-  withoutRemoved,
 } from '../mesh/peer';
 import { usePrompt } from '../components/DialogProvider';
 import { startMeshProjection } from '../sync/meshProjection';
-import { startMeshStoreFeeder } from '../sync/meshStoreFeeder';
 import { TopBar } from '../components/editor/TopBar';
 import { SceneGraph } from '../components/editor/SceneGraph';
 import { Viewport } from '../components/editor/Viewport';
@@ -41,19 +39,19 @@ import {
   hasCreatePayload,
 } from '../components/editor/dnd';
 import type { NodeKindMeta } from '@vspark/shared/signal';
+import { useComposeScenes } from '../mesh/compose';
+import { useScenes } from '../mesh/nodes';
 
 export function Editor() {
   useWsSync();
   useTrackClipEvaluator();
   useSharedSubscriptions();
   useClientMesh();
-  // Mesh store: mirror the document collections into this tab, and feed
-  // shared-object projections from them (the doc plane of "place" rides the
-  // mesh since §9 step D; dev-notes/plans/mesh-sync-refactor.md).
+  // Feed shared-object projections (placed remote objects, Phase 6) from the
+  // replica. The documents themselves are read straight from it.
   useEffect(() => {
     void initMeshPeer().catch(console.warn);
     startMeshProjection();
-    startMeshStoreFeeder();
   }, []);
   // A browser on another machine joins with vspark's pairing code.
   const prompt = usePrompt();
@@ -73,17 +71,10 @@ export function Editor() {
   const { projectId } = useParams<{ projectId: string }>();
   const {
     setProject,
-    setScenes,
     setActiveScene,
-    setNodes,
     setAssets,
-    setBehaviors,
     setBehaviorKinds,
-    setCameraEffects,
-    setComposeLayers,
-    setComposeScenes,
     selectComposeScene,
-    setTrackClips,
     setOverliveAccounts,
     setPresets,
     activeLogicId,
@@ -91,6 +82,34 @@ export function Editor() {
     activeLogicWritable,
   } = useEditorStore();
   const [kindMeta, setKindMeta] = useState<NodeKindMeta[]>([]);
+
+  // Scenes and compose scenes come from the replica: once there are some,
+  // keep one of each open. An open one that disappears (deleted) gives way to
+  // the first; one that isn't there YET (just mounted, its documents still on
+  // the way) is left alone.
+  const scenes = useScenes();
+  const activeSceneId = useEditorStore((s) => s.activeSceneId);
+  const seenScenes = useRef(new Set<string>());
+  useEffect(() => {
+    for (const sc of scenes) seenScenes.current.add(sc.id);
+    if (scenes.length === 0) return;
+    if (scenes.some((sc) => sc.id === activeSceneId)) return;
+    if (activeSceneId === null || seenScenes.current.has(activeSceneId))
+      setActiveScene(scenes[0].id);
+  }, [scenes, activeSceneId, setActiveScene]);
+  const composeScenes = useComposeScenes();
+  const activeComposeSceneId = useEditorStore((s) => s.activeComposeSceneId);
+  const seenComposeScenes = useRef(new Set<string>());
+  useEffect(() => {
+    for (const c of composeScenes) seenComposeScenes.current.add(c.id);
+    if (composeScenes.length === 0) return;
+    if (composeScenes.some((c) => c.id === activeComposeSceneId)) return;
+    if (
+      activeComposeSceneId === null ||
+      seenComposeScenes.current.has(activeComposeSceneId)
+    )
+      selectComposeScene(composeScenes[0].id);
+  }, [composeScenes, activeComposeSceneId, selectComposeScene]);
 
   useEffect(() => {
     api
@@ -187,18 +206,6 @@ export function Editor() {
             null, // rootComposeSceneId
             state.selectedNodeId // parentId — drop under the selection, if any
           );
-          const data = await api.getScenes(state.projectId!);
-          useEditorStore
-            .getState()
-            .setNodes(withoutRemoved('scene_node', data.nodes));
-          useEditorStore
-            .getState()
-            .setComposeLayers(
-              withoutRemoved('compose_layer', data.composeLayers)
-            );
-          useEditorStore
-            .getState()
-            .setTrackClips(withoutRemoved('track_clip', data.trackClips));
         } catch {
           /* not a preset on clipboard */
         }
@@ -233,45 +240,6 @@ export function Editor() {
     });
 
     api
-      .getScenes(projectId)
-      .then(
-        ({
-          scenes,
-          nodes,
-          behaviors,
-          cameraEffects,
-          composeLayers,
-          trackClips,
-        }) => {
-          // Rows another tab removed while this load was in flight stay
-          // removed (see withoutRemoved).
-          setScenes(withoutRemoved('scene_node', scenes));
-          setBehaviors(withoutRemoved('behavior', behaviors));
-          setCameraEffects(withoutRemoved('camera_effect', cameraEffects));
-          // Separate compose_scene layers from regular layers
-          const liveLayers = withoutRemoved('compose_layer', composeLayers);
-          const composeSceneItems = liveLayers.filter(
-            (l) => l.kind === 'compose_scene'
-          );
-          const regularLayers = liveLayers.filter(
-            (l) => l.kind !== 'compose_scene'
-          );
-          setComposeScenes(composeSceneItems);
-          setComposeLayers(regularLayers);
-          if (composeSceneItems.length > 0) {
-            selectComposeScene(composeSceneItems[0].id);
-          }
-          setTrackClips(withoutRemoved('track_clip', trackClips));
-          // Load every scene's nodes so the dock can render all scenes as
-          // collapsible roots; the viewport still renders only the active scene.
-          setNodes(withoutRemoved('scene_node', nodes));
-          if (scenes.length > 0) {
-            setActiveScene(scenes[0].id);
-          }
-        }
-      );
-
-    api
       .getAssets(projectId)
       .then(setAssets)
       .catch(() => {});
@@ -279,19 +247,7 @@ export function Editor() {
       .getOverliveAccounts(projectId)
       .then(setOverliveAccounts)
       .catch(() => {});
-  }, [
-    projectId,
-    setProject,
-    setScenes,
-    setActiveScene,
-    setNodes,
-    setAssets,
-    setBehaviors,
-    setCameraEffects,
-    setComposeLayers,
-    setTrackClips,
-    setOverliveAccounts,
-  ]);
+  }, [projectId, setProject, setActiveScene, setAssets, setOverliveAccounts]);
 
   return (
     <div

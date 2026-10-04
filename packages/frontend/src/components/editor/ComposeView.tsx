@@ -27,6 +27,11 @@ import { api } from '../../api/client';
 import { commitLayerCreate, commitLayerPath } from '../../mesh/layerWrites';
 import { uniqueName } from './createKinds';
 import { Magnet, Bone } from 'lucide-react';
+import {
+  composeLayersNow,
+  useComposeLayers,
+  useComposeScenes,
+} from '../../mesh/compose';
 
 /** Fallback canonical compose resolution when a scene has none set. */
 export const DEFAULT_COMPOSE_WIDTH = 1920;
@@ -152,8 +157,8 @@ export function ComposeStage({
 export function ComposeView() {
   const { t } = useTranslation('compose');
   const activeComposeSceneId = useEditorStore((s) => s.activeComposeSceneId);
-  const composeScenes = useEditorStore((s) => s.composeScenes);
-  const composeLayers = useEditorStore((s) => s.composeLayers);
+  const composeScenes = useComposeScenes();
+  const composeLayers = useComposeLayers();
   const assets = useEditorStore((s) => s.assets);
   const projectId = useEditorStore((s) => s.projectId);
   const addAsset = useEditorStore((s) => s.addAsset);
@@ -312,11 +317,8 @@ export function ComposeView() {
           const asset = await api.uploadAsset(projectId, files[i]);
           addAsset(asset);
           const taken = new Set(
-            useEditorStore
-              .getState()
-              .composeLayers.filter(
-                (l) => l.rootComposeSceneId === activeComposeSceneId
-              )
+            composeLayersNow()
+              .filter((l) => l.rootComposeSceneId === activeComposeSceneId)
               .map((l) => l.name)
           );
           const created = await commitLayerCreate(activeComposeSceneId, {

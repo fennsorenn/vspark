@@ -46,11 +46,14 @@ let _col: Collection<StatusDoc> | null = null;
 
 export function initServerStatus(peer: MeshPeer): void {
   if (_col) return;
-  _col = peer.collection<StatusDoc>(SERVER_STATUS_RTYPE, {
-    channels: ['runtime'],
-    parent: (d) => d.of ?? null,
-    authority: 'self',
-    clients: { read: true },
+  _col = peer.collection<StatusDoc>(SERVER_STATUS_RTYPE);
+  peer.grants.grant({
+    grantee: peer.id, // our tabs read our status; only we write it
+    entityRtype: SERVER_STATUS_RTYPE,
+    entityId: '*',
+    includeDescendants: false,
+    pathPrefix: '',
+    rights: { read: true },
   });
 }
 

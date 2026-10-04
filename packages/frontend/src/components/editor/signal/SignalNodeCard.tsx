@@ -1,13 +1,14 @@
 import { useState } from 'react';
-import {
-  commitBehaviorPatch,
-} from '../../../mesh/behaviorWrites';
+import { commitBehaviorPatch } from '../../../mesh/behaviorWrites';
 import { X } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { Handle, Position, type NodeProps } from '@xyflow/react';
 import { SIGNAL_TYPE_COLORS } from '@vspark/shared/signal';
 import type { NodeDisplay, NodePortMeta } from '@vspark/shared/signal';
-import { useEditorStore } from '../../../store/editorStore';
+import { useEditorStore, type Behavior } from '../../../store/editorStore';
+import { useCollection } from '@vspark/mesh-react';
+import { useComposeLayers } from '../../../mesh/compose';
+import { useSceneNodes } from '../../../mesh/nodes';
 
 export interface SignalNodeData extends Record<string, unknown> {
   nodeId: string;
@@ -33,7 +34,10 @@ function typeColor(type: string): string {
 
 function RelativeTime({ ts }: { ts: number | null }) {
   const { t } = useTranslation('signalGraph');
-  if (!ts) return <span style={{ color: '#444', fontSize: 9 }}>{t('nodeCard.never')}</span>;
+  if (!ts)
+    return (
+      <span style={{ color: '#444', fontSize: 9 }}>{t('nodeCard.never')}</span>
+    );
   const age = Date.now() - ts;
   const text =
     age < 1000
@@ -240,13 +244,15 @@ function SceneEntitySelect({
   onChange: (value: unknown) => void;
 }) {
   const { t } = useTranslation('signalGraph');
-  const layers = useEditorStore((s) => s.composeLayers);
-  const nodes = useEditorStore((s) => s.nodes);
+  const layers = useComposeLayers();
+  const nodes = useSceneNodes();
   const showLayers = typeTag === 'ComposeLayer' || typeTag === 'SceneEntity';
   const showNodes = typeTag === 'SceneNode' || typeTag === 'SceneEntity';
   const current = typeof configValue === 'string' ? configValue : '';
   const emptyLabel =
-    typeTag === 'SceneEntity' ? t('nodeCard.selectGlobal') : t('nodeCard.selectNone');
+    typeTag === 'SceneEntity'
+      ? t('nodeCard.selectGlobal')
+      : t('nodeCard.selectNone');
   return (
     <select
       value={current}
@@ -397,7 +403,9 @@ function PackFieldsEditor({
   };
   return (
     <div style={{ borderTop: '1px solid #2a2a4a', padding: '4px 10px' }}>
-      <div style={{ fontSize: 9, color: '#777', marginBottom: 3 }}>{t('nodeCard.fields')}</div>
+      <div style={{ fontSize: 9, color: '#777', marginBottom: 3 }}>
+        {t('nodeCard.fields')}
+      </div>
       {fields.map((f) => (
         <div
           key={f}
@@ -472,7 +480,7 @@ export function SignalNodeCard({
       ? (config as Record<string, unknown>)
       : {};
 
-  const { behaviors, updateBehavior } = useEditorStore();
+  const behaviorCol = useCollection<Behavior>('behavior');
 
   const handleStaticChange = (portName: string, value: unknown) => {
     // Behavior-owned graphs use the "kind:behaviorId" id shape. Standalone
@@ -488,7 +496,7 @@ export function SignalNodeCard({
       return;
     }
     const behaviorId = graphId.split(':').slice(1).join(':');
-    const comp = behaviors.find((c) => c.id === behaviorId);
+    const comp = behaviorCol.get(behaviorId);
     if (!comp) return;
     const prevConfig = comp.config as Record<string, unknown>;
     const prevNodeConf = (prevConfig.nodeConfig ?? {}) as Record<
@@ -506,7 +514,6 @@ export function SignalNodeCard({
         [nodeId]: { ...prevNodeEntry, [portName]: value },
       },
     };
-    updateBehavior(behaviorId, { config: newConfig });
     commitBehaviorPatch(behaviorId, { config: newConfig });
   };
 

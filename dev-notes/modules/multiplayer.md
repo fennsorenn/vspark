@@ -154,7 +154,9 @@ participants (`serverId#tab`) go over `BrowserPeerMesh`, servers over
 read-only ephemeral projection: the receiver holds a container node and the
 owner's subtree renders under it, dropped and restocked on (re)subscribe
 (`sync/sharedProjection.ts`). A collab scene is a real, persisted, **co-edited**
-scene in each peer's project, backed by a mutual RUCD grant. Migration 031 drew
+scene in each peer's project, backed by an RUCD grant from the author (one way
+since 2026-10-04: the author decides every write, see mesh.md
+[Authority](mesh.md#authority)). Migration 031 drew
 that line and it is still the line — see principle 3 in [mesh.md](mesh.md),
 where the decision not to give collab scenes a container node is recorded.
 

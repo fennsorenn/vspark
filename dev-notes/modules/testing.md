@@ -86,7 +86,16 @@ Each `beforeEach` call gets a completely isolated DB — no state leaks between 
 
 ## Tier 3 — frontend unit (jsdom + Testing Library)
 
-**Harness:** `renderWithProviders` from `packages/frontend/test/helpers/render.tsx` — wraps the component with real i18n (EN) + a `MemoryRouter`.
+**Harness:** `renderWithProviders` from `packages/frontend/test/helpers/render.tsx` — wraps the component with `<MeshProvider>` (the test mesh peer), real i18n (EN) + a `MemoryRouter`.
+
+**Seeding state — the mesh replica is the store.** Documents (nodes, scenes, behaviors, camera effects, compose layers/scenes, clips, …) are no longer `editorStore` slices; components read them from the tab's mesh peer (see [mesh.md](mesh.md#the-replica-is-the-store)). `packages/frontend/test/helpers/mesh.ts` provides a local, network-free peer:
+
+- `testPeer()` / `testHandles()` — one fresh peer per test, opened with the shared models; `test/setup.ts` resets it after each test and mocks `src/mesh/peer` so `getMeshHandles()` / `meshBatch` use it.
+- `seedEditor(state)` — keys that are mesh documents (`nodes`, `scenes`, `behaviors`, `cameraEffects`, `composeLayers`, `composeScenes`) go into the test peer (hydrated, so not on the undo stack; project-scoped docs get the open project's id), everything else into zustand via `setState`.
+- `seedClip(clip)` / `clipDoc(clip)` — a track clip in record form → its keyed-by-id document form, into the peer.
+- `docsOf(rtype)` — read back a collection's documents to assert a write.
+
+Seed any other rtype with `testPeer().collection('<rtype>').create(...)` / `.put(...)`. Because the test peer is not a participant it decides its own writes, so a test writes, reads back and undoes as the app does.
 
 ```tsx
 import { renderWithProviders } from './helpers/render.js';

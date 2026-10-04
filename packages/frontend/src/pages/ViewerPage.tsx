@@ -9,7 +9,6 @@ import { useEditorStore } from '../store/editorStore';
 import { api } from '../api/client';
 import { useWsSync } from '../hooks/useWsSync';
 import { useTrackClipEvaluator } from '../hooks/useTrackClipEvaluator';
-import { startMeshStoreFeeder } from '../sync/meshStoreFeeder';
 import {
   SceneNodes,
   CameraEffects,
@@ -27,6 +26,8 @@ import {
   composeSceneResolution,
 } from '../components/editor/ComposeView';
 import { useSceneFadeIn } from '../hooks/useSceneFadeIn';
+import { useComposeLayers, useComposeScenes } from '../mesh/compose';
+import { useSceneNodes, useScenes } from '../mesh/nodes';
 
 function getT(components: Record<string, unknown> | undefined) {
   const t = components?.transform as
@@ -54,28 +55,17 @@ export function ViewerPage() {
   useTrackClipEvaluator();
   // Live behavior/effect updates ride the tab's mesh replica now (§11) —
   // the viewer needs its own peer just like the editor.
-  useEffect(() => startMeshStoreFeeder(), []);
   const { projectId, nodeId, composeSceneId } = useParams<{
     projectId: string;
     nodeId?: string;
     composeSceneId?: string;
   }>();
-  const {
-    setProject,
-    setScenes,
-    setActiveScene,
-    setNodes,
-    setBehaviors,
-    setCameraEffects,
-    setComposeLayers,
-    setComposeScenes,
-    selectComposeScene,
-    setTrackClips,
-    nodes,
-    composeLayers,
-    composeScenes,
-    assets,
-  } = useEditorStore();
+  const { setProject, setActiveScene, selectComposeScene, assets } =
+    useEditorStore();
+  const nodes = useSceneNodes();
+  const scenes = useScenes();
+  const composeLayers = useComposeLayers();
+  const composeScenes = useComposeScenes();
 
   useEffect(() => {
     // OBS browser sources composite over a transparent page, so we must keep
@@ -111,66 +101,31 @@ export function ViewerPage() {
       .catch(() => {});
 
     api
-      .getScenes(projectId)
-      .then(
-        ({
-          scenes,
-          nodes: sceneNodes,
-          behaviors,
-          cameraEffects,
-          composeLayers,
-          trackClips,
-        }) => {
-          setScenes(scenes);
-          setBehaviors(behaviors);
-          setCameraEffects(cameraEffects);
-          // Split compose_scene containers from regular layers (mirrors Editor).
-          setComposeScenes(
-            composeLayers.filter((l) => l.kind === 'compose_scene')
-          );
-          setComposeLayers(
-            composeLayers.filter((l) => l.kind !== 'compose_scene')
-          );
-          setTrackClips(trackClips);
-          // Load every scene's nodes so cross-scene camera_views resolve.
-          setNodes(sceneNodes);
-          // Activate the scene this link actually targets — for a single-camera
-          // link that's the camera's own scene, not blindly the first one (which
-          // left the active scene wrong whenever the camera lived in any scene
-          // but the first). Compose links select a compose scene instead; their
-          // 3D content is keyed per camera_view, so any 3D scene works as the
-          // base — fall back to the first.
-          if (composeSceneId) {
-            selectComposeScene(composeSceneId);
-            if (scenes.length > 0) setActiveScene(scenes[0].id);
-          } else if (nodeId) {
-            const cam = sceneNodes.find((n) => n.id === nodeId);
-            const sid = cam?.rootSceneNodeId ?? scenes[0]?.id;
-            if (sid) setActiveScene(sid);
-          } else if (scenes.length > 0) {
-            setActiveScene(scenes[0].id);
-          }
-        }
-      )
-      .catch(() => {});
-    api
       .getAssets(projectId)
       .then((rows) => useEditorStore.getState().setAssets(rows))
       .catch(() => {});
+  }, [projectId, composeSceneId, nodeId, setProject]);
+
+  // Activate the scene this link actually targets — for a single-camera link
+  // that's the camera's own scene, not blindly the first one. Compose links
+  // select a compose scene instead; their 3D content is keyed per
+  // camera_view, so any 3D scene works as the base — fall back to the first.
+  // Scenes and nodes arrive from the replica.
+  const firstSceneId = scenes[0]?.id;
+  const targetSceneId = nodeId
+    ? nodes.find((n) => n.id === nodeId)?.rootSceneNodeId
+    : undefined;
+  useEffect(() => {
+    if (composeSceneId) selectComposeScene(composeSceneId);
+    const sid = (nodeId && targetSceneId) || firstSceneId;
+    if (sid) setActiveScene(sid);
   }, [
-    projectId,
     composeSceneId,
     nodeId,
-    setProject,
-    setScenes,
-    setActiveScene,
-    setNodes,
-    setBehaviors,
-    setCameraEffects,
-    setComposeLayers,
-    setComposeScenes,
+    targetSceneId,
+    firstSceneId,
     selectComposeScene,
-    setTrackClips,
+    setActiveScene,
   ]);
 
   // Fade the 3D output in once it's loaded and settled (single-camera mode);

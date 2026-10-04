@@ -1,6 +1,9 @@
 import * as THREE from 'three';
 import { useEditorStore } from './store/editorStore';
 import type { ComposeLayerRecord } from './api/client';
+import { getPath, type MeshPeer } from '@vspark/mesh';
+import { collectionOf } from './mesh/docs';
+import { applyNodePreview, transformFieldsOf } from './sync/nodePreview';
 
 /**
  * Smooths incoming live-preview updates from other clients so they glide
@@ -102,23 +105,19 @@ function ensureLoop() {
     }
 
     const store = useEditorStore.getState();
-    for (const [nodeId, fields] of nodePatches) {
-      const node = store.nodes.find((n) => n.id === nodeId);
-      if (!node) continue;
-      const existing = (node.components as Record<string, unknown>)
-        .transform as Record<string, unknown> | undefined;
-      const components = {
-        ...node.components,
-        transform: { type: 'transform', ...(existing ?? {}), ...fields },
-      };
-      store.updateNode(nodeId, { components });
-    }
-    for (const [layerId, fields] of layerPatches) {
-      store.updateComposeLayerLocal(
+    // Same for a node: its tween shows through `liveNodes` until it ends.
+    for (const [nodeId, fields] of nodePatches)
+      store.setLiveNode(nodeId, hasNodeTween(nodeId) ? fields : null);
+    // A layer's tween shows through `liveLayers` until it ends; then the
+    // document — which already holds the target — shows on its own.
+    const tweening = new Set<string>();
+    for (const t of scalarTweens.values())
+      if (t.scope === 'layer') tweening.add(t.id);
+    for (const [layerId, fields] of layerPatches)
+      store.setLiveLayer(
         layerId,
-        fields as Partial<ComposeLayerRecord>
+        tweening.has(layerId) ? (fields as Partial<ComposeLayerRecord>) : null
       );
-    }
 
     if (scalarTweens.size > 0 || quatTweens.size > 0)
       rafHandle = requestAnimationFrame(tick);
@@ -128,10 +127,10 @@ function ensureLoop() {
 
 /** Whether a tween is currently animating this layer.
  *
- *  The mesh feeder uses this to decide how a COMMITTED value should land: mid
+ *  The commit observer below uses this to decide how a COMMITTED value lands: mid
  *  gesture it retargets the running tween so the layer glides into its final
  *  position, but a value arriving cold (page load, a remote panel edit) applies
- *  immediately rather than animating in from wherever the store happened to be. */
+ *  immediately rather than animating in from wherever the live slice happened to be. */
 export function hasLayerTween(id: string): boolean {
   for (const t of scalarTweens.values())
     if (t.scope === 'layer' && t.id === id) return true;
@@ -220,43 +219,37 @@ function retargetQuat(
 
 // ── Public API ───────────────────────────────────────────────────────────────
 
+/** What this tab shows for a node's transform: a running tween's values over
+ *  the committed transform (a received overlay already holds the target). */
+function shownTransform(nodeId: string): Record<string, number> | undefined {
+  const raw = collectionOf<{ components?: Record<string, unknown> }>(
+    'scene_node'
+  ).replica.raw(nodeId);
+  if (!raw) return undefined;
+  const committed = raw.components?.transform as
+    | Record<string, number>
+    | undefined;
+  const live = useEditorStore.getState().liveNodes[nodeId];
+  return live ? { ...committed, ...live } : committed;
+}
+
 /** Smooth an incoming node transform preview. Position/scale fields tween per
- *  axis; rotation tweens as a single quaternion to dodge Euler gimbal flips. */
+ *  axis; rotation tweens as a single quaternion to dodge Euler gimbal flips.
+ *  Other fields (opacity, shadow flags) show as they arrive — the document
+ *  already carries them. */
 export function smoothNodeTransform(
   nodeId: string,
   transform: Record<string, number>
 ) {
-  const store = useEditorStore.getState();
-  const node = store.nodes.find((n) => n.id === nodeId);
-  if (!node) return;
-  const cur = (node.components as Record<string, unknown>).transform as
-    | Record<string, number>
-    | undefined;
+  const cur = shownTransform(nodeId);
+  if (!cur) return;
 
   // Scalars first (position + scale).
   const scalarFields = ['x', 'y', 'z', 'sx', 'sy', 'sz'];
   for (const f of scalarFields) {
     const to = transform[f];
     if (typeof to !== 'number') continue;
-    retargetScalar('node', nodeId, f, to, cur?.[f] ?? to);
-  }
-
-  // Anything else on the component (opacity, shadow flags) applies immediately
-  // — same as smoothComposeLayer's `immediate` set. Without this an opacity
-  // drag would fan out and be silently dropped by every receiver, since it is
-  // neither a tweened scalar nor part of the rotation quaternion.
-  const rotationFields = new Set(['rx', 'ry', 'rz']);
-  const immediate: Record<string, unknown> = {};
-  for (const [f, v] of Object.entries(transform))
-    if (!scalarFields.includes(f) && !rotationFields.has(f) && f !== 'type')
-      immediate[f] = v;
-  if (Object.keys(immediate).length > 0) {
-    store.updateNode(nodeId, {
-      components: {
-        ...node.components,
-        transform: { type: 'transform', ...(cur ?? {}), ...immediate },
-      },
-    });
+    retargetScalar('node', nodeId, f, to, cur[f] ?? to);
   }
 
   // Rotation: if any of rx/ry/rz is present, target the full rotation as a
@@ -264,9 +257,9 @@ export function smoothNodeTransform(
   // still produce a coherent quaternion target.
   if ('rx' in transform || 'ry' in transform || 'rz' in transform) {
     const target = new THREE.Euler(
-      typeof transform.rx === 'number' ? transform.rx : (cur?.rx ?? 0),
-      typeof transform.ry === 'number' ? transform.ry : (cur?.ry ?? 0),
-      typeof transform.rz === 'number' ? transform.rz : (cur?.rz ?? 0),
+      typeof transform.rx === 'number' ? transform.rx : (cur.rx ?? 0),
+      typeof transform.ry === 'number' ? transform.ry : (cur.ry ?? 0),
+      typeof transform.rz === 'number' ? transform.rz : (cur.rz ?? 0),
       'XYZ'
     );
     // Re-baseline from the currently displayed orientation so retargeting
@@ -275,27 +268,59 @@ export function smoothNodeTransform(
   }
 }
 
-/** Smooth an incoming compose-layer preview patch (x/y/width/height/rotation/etc).
- *  Non-numeric fields are applied immediately without tweening. Layer rotation
- *  is 2D (degrees, single axis) so a scalar shortest-arc tween is enough. */
+/** Smooth an incoming compose-layer preview patch (x/y/width/height/rotation).
+ *  Other fields show as they arrive (the document already carries them). Layer
+ *  rotation is 2D (degrees, single axis) so a scalar shortest-arc tween is
+ *  enough. The tween starts from what this tab currently shows: a running
+ *  tween's value, else the committed one (the overlay already holds the
+ *  target). */
 export function smoothComposeLayer(id: string, patch: Record<string, unknown>) {
-  const store = useEditorStore.getState();
-  const layer = store.composeLayers.find((l) => l.id === id);
-  if (!layer) return;
-
+  const shown = useEditorStore.getState().liveLayers[id] as
+    | Record<string, number>
+    | undefined;
+  const committed =
+    collectionOf<Record<string, number>>('compose_layer').replica.raw(id);
+  if (!committed) return;
+  const from = (field: string, to: number) =>
+    shown?.[field] ?? committed[field] ?? to;
   const linearFields = new Set(['x', 'y', 'width', 'height']);
-  const immediate: Partial<ComposeLayerRecord> = {};
   for (const [field, to] of Object.entries(patch)) {
-    if (linearFields.has(field) && typeof to === 'number') {
-      const from = (layer as unknown as Record<string, number>)[field] ?? to;
-      retargetScalar('layer', id, field, to, from);
-    } else if (field === 'rotation' && typeof to === 'number') {
-      retargetScalarDeg('layer', id, field, to, layer.rotation);
-    } else {
-      (immediate as Record<string, unknown>)[field] = to;
-    }
+    if (typeof to !== 'number') continue;
+    if (linearFields.has(field))
+      retargetScalar('layer', id, field, to, from(field, to));
+    else if (field === 'rotation')
+      retargetScalarDeg('layer', id, field, to, from(field, to));
   }
-  if (Object.keys(immediate).length > 0) {
-    store.updateComposeLayerLocal(id, immediate);
-  }
+}
+
+/** Tween compose layers that another tab is dragging (the lossy `preview`
+ *  channel), so they glide between samples. Mid-gesture, a committed value
+ *  retargets the running tween so the layer glides into its final position
+ *  instead of snapping (the last preview may never have landed). */
+export function startPreviewSmoothing(peer: MeshPeer): () => void {
+  const offLayers = peer
+    .collection<Record<string, unknown>>('compose_layer')
+    .observe('**', (c) => {
+      if (c.origin === peer.id || !c.doc) return;
+      if (c.op === 'ephemeral')
+        smoothComposeLayer(
+          c.id,
+          c.path ? { [c.path]: getPath(c.doc, c.path) } : c.doc
+        );
+      else if (hasLayerTween(c.id)) smoothComposeLayer(c.id, c.doc);
+    });
+  const offNodes = peer
+    .collection<Record<string, unknown>>('scene_node')
+    .observe('**', (c) => {
+      if (c.origin === peer.id || !c.doc) return;
+      if (c.op === 'ephemeral') applyNodePreview(c.id, c.doc, c.path);
+      else if (hasNodeTween(c.id)) {
+        const t = transformFieldsOf(c.doc);
+        if (t) smoothNodeTransform(c.id, t);
+      }
+    });
+  return () => {
+    offLayers();
+    offNodes();
+  };
 }

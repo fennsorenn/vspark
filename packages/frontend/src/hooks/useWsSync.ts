@@ -1,13 +1,7 @@
 import { useEffect, useRef } from 'react';
 import { useEditorStore } from '../store/editorStore';
 import { useAssistantStore } from '../store/assistantStore';
-import type { StageObject } from '../store/editorStore';
-import {
-  mapComposeLayer,
-  mapTrackClip,
-  getScenes,
-  getCollabScenes,
-} from '../api/client';
+import { getCollabScenes } from '../api/client';
 import { setVmcPose, setVmcBlendshapes } from '../vmcPoseStore';
 import { captureFeedImage } from '../lib/captureFeed';
 import { captureViewport } from '../lib/viewportCapture';
@@ -25,8 +19,8 @@ import { setIkTargets } from '../ikTargetStore';
 import type { IkTargetFrame, AnimationBlendMode } from '@vspark/shared/types';
 import { SYNC_MESSAGE_KIND, type SyncEnvelope } from '@vspark/shared/sync';
 // Legacy 'sync'-envelope bindings are fully retired (§11): every document
-// rtype the tab subscribes to (RTYPES in mesh/peer.ts) feeds the store from
-// the tab's mesh replica (sync/meshStoreFeeder.ts).
+// rtype the tab subscribes to (RTYPES in mesh/peer.ts) is read straight from
+// the tab's mesh replica (src/mesh/).
 // The envelope handler below stays as a harmless no-op dispatcher in case a
 // binding ever returns; the server still emits envelopes for other consumers.
 import { applyRemote } from '../sync/registry';
@@ -77,8 +71,6 @@ export function sendAssistantReset() {
 }
 
 export function useWsSync() {
-  const setVmcStatus = useEditorStore((s) => s.setVmcStatus);
-  const setVmcTracking = useEditorStore((s) => s.setVmcTracking);
   const wsRef = useRef<WebSocket | null>(null);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pendingReloadRef = useRef<boolean>(false);
@@ -142,34 +134,6 @@ export function useWsSync() {
               msg.payload.nodeId as string,
               msg.payload as unknown as IkTargetFrame
             );
-          } else if (msg.kind === 'node_added') {
-            const store = useEditorStore.getState();
-            const node = msg.payload as unknown as StageObject;
-            // Only add if we have this scene loaded; avoid duplicates
-            if (store.nodes.every((n) => n.id !== node.id)) {
-              store.addNode(node);
-            }
-          } else if (msg.kind === 'node_removed') {
-            useEditorStore.getState().deleteNode(msg.payload.id as string);
-          } else if (msg.kind === 'compose_layer_added') {
-            const added = mapComposeLayer(msg.payload);
-            if (added.kind === 'compose_scene') {
-              useEditorStore.getState().addComposeScene(added);
-            } else {
-              useEditorStore.getState().addComposeLayer(added);
-            }
-          } else if (msg.kind === 'compose_layer_removed') {
-            const removedId = msg.payload.id as string;
-            const st = useEditorStore.getState();
-            if (st.composeScenes.some((cs) => cs.id === removedId)) {
-              st.removeComposeScene(removedId);
-            } else {
-              st.removeComposeLayer(removedId);
-            }
-          } else if (msg.kind === 'track_clip_added') {
-            useEditorStore.getState().addTrackClip(mapTrackClip(msg.payload));
-          } else if (msg.kind === 'track_clip_removed') {
-            useEditorStore.getState().removeTrackClip(msg.payload.id as string);
           } else if (msg.kind === 'mp_status') {
             useConnectionsStore
               .getState()
@@ -209,28 +173,16 @@ export function useWsSync() {
             };
             useConnectionsStore.getState().setOffers(p.peerId, p.shares ?? []);
           } else if (msg.kind === 'mp_collab_mounted') {
-            // A collaborative scene was just persisted into one of our projects
-            // (straight to SQLite, so no per-node sync events) — reload that
-            // project's scenes so the new one appears, then focus it. Live edits
-            // after this flow through the normal scene_node sync layer.
+            // A collaborative scene was just mounted into one of our projects.
+            // The backend puts it into the mesh too, so it arrives like any
+            // other document; focus it.
             const p = msg.payload as {
               peerId: string;
               sceneId: string;
               projectId: string;
             };
             const ed = useEditorStore.getState();
-            if (ed.projectId === p.projectId) {
-              void getScenes(p.projectId)
-                .then((data) => {
-                  const s = useEditorStore.getState();
-                  s.setScenes(data.scenes);
-                  s.setNodes(data.nodes);
-                  s.setBehaviors(data.behaviors);
-                  s.setCameraEffects(data.cameraEffects);
-                  s.setActiveScene(p.sceneId);
-                })
-                .catch(() => {});
-            }
+            if (ed.projectId === p.projectId) ed.setActiveScene(p.sceneId);
             void getCollabScenes()
               .then((l) => useConnectionsStore.getState().setCollabScenes(l))
               .catch(() => {});
@@ -343,8 +295,9 @@ export function useWsSync() {
             // Tag this session with the project it has open so the agent /
             // external MCP clients can identify it in list_ui_sessions.
             const projectId =
-              /\/(?:editor|viewer)\/([^/]+)/.exec(window.location.pathname)?.[1] ??
-              useEditorStore.getState().projectId;
+              /\/(?:editor|viewer)\/([^/]+)/.exec(
+                window.location.pathname
+              )?.[1] ?? useEditorStore.getState().projectId;
             const sock = wsRef.current;
             if (sock && sock.readyState === WebSocket.OPEN)
               sock.send(JSON.stringify({ kind: 'ui_register', projectId }));
@@ -402,7 +355,10 @@ export function useWsSync() {
                   ? {
                       kind: 'viewport_screenshot_result',
                       requestId: p.requestId,
-                      pngBase64: dataUrl.replace(/^data:image\/png;base64,/, ''),
+                      pngBase64: dataUrl.replace(
+                        /^data:image\/png;base64,/,
+                        ''
+                      ),
                     }
                   : {
                       kind: 'viewport_screenshot_result',
@@ -428,5 +384,5 @@ export function useWsSync() {
       if (timerRef.current) clearTimeout(timerRef.current);
       wsRef.current?.close();
     };
-  }, [setVmcStatus, setVmcTracking]);
+  }, []);
 }

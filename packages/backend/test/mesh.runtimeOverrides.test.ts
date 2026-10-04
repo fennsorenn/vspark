@@ -23,6 +23,7 @@
  * property the `_snapshot` message used to provide by hand.
  */
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { MODELS } from '@vspark/shared/models';
 import {
   createLoopbackPair,
   createMeshPeer,
@@ -59,6 +60,7 @@ describe('runtime_override collection', () => {
     resetMeshRuntime();
     server = createMeshPeer({
       identity: { peerId: 'server' },
+      models: MODELS,
       transports: [],
     });
     initMeshRuntime(server);
@@ -119,6 +121,7 @@ describe('runtime_override collection', () => {
     const lb = createLoopbackPair('server', 'client');
     const wired = createMeshPeer({
       identity: { peerId: 'server' },
+      models: MODELS,
       transports: [lb.a],
     });
     resetMeshRuntime();
@@ -149,7 +152,7 @@ describe('runtime_override collection', () => {
     // Set FIRST, subscribe after — the ordering the snapshot has to survive.
     m.set('scene_node', 'node-1', 'opacity', 0.25);
     await lb.flush();
-    await client.subscribe('server', {
+    await client.subscribe({
       entityRtype: RUNTIME_OVERRIDE_RTYPE,
       entityId: '*',
       includeDescendants: false,

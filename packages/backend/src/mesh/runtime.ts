@@ -46,6 +46,7 @@
  */
 import type { Collection, MeshPeer } from '@vspark/mesh';
 import type { ParamTargetKind } from '@vspark/shared/paramPaths';
+import { MODELS } from '@vspark/shared/models';
 
 /** Built-in mesh channel: retained state that must reach late joiners, without
  *  an ack (and so without an undo entry). */
@@ -91,14 +92,9 @@ export function parseOverrideKey(key: string): {
 }
 
 /** Containment: an override hangs off the entity it overrides, so a subtree
- *  grant on a scene covers every override inside it without naming the rtype. */
-export const overrideParent = (
-  d: Record<string, unknown>
-): { rtype: string; id: string } | null =>
-  (d.targetKind === 'scene_node' || d.targetKind === 'compose_layer') &&
-  typeof d.targetId === 'string'
-    ? { rtype: d.targetKind, id: d.targetId }
-    : null;
+ *  grant on a scene covers every override inside it without naming the rtype.
+ *  Declared in `@vspark/shared/models`. */
+export const overrideParent = MODELS.runtime_override.parent;
 
 // --- data channels -----------------------------------------------------------
 
@@ -140,15 +136,8 @@ export function parseDataFieldKey(
 
 /** Containment: a scoped field hangs off the entity it is scoped to, so a
  *  share/collab subtree grant carries it. Global fields belong to no entity and
- *  reach subscribers by rtype alone. */
-export const dataFieldParent = (
-  d: Record<string, unknown>
-): { rtype: string; id: string } | null =>
-  (d.scopeKind === 'scene_node' || d.scopeKind === 'compose_layer') &&
-  typeof d.scope === 'string' &&
-  d.scope !== ''
-    ? { rtype: d.scopeKind, id: d.scope }
-    : null;
+ *  reach subscribers by rtype alone. Declared in `@vspark/shared/models`. */
+export const dataFieldParent = MODELS.data_field.parent;
 
 // --- media commands ----------------------------------------------------------
 
@@ -173,13 +162,7 @@ export interface MediaControlDoc {
   [k: string]: unknown;
 }
 
-export const mediaControlParent = (
-  d: Record<string, unknown>
-): { rtype: string; id: string } | null =>
-  (d.targetKind === 'scene_node' || d.targetKind === 'compose_layer') &&
-  typeof d.targetId === 'string'
-    ? { rtype: d.targetKind, id: d.targetId }
-    : null;
+export const mediaControlParent = MODELS.media_control.parent;
 
 let _overrides: Collection<RuntimeOverrideDoc> | null = null;
 let _dataFields: Collection<DataFieldDoc> | null = null;
@@ -190,24 +173,22 @@ export function initMeshRuntime(peer: MeshPeer): void {
   if (_overrides) return;
   // `runtime` and `control` are built-in mesh channels. Tabs display these
   // documents; only this server writes them.
-  _overrides = peer.collection<RuntimeOverrideDoc>(RUNTIME_OVERRIDE_RTYPE, {
-    channels: [RUNTIME_CHANNEL],
-    parent: overrideParent,
-    authority: 'self',
-    clients: { read: true },
-  });
-  _dataFields = peer.collection<DataFieldDoc>(DATA_FIELD_RTYPE, {
-    channels: [RUNTIME_CHANNEL],
-    parent: dataFieldParent,
-    authority: 'self',
-    clients: { read: true },
-  });
-  _media = peer.collection<MediaControlDoc>(MEDIA_CONTROL_RTYPE, {
-    channels: [CONTROL_CHANNEL],
-    parent: mediaControlParent,
-    authority: 'self',
-    clients: { read: true },
-  });
+  _overrides = peer.collection<RuntimeOverrideDoc>(RUNTIME_OVERRIDE_RTYPE);
+  _dataFields = peer.collection<DataFieldDoc>(DATA_FIELD_RTYPE);
+  _media = peer.collection<MediaControlDoc>(MEDIA_CONTROL_RTYPE);
+  for (const rtype of [
+    RUNTIME_OVERRIDE_RTYPE,
+    DATA_FIELD_RTYPE,
+    MEDIA_CONTROL_RTYPE,
+  ])
+    peer.grants.grant({
+      grantee: peer.id, // our tabs: they display these, only we write them
+      entityRtype: rtype,
+      entityId: '*',
+      includeDescendants: false,
+      pathPrefix: '',
+      rights: { read: true },
+    });
 }
 
 /** The override collection, or null before the mesh is up (tests that skip it,

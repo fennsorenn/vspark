@@ -35,6 +35,7 @@ vi.mock('../src/particleTextures', () => ({
 }));
 
 import { PropertiesPanel } from '../src/components/editor/PropertiesPanel';
+import { docsOf, seedEditor } from './helpers/mesh';
 
 const tp = (key: string) => i18n.t(key, { ns: 'properties' });
 
@@ -51,7 +52,7 @@ const makeNode = (over: Partial<StageObject> = {}): StageObject => ({
 
 /** Reset only the store slices the panel reads, preserving the action fns. */
 function seed(partial: Record<string, unknown>) {
-  useEditorStore.setState({
+  seedEditor({
     nodes: [],
     selectedNodeId: null,
     selectedEffect: null,
@@ -83,7 +84,10 @@ describe('PropertiesPanel — selection branches', () => {
     seed({
       leftTab: 'compose',
       selectedComposeLayerId: 'layer-9',
-      composeLayers: [{ id: 'layer-9', name: 'L', kind: 'image' }],
+      projectId: 'proj-1',
+      composeLayers: [
+        { id: 'layer-9', projectId: 'proj-1', name: 'L', kind: 'image' },
+      ],
     });
     renderWithProviders(<PropertiesPanel />);
     expect(screen.getByTestId('compose-layer-props').textContent).toBe(
@@ -117,7 +121,7 @@ describe('PropertiesPanel — node inspector', () => {
     fireEvent.change(input, { target: { value: 'New Name' } });
     fireEvent.blur(input);
 
-    expect(useEditorStore.getState().nodes[0].name).toBe('New Name');
+    expect(docsOf<{ name: string }>('scene_node')[0].name).toBe('New Name');
   });
 });
 
@@ -155,10 +159,8 @@ function seedStylizer(config: Record<string, unknown> = {}) {
 }
 
 const cfgOf = () =>
-  (useEditorStore.getState().behaviors[0].config ?? {}) as Record<
-    string,
-    unknown
-  >;
+  (docsOf<{ config?: Record<string, unknown> }>('behavior')[0].config ??
+    {}) as Record<string, unknown>;
 
 describe('PropertiesPanel — Stylized Tracking behavior', () => {
   it('renders the headline controls and both collapsible sections', () => {

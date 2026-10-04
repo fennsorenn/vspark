@@ -7,9 +7,8 @@
  * editing one graph overwrote each other with no way to notice. Every edit was
  * also server-authored, so none of it could be undone.
  *
- * Same convention as behaviorEffectWrites: the store is NOT asserted on the
- * mesh path — the feeder mirrors the replica into the store, and there is no
- * feeder here. Only the REST fallback applies locally, and that IS asserted.
+ * The writes go straight onto the tab's peer; a recording stand-in for the
+ * logic collection pins the exact op each helper issues.
  */
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 
@@ -53,22 +52,30 @@ const logicCollection = {
     docs.delete(id);
     return { ack: Promise.resolve({ status: 'acked' }) };
   },
-  // A graph has nothing hanging off it: the tree is the doc itself.
-  removeTree(id: string) {
-    return [this.remove(id)];
+  all: () => [...docs.values()],
+  create: (doc: { id: string }) => {
+    writes.push({ id: doc.id, path: '', value: doc, op: 'set' });
+    docs.set(doc.id, doc);
+    return { ack: Promise.resolve({ status: 'acked' }) };
   },
 };
 
 vi.mock('../src/mesh/peer', () => ({
   getMeshHandles: () => ({
-    peer: {},
+    peer: {
+      collection: () => logicCollection,
+      // A graph has nothing hanging off it: the tree is the doc itself.
+      removeTree: (id: string) => [logicCollection.remove(id)],
+    },
     serverPeerId: 'server',
     collections: { logic: logicCollection },
   }),
   meshBatch: <T>(fn: () => T): T => fn(),
 }));
 
-vi.mock('../src/api/client', () => ({
+vi.mock('../src/api/client', async (importOriginal) => ({
+  mapLogic: (await importOriginal<typeof import('../src/api/client')>())
+    .mapLogic,
   api: {
     createProjectLogic: vi.fn((_p: string, name: string) =>
       Promise.resolve({ id: 'server-minted', name })
@@ -86,23 +93,9 @@ vi.mock('../src/api/client', () => ({
 
 const empty = { nodes: [], edges: [] };
 
-/** A graph in both the store (where the write helpers look the doc up) and the
- *  replica (where they check the peer holds it). */
+/** A graph the (stand-in) replica holds. */
 async function seed(id: string) {
-  const { useEditorStore } = await import('../src/store/editorStore');
-  useEditorStore.setState({
-    logic: {
-      [id]: {
-        id,
-        ownerKind: 'project',
-        ownerId: 'p1',
-        name: id,
-        enabled: true,
-        descriptor: empty as never,
-      },
-    },
-  });
-  docs.set(id, {});
+  docs.set(id, { id });
 }
 
 describe('logic writes', () => {
@@ -110,8 +103,6 @@ describe('logic writes', () => {
     writes.length = 0;
     canWrite = true;
     docs.clear();
-    const { useEditorStore } = await import('../src/store/editorStore');
-    useEditorStore.setState({ logic: {} });
   });
 
   it('creating authors on the mesh, with the owner on the doc', async () => {
@@ -196,33 +187,6 @@ describe('logic writes', () => {
     await commitLogicDelete('g1');
 
     expect(writes.some((w) => w.op === 'remove')).toBe(true);
-  });
-
-  it('falls back to REST when the peer cannot author', async () => {
-    // The write still lands — it just is not undoable, which is the honest
-    // consequence of the server authoring it.
-    const { useEditorStore } = await import('../src/store/editorStore');
-    const { api } = await import('../src/api/client');
-    useEditorStore.setState({
-      logic: {
-        g1: {
-          id: 'g1',
-          ownerKind: 'project',
-          ownerId: 'p1',
-          name: 'G',
-          enabled: true,
-          descriptor: empty as never,
-        },
-      },
-    });
-    canWrite = false;
-
-    const { commitLogicPath } = await import('../src/mesh/logicWrites');
-    commitLogicPath('g1', 'enabled', false);
-
-    expect(writes).toHaveLength(0);
-    expect(api.updateLogic).toHaveBeenCalled();
-    expect(useEditorStore.getState().logic.g1.enabled).toBe(false);
   });
 
   it('addresses one graph node per write, not the descriptor', async () => {
@@ -311,23 +275,18 @@ describe('logic writes', () => {
   });
 
   it('logicFor lists one owner in creation order', async () => {
-    const { useEditorStore } = await import('../src/store/editorStore');
     const mk = (id: string, ownerId: string, createdAt: string) => ({
       id,
       ownerKind: 'scene_node',
       ownerId,
       name: id,
       enabled: true,
-      descriptor: empty as never,
+      descriptor: { nodes: {}, edges: {} },
       createdAt,
     });
-    useEditorStore.setState({
-      logic: {
-        b: mk('b', 'n1', '2024-01-02'),
-        a: mk('a', 'n1', '2024-01-01'),
-        other: mk('other', 'n2', '2024-01-01'),
-      },
-    });
+    docs.set('b', mk('b', 'n1', '2024-01-02'));
+    docs.set('a', mk('a', 'n1', '2024-01-01'));
+    docs.set('other', mk('other', 'n2', '2024-01-01'));
 
     const { logicFor } = await import('../src/mesh/logicWrites');
     expect(logicFor({ kind: 'scene_node', id: 'n1' }).map((g) => g.id)).toEqual(
