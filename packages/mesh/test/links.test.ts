@@ -45,7 +45,7 @@ const sub = (rtype: string, channels?: string[]) => ({
   ...(channels ? { channels } : {}),
 });
 
-function triangle() {
+function triangle({ bGrantsA = true } = {}) {
   const s = createMeshPeer({ identity: { peerId: 'S' } });
   const sDocs = s.collection<Doc>('doc', { clients: ALL });
   const viaServer: MeshMessage[] = [];
@@ -81,6 +81,16 @@ function triangle() {
     pathPrefix: '',
     rights: { read: true },
   });
+  // ...and B lets A write previews to it over the direct link.
+  if (bGrantsA)
+    peers.b.peer.grants.grant({
+      grantee: 'S#a',
+      entityRtype: 'doc',
+      entityId: '*',
+      includeDescendants: false,
+      pathPrefix: '',
+      rights: { update: true },
+    });
   const flush = async () => {
     for (let i = 0; i < 4; i++) {
       for (const f of flushes) await f();
@@ -272,6 +282,34 @@ describe('direct-link subscriptions', () => {
     t.a.col.set('d1', 'x', 2, { channel: 'preview' });
     await t.flush();
     expect(atB).toHaveLength(1);
+  });
+
+  it("a write over a direct link must pass the sending tab's write grants", async () => {
+    const t = triangle({ bGrantsA: false });
+    t.sDocs.create({ id: 'd1', x: 0 });
+    await t.b.peer.subscribe('S', sub('doc'));
+    t.linkDirect();
+    await t.flush();
+    await t.b.peer.subscribe('S#a', {
+      ...sub('doc', ['preview']),
+      exact: true,
+    });
+    // Subscribed to A, but B holds no write grant for A: A's preview is dropped.
+    t.a.col.set('d1', 'x', 5, { channel: 'preview' });
+    await t.direct.flush();
+    expect(t.b.col.get('d1')?.x).toBe(0);
+    // A grant to A's server covers A's tabs.
+    t.b.peer.grants.grant({
+      grantee: 'S',
+      entityRtype: 'doc',
+      entityId: '*',
+      includeDescendants: false,
+      pathPrefix: '',
+      rights: { update: true },
+    });
+    t.a.col.set('d1', 'x', 6, { channel: 'preview' });
+    await t.direct.flush();
+    expect(t.b.col.get('d1')?.x).toBe(6);
   });
 });
 

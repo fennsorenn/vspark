@@ -13,6 +13,7 @@ import {
   participantServer,
   subscriptionMatches,
   compareHLC,
+  isClientParticipant,
   randomUUID,
   type Grant,
   type HLC,
@@ -1209,11 +1210,15 @@ export class MeshPeer implements PeerCore {
     col: AnyCollection
   ): OpEnvelope | null {
     const key = makeKey(env.rtype, env.id, env.path || undefined);
-    for (const s of this.outSubs.values()) {
-      if (s.peer !== senderId || s.status !== 'active') continue;
-      if (!this.channelOk(s.sub, env.ch, col)) continue;
-      if (subscriptionMatches(s.sub, key, this.isDescendantOrWas)) return env;
-    }
+    // What a server sends over our subscription to it is the state we asked
+    // its authority for. Another tab is a peer, not an authority: what it sends
+    // over a direct link must pass its write grants like any other write.
+    if (!isClientParticipant(senderId))
+      for (const s of this.outSubs.values()) {
+        if (s.peer !== senderId || s.status !== 'active') continue;
+        if (!this.channelOk(s.sub, env.ch, col)) continue;
+        if (subscriptionMatches(s.sub, key, this.isDescendantOrWas)) return env;
+      }
     const grants = this.grantStore.for(env.origin);
     const can = (need: Right, path?: string): boolean =>
       allows(
