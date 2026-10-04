@@ -78,9 +78,7 @@ export function initMeshStreams(
 ): void {
   if (_col) return;
   // Server-to-server only: no `clients` grant, so tabs can't subscribe.
-  _col = peer.collection<StreamFrame>(NODE_STREAM_RTYPE, {
-    channels: ['preview'],
-  });
+  _col = peer.collection<StreamFrame>(NODE_STREAM_RTYPE);
   _col.observe('**', (c) => {
     if (c.origin === peer.id || !c.doc) return; // our own publish — tabs got /ws
     if (!collabSceneForNode(c.id)) return; // not a collab node here — drop
@@ -88,9 +86,7 @@ export function initMeshStreams(
   });
   // Runtime events (Set Data / overrides / media / spawn), replacing the
   // legacy _collab_runtime broadcast. Keyed by scene id, deduped by eventId.
-  _runtimeCol = peer.collection<RuntimeEvent>(RUNTIME_CONTROL_RTYPE, {
-    channels: [CONTROL_CHANNEL],
-  });
+  _runtimeCol = peer.collection<RuntimeEvent>(RUNTIME_CONTROL_RTYPE);
   _runtimeCol.observe('**', (c) => {
     if (c.origin === peer.id || !c.doc) return;
     if (!isCollabScene(c.id)) return; // not one of our shared scenes — drop

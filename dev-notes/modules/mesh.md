@@ -378,8 +378,17 @@ collection.canWrite(): boolean  // false while ack authority is known down
 
 ### Config
 
-`CollectionConfig` (`packages/mesh/src/collection.ts`): `parent`, `validate`,
-`channels`, `authority`, and `clients` — the rights (`read` / `update` /
+Document types are declared once and handed to every peer:
+`createMeshPeer({ models, channels })`. A `ModelDecl`
+(`packages/mesh/src/collection.ts`) holds what every peer knows about a type:
+`parent`, `validate`, `channels`, `clockFields`. vspark's declarations live in
+`@vspark/shared/models` (`MODELS`, plus `TAB_MODELS`, the types a tab opens),
+so backend and frontend can't disagree on a parent or a channel list.
+`peer.collection(rtype, local)` opens a declared type, and `local` adds what
+only this peer contributes. A local `validate` runs after the declared one, on
+its result.
+
+`CollectionConfig` adds two peer-local fields to a `ModelDecl`: `authority`, and `clients` — the rights (`read` / `update` /
 `create` / `delete`) this peer's own tabs hold on every document of the
 collection. Declaring `clients` adds one grant to the peer's own id, which
 covers its client participants and no one else. A collection without it is
@@ -486,15 +495,16 @@ only from call sites that can't obey hook rules.
 
 ## Channel mechanics
 
-Channels are declared when creating the collection:
+A collection's channels come from its declaration (or the local config):
 
 ```ts
+const mesh = createMeshPeer({ identity, models: MODELS, transports });
 const nodes = mesh.collection<Node>('scene_node', {
-  validate?: (data: unknown, originId?: string) => Node,  // originId = origin peer (peer-clock localization)
-  channels?: string[],  // default ['committed', 'preview']
   authority?: 'self' | PeerId,
   clients?: { read?, update?, create?, delete? },  // tab rights, see Grants
+  validate?: (doc: unknown, ctx: { origin, prev }) => Node,  // runs after the declared one
 });
+// ModelDecl: { parent?, validate?, channels? (default ['committed', 'preview']), clockFields? }
 ```
 
 Four channels are built in (`BUILTIN_CHANNELS` in `packages/mesh/src/channels.ts`),
@@ -587,19 +597,46 @@ On subscription with an unmet grant, the subscriber receives:
 2. A watermark (HLC timestamp) bounding the snapshot's consistency.
 3. Live ops after the watermark.
 
-Applying a remote op checks the origin's write grants ([Grants](#grants)) and runs the resource's `validate` function before touching the replica. The snapshot and every later op are projected through the subscriber's read grants on the way out.
+Applying a remote op checks the origin's write grants ([Grants](#grants)), translates declared clock fields, and runs the collection's `validate` before touching the replica. The snapshot and every later op are projected through the subscriber's read grants on the way out.
 
-### Peer-clock localization (validate origin id)
+### Validation: one check, on the composed document
 
-`validate` receives the **origin peer id** as a second argument, so a collection can localize peer-relative fields (clock-anchored timestamps) when a foreign doc arrives:
+`validate(doc, { origin, prev })` always receives the **whole document a
+committed write would leave behind**, whatever shape the write had: a create, a
+whole-document upsert, a merge-patch or a single-path `set`. The peer composes
+the patch onto its current copy first (`MeshPeer.composeCandidate`), so a check
+can't be bypassed by editing one field. It runs on every peer, for local writes
+(fail fast), incoming ops and snapshot documents. Previews aren't checked.
 
-```ts
-validate?: (data: unknown, originId?: string) => T   // packages/mesh/src/collection.ts
-```
+- Throwing rejects. On the authority this nacks the author, who rolls back.
+- Returning a different document corrects. A corrected write is applied as an
+  upsert of the corrected document; on the authority it is issued with a fresh
+  stamp as its own write, and the `corrected` ack carries the whole document,
+  which the author applies in place of its write.
+- A patch to a document this peer doesn't hold yet isn't checked: the replica
+  parks it until the document arrives.
 
-`Collection.validateDoc(data, originId?)` forwards it. `MeshPeer` (`packages/mesh/src/peer.ts`) threads the origin through every apply path: `this.id` for local writes, `env.origin` for remote ops, and `senderId` for snapshots. The peer also exposes a peer-clock API `toLocalTime(originId, t)` that maps a timestamp authored on `originId`'s clock onto the local clock (identity when `originId` is this peer, since local writes are already local).
+Before this, `validate` ran on whole-document upserts only and the backend had a
+second hook, `guard`, on the composed document in the persistence tap. A check
+in the wrong one was skipped by field edits (a scene instance could be made to
+embed its own scene by setting `properties.sourceSceneId`). `guard` is gone.
 
-First use: the `scheduled_animation` collection's `validate` rewrites `startEpoch` via `peer.toLocalTime(originId, startEpoch)` so a timeline authored on one peer activates at the same wall-clock instant everywhere (see [animation.md](animation.md)). The clock is a synchronized-clocks stub today, so the translation is numerically a no-op, but the mechanism and call sites are final.
+### Clock fields
+
+A declaration's `clockFields` lists top-level wall-clock timestamps (ms) that a
+writer sets on its own clock (`startEpoch` on `scheduled_animation` and
+`clip_playback`). Each peer translates them onto its own clock as data arrives,
+using the measured offset to the peer that **sent** it (`toLocalTime(senderId,
+t)`): ops, snapshot documents, and the documents carried by correction and
+rejection acks. Translation is per hop, so data on a link is always on its
+sender's clock, and a relay forwards it already translated. Local writes keep
+the writer's frame. A browser tab translates too: it reads `startEpoch`
+against its own `Date.now()`, whatever the clock of the machine its server
+runs on.
+
+This used to live inside the backend's `validate` hooks. Run on the composed
+document, that would have translated again on every field edit, and it used
+the author's id, which has no measured offset when the op was relayed.
 
 ## Grants
 
@@ -833,7 +870,7 @@ Location: `packages/backend/src/mesh/index.ts`.
 - `camera_effect` (parent: owning scene)
 - `compose_layer` (parent: owning scene)
 - `track_clip` (parent: owning scene)
-- `scheduled_animation` (parent: owning avatar `scene_node`) — per-avatar clip timeline; see [animation.md](animation.md). Its `validate` localizes the author-anchored `startEpoch` onto the receiver clock (peer-clock localization, below).
+- `scheduled_animation` (parent: owning avatar `scene_node`) — per-avatar clip timeline; see [animation.md](animation.md). `startEpoch` is a declared clock field, translated onto each receiver's clock (see [Clock fields](#clock-fields)).
 
 **Hydration (boot):**
 ```ts
@@ -921,29 +958,22 @@ Two failures worth knowing in advance, because neither announces itself:
    tombstone rehydration are all driven from it; `bindCollection` returns early
    without one, leaving a replicate-only collection.
 4. **Binding** — a row in `BINDINGS` in `packages/backend/src/mesh/index.ts`:
-   `rtype`, `table`, `parent`, `clients` (the tab rights — `TAB_AUTHORED`,
+   `rtype`, `table`, `clients` (the tab rights — `TAB_AUTHORED`,
    `TAB_READ_DELETE`, or narrower; required by the type, and without a read
-   right the tab's subscription is denied), optional `validate` / `guard`, and
+   right the tab's subscription is denied), optional `validate` (checks that
+   need this server's data; it sees the composed document of every write, see
+   [Validation](#validation-one-check-on-the-composed-document)), and
    `persists` (which gates SQLite only — a doc that fails it still fans out to
-   every replica).
-
-   `validate` vs `guard`, which is easy to get wrong: **`validate` only runs on
-   whole-doc writes.** A dotted-path write is a `patch` op, and patches pass
-   through unvalidated — the hook is never called, so a check placed there is
-   silently skipped by exactly the writes a UI makes most (`set(id, 'field',
-   v)`). `validate` is for transforming an incoming doc (localizing a
-   peer-relative timestamp, say); it can also reject by throwing. `guard` runs
-   in the persistence tap on the COMPOSED doc, so it sees every write shape;
-   throwing there nacks the write and restores the author's pre-write state.
-   Anything that must hold regardless of how the write was shaped belongs in
-   `guard` (`logic` validates its descriptor there).
+   every replica). Parent, channels and clock fields come from the shared
+   declaration (step 5).
 
 ### Frontend
 
-5. **`RTYPES`** in `packages/frontend/src/mesh/peer.ts` — creates the collection
-   and subscribes to it.
-6. **`PARENTS`** in the same file. It must match the backend `parent` **exactly**;
-   the two containment indexes diverge with no error otherwise.
+5. **Declaration** in `@vspark/shared/models` (`packages/shared/src/models.ts`):
+   `parent`, `channels` if not the default pair, `clockFields`. Backend and
+   frontend both read it, so the two containment indexes can't diverge.
+6. **`TAB_MODELS`** in the same file, if tabs should open and subscribe to the
+   type.
 7. **Store slice** — state + actions in
    `packages/frontend/src/store/editorStore.ts`.
 8. **Feeder observer** — `packages/frontend/src/sync/meshStoreFeeder.ts`,
@@ -967,8 +997,9 @@ Two failures worth knowing in advance, because neither announces itself:
   (`packages/shared/src/containment.ts`) keys by id alone, so a doc must not
   reuse its parent's id — carry the parent as a field instead. `clip_playback`
   has its own uuid plus a `clipId`, precisely for this.
-- **Nothing in `packages/shared` needs changing.** `SyncEnvelope.rtype` is a
-  free-form string; there is no rtype union or zod schema to extend. Nor is
+- **Only the declaration in `packages/shared/src/models.ts` changes in
+  shared.** `SyncEnvelope.rtype` is a free-form string; there is no rtype union
+  or zod schema to extend. Nor is
   `backend/src/sync/containmentIndex.ts` a registration point — that index
   serves the legacy object-share code, and `MeshPeer` keeps its own private one.
 

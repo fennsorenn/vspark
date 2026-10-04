@@ -21,7 +21,6 @@ interface PeerGrantDoc {
 
 export function initPeerGrants(peer: MeshPeer): Collection<PeerGrantDoc> {
   const col = peer.collection<PeerGrantDoc>(PEER_GRANT_RTYPE, {
-    channels: ['runtime'],
     authority: 'self',
     clients: { read: true },
   });

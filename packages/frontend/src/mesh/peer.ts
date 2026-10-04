@@ -25,6 +25,7 @@ import {
   randomUUID,
 } from '@vspark/shared/sync';
 import { DirectTransport } from './directTransport';
+import { MODELS, TAB_MODELS } from '@vspark/shared/models';
 
 type Dto = Record<string, unknown>;
 
@@ -34,121 +35,9 @@ export interface MeshHandles {
   collections: Record<string, Collection<Dto>>;
 }
 
-const RTYPES = [
-  'scene_node',
-  'behavior',
-  'camera_effect',
-  'compose_layer',
-  'track_clip',
-  'animation_clip',
-  'scheduled_animation',
-  'clip_playback',
-  'logic',
-  'runtime_override',
-  'data_field',
-  'media_control',
-  'server_status',
-  'peer_grant',
-] as const;
-
-/** Built-in mesh channels (packages/mesh/src/channels.ts): `runtime` is
- *  retained state without undo, `control` is commands that are never replayed
- *  to a tab that connects later. */
-const RUNTIME_CHANNEL = 'runtime';
-const CONTROL_CHANNEL = 'control';
-
-/** rtypes that live on a channel other than the default committed/preview
- *  pair. The collection's allowed set has to include the channel its writes
- *  arrive on, or they never apply. */
-const CHANNELS: Partial<Record<string, string[]>> = {
-  runtime_override: [RUNTIME_CHANNEL],
-  data_field: [RUNTIME_CHANNEL],
-  media_control: [CONTROL_CHANNEL],
-  server_status: [RUNTIME_CHANNEL],
-  peer_grant: [RUNTIME_CHANNEL],
-};
-
-const childOfNode = (d: Dto) =>
-  typeof d.nodeId === 'string' ? { rtype: 'scene_node', id: d.nodeId } : null;
-
-// Transport state → its clip. Keyed on `clipId`, NOT `id`: the mesh
-// ContainmentIndex keys by id alone across every rtype, so a playback doc
-// sharing its clip's id would collide with the clip's own entry. Must match
-// the backend BINDINGS entry exactly or the two indexes diverge silently.
-const childOfClip = (d: Dto) =>
-  typeof d.clipId === 'string' ? { rtype: 'track_clip', id: d.clipId } : null;
-
-const PARENTS: Partial<
-  Record<string, (d: Dto) => { rtype: string; id: string } | null>
-> = {
-  scene_node: (d) =>
-    typeof d.parentId === 'string'
-      ? { rtype: 'scene_node', id: d.parentId }
-      : typeof d.rootSceneNodeId === 'string' && d.rootSceneNodeId !== d.id
-        ? { rtype: 'scene_node', id: d.rootSceneNodeId }
-        : null,
-  behavior: childOfNode,
-  camera_effect: childOfNode,
-  compose_layer: (d) =>
-    typeof d.parentId === 'string'
-      ? { rtype: 'compose_layer', id: d.parentId }
-      : typeof d.rootComposeSceneId === 'string' &&
-          d.rootComposeSceneId !== d.id
-        ? { rtype: 'compose_layer', id: d.rootComposeSceneId }
-        : null,
-  track_clip: (d) =>
-    typeof d.ownerNodeId === 'string'
-      ? { rtype: 'scene_node', id: d.ownerNodeId }
-      : typeof d.ownerLayerId === 'string'
-        ? { rtype: 'compose_layer', id: d.ownerLayerId }
-        : null,
-  animation_clip: (d) =>
-    typeof d.sourceNodeId === 'string'
-      ? { rtype: 'scene_node', id: d.sourceNodeId }
-      : null,
-  scheduled_animation: (d) =>
-    typeof d.avatarNodeId === 'string'
-      ? { rtype: 'scene_node', id: d.avatarNodeId }
-      : null,
-  clip_playback: childOfClip,
-  // A runtime override hangs off the entity it overrides, so a scene-subtree
-  // grant covers every override inside it. Must match the backend
-  // (mesh/runtime.ts `overrideParent`) or the two indexes diverge silently.
-  runtime_override: (d) =>
-    (d.targetKind === 'scene_node' || d.targetKind === 'compose_layer') &&
-    typeof d.targetId === 'string'
-      ? { rtype: d.targetKind, id: d.targetId }
-      : null,
-  // A scoped data field hangs off the entity it is scoped to; a GLOBAL field
-  // (scope '') belongs to no entity and has no parent. The document carries
-  // `scopeKind` so this stays a pure function on both peers.
-  data_field: (d) =>
-    (d.scopeKind === 'scene_node' || d.scopeKind === 'compose_layer') &&
-    typeof d.scope === 'string' &&
-    d.scope !== ''
-      ? { rtype: d.scopeKind, id: d.scope }
-      : null,
-  media_control: (d) =>
-    (d.targetKind === 'scene_node' || d.targetKind === 'compose_layer') &&
-    typeof d.targetId === 'string'
-      ? { rtype: d.targetKind, id: d.targetId }
-      : null,
-  // A status about a document hangs off it (backend mesh/status.ts `of`).
-  server_status: (d) => {
-    const of = d.of as { rtype?: unknown; id?: unknown } | null | undefined;
-    return of && typeof of.rtype === 'string' && typeof of.id === 'string'
-      ? { rtype: of.rtype, id: of.id }
-      : null;
-  },
-  // Owned polymorphically. A project-owned graph has no parent: there is no
-  // `project` rtype in the mesh. Must match the backend BINDINGS entry exactly.
-  logic: (d) =>
-    d.ownerKind === 'scene_node' && typeof d.ownerId === 'string'
-      ? { rtype: 'scene_node', id: d.ownerId }
-      : d.ownerKind === 'compose_layer' && typeof d.ownerId === 'string'
-        ? { rtype: 'compose_layer', id: d.ownerId }
-        : null,
-};
+/** Document types this tab opens; their parents, channels and clock fields
+ *  are declared once in `@vspark/shared/models`, shared with the backend. */
+const RTYPES = TAB_MODELS;
 
 let _init: Promise<MeshHandles> | null = null;
 
@@ -327,6 +216,7 @@ async function doInit(): Promise<MeshHandles> {
   const wsProto = window.location.protocol === 'https:' ? 'wss' : 'ws';
   const peer = createMeshPeer({
     identity: { peerId: participantId },
+    models: MODELS,
     // Our server is the source of our grants, not a recipient they gate.
     home: serverPeerId,
     // A tab is an endpoint: a direct subscriber gets only what it authors.
@@ -351,8 +241,6 @@ async function doInit(): Promise<MeshHandles> {
   const collections: Record<string, Collection<Dto>> = {};
   for (const rtype of RTYPES)
     collections[rtype] = peer.collection<Dto>(rtype, {
-      parent: PARENTS[rtype],
-      channels: CHANNELS[rtype],
       authority: serverPeerId,
     });
 

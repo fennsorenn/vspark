@@ -47,8 +47,6 @@ let _col: Collection<StatusDoc> | null = null;
 export function initServerStatus(peer: MeshPeer): void {
   if (_col) return;
   _col = peer.collection<StatusDoc>(SERVER_STATUS_RTYPE, {
-    channels: ['runtime'],
-    parent: (d) => d.of ?? null,
     authority: 'self',
     clients: { read: true },
   });

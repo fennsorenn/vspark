@@ -34,6 +34,7 @@ import { HlcClock } from './clock.js';
 import {
   Collection,
   type CollectionConfig,
+  type ModelDecl,
   type LocalWrite,
   type PeerCore,
   type RequestOutcome,
@@ -45,6 +46,7 @@ import type { DocState } from './replica.js';
 import type { MeshTransport, PeerLink } from './transport.js';
 import type {
   AckMsg,
+  DocOp,
   MeshMessage,
   OpEnvelope,
   PongMsg,
@@ -57,6 +59,12 @@ import type {
 
 export interface MeshPeerConfig {
   identity: { peerId: string; displayName?: string };
+  /** Document types, declared once and shared by every peer (typically from
+   *  app-wide shared code). `collection(rtype)` opens a declared type; what a
+   *  peer passes there is added on top (its authority, its own checks). */
+  models?: Record<string, ModelDecl<any>>;
+  /** Channels beyond the built-in four, declared once like the models. */
+  channels?: Record<string, ChannelProps>;
   /** Whether this peer forwards ops it receives to its own subscribers
    *  (default true). A server relays; a tab doesn't — it is an endpoint, and a
    *  direct subscriber must get from it only what it authors. */
@@ -245,6 +253,8 @@ export class MeshPeer implements PeerCore {
     this.now = cfg.now ?? (() => Date.now());
     this.undoDepth = cfg.undo?.depth ?? 100;
     this.undoPolicy = cfg.undo?.policy ?? 'guarded';
+    for (const [name, props] of Object.entries(cfg.channels ?? {}))
+      this.channels.define(name, props);
     this.transports = [];
     for (const t of cfg.transports ?? []) this.addTransport(t);
   }
@@ -266,12 +276,22 @@ export class MeshPeer implements PeerCore {
     this.channels.define(name, props);
   }
 
+  /** Open the collection for `rtype`. A type declared in `models` brings its
+   *  declaration; `local` adds what only this peer contributes. A local
+   *  `validate` runs after the declared one, on its result. */
   collection<T extends object>(
     rtype: string,
-    cfg: CollectionConfig<T> = {}
+    local: CollectionConfig<T> = {}
   ): Collection<T> {
     if (this.collections.has(rtype))
       throw new Error(`collection '${rtype}' already defined`);
+    const model = this.cfg.models?.[rtype] as ModelDecl<T> | undefined;
+    const cfg: CollectionConfig<T> = { ...model, ...local };
+    if (model?.validate && local.validate) {
+      const shared = model.validate;
+      const own = local.validate;
+      cfg.validate = (doc, ctx) => own(shared(doc, ctx), ctx);
+    }
     const col = new Collection<T>(this, rtype, cfg);
     this.collections.set(rtype, col as unknown as AnyCollection);
     // A grant to this peer's own id covers its client participants and no one
@@ -774,6 +794,72 @@ export class MeshPeer implements PeerCore {
     this.index.remove(id);
   }
 
+  /** The committed document a write would leave behind, or undefined when
+   *  there is nothing to compose with: a patch to a document this peer does
+   *  not hold yet is parked by the replica, not applied. */
+  private composeCandidate(
+    col: AnyCollection,
+    op: DocOp,
+    id: string,
+    path: string | undefined,
+    data: unknown
+  ): unknown {
+    if (op === 'upsert') return data;
+    const cur = col.replica.raw(id);
+    if (cur === undefined) return undefined;
+    if (path) return setPath(cur, path, data);
+    let doc: unknown = cur;
+    for (const [p, v] of flattenToLeaves(data)) doc = setPath(doc, p, v);
+    return doc;
+  }
+
+  /** Run the collection's validator on the document a retained write would
+   *  leave behind. Returns the data to apply: the write's own data, or — when
+   *  the validator corrected the document — the corrected whole document
+   *  (`corrected: true`, to be applied as an upsert). Undefined when there is
+   *  nothing to check (see composeCandidate). Throws when rejected. */
+  private checkWrite(
+    col: AnyCollection,
+    op: DocOp,
+    id: string,
+    path: string | undefined,
+    data: unknown,
+    origin: string
+  ): { data: unknown; corrected: boolean } | undefined {
+    if (!col.cfg.validate) return undefined;
+    const candidate = this.composeCandidate(col, op, id, path, data);
+    if (candidate === undefined) return undefined;
+    const validated = col.validateDoc(candidate, origin, id);
+    if (deepEqual(validated, candidate))
+      return { data: op === 'upsert' ? validated : data, corrected: false };
+    return { data: validated, corrected: true };
+  }
+
+  /** Translate the collection's declared clock fields in incoming data from
+   *  the sender's clock onto ours. Applied per hop, so data on a link is
+   *  always in its sender's clock. */
+  private localizeClocks(
+    col: AnyCollection,
+    path: string | undefined,
+    data: unknown,
+    senderId: string
+  ): unknown {
+    const fields = col.cfg.clockFields;
+    if (!fields?.length || data === null || typeof data !== 'object') {
+      if (fields?.includes(path ?? '') && typeof data === 'number')
+        return Math.round(this.toLocalTime(senderId, data));
+      return data;
+    }
+    if (path) return data; // a nested branch: clock fields are top-level
+    let out = data as Record<string, unknown>;
+    for (const f of fields) {
+      const v = out[f];
+      if (typeof v === 'number')
+        out = { ...out, [f]: Math.round(this.toLocalTime(senderId, v)) };
+    }
+    return out;
+  }
+
   localWrite<T extends object>(c: Collection<T>, w: LocalWrite): WriteHandle {
     const col = c as unknown as AnyCollection;
     const ch = this.channels.get(w.channel);
@@ -799,15 +885,24 @@ export class MeshPeer implements PeerCore {
       return done({ status: 'unguarded' });
     }
 
-    // Validate local writes too (fail fast; corrections apply locally).
-    // Only whole docs are validated; patches pass through (see §8 notes).
+    // Validate local writes too (fail fast; corrections apply locally). A
+    // corrected write becomes a whole-document upsert of the corrected doc.
     let data = w.data;
     let corrected = false;
-    if (w.op === 'upsert') {
+    if (w.op !== 'remove' && w.channel === col.retainedChannel) {
       try {
-        const validated = col.validateDoc(w.data, this.id);
-        corrected = !deepEqual(validated, w.data);
-        data = validated;
+        const checked = this.checkWrite(
+          col,
+          w.op,
+          w.id,
+          w.path,
+          w.data,
+          this.id
+        );
+        if (checked) {
+          ({ data, corrected } = checked);
+          if (corrected) w = { ...w, op: 'upsert', path: undefined, data };
+        }
       } catch (e) {
         return done({ status: 'rejected', reason: errMsg(e) });
       }
@@ -1045,6 +1140,13 @@ export class MeshPeer implements PeerCore {
     }
     // A partial-view writer's upsert arrives as the merge-patch it may make.
     env = admitted;
+    // Declared clock fields arrive on the sender's clock; from here on (apply,
+    // relay, forward) they are on ours.
+    if (col.cfg.clockFields && env.data !== undefined)
+      env = {
+        ...env,
+        data: this.localizeClocks(col, env.path, env.data, senderId),
+      };
 
     // Addressed to someone else: pass it on toward them, apply nothing here.
     if (env.to !== undefined && env.to !== this.id) {
@@ -1089,14 +1191,25 @@ export class MeshPeer implements PeerCore {
 
     this.clock.observe(env.v);
 
-    // Validate whole-doc writes; the authority turns a transform into a correction.
+    // Validate the document the write would leave behind; a corrected write
+    // becomes an upsert of the corrected document (the authority issues it as
+    // its own write below).
     let data = env.data;
     let corrected = false;
-    if (env.op === 'upsert') {
+    if (env.op !== 'remove' && env.ch === col.retainedChannel) {
       try {
-        const validated = col.validateDoc(env.data, env.origin);
-        corrected = !deepEqual(validated, env.data);
-        data = validated;
+        const checked = this.checkWrite(
+          col,
+          env.op,
+          env.id,
+          env.path,
+          env.data,
+          env.origin
+        );
+        if (checked) {
+          ({ data, corrected } = checked);
+          if (corrected) env = { ...env, op: 'upsert', path: undefined, data };
+        }
       } catch (e) {
         dropProvisional();
         if (env.ack)
@@ -1321,9 +1434,11 @@ export class MeshPeer implements PeerCore {
     for (const d of msg.docs) {
       const col = this.collections.get(d.rtype);
       if (!col?.retainedChannel) continue;
-      let data = d.doc;
+      let data = col.cfg.clockFields
+        ? this.localizeClocks(col, undefined, d.doc, senderId)
+        : d.doc;
       try {
-        data = col.validateDoc(d.doc, senderId);
+        data = col.validateDoc(data, senderId, d.id);
       } catch {
         continue; // snapshot doc fails validation — skip it
       }
@@ -1435,13 +1550,21 @@ export class MeshPeer implements PeerCore {
       p.resolve({ status: 'acked' });
       return;
     }
+    // The authority's document is on its clock, like any incoming data.
+    if (msg.value !== undefined && p.col.cfg.clockFields)
+      msg = {
+        ...msg,
+        value: this.localizeClocks(p.col, undefined, msg.value, senderId),
+      };
     if (msg.status === 'corrected') {
+      // A correction carries the whole corrected document, whatever shape
+      // the write had.
       if (msg.v) {
         this.clock.observe(msg.v);
         const change = p.col.applyOp(
-          p.path !== undefined ? 'patch' : 'upsert',
+          'upsert',
           p.id,
-          p.path,
+          undefined,
           msg.value,
           msg.v,
           { origin: senderId, channel: p.col.retainedChannel ?? 'committed' }

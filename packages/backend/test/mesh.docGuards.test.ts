@@ -1,7 +1,10 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import request from 'supertest';
 import type { Express } from 'express';
+import { createLoopbackPair, createMeshPeer } from '@vspark/mesh';
+import { makeClientParticipantId } from '@vspark/shared/sync';
 import { makeTestApp } from './helpers/testApp.js';
+import { getMeshPeer, resetBackendMesh } from '../src/mesh/index.js';
 import { runtimeOverrideManager } from '../src/runtime_overrides/manager.js';
 import { overrideCollection } from '../src/mesh/runtime.js';
 import {
@@ -217,5 +220,77 @@ describe('scene-node guards', () => {
         assertSceneInstanceValid(sceneIds[0], projectId, {})
       ).toThrow(/sourceSceneId/);
     });
+  });
+});
+
+/**
+ * The checks see the document a write leaves behind, whatever shape the write
+ * had (plans/mesh-store-surface.md step 1). A tab that edits ONE field must not
+ * get past a check a whole-document create would fail.
+ */
+describe('scene-node guards on single-field edits from a tab', () => {
+  let app: Express;
+  beforeEach(async () => {
+    ({ app } = await makeTestApp({ mesh: true }));
+  });
+  afterEach(() => resetBackendMesh());
+
+  it('refuses an edit that makes a scene instance embed its own scene', async () => {
+    const projectId = (
+      await request(app).post('/api/projects').send({ name: 'P' })
+    ).body.data.id as string;
+    for (const name of ['Main', 'Intro'])
+      await request(app)
+        .post(`/api/projects/${projectId}/scenes`)
+        .send({ name, populate: false });
+    const scenes = (await request(app).get(`/api/projects/${projectId}/scenes`))
+      .body.data.scenes as { id: string }[];
+    const [main, intro] = scenes.map((s) => s.id);
+    const inst = (
+      await request(app)
+        .post(`/api/scenes/${main}/nodes`)
+        .send({
+          name: 'Inst',
+          kind: 'scene_instance',
+          properties: { sourceSceneId: intro },
+        })
+    ).body.data as { id: string };
+
+    // A tab of this server, holding the declared models but not the checks.
+    const server = getMeshPeer()!;
+    const tabId = makeClientParticipantId(server.id, 'tab1');
+    const lb = createLoopbackPair(server.id, tabId);
+    server.addTransport(lb.a);
+    const tab = createMeshPeer({
+      identity: { peerId: tabId },
+      home: server.id,
+      transports: [lb.b],
+      ackTimeoutMs: 500,
+    });
+    const nodes = tab.collection<Record<string, unknown> & { id: string }>(
+      'scene_node',
+      { authority: server.id }
+    );
+    await lb.flush();
+    await tab.subscribe(server.id, {
+      entityRtype: 'scene_node',
+      entityId: '*',
+      includeDescendants: false,
+      pathPrefix: '',
+    });
+    await lb.flush();
+    expect(nodes.get(inst.id)).toBeDefined();
+
+    const h = nodes.set(inst.id, 'properties.sourceSceneId', main);
+    await lb.flush();
+    expect((await h.ack).status).toBe('rejected');
+    const row = (await request(app).get(`/api/scenes/${main}/nodes`)).body
+      .data as { id: string; properties: unknown }[];
+    const props = row.find((n) => n.id === inst.id)!.properties;
+    const parsed = (typeof props === 'string' ? JSON.parse(props) : props) as {
+      sourceSceneId: string;
+    };
+    expect(parsed.sourceSceneId).toBe(intro);
+    tab.close();
   });
 });

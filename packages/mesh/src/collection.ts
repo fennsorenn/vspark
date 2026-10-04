@@ -49,19 +49,39 @@ export interface WriteOpts {
   to?: string;
 }
 
-export interface CollectionConfig<T extends object> {
+/** What a validator knows about the write it is checking. */
+export interface ValidateContext<T> {
+  /** The participant the write originated on (this peer's own id for local
+   *  writes). */
+  origin: string;
+  /** The committed document before this write, if this peer held one. */
+  prev: T | undefined;
+}
+
+/** What every peer knows about a document type: declared once, shared by all
+ *  peers that open the collection (see {@link MeshPeerConfig.models}). */
+export interface ModelDecl<T extends object = Record<string, unknown>> {
   /** Containment feed for tree reads + descendant-scoped grants. */
   parent?: (doc: T) => { rtype: string; id: string } | null;
-  /** Validates/normalizes INCOMING data (remote ops and local writes alike).
-   *  Throw to reject. The RETURN VALUE is what gets applied — returning a
-   *  transformed value (clamping, normalization) is how the authority issues
-   *  ack corrections. `originId` is the peer the op originated on (this peer's
-   *  own id for local writes), so a validator can localize peer-relative fields
-   *  (e.g. translate a clock-anchored timestamp onto this peer's clock). */
-  validate?: (data: unknown, originId?: string) => T;
+  /** Checks — and may correct — the document a committed write would leave
+   *  behind. It always receives the whole composed document, whatever shape
+   *  the write had (create, whole document, or one path), on every peer: for
+   *  local writes, incoming ops and snapshots alike. Throw to reject. Returning
+   *  a different document is a correction; on the collection's authority it is
+   *  issued to the author and every subscriber as the canonical value.
+   *  Previews are not checked. */
+  validate?: (doc: unknown, ctx: ValidateContext<T>) => T;
   /** Allowed channels (default ['committed', 'preview']). At most one may be
    *  retained; a collection with none is a pure stream. */
   channels?: string[];
+  /** Top-level fields holding a wall-clock timestamp (ms) on the WRITER's
+   *  clock. Each peer translates them onto its own clock as an op arrives
+   *  (using the measured offset to the peer that sent it), so every peer reads
+   *  them against its own `Date.now()`. */
+  clockFields?: string[];
+}
+
+export interface CollectionConfig<T extends object> extends ModelDecl<T> {
   /** Ack authority: 'self' on the home peer, the home's peer id elsewhere. */
   authority?: 'self' | string;
   /** Rights this peer's own client participants (its tabs) hold on every
@@ -401,11 +421,12 @@ export class Collection<T extends object> {
     for (const tap of this.taps) tap(change);
   }
 
-  /** @internal Validation hook; returns the (possibly transformed) value.
-   *  `originId` is the peer the op originated on (passed through to the
-   *  validator so it can localize peer-relative fields). */
-  validateDoc(data: unknown, originId?: string): T {
-    return this.cfg.validate ? this.cfg.validate(data, originId) : (data as T);
+  /** @internal Validate the composed document a write would leave behind;
+   *  returns it, possibly corrected. Throws to reject. */
+  validateDoc(doc: unknown, origin: string, id: string): T {
+    return this.cfg.validate
+      ? this.cfg.validate(doc, { origin, prev: this.replica.raw(id) })
+      : (doc as T);
   }
 
   /** @internal Notify observers of a (possibly restored) change. */

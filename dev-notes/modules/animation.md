@@ -358,7 +358,7 @@ An avatar's clip animation is **collab-shared and clock-anchored** rather than f
 
 Migration `033_scheduled_animations`: `id, avatar_node_id (FK→scene_nodes ON DELETE CASCADE), clip_id, start_epoch, speed, loop, created_at`. Resource descriptor (load/save/remove) in `packages/backend/src/sync/resources.ts`; mesh binding in `packages/backend/src/mesh/index.ts` (`parent → scene_node:avatarNodeId`, `persists` when the avatar row exists). Frontend: a `scheduledAnimations` store slice fed by the mesh feeder (`sync/meshStoreFeeder.ts`), plus a `PARENTS`/`RTYPES` entry. See [mesh.md](mesh.md) for the collection mechanics.
 
-**Clock localization.** `start_epoch` is anchored on the *author's* mesh clock. The collection's `validate(data, originId)` translates a foreign doc's `startEpoch` onto the receiver's clock via the mesh peer-clock API `peer.toLocalTime(originId, startEpoch)`. This is the general mechanism for localizing peer-relative fields; the mesh threads `originId` (the origin peer id) into `validate` for local writes, remote ops, and snapshots — see [mesh.md](mesh.md) (peer-clock localization). The clock is a synchronized-clocks stub today, so the translation is numerically a no-op, but the call sites are final.
+**Clock localization.** `startEpoch` is anchored on the writer's clock. `scheduled_animation` and `clip_playback` declare it as a clock field in `@vspark/shared/models`, and every peer (servers and browser tabs) translates it onto its own clock as it arrives, using the measured offset to the sending peer. See [mesh.md](mesh.md#clock-fields).
 
 ### Frontend clock-anchored driver — `Viewport.tsx` (AvatarNode)
 
