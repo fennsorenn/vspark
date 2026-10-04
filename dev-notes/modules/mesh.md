@@ -104,6 +104,13 @@ restocked on (re)subscribe.
 > version that matches the placed-object path exactly — remove co-editing
 > altogether. Neither is wanted, so the container is not coming to mounted
 > scenes.
+>
+> **Decided by the user, 2026-10-04:** the grant is now one way. The author
+> grants the mounting peer RUCD on the scene subtree, the mounting peer
+> subscribes, and the author decides every write (see [Authority](#authority)).
+> The scene is still persisted and co-edited in both projects; while the author
+> is offline it is read-only for the mounting peer, and working on it without
+> the author is what a local copy is for (planned).
 
 This principle no longer carries principle 2, which is the job it was originally
 written for. The field rewriting existed to force a foreign tree into the local
@@ -122,9 +129,9 @@ Two distinct operations, and they must not be inferred from each other:
   against `max(document write stamp, mount stamp)`.
 
 Without this, mounting a scene whose ids you once deleted lets your tombstones
-out-stamp the author's live documents: the mount lands empty, and the mutual
-subscription then propagates those tombstones back and deletes the author's
-scene.
+out-stamp the author's live documents and the mount lands empty. (While
+collab subscriptions were mutual, they then carried those tombstones back and
+deleted the author's scene.)
 
 **The mount stamp goes on the share, never on the document.** Re-stamping the
 incoming documents would work, and it would violate principle 2 — the same
@@ -246,7 +253,10 @@ while the direct path is unavailable.
   every outgoing message is projected through the recipient's grants at one
   egress point, and a peer with a partial view never overwrites what it cannot
   see.
-- Collections declare their default grants; nothing is reachable by default.
+- Nothing is reachable without a grant, and nothing stands in for one: there
+  are no collection-declared rights or exempt recipients. **Decided by the
+  user, 2026-10-04:** the mesh is project-agnostic, so even a server's own tabs
+  get their rights as (very permissive) grants, not as a blank check.
 - Grants for a direct link are delivered by the brokering server at link setup.
 - Blob grants are derived from the documents that reference the blob.
 - Secrets are a grant pattern (own rtype, write-only, never granted to remote
@@ -289,7 +299,7 @@ All subscribe to the replica via `useSyncExternalStore` and auto-unsubscribe on 
 
 **Channels are delivery semantics, not data layers.** A channel declares transport reliability, HLC stamping, retention, and ack requirements. Composition of multiple sources driving one value (e.g., base / clip-override / runtime-override) happens via app-level conventions on sub-paths with a shared deterministic resolver, not via channels. But the channel a write arrived on *is* the authoritative statement of what the write means — see [Committed vs preview](#committed-vs-preview--the-channel-is-the-discriminator).
 
-**At most one ack authority per collection**, gated while reachable, with three-outcome acks:
+**One authority per document**, gated while reachable, with three-outcome acks (who it is: [Authority](#authority)):
 - `acked` — applied + persisted by authority.
 - `corrected` — authority applied a normalized/clamped value; the corrected value supersedes everywhere.
 - `rejected` — authority refused; current value included in the nack so no refetch round-trip needed.
@@ -297,6 +307,28 @@ All subscribe to the replica via `useSyncExternalStore` and auto-unsubscribe on 
 **Recency-gated revert on ack timeout.** Authority unreachable mid-flight: reverted *only if the current value still carries the write's HLC stamp* — a read-only check that's safe under concurrent writes. Revert is *local-only* (no compensating broadcast); reconnect reconciliation from the authority is the real repair. Brief divergence among non-authority peers during an outage is accepted.
 
 **Legacy bridge echo guard.** The legacy sync.document ↔ mesh replica mirror taps sync.document.upsert to watch for writes from the mesh side; when a write originates from the mesh (`origin === peerId`), the bridge skips applying it back to the document (detected via `applyFromMesh` ids). This prevents echo feedback while the two layers converge.
+
+### Authority
+
+Who decides — acks, corrects or refuses — a committed write to a document, in
+order (`MeshPeer.authorityFor`):
+1. the collection's `authority`, if configured (an override; nothing in vspark
+   sets it);
+2. for a participant (a tab), its own server;
+3. whoever granted this peer a write on the document — a space shared with us is
+   the sharer's to decide;
+4. otherwise this peer.
+
+Nothing is configured per peer: the authority follows from identity and
+grants. A server that holds a write for a document someone else decides applies
+it, passes it on to them, and carries their ack back to the writer
+(`forwardAck`). A refused write that came through such a forwarder is restated
+by the deciding peer — the current document, or its removal, under a fresh
+stamp — to every subscriber (`issueCanonical`), so the forwarder and its tabs
+converge too. A correction reaches the forwarder with the ack and goes on to its
+subscribers. While the deciding peer is unreachable the write is rejected
+(`authority-offline`): a shared space is read-only on the other side then.
+Tests: `packages/mesh/test/sharedSpace.test.ts`.
 
 ## Collection API
 
@@ -388,11 +420,10 @@ so backend and frontend can't disagree on a parent or a channel list.
 only this peer contributes. A local `validate` runs after the declared one, on
 its result.
 
-`CollectionConfig` adds two peer-local fields to a `ModelDecl`: `authority`, and `clients` — the rights (`read` / `update` /
-`create` / `delete`) this peer's own tabs hold on every document of the
-collection. Declaring `clients` adds one grant to the peer's own id, which
-covers its client participants and no one else. A collection without it is
-unreachable from tabs. See [Grants](#grants).
+`CollectionConfig` adds one peer-local field to a `ModelDecl`: `authority`, an
+explicit override of who decides writes. Normally it is left out and derived
+(see [Authority](#authority)). What other participants may do is not
+collection config at all: it is grants (see [Grants](#grants)).
 
 ## Undo / redo (per peer)
 
@@ -500,8 +531,7 @@ A collection's channels come from its declaration (or the local config):
 ```ts
 const mesh = createMeshPeer({ identity, models: MODELS, transports });
 const nodes = mesh.collection<Node>('scene_node', {
-  authority?: 'self' | PeerId,
-  clients?: { read?, update?, create?, delete? },  // tab rights, see Grants
+  authority?: 'self' | PeerId,  // override; normally derived, see Authority
   validate?: (doc: unknown, ctx: { origin, prev }) => Node,  // runs after the declared one
 });
 // ModelDecl: { parent?, validate?, channels? (default ['committed', 'preview']), clockFields? }
@@ -540,10 +570,9 @@ not apply it; it sends it to `nextHop(to)` and resolves `unguarded` (or
 addressed to someone else forwards it to its own next hop and applies nothing;
 only the addressee applies it.
 
-`nextHop` is the **routing seam**: today it picks the first linked candidate of
-the participant itself, its server (`participantServer`), then this peer's
-`home`. Direct links (principle 8) are meant to plug in here without changing
-callers.
+`nextHop` is the **routing seam**: it picks the first linked candidate of the
+participant itself (a direct link), its server (`participantServer`), then this
+peer's own server when it is a participant (a tab).
 
 On top of addressing:
 
@@ -559,36 +588,69 @@ forward a request answers `unreachable` on the addressee's behalf; any other
 reply is accepted only from the addressee. Delivery is at most once, so a lost
 request or reply ends in `timeout`. Tests: `packages/mesh/test/control.test.ts`.
 
+### Subscriptions and grant delivery
+
+```ts
+const sub = await mesh.subscribe({ entityRtype, entityId, includeDescendants, pathPrefix, channels? });
+sub.sources();      // the peers currently serving it
+sub.unsubscribe();
+```
+
+A subscription names **what**, never **from whom**. The peer serves it from
+every linked peer that granted it read on any of it (`sourcesFor`), plus that
+grantor's own participants over a direct link, who serve on their server's
+behalf. It never subscribes to another tab of its own server: those meet through
+the server. The set of sources follows grants and links as they change
+(`reconcileInterest`), and the caller keeps one handle throughout, across
+reconnects. `subscribe()` resolves when the first source has sent its snapshot.
+
+A peer learns its sources from **grant delivery**: when a link comes up, and on
+every change, each peer sends the other a `grants` message (`GrantsMsg` in
+`wire.ts`) with the grants that concern it, each with its grantor:
+- the grants it issued that cover the recipient;
+- to its own participants (its tabs), also the grants it *received* that cover
+  them, so a tab knows that the scene another server shared with its server is
+  readable at that server;
+- to its own participants, the grants it issued to others, marked `delegated`,
+  so a tab can serve them on its server's behalf over a direct link.
+
+Delivered grants outlive a dropped link: a space someone shared with us stays
+theirs while they are away. The next delivery replaces them.
+
+A subscription that reaches a source before the source's grant covers it is
+**held**, not refused: the source answers `sub_wait` and admits it (`sub_ok` with
+the snapshot) when a grant appears. That replaced the retry loops collab, shares
+and the tab used to need. Revoking a grant drops what it no longer covers.
+
 ### Link state
 
-A peer with a `home` tells it which participants it reaches directly: a `links`
-message (`LinksMsg` in `wire.ts`) on every link change. The home records it per
-sender (`directLinks`) and, when relaying a **lossy** op, skips recipients that
-reach the op's origin directly — they already have it first-hand. Reliable ops
-are still relayed, as the path that survives a direct link dropping silently;
-the receiver's dedup (or LWW, for a stamped op) absorbs the second copy. A link
-counts only once a subscription over it is active — a link whose subscription
-was refused doesn't stop the relay. Tests: `packages/mesh/test/links.test.ts`.
+A tab tells its own server which participants it gets data from directly: a
+`links` message (`LinksMsg` in `wire.ts`) listing the peers it holds an active
+subscription leg with. The server records it per sender (`directLinks`) and,
+when relaying a **lossy** op, skips recipients that reach the op's origin
+directly — they already have it first-hand. Reliable ops are still relayed, as
+the path that survives a direct link dropping silently; the receiver's dedup
+(or LWW, for a stamped op) absorbs the second copy. Tests:
+`packages/mesh/test/links.test.ts`.
 
 ### Direct links (tabs)
 
 A tab links over WebRTC to tabs of **other** servers (`DirectTransport` in
-`frontend/src/mesh/directTransport.ts`, carried by `clientMesh.ts`) and takes an
-`exact` subscription to each with `channels: ['preview']`: no snapshot and no
-committed ops. Committed state keeps arriving through the tab's own server,
-which validates it. A refused subscription is retried with backoff while the link
-is up, because the other tab may not hold its grants yet. Tabs of the same server
-don't link; they meet through it.
+`frontend/src/mesh/directTransport.ts`, carried by `clientMesh.ts`; step 4 of
+[plans/mesh-store-surface.md](../plans/mesh-store-surface.md) replaces it with a
+transport in `mesh-transports`). Nothing in the app wires the link up: once it
+is there, the subscriptions the tab already holds gain the other tab as a
+source if its server granted ours read. All channels travel it, committed ones
+included, since the deciding peer restates what stands after a refusal.
 
-- `relay: false` makes a peer an endpoint: it doesn't forward what it receives,
-  so a direct subscriber gets only what that tab authored.
-- Grants for a direct link: the backend mirrors every grant it issued to someone
-  other than itself into the `peer_grant` runtime collection (tabs read it,
-  `backend/src/mesh/peerGrants.ts`). The tab copies them into its `GrantStore`.
-  A grant to a server covers that server's tabs (`granteeCandidates`).
-- Admission: an op matching our own subscription to a *server* is accepted as is.
-  The same op from a *tab* must pass that tab's write grants, as any write
-  does.
+- A participant (a tab) is an endpoint: it forwards nothing it receives, so a
+  direct subscriber gets from it only what it authored.
+- It admits a direct subscriber with the grants its server delegated to it,
+  and a revoke at the server reaches it as the next delivery.
+- **Asymmetry:** with a space shared one way, the author's tabs serve the
+  mounting server's tabs directly, but not the other way round — the mounting
+  server granted the author nothing. Previews from a mounting tab reach the
+  author's tabs through the two servers.
 
 ### Snapshot & apply
 
@@ -651,22 +713,24 @@ participant's access is the union of every grant that names it, its server
 (`participantServer`) or `'*'` (`granteeCandidates`). There are no deny rules,
 and nothing is reachable without a grant. API: `peer.grants.grant(g) → gid`,
 `revoke(gid)` (re-checks admitted subscriptions and drops those no grant
-overlaps any more), `list()`, `observe(cb)`.
+overlaps any more), `list()`, `observe(cb)`. Grants reach the participants they
+concern by [grant delivery](#subscriptions-and-grant-delivery).
 
 **Where grants come from today.**
-- `CollectionConfig.clients` — the tab rights a collection declares (one grant
-  to the peer's own id, which `granteeCandidates` matches for its tabs only).
-  The backend sets them per binding in `packages/backend/src/mesh/index.ts`:
-  `TAB_AUTHORED` (all four rights) for the rtypes tabs author (`scene_node`,
-  `behavior`, `camera_effect`, `compose_layer`, `track_clip`, `logic`,
-  `clip_playback`), `TAB_READ_DELETE` for `animation_clip` and
-  `scheduled_animation` (servers write them; a tab removes them only as part of
-  deleting their node via `removeTree`). The runtime collections
-  (`runtime_override`, `data_field`, `media_control`, `server_status`) are
-  `{ read: true }`. `node_stream` and `runtime_control` declare none — they are
-  server-to-server only. The former blanket `'*'/'*'` grant to tabs is gone.
-- Collab-scene grants (`mesh/collab.ts`) and object-share grants
-  (`mesh/shares.ts`) for server peers, as before.
+- Tab rights: the backend grants its own id — which `granteeCandidates` matches
+  for its tabs only — per binding (`grantTabs` in
+  `packages/backend/src/mesh/index.ts`): `TAB_AUTHORED` (all four rights) for
+  the rtypes tabs author (`scene_node`, `behavior`, `camera_effect`,
+  `compose_layer`, `track_clip`, `logic`, `clip_playback`), `TAB_READ_DELETE`
+  for `animation_clip` and `scheduled_animation` (servers write them; a tab
+  removes them only as part of deleting their node via `removeTree`). The
+  runtime collections (`runtime_override`, `data_field`, `media_control`,
+  `server_status`) get `{ read: true }` where they are created. `node_stream`
+  and `runtime_control` get none — they are server-to-server only. There is no
+  blanket grant and no collection flag standing in for one.
+- Collab scenes (`mesh/collab.ts`): the author grants the mounting peer RUCD on
+  the scene subtree, one way. Object shares (`mesh/shares.ts`): the owner
+  mirrors each share grant.
 
 **Reads are projected at one egress point.** Every message a peer sends goes
 through `MeshPeer.transmit` → `egress`, which cuts it down to what the recipient
@@ -678,20 +742,23 @@ through it. Removes go out whole to anyone who can read some part of the entity.
 A nack's `value` is projected too, so a rejected writer does not learn a value
 it cannot read. Field-level read grants depend on nothing bypassing `transmit`.
 
-**Exempt recipients.** Two recipients are not projected: the peer's `home`
-(`MeshPeerConfig.home` — a tab's own server, which is the source of its grants
-rather than a recipient they gate), and, for ops, a collection's `authority`
-(writes flow to it to be decided). Tabs set `home: serverPeerId`; the backend
-peer has no home.
+**Writes go to whoever granted them.** No recipient is exempt from projection.
+A write may additionally go, whole, to a peer that granted us a write on the
+document (`grantorOfWrite`): a tab's write to its server, a mounting server's
+write to the author. Whether each leaf is allowed is the grantor's check. A
+write no grant allows fails fast with `rejected: 'denied'` and never leaves the
+peer.
 
 **Subscription admission.** A subscription is admitted when any read grant
 *overlaps* it (entity and path, either direction — `grantOverlapsSubscription`),
 not only when one covers it. What it then receives is the union of the paths
-its grants allow, by projection per message.
+its grants allow, by projection per message. One that no grant covers yet is
+held until one does.
 
-**Writes are checked per leaf.** `admitOp` accepts an op that matches one of
-this peer's own active subscriptions to the sender without a grant check (data
-we asked for). Otherwise: a remove needs `delete`; an upsert of an unknown id
+**Writes are checked per leaf.** `admitOp` accepts what a **source** sends: the
+grantor of a read grant we hold on the document, or one of its own
+participants (`isSourceFor`) — it already projected the op to what we may read.
+Anything else must pass the origin's write grants: a remove needs `delete`; an upsert of an unknown id
 needs `create`; a patch needs `update` on its path, a merge-patch on every leaf.
 An upsert of an existing doc from an origin without whole-document `update` is
 applied as a **merge-patch of the leaves it may write** — a peer with a partial
@@ -709,7 +776,7 @@ are filtered by subscription scope with it, then by egress. Tombstones written
 before migration 042 have no chain and reach only rtype-wide grants.
 
 **Not done yet** (see [plans/mesh-sole-channel.md](../plans/mesh-sole-channel.md)
-F6): delivering grants for direct links at link setup, and blob grants derived
+W5): blob grants derived
 from referencing documents.
 
 ## Tab authentication
@@ -835,8 +902,7 @@ which replays a group in reverse — restores parents first.
 const nodes = mesh.collection<SceneNode>('scene_node', {
   parent: (doc) => doc.sceneRootId ? { rtype: 'scene', id: doc.sceneRootId } : null,
   channels: ['committed', 'preview'],
-  authority: 'self',  // on the home peer; other peers have `authority: homeServerId`
-});
+});  // normally declared once in `models` and opened with mesh.collection('scene_node')
 
 nodes.create({ name, transform, ... });
 nodes.update(id, { name: 'new' });
@@ -900,20 +966,18 @@ All collections are wired identically (`scene_node`, `behavior`, `camera_effect`
 
 Location: `packages/frontend/src/mesh/peer.ts` — one peer per tab, created once by
 `initMeshPeer()` (idempotent; started from both `Editor.tsx` and `ViewerPage.tsx`,
-since both render live state). It registers a collection per rtype in `RTYPES`
-(`scene_node`, `behavior`, `camera_effect`, `compose_layer`, `track_clip`,
-`animation_clip`, `scheduled_animation`) with `authority: serverPeerId`, and the
-containment schema from `PARENTS` in the same file.
+since both render live state). It is created with the shared `MODELS`, opens a
+collection per rtype in `TAB_MODELS` (`@vspark/shared/models`) with no further
+config, and subscribes to each once (`entityId: '*'`). The mesh serves those
+subscriptions — from the server, and over direct links from tabs of servers
+that shared with ours — and renews them after a reconnect.
 
 **Participant ID:** `${serverPeerId}#${tabUuid}` (stable across reloads via
-sessionStorage), so HLC origins and grants stay consistent per tab. The peer is
-created with `home: serverPeerId` (exempt from egress projection, receives the
-`links` announcements) and connects with a stored token — see
+sessionStorage), so HLC origins and grants stay consistent per tab. The id is
+also what makes the peer an endpoint: its server decides its writes, it
+forwards nothing, and it reaches everyone else through the server (see
+[Authority](#authority)). It connects with a stored token — see
 [Tab authentication](#tab-authentication).
-
-**Auto-subscription re-arming:** the peer marks outgoing subscriptions stale on
-disconnect and they do not auto-renew, so `armSubscriptions()` re-subscribes every
-rtype (`entityId: '*'`) on each `onStatus` transition back to connected.
 
 **Vite proxy:** `/mesh` route proxied to backend during dev.
 
@@ -1105,8 +1169,8 @@ scene-subtree grants route them cross-type:
 | `data_field` | `${scope}:${field}` | one document per published field, which is what makes `set`'s merge structural; carries `scopeKind` so both peers derive the same parent without a DB lookup. Scope `''` is global and has no parent |
 | `server_status` | `${kind}:${key}` | server-authored status (`mesh/status.ts`), see below |
 
-All three declare `clients: { read: true }`: tabs read them, only the server
-writes them.
+The backend grants its tabs `{ read: true }` on all three: tabs read them, only
+the server writes them.
 
 **Server status** (`packages/backend/src/mesh/status.ts`) replaces the
 `vmc_status`, `vmc_tracking_state`, `obs_connection_status`,

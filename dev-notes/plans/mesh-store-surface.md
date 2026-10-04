@@ -1,6 +1,7 @@
 # Plan: The mesh as a store
 
-> **Status:** design-only, not started. Open questions settled with the user 2026-10-04.
+> **Status:** in progress — steps 1 and 2 done (branches `feature/mesh-store-models`,
+> `feature/mesh-store-grants`, not merged). Open questions settled with the user 2026-10-04.
 > **Sequences:** the remaining workstreams of [`mesh-sole-channel.md`](./mesh-sole-channel.md).
 > That plan still lists what has to move onto the mesh, and its principles 7–9 stand.
 > This plan decides what the mesh surface has to look like first, so that each later
@@ -104,6 +105,12 @@ run side by side. Step 4 needs step 2.
 
 ### Step 1: Models and channels declared once
 
+✅ Done (4fb3aed; bundle fix fd6670a). One deviation from the text below: clock
+translation could not stay inside `validate`. Run on the composed document it
+would translate `startEpoch` again on every field edit, so clock fields became
+a declaration (`clockFields`) that the core translates per hop. This is a call
+I made, recorded for review.
+
 Move what both sides declare about a document type into one shared module: rtype,
 runtime schema, parent function, channels. `createMeshPeer` takes `models` and
 `channels`, and `mesh.collection(rtype)` is typed from them. What only a server
@@ -137,6 +144,24 @@ not validation. It is why relays forward the rewritten data.
 **Removes:** the duplicated parent functions and channel lists, `guard`.
 
 ### Step 2: Subscriptions without a target, grants instead of flags
+
+✅ Done (9ed50c6). Calls made beyond the text below, recorded for review:
+- **A tab is recognised by its participant id** (`server#tab`, assigned by the
+  server; permissioned-sync-mesh.md §2). That replaces the `home` and `relay`
+  flags: a participant's own server decides its writes, and it forwards
+  nothing. Grants still gate everything.
+- **Delegation:** a server delivers to its own tabs the grants it issued to
+  others, so a tab can admit a direct subscriber on its server's behalf. That
+  is what replaced `peer_grant`.
+- **Authority is derived** (config override, else the tab's server, else the
+  grantor of a write grant we hold, else self). The plan text kept a
+  per-collection `authority` config; nothing in vspark sets it any more.
+- **Delivered grants outlive a dropped link**, so a shared space stays the
+  sharer's (read-only) while they are offline.
+- **A write no grant allows fails fast** with `denied` instead of timing out.
+- **Asymmetry left open:** with one-way sharing the author's tabs serve the
+  mounting server's tabs directly, but not the reverse (the mounting server
+  grants the author nothing). For step 4.
 
 `mesh.subscribe(sub)` as agreed. A peer learns where it can subscribe from the
 grants issued to it: each peer sends a linked participant the grants it holds for
