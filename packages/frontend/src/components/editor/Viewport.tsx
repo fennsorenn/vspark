@@ -7,6 +7,7 @@ import {
   useCallback,
 } from 'react';
 import { NodeActive, useNodeActive } from './nodeActive';
+import { FrameBudget } from '../frameBudget';
 import { useTranslation } from 'react-i18next';
 import {
   Move,
@@ -6703,7 +6704,9 @@ export function Viewport() {
         gl={{ toneMapping: THREE.NoToneMapping }}
         shadows={canvasShadowsProp(shadowsEnabled, shadowQuality ?? undefined)}
         style={fadeIn}
+        frameloop="never"
       >
+        <FrameBudget />
         <ambientLight intensity={0.4} />
         <directionalLight
           position={[5, 10, 5]}

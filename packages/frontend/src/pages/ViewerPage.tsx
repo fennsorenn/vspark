@@ -26,6 +26,7 @@ import {
   composeSceneResolution,
 } from '../components/editor/ComposeView';
 import { useSceneFadeIn } from '../hooks/useSceneFadeIn';
+import { FrameBudget, FrameBudgetContext } from '../components/frameBudget';
 import { useComposeLayers, useComposeScenes } from '../mesh/compose';
 import { useSceneNode, useSceneNodes, useScenes } from '../mesh/nodes';
 
@@ -50,7 +51,20 @@ function getT(components: Record<string, unknown> | undefined) {
   };
 }
 
+/** The output page (OBS window / browser source): rendering may take more of
+ *  the main thread here than in the editor — there is no editor UI to keep
+ *  responsive — but never all of it, so mesh messages still get through. */
+const OUTPUT_FRAME_SHARE = 0.9;
+
 export function ViewerPage() {
+  return (
+    <FrameBudgetContext.Provider value={OUTPUT_FRAME_SHARE}>
+      <ViewerContent />
+    </FrameBudgetContext.Provider>
+  );
+}
+
+function ViewerContent() {
   useWsSync();
   useTrackClipEvaluator();
   // Live behavior/effect updates ride the tab's mesh replica now (§11) —
@@ -229,8 +243,9 @@ export function ViewerPage() {
           ...fadeIn,
         }}
         onCreated={({ gl }) => gl.setClearColor(0x000000, 0)}
-        frameloop={isHidden ? 'never' : 'always'}
+        frameloop="never"
       >
+        <FrameBudget active={!isHidden} />
         {projection === 'perspective' ? (
           <PerspectiveCamera
             makeDefault
