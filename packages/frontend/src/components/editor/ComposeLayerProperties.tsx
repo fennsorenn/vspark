@@ -21,6 +21,7 @@ import {
   type PreviewBg,
 } from './ComposeView';
 import { useComposeLayers, useComposeScenes } from '../../mesh/compose';
+import { useSceneNodes } from '../../mesh/nodes';
 
 // The old `numInput` / `NumberField` / `KfBtn` helpers were removed when the
 // numeric controls were unified — see ./numericInputs.tsx.
@@ -121,7 +122,7 @@ export function ComposeLayerProperties({
   const assets = useEditorStore((s) => s.assets);
   const composeLayers = useComposeLayers();
   const flashBottomTab = useEditorStore((s) => s.flashBottomTab);
-  const nodes = useEditorStore((s) => s.nodes);
+  const nodes = useSceneNodes();
   const { canRecord, recordKeyframe, recordKeyframes } = useTrackClipRecorder();
 
   const cameraNode = layer.cameraNodeId

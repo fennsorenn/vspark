@@ -447,7 +447,7 @@ describe('useWsSync', () => {
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { useTrackClipEvaluator } from '../src/hooks/useTrackClipEvaluator';
-import { seedClip, testPeer } from './helpers/mesh';
+import { seedClip, seedEditor, testPeer } from './helpers/mesh';
 
 /**
  * useTrackClipEvaluator drives a requestAnimationFrame loop. We replace rAF
@@ -594,7 +594,7 @@ describe('useTrackClipEvaluator', () => {
     const startedAt = Date.now() - 500;
 
     act(() => {
-      useEditorStore.getState().addNode(node);
+      seedEditor({ projectId: 'proj-1', nodes: [node] });
       seedClip(clip);
       seedPlayback({
         id: 'pb:clip-eval',
@@ -738,7 +738,7 @@ describe('useTrackClipEvaluator', () => {
     };
 
     act(() => {
-      useEditorStore.getState().addNode(node);
+      seedEditor({ projectId: 'proj-1', nodes: [node] });
       seedClip(clip);
       // Paused at t=5 → position.x = 50 (halfway)
       seedPlayback({

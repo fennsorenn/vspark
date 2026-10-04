@@ -30,8 +30,8 @@ import {
   isProjected,
   owningProjectionRoot,
 } from './sharedProjection';
-import { applyNodePreview } from './nodePreview';
 import type { SyncEnvelope } from '@vspark/shared/sync';
+import { sceneNodesNow } from '../mesh/nodes';
 
 type Dto = Record<string, unknown>;
 
@@ -95,7 +95,7 @@ function project(owner: string, objectId: string): void {
 function computeActive(): Map<string, Active> {
   const subscribed = useConnectionsStore.getState().subscribed;
   const next = new Map<string, Active>();
-  for (const n of useEditorStore.getState().nodes) {
+  for (const n of sceneNodesNow()) {
     if (n.kind !== REMOTE_OBJECT_KIND) continue;
     const ref = (
       n.components as
@@ -126,13 +126,13 @@ export function startMeshProjection(): void {
   if (started) return;
   started = true;
 
-  // Re-derive the active set when containers or subscriptions change. Both
-  // stores update by reference, so a cheap identity memo gates the work.
-  let lastNodes = useEditorStore.getState().nodes;
+  // Re-derive the active set when containers (scene_node documents, below),
+  // the open project or subscriptions change.
+  let lastProject = useEditorStore.getState().projectId;
   let lastSubscribed = useConnectionsStore.getState().subscribed;
   useEditorStore.subscribe((s) => {
-    if (s.nodes === lastNodes) return;
-    lastNodes = s.nodes;
+    if (s.projectId === lastProject) return;
+    lastProject = s.projectId;
     refresh();
   });
   useConnectionsStore.subscribe((s) => {
@@ -144,28 +144,16 @@ export function startMeshProjection(): void {
   void initMeshPeer().then((h) => {
     refresh();
     h.collections.scene_node.observe('**', (change) => {
-      // An in-flight gesture on the OWNER's node. It reaches us as per-key
-      // overlays on the lossy `preview` channel — the same ones a local tab
-      // gets — because the placed subscription selects no channel and the
-      // relay carries unstamped ops onward. Projected nodes keep the owner's
-      // ids, so the overlay names the node it moves.
-      //
-      // This is what replaced the `node_transform_preview` frame: a bespoke WS
-      // kind, produced by two gesture handlers beside their mesh write, and
-      // forwarded by the owner's server. Same picture, one transport.
-      if (change.op === 'ephemeral') {
-        if (!change.doc) return;
-        for (const a of active.values()) {
-          if (owningProjectionRoot(a.owner, change.id) !== a.objectId) continue;
-          applyNodePreview(
-            change.id,
-            change.doc as { components?: unknown },
-            change.path
-          );
-          return;
-        }
-        return;
-      }
+      // In-flight gestures on the owner's nodes need nothing here: projected
+      // nodes keep the owner's ids, so the overlay and its tween
+      // (previewSmoother) apply to them like to any other node.
+      if (change.op === 'ephemeral') return;
+      // A container placed or removed changes the active set.
+      if (
+        change.op === 'remove' ||
+        (change.doc as Dto | undefined)?.kind === REMOTE_OBJECT_KIND
+      )
+        refresh();
       if (change.op === 'remove') {
         // Containment is already gone — resolve the object via the projection.
         for (const a of active.values()) {

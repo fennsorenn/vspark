@@ -31,6 +31,7 @@ import {
   useComposeLayers,
   useComposeScenes,
 } from '../../mesh/compose';
+import { useSceneNodes } from '../../mesh/nodes';
 
 // Monochrome SVG icons (stroke = currentColor) so the button `color` actually
 // applies — unlike the coloured emoji they replace, which ignore CSS colour.
@@ -226,7 +227,7 @@ function LayerRow({
   depth: number;
 }) {
   const { t } = useTranslation('compose');
-  const nodes = useEditorStore((s) => s.nodes);
+  const nodes = useSceneNodes();
   const selectedComposeLayerId = useEditorStore(
     (s) => s.selectedComposeLayerId
   );

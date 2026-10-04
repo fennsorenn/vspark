@@ -8,6 +8,7 @@ import {
   commitLayerDeleteKeepChildren,
 } from '../mesh/layerWrites';
 import { composeLayersNow } from '../mesh/compose';
+import { sceneNodesNow } from '../mesh/nodes';
 
 /**
  * Shared "delete this element" flow used by the scene tree, the compose tree and
@@ -69,11 +70,10 @@ export function useDeleteElement() {
 
   const deleteSceneNode = useCallback(
     async (id: string) => {
-      const store = useEditorStore.getState();
-      const node = store.nodes.find((n) => n.id === id);
+      const node = sceneNodesNow().find((n) => n.id === id);
       if (!node) return;
       const childrenOf = (pid: string) =>
-        store.nodes.filter((n) => n.parentId === pid);
+        sceneNodesNow().filter((n) => n.parentId === pid);
       const directChildren = childrenOf(id);
 
       try {

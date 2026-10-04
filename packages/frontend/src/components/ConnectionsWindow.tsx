@@ -157,7 +157,6 @@ function ConnectedMember({
   const setSubscribed = useConnectionsStore((s) => s.setSubscribed);
   const activeSceneId = useEditorStore((s) => s.activeSceneId);
   const projectId = useEditorStore((s) => s.projectId);
-  const addNodeLocal = useEditorStore((s) => s.addNode);
   const [actBusy, setActBusy] = useState(false);
 
   const mount = (sceneId: string) =>
@@ -184,7 +183,7 @@ function ConnectedMember({
         // Place an opaque, editable container the receiver owns; the shared
         // subtree projects under it. The actual subscribe (snapshot fetch) is
         // driven by useSharedSubscriptions once the container exists.
-        const node = await createNode(activeSceneId, {
+        await createNode(activeSceneId, {
           name: offer.name || t('shared.placedName'),
           kind: REMOTE_OBJECT_KIND,
           parentId: null,
@@ -196,7 +195,6 @@ function ConnectedMember({
             },
           },
         });
-        addNodeLocal(node);
       } catch {
         /* ignore */
       } finally {

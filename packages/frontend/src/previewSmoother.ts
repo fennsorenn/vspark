@@ -3,6 +3,7 @@ import { useEditorStore } from './store/editorStore';
 import type { ComposeLayerRecord } from './api/client';
 import { getPath, type MeshPeer } from '@vspark/mesh';
 import { collectionOf } from './mesh/docs';
+import { applyNodePreview, transformFieldsOf } from './sync/nodePreview';
 
 /**
  * Smooths incoming live-preview updates from other clients so they glide
@@ -104,17 +105,9 @@ function ensureLoop() {
     }
 
     const store = useEditorStore.getState();
-    for (const [nodeId, fields] of nodePatches) {
-      const node = store.nodes.find((n) => n.id === nodeId);
-      if (!node) continue;
-      const existing = (node.components as Record<string, unknown>)
-        .transform as Record<string, unknown> | undefined;
-      const components = {
-        ...node.components,
-        transform: { type: 'transform', ...(existing ?? {}), ...fields },
-      };
-      store.updateNode(nodeId, { components });
-    }
+    // Same for a node: its tween shows through `liveNodes` until it ends.
+    for (const [nodeId, fields] of nodePatches)
+      store.setLiveNode(nodeId, hasNodeTween(nodeId) ? fields : null);
     // A layer's tween shows through `liveLayers` until it ends; then the
     // document — which already holds the target — shows on its own.
     const tweening = new Set<string>();
@@ -226,43 +219,37 @@ function retargetQuat(
 
 // ── Public API ───────────────────────────────────────────────────────────────
 
+/** What this tab shows for a node's transform: a running tween's values over
+ *  the committed transform (a received overlay already holds the target). */
+function shownTransform(nodeId: string): Record<string, number> | undefined {
+  const raw = collectionOf<{ components?: Record<string, unknown> }>(
+    'scene_node'
+  ).replica.raw(nodeId);
+  if (!raw) return undefined;
+  const committed = raw.components?.transform as
+    | Record<string, number>
+    | undefined;
+  const live = useEditorStore.getState().liveNodes[nodeId];
+  return live ? { ...committed, ...live } : committed;
+}
+
 /** Smooth an incoming node transform preview. Position/scale fields tween per
- *  axis; rotation tweens as a single quaternion to dodge Euler gimbal flips. */
+ *  axis; rotation tweens as a single quaternion to dodge Euler gimbal flips.
+ *  Other fields (opacity, shadow flags) show as they arrive — the document
+ *  already carries them. */
 export function smoothNodeTransform(
   nodeId: string,
   transform: Record<string, number>
 ) {
-  const store = useEditorStore.getState();
-  const node = store.nodes.find((n) => n.id === nodeId);
-  if (!node) return;
-  const cur = (node.components as Record<string, unknown>).transform as
-    | Record<string, number>
-    | undefined;
+  const cur = shownTransform(nodeId);
+  if (!cur) return;
 
   // Scalars first (position + scale).
   const scalarFields = ['x', 'y', 'z', 'sx', 'sy', 'sz'];
   for (const f of scalarFields) {
     const to = transform[f];
     if (typeof to !== 'number') continue;
-    retargetScalar('node', nodeId, f, to, cur?.[f] ?? to);
-  }
-
-  // Anything else on the component (opacity, shadow flags) applies immediately
-  // — same as smoothComposeLayer's `immediate` set. Without this an opacity
-  // drag would fan out and be silently dropped by every receiver, since it is
-  // neither a tweened scalar nor part of the rotation quaternion.
-  const rotationFields = new Set(['rx', 'ry', 'rz']);
-  const immediate: Record<string, unknown> = {};
-  for (const [f, v] of Object.entries(transform))
-    if (!scalarFields.includes(f) && !rotationFields.has(f) && f !== 'type')
-      immediate[f] = v;
-  if (Object.keys(immediate).length > 0) {
-    store.updateNode(nodeId, {
-      components: {
-        ...node.components,
-        transform: { type: 'transform', ...(cur ?? {}), ...immediate },
-      },
-    });
+    retargetScalar('node', nodeId, f, to, cur[f] ?? to);
   }
 
   // Rotation: if any of rx/ry/rz is present, target the full rotation as a
@@ -270,9 +257,9 @@ export function smoothNodeTransform(
   // still produce a coherent quaternion target.
   if ('rx' in transform || 'ry' in transform || 'rz' in transform) {
     const target = new THREE.Euler(
-      typeof transform.rx === 'number' ? transform.rx : (cur?.rx ?? 0),
-      typeof transform.ry === 'number' ? transform.ry : (cur?.ry ?? 0),
-      typeof transform.rz === 'number' ? transform.rz : (cur?.rz ?? 0),
+      typeof transform.rx === 'number' ? transform.rx : (cur.rx ?? 0),
+      typeof transform.ry === 'number' ? transform.ry : (cur.ry ?? 0),
+      typeof transform.rz === 'number' ? transform.rz : (cur.rz ?? 0),
       'XYZ'
     );
     // Re-baseline from the currently displayed orientation so retargeting
@@ -311,7 +298,7 @@ export function smoothComposeLayer(id: string, patch: Record<string, unknown>) {
  *  retargets the running tween so the layer glides into its final position
  *  instead of snapping (the last preview may never have landed). */
 export function startPreviewSmoothing(peer: MeshPeer): () => void {
-  return peer
+  const offLayers = peer
     .collection<Record<string, unknown>>('compose_layer')
     .observe('**', (c) => {
       if (c.origin === peer.id || !c.doc) return;
@@ -322,4 +309,18 @@ export function startPreviewSmoothing(peer: MeshPeer): () => void {
         );
       else if (hasLayerTween(c.id)) smoothComposeLayer(c.id, c.doc);
     });
+  const offNodes = peer
+    .collection<Record<string, unknown>>('scene_node')
+    .observe('**', (c) => {
+      if (c.origin === peer.id || !c.doc) return;
+      if (c.op === 'ephemeral') applyNodePreview(c.id, c.doc, c.path);
+      else if (hasNodeTween(c.id)) {
+        const t = transformFieldsOf(c.doc);
+        if (t) smoothNodeTransform(c.id, t);
+      }
+    });
+  return () => {
+    offLayers();
+    offNodes();
+  };
 }

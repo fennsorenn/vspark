@@ -1,8 +1,7 @@
 import { useEffect, useRef } from 'react';
 import { useEditorStore } from '../store/editorStore';
 import { useAssistantStore } from '../store/assistantStore';
-import type { StageObject } from '../store/editorStore';
-import { getScenes, getCollabScenes } from '../api/client';
+import { getCollabScenes } from '../api/client';
 import { setVmcPose, setVmcBlendshapes } from '../vmcPoseStore';
 import { captureFeedImage } from '../lib/captureFeed';
 import { captureViewport } from '../lib/viewportCapture';
@@ -135,15 +134,6 @@ export function useWsSync() {
               msg.payload.nodeId as string,
               msg.payload as unknown as IkTargetFrame
             );
-          } else if (msg.kind === 'node_added') {
-            const store = useEditorStore.getState();
-            const node = msg.payload as unknown as StageObject;
-            // Only add if we have this scene loaded; avoid duplicates
-            if (store.nodes.every((n) => n.id !== node.id)) {
-              store.addNode(node);
-            }
-          } else if (msg.kind === 'node_removed') {
-            useEditorStore.getState().deleteNode(msg.payload.id as string);
           } else if (msg.kind === 'mp_status') {
             useConnectionsStore
               .getState()
@@ -183,26 +173,16 @@ export function useWsSync() {
             };
             useConnectionsStore.getState().setOffers(p.peerId, p.shares ?? []);
           } else if (msg.kind === 'mp_collab_mounted') {
-            // A collaborative scene was just persisted into one of our projects
-            // (straight to SQLite, so no per-node sync events) — reload that
-            // project's scenes so the new one appears, then focus it. Live edits
-            // after this flow through the normal scene_node sync layer.
+            // A collaborative scene was just mounted into one of our projects.
+            // The backend puts it into the mesh too, so it arrives like any
+            // other document; focus it.
             const p = msg.payload as {
               peerId: string;
               sceneId: string;
               projectId: string;
             };
             const ed = useEditorStore.getState();
-            if (ed.projectId === p.projectId) {
-              void getScenes(p.projectId)
-                .then((data) => {
-                  const s = useEditorStore.getState();
-                  s.setScenes(data.scenes);
-                  s.setNodes(data.nodes);
-                  s.setActiveScene(p.sceneId);
-                })
-                .catch(() => {});
-            }
+            if (ed.projectId === p.projectId) ed.setActiveScene(p.sceneId);
             void getCollabScenes()
               .then((l) => useConnectionsStore.getState().setCollabScenes(l))
               .catch(() => {});

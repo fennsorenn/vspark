@@ -31,6 +31,7 @@ import {
 import { HelpButton } from '../../help/HelpButton';
 import { useCameraEffects, useNodeBehaviors } from '../../mesh/hooks';
 import { useComposeLayers } from '../../mesh/compose';
+import { useSceneNodes } from '../../mesh/nodes';
 
 /** Per-tab contextual help target — one consistent `?` follows the active tab. */
 const tabHelp: Partial<
@@ -61,9 +62,9 @@ export function AssetManager() {
     activeSceneId,
     projectId,
     selectedNodeId,
-    nodes,
     behaviorKinds,
   } = useEditorStore();
+  const nodes = useSceneNodes();
   const selectedNode = nodes.find((n) => n.id === selectedNodeId) ?? null;
   const selectedEffects = useCameraEffects(selectedNode?.id);
   const selectedBehaviors = useNodeBehaviors(selectedNode?.id);

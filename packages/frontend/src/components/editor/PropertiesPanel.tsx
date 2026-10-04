@@ -115,6 +115,7 @@ import {
 import { useCollection, useMeshDoc } from '@vspark/mesh-react';
 import { useAnimationClips, useCameraEffects } from '../../mesh/hooks';
 import { useComposeLayers, useComposeScenes } from '../../mesh/compose';
+import { useSceneNodes, useScenes } from '../../mesh/nodes';
 
 interface Transform {
   x: number;
@@ -1928,8 +1929,9 @@ function liveOrMetaList(
 
 function VmcReceiverProps({ comp }: { comp: Behavior }) {
   const { t } = useTranslation('properties');
-  const { vrmMorphTargetsByNode, vrmExpressionsByNode, nodes, assets } =
+  const { vrmMorphTargetsByNode, vrmExpressionsByNode, assets } =
     useEditorStore();
+  const nodes = useSceneNodes();
   const meta = assetMetaForNode(
     nodes.find((n) => n.id === comp.nodeId)?.filePath,
     assets
@@ -2255,8 +2257,9 @@ function VmcReceiverProps({ comp }: { comp: Behavior }) {
  */
 function IFacialMocapReceiverProps({ comp }: { comp: Behavior }) {
   const { t } = useTranslation('properties');
-  const { vrmMorphTargetsByNode, vrmExpressionsByNode, nodes, assets } =
+  const { vrmMorphTargetsByNode, vrmExpressionsByNode, assets } =
     useEditorStore();
+  const nodes = useSceneNodes();
   const meta = assetMetaForNode(
     nodes.find((n) => n.id === comp.nodeId)?.filePath,
     assets
@@ -3718,8 +3721,9 @@ function NameListEditor({
 
 function BlendshapeLimiterProps({ comp }: { comp: Behavior }) {
   const { t } = useTranslation('properties');
-  const { vrmMorphTargetsByNode, vrmExpressionsByNode, nodes, assets } =
+  const { vrmMorphTargetsByNode, vrmExpressionsByNode, assets } =
     useEditorStore();
+  const nodes = useSceneNodes();
 
   // Names the loaded model actually exposes — offered as datalist suggestions.
   const meta = assetMetaForNode(
@@ -6106,7 +6110,6 @@ export function PropertiesPanel() {
   const { t } = useTranslation('properties');
   const { projectId } = useParams<{ projectId: string }>();
   const {
-    nodes,
     selectedNodeId,
     assets,
     selectedBehaviorId,
@@ -6116,15 +6119,15 @@ export function PropertiesPanel() {
     vrmMorphTargetsByNode,
     behaviorKinds,
     selectedEffect,
-    scenes,
     activeSceneId,
     sceneSelected,
-    updateSceneItem,
     activeComposeSceneId,
     selectedComposeLayerId,
     leftTab,
     activeLogicId,
   } = useEditorStore();
+  const nodes = useSceneNodes();
+  const scenes = useScenes();
   const composeLayers = useComposeLayers();
   const composeScenes = useComposeScenes();
   const selectedBehaviorDoc = useMeshDoc(
@@ -6441,13 +6444,7 @@ export function PropertiesPanel() {
         sceneName={activeScene.name}
         broadcastTickHz={activeScene.runtimeSettings.broadcastTickHz ?? 60}
         onChange={(hz) => {
-          // Optimistic store update so the input stays responsive.
-          updateSceneItem(activeScene.id, {
-            runtimeSettings: {
-              ...activeScene.runtimeSettings,
-              broadcastTickHz: hz,
-            },
-          });
+          // The route writes through the mesh, so the change shows everywhere.
           void updateScene(activeScene.id, {
             runtimeSettings: { broadcastTickHz: hz },
           });

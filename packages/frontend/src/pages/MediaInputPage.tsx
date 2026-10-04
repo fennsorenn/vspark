@@ -1,10 +1,10 @@
-import { useEffect, useState } from 'react';
+import { useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useParams } from 'react-router-dom';
-import { api } from '../api/client';
 import { MediaInputWindow } from '../components/MediaInputWindow';
 import { useEditorStore } from '../store/editorStore';
 import { HelpButton } from '../help/HelpButton';
+import { useScenes } from '../mesh/nodes';
 
 /**
  * Standalone page for the Media Input window — can be opened in a separate tab
@@ -14,31 +14,21 @@ import { HelpButton } from '../help/HelpButton';
 export function MediaInputPage() {
   const { t } = useTranslation('media');
   const { projectId } = useParams<{ projectId: string }>();
-  const [ready, setReady] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const { setNodes, setActiveScene } = useEditorStore();
+  const { setProject, setActiveScene } = useEditorStore();
+  const scenes = useScenes();
 
-  // Fetch the project/scene/nodes so MediaInputWindow can resolve component IDs
+  // The project's nodes come from the replica; MediaInputWindow resolves its
+  // behaviors against them, so the open project is all this page has to say.
   useEffect(() => {
     if (!projectId) return;
-    let cancelled = false;
-    async function load() {
-      try {
-        const { scenes, nodes } = await api.getScenes(projectId!);
-        if (cancelled) return;
-        const firstScene = scenes[0];
-        if (firstScene) setActiveScene(firstScene.id);
-        setNodes(nodes);
-        setReady(true);
-      } catch (e) {
-        if (!cancelled) setError((e as Error).message);
-      }
-    }
-    load();
-    return () => {
-      cancelled = true;
-    };
-  }, [projectId, setNodes, setActiveScene]);
+    setProject(projectId, '');
+  }, [projectId, setProject]);
+  const firstSceneId = scenes[0]?.id;
+  useEffect(() => {
+    if (firstSceneId) setActiveScene(firstSceneId);
+  }, [firstSceneId, setActiveScene]);
+  const ready = !!projectId;
+  const error: string | null = null;
 
   const style: React.CSSProperties = {
     background: '#111',

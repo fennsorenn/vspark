@@ -13,7 +13,7 @@
  * Not "live reads" — `sync/meshStoreFeeder` already keeps the Zustand store
  * live, and most components read it perfectly well. What a collection hook adds
  * is the GRANULARITY: `useMeshDoc(col, id)` re-renders when THAT document
- * changes, where `useEditorStore((s) => s.nodes)` re-renders every subscriber
+ * changes, where `useSceneNodes()` re-renders every subscriber
  * whenever any node anywhere changes.
  *
  * So this is worth reaching for when a component watches one document (or one
@@ -46,7 +46,6 @@ import {
   type Behavior,
   type ClipPlayback,
   type ScheduledAnimation,
-  type StageObject,
 } from '../store/editorStore';
 import { playbackDocId } from '@vspark/shared/clipPlayback';
 import {
@@ -137,35 +136,10 @@ function useColStub(): Collection<Dto> {
 
 // --- per-document reads ------------------------------------------------------
 
-/**
- * One scene node, watched individually.
- *
- * The point is granularity: a component that needs ONE node currently
- * subscribes to `s.nodes` and re-renders whenever any node anywhere changes.
- * This re-renders only when that node does.
- *
- * The store is the fallback, and the rule is "whichever has the document",
- * not "whichever is newer" — they cannot disagree. The feeder writes the
- * replica into the store, so once both hold a document they hold the same one;
- * the only asymmetry is the startup window where the REST bundle has landed and
- * the mesh snapshot has not. Reading the store there is what stops a freshly
- * opened editor from flashing empty.
- *
- * When the mesh snapshot becomes the load path, the fallback goes away here,
- * once, rather than at every call site.
- */
-export function useSceneNode(id: string | null | undefined) {
-  const col = useMeshCollection('scene_node');
-  const fromMesh = useMeshDoc(col ?? EMPTY_COL, id ?? '');
-  const fromStore = useEditorStore((s) =>
-    id ? s.nodes.find((n) => n.id === id) : undefined
-  );
-  if (!id) return undefined;
-  return (fromMesh as unknown as StageObject | undefined) ?? fromStore;
-}
+/** One scene node (see ./nodes). */
+export { useSceneNode } from './nodes';
 
-/** One compose layer, watched individually. Same contract as
- *  {@link useSceneNode}. */
+/** One compose layer, watched individually: re-renders only when it changes. */
 export function useComposeLayer(id: string | null | undefined) {
   const doc = useMeshDoc(
     useCollection<ComposeLayerRecord>('compose_layer'),
@@ -175,15 +149,6 @@ export function useComposeLayer(id: string | null | undefined) {
   if (!id || !doc) return undefined;
   return live ? { ...doc, ...live } : doc;
 }
-
-/** Stand-in for the window before the peer is up. Hooks must be called
- *  unconditionally, and `observe` returning a no-op unsubscribe means nothing
- *  is registered against it. */
-const EMPTY_COL = {
-  rtype: '_none',
-  get: () => undefined,
-  observe: () => () => {},
-} as unknown as Collection<Dto>;
 
 /** The camera effects on a node, live from the replica. */
 export function useCameraEffects(

@@ -103,14 +103,12 @@ vi.mock('../src/api/client', () => ({
   mapTrackClipLane: (p: unknown) => p,
   mapTrackClipKeyframe: (p: unknown) => p,
   mapTrackClipEvent: (p: unknown) => p,
-  getScenes: vi
-    .fn()
-    .mockResolvedValue({
-      scenes: [],
-      nodes: [],
-      behaviors: [],
-      cameraEffects: [],
-    }),
+  getScenes: vi.fn().mockResolvedValue({
+    scenes: [],
+    nodes: [],
+    behaviors: [],
+    cameraEffects: [],
+  }),
   getCollabScenes: vi.fn().mockResolvedValue([]),
   peerSubscribe: vi.fn().mockResolvedValue(undefined),
   getConnectionIdentity: vi.fn().mockResolvedValue({ peerId: 'server-peer-1' }),
@@ -600,6 +598,9 @@ describe('useTrackingUplink', () => {
 import { useSharedSubscriptions } from '../src/hooks/useSharedSubscriptions';
 import { peerSubscribe } from '../src/api/client';
 
+const meshWrapper = ({ children }: { children: React.ReactNode }) =>
+  createElement(MeshProvider, { peer: testPeer() }, children);
+
 describe('useSharedSubscriptions', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -610,69 +611,92 @@ describe('useSharedSubscriptions', () => {
   });
 
   it('mounts and unmounts without throwing when no nodes', () => {
-    const { unmount } = renderHook(() => useSharedSubscriptions());
+    const { unmount } = renderHook(() => useSharedSubscriptions(), {
+      wrapper: meshWrapper,
+    });
     unmount();
   });
 
   it('does not call peerSubscribe when no remote_object nodes', () => {
     act(() => {
-      useEditorStore.getState().addNode({
-        id: 'plain-node',
-        rootSceneNodeId: 'scene-1',
+      seedEditor({
         projectId: 'proj-1',
-        parentId: null,
-        name: 'VRM',
-        kind: 'vrm',
-        components: {},
+        nodes: [
+          {
+            id: 'plain-node',
+            rootSceneNodeId: 'scene-1',
+            projectId: 'proj-1',
+            parentId: null,
+            name: 'VRM',
+            kind: 'vrm',
+            components: {},
+          },
+        ],
       });
     });
 
-    const { unmount } = renderHook(() => useSharedSubscriptions());
+    const { unmount } = renderHook(() => useSharedSubscriptions(), {
+      wrapper: meshWrapper,
+    });
     expect(peerSubscribe).not.toHaveBeenCalled();
     unmount();
   });
 
   it('does not subscribe when owner is not connected', () => {
     act(() => {
-      useEditorStore.getState().addNode({
-        id: 'remote-1',
-        rootSceneNodeId: 'scene-1',
+      seedEditor({
         projectId: 'proj-1',
-        parentId: null,
-        name: 'Remote',
-        kind: 'remote_object',
-        components: {
-          remoteRef: { ownerPeerId: 'peer-x', remoteObjectId: 'obj-y' },
-        },
+        nodes: [
+          {
+            id: 'remote-1',
+            rootSceneNodeId: 'scene-1',
+            projectId: 'proj-1',
+            parentId: null,
+            name: 'Remote',
+            kind: 'remote_object',
+            components: {
+              remoteRef: { ownerPeerId: 'peer-x', remoteObjectId: 'obj-y' },
+            },
+          },
+        ],
       });
     });
     // connectedIds is empty — peer-x is not connected.
 
-    const { unmount } = renderHook(() => useSharedSubscriptions());
+    const { unmount } = renderHook(() => useSharedSubscriptions(), {
+      wrapper: meshWrapper,
+    });
     expect(peerSubscribe).not.toHaveBeenCalled();
     unmount();
   });
 
   it('subscribes when remote_object owner is connected and not yet subscribed', async () => {
     act(() => {
-      useEditorStore.getState().addNode({
-        id: 'remote-2',
-        rootSceneNodeId: 'scene-1',
+      seedEditor({
         projectId: 'proj-1',
-        parentId: null,
-        name: 'Remote',
-        kind: 'remote_object',
-        components: {
-          remoteRef: {
-            ownerPeerId: 'peer-connected',
-            remoteObjectId: 'obj-abc',
+        nodes: [
+          {
+            id: 'remote-2',
+            rootSceneNodeId: 'scene-1',
+            projectId: 'proj-1',
+            parentId: null,
+            name: 'Remote',
+            kind: 'remote_object',
+            components: {
+              remoteRef: {
+                ownerPeerId: 'peer-connected',
+                remoteObjectId: 'obj-abc',
+              },
+            },
           },
-        },
+        ],
       });
       useConnectionsStore.setState({ connectedIds: ['peer-connected'] });
     });
 
-    const { unmount } = renderHook(() => useSharedSubscriptions());
+    const { unmount } = renderHook(() => useSharedSubscriptions(), {
+      wrapper: meshWrapper,
+    });
 
     // peerSubscribe is async (void promise), give it a tick.
     await act(async () => {
@@ -689,16 +713,24 @@ describe('useSharedSubscriptions', () => {
 
   it('does not subscribe again when already subscribed', async () => {
     act(() => {
-      useEditorStore.getState().addNode({
-        id: 'remote-3',
-        rootSceneNodeId: 'scene-1',
+      seedEditor({
         projectId: 'proj-1',
-        parentId: null,
-        name: 'Remote',
-        kind: 'remote_object',
-        components: {
-          remoteRef: { ownerPeerId: 'peer-sub', remoteObjectId: 'obj-already' },
-        },
+        nodes: [
+          {
+            id: 'remote-3',
+            rootSceneNodeId: 'scene-1',
+            projectId: 'proj-1',
+            parentId: null,
+            name: 'Remote',
+            kind: 'remote_object',
+            components: {
+              remoteRef: {
+                ownerPeerId: 'peer-sub',
+                remoteObjectId: 'obj-already',
+              },
+            },
+          },
+        ],
       });
       useConnectionsStore.setState({
         connectedIds: ['peer-sub'],
@@ -706,7 +738,9 @@ describe('useSharedSubscriptions', () => {
       });
     });
 
-    const { unmount } = renderHook(() => useSharedSubscriptions());
+    const { unmount } = renderHook(() => useSharedSubscriptions(), {
+      wrapper: meshWrapper,
+    });
 
     await act(async () => {
       await Promise.resolve();
@@ -718,21 +752,28 @@ describe('useSharedSubscriptions', () => {
 
   it('skips nodes without remoteRef ownerPeerId', () => {
     act(() => {
-      useEditorStore.getState().addNode({
-        id: 'remote-4',
-        rootSceneNodeId: 'scene-1',
+      seedEditor({
         projectId: 'proj-1',
-        parentId: null,
-        name: 'Orphan',
-        kind: 'remote_object',
-        components: {
-          remoteRef: { remoteObjectId: 'obj-z' }, // no ownerPeerId
-        },
+        nodes: [
+          {
+            id: 'remote-4',
+            rootSceneNodeId: 'scene-1',
+            projectId: 'proj-1',
+            parentId: null,
+            name: 'Orphan',
+            kind: 'remote_object',
+            components: {
+              remoteRef: { remoteObjectId: 'obj-z' }, // no ownerPeerId
+            },
+          },
+        ],
       });
       useConnectionsStore.setState({ connectedIds: ['anyone'] });
     });
 
-    const { unmount } = renderHook(() => useSharedSubscriptions());
+    const { unmount } = renderHook(() => useSharedSubscriptions(), {
+      wrapper: meshWrapper,
+    });
     expect(peerSubscribe).not.toHaveBeenCalled();
     unmount();
   });
@@ -745,6 +786,10 @@ describe('useSharedSubscriptions', () => {
 import { useClientMesh } from '../src/hooks/useClientMesh';
 import { clientMesh } from '../src/mesh/clientMesh';
 import { getConnectionIdentity } from '../src/api/client';
+import { createElement } from 'react';
+import type React from 'react';
+import { MeshProvider } from '@vspark/mesh-react';
+import { seedEditor, testPeer } from './helpers/mesh';
 
 describe('useClientMesh', () => {
   beforeEach(() => {

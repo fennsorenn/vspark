@@ -1,4 +1,4 @@
-import { useEffect, useCallback, useState } from 'react';
+import { useEffect, useCallback, useRef, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import {
@@ -18,7 +18,6 @@ import {
   meshUndo,
   meshRedo,
   setPairingPrompt,
-  withoutRemoved,
 } from '../mesh/peer';
 import { usePrompt } from '../components/DialogProvider';
 import { startMeshProjection } from '../sync/meshProjection';
@@ -42,6 +41,7 @@ import {
 } from '../components/editor/dnd';
 import type { NodeKindMeta } from '@vspark/shared/signal';
 import { useComposeScenes } from '../mesh/compose';
+import { useScenes } from '../mesh/nodes';
 
 export function Editor() {
   useWsSync();
@@ -74,9 +74,7 @@ export function Editor() {
   const { projectId } = useParams<{ projectId: string }>();
   const {
     setProject,
-    setScenes,
     setActiveScene,
-    setNodes,
     setAssets,
     setBehaviorKinds,
     selectComposeScene,
@@ -88,13 +86,32 @@ export function Editor() {
   } = useEditorStore();
   const [kindMeta, setKindMeta] = useState<NodeKindMeta[]>([]);
 
-  // Compose scenes come from the replica; once there are some, keep one open.
+  // Scenes and compose scenes come from the replica: once there are some,
+  // keep one of each open. An open one that disappears (deleted) gives way to
+  // the first; one that isn't there YET (just mounted, its documents still on
+  // the way) is left alone.
+  const scenes = useScenes();
+  const activeSceneId = useEditorStore((s) => s.activeSceneId);
+  const seenScenes = useRef(new Set<string>());
+  useEffect(() => {
+    for (const sc of scenes) seenScenes.current.add(sc.id);
+    if (scenes.length === 0) return;
+    if (scenes.some((sc) => sc.id === activeSceneId)) return;
+    if (activeSceneId === null || seenScenes.current.has(activeSceneId))
+      setActiveScene(scenes[0].id);
+  }, [scenes, activeSceneId, setActiveScene]);
   const composeScenes = useComposeScenes();
   const activeComposeSceneId = useEditorStore((s) => s.activeComposeSceneId);
+  const seenComposeScenes = useRef(new Set<string>());
   useEffect(() => {
+    for (const c of composeScenes) seenComposeScenes.current.add(c.id);
     if (composeScenes.length === 0) return;
     if (composeScenes.some((c) => c.id === activeComposeSceneId)) return;
-    selectComposeScene(composeScenes[0].id);
+    if (
+      activeComposeSceneId === null ||
+      seenComposeScenes.current.has(activeComposeSceneId)
+    )
+      selectComposeScene(composeScenes[0].id);
   }, [composeScenes, activeComposeSceneId, selectComposeScene]);
 
   useEffect(() => {
@@ -192,10 +209,6 @@ export function Editor() {
             null, // rootComposeSceneId
             state.selectedNodeId // parentId — drop under the selection, if any
           );
-          const data = await api.getScenes(state.projectId!);
-          useEditorStore
-            .getState()
-            .setNodes(withoutRemoved('scene_node', data.nodes));
         } catch {
           /* not a preset on clipboard */
         }
@@ -229,18 +242,6 @@ export function Editor() {
       if (project) setProject(project.id, project.name);
     });
 
-    api.getScenes(projectId).then(({ scenes, nodes }) => {
-      // Rows another tab removed while this load was in flight stay
-      // removed (see withoutRemoved).
-      setScenes(withoutRemoved('scene_node', scenes));
-      // Load every scene's nodes so the dock can render all scenes as
-      // collapsible roots; the viewport still renders only the active scene.
-      setNodes(withoutRemoved('scene_node', nodes));
-      if (scenes.length > 0) {
-        setActiveScene(scenes[0].id);
-      }
-    });
-
     api
       .getAssets(projectId)
       .then(setAssets)
@@ -249,15 +250,7 @@ export function Editor() {
       .getOverliveAccounts(projectId)
       .then(setOverliveAccounts)
       .catch(() => {});
-  }, [
-    projectId,
-    setProject,
-    setScenes,
-    setActiveScene,
-    setNodes,
-    setAssets,
-    setOverliveAccounts,
-  ]);
+  }, [projectId, setProject, setActiveScene, setAssets, setOverliveAccounts]);
 
   return (
     <div

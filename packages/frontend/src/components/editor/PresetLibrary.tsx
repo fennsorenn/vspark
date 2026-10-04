@@ -111,10 +111,7 @@ export function PresetLibrary() {
       null,
       selectedNodeId
     );
-    const { api: apiClient } = await import('../../api/client');
-    const data = await apiClient.getScenes(projectId);
-    const store = useEditorStore.getState();
-    store.setNodes(data.nodes);
+    // The instantiated nodes arrive through the mesh.
     return result;
   };
 

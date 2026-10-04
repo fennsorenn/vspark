@@ -46,6 +46,29 @@ export function setField(
   return h;
 }
 
+/** Minimum ms between previews of one field (about 30 per second): a slider
+ *  calls this at pointer rate. The commit carries the final value. */
+const PREVIEW_INTERVAL_MS = 33;
+const lastPreview = new Map<string, number>();
+
+/** In-flight value of one field, on the lossy `preview` channel: everyone sees
+ *  it as an overlay over the document, nothing persists, nothing is logged for
+ *  undo, and the overlay clears when the committed write lands. */
+export function previewField(
+  rtype: string,
+  id: string,
+  path: string,
+  value: unknown
+): void {
+  const col = collectionOf(rtype);
+  if (!col.get(id)) return;
+  const key = `${rtype}\0${id}\0${path}`;
+  const now = Date.now();
+  if (now - (lastPreview.get(key) ?? 0) < PREVIEW_INTERVAL_MS) return;
+  lastPreview.set(key, now);
+  col.set(id, path, value, { channel: 'preview' });
+}
+
 /** Edit several fields as one op (a merge-patch, flattened to leaves) — one
  *  undo step. Siblings of a nested leaf survive. */
 export function patchDoc(

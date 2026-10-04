@@ -143,64 +143,6 @@ describe('setProject', () => {
 
 // ── Scenes ────────────────────────────────────────────────────────────────────
 
-describe('setScenes / setActiveScene / updateSceneItem / removeScene', () => {
-  test('setScenes replaces the list', () => {
-    const s1 = makeScene({ id: 'scene-1' });
-    const s2 = makeScene({ id: 'scene-2', name: 'Scene 2' });
-    useEditorStore.getState().setScenes([s1, s2]);
-    expect(useEditorStore.getState().scenes).toHaveLength(2);
-  });
-
-  test('setActiveScene sets activeSceneId', () => {
-    useEditorStore.getState().setScenes([makeScene()]);
-    useEditorStore.getState().setActiveScene('scene-1');
-    expect(useEditorStore.getState().activeSceneId).toBe('scene-1');
-  });
-
-  test('setActiveScene to null clears selection', () => {
-    useEditorStore.getState().setActiveScene('scene-1');
-    useEditorStore.getState().setActiveScene(null);
-    expect(useEditorStore.getState().activeSceneId).toBeNull();
-  });
-
-  test('updateSceneItem patches a scene by id', () => {
-    useEditorStore.getState().setScenes([makeScene()]);
-    useEditorStore.getState().updateSceneItem('scene-1', { name: 'Renamed' });
-    expect(useEditorStore.getState().scenes[0].name).toBe('Renamed');
-  });
-
-  test('updateSceneItem is a no-op for unknown id', () => {
-    useEditorStore.getState().setScenes([makeScene()]);
-    useEditorStore.getState().updateSceneItem('nope', { name: 'X' });
-    expect(useEditorStore.getState().scenes[0].name).toBe('Scene 1');
-  });
-
-  test('removeScene removes the scene and its nodes', () => {
-    const s1 = makeScene({ id: 'scene-1' });
-    const s2 = makeScene({ id: 'scene-2', name: 'Scene 2' });
-    const n1 = makeNode({ id: 'node-1', rootSceneNodeId: 'scene-1' });
-    const n2 = makeNode({ id: 'node-2', rootSceneNodeId: 'scene-2' });
-    useEditorStore.getState().setScenes([s1, s2]);
-    useEditorStore.getState().setNodes([n1, n2]);
-    useEditorStore.getState().setActiveScene('scene-1');
-    useEditorStore.getState().removeScene('scene-1');
-    const st = useEditorStore.getState();
-    expect(st.scenes).toHaveLength(1);
-    expect(st.scenes[0].id).toBe('scene-2');
-    // Nodes belonging to removed scene are gone
-    expect(st.nodes.every((n) => n.rootSceneNodeId !== 'scene-1')).toBe(true);
-    // Active scene falls through to next available
-    expect(st.activeSceneId).toBe('scene-2');
-  });
-
-  test('removeScene falls back to null activeSceneId when no scenes remain', () => {
-    useEditorStore.getState().setScenes([makeScene()]);
-    useEditorStore.getState().setActiveScene('scene-1');
-    useEditorStore.getState().removeScene('scene-1');
-    expect(useEditorStore.getState().activeSceneId).toBeNull();
-  });
-});
-
 describe('setSceneSelected', () => {
   test('sets and clears sceneSelected flag', () => {
     useEditorStore.getState().setSceneSelected(true);
@@ -211,96 +153,6 @@ describe('setSceneSelected', () => {
 });
 
 // ── Nodes ─────────────────────────────────────────────────────────────────────
-
-describe('addNode / updateNode / deleteNode / selectNode', () => {
-  test('addNode appends a new node', () => {
-    useEditorStore.getState().addNode(makeNode());
-    expect(useEditorStore.getState().nodes).toHaveLength(1);
-  });
-
-  test('addNode is idempotent by id', () => {
-    useEditorStore.getState().addNode(makeNode());
-    useEditorStore.getState().addNode(makeNode()); // same id
-    expect(useEditorStore.getState().nodes).toHaveLength(1);
-  });
-
-  test('updateNode patches the matching node', () => {
-    useEditorStore.getState().addNode(makeNode());
-    useEditorStore.getState().updateNode('node-1', { name: 'Updated' });
-    expect(useEditorStore.getState().nodes[0].name).toBe('Updated');
-  });
-
-  test('updateNode leaves other nodes untouched', () => {
-    useEditorStore.getState().addNode(makeNode({ id: 'node-1', name: 'A' }));
-    useEditorStore.getState().addNode(makeNode({ id: 'node-2', name: 'B' }));
-    useEditorStore.getState().updateNode('node-1', { name: 'A2' });
-    expect(
-      useEditorStore.getState().nodes.find((n) => n.id === 'node-2')?.name
-    ).toBe('B');
-  });
-
-  test('deleteNode removes the node and clears selection', () => {
-    useEditorStore.getState().addNode(makeNode());
-    useEditorStore.getState().selectNode('node-1');
-    expect(useEditorStore.getState().selectedNodeId).toBe('node-1');
-    useEditorStore.getState().deleteNode('node-1');
-    const st = useEditorStore.getState();
-    expect(st.nodes).toHaveLength(0);
-    expect(st.selectedNodeId).toBeNull();
-  });
-
-  test('selectNode sets selectedNodeId and clears sceneSelected', () => {
-    useEditorStore.getState().setSceneSelected(true);
-    useEditorStore.getState().selectNode('node-1');
-    const st = useEditorStore.getState();
-    expect(st.selectedNodeId).toBe('node-1');
-    expect(st.sceneSelected).toBe(false);
-  });
-
-  test('selectNode(null) clears selection without touching sceneSelected', () => {
-    useEditorStore.getState().setSceneSelected(true);
-    useEditorStore.getState().selectNode(null);
-    const st = useEditorStore.getState();
-    expect(st.selectedNodeId).toBeNull();
-    // sceneSelected is NOT touched when clearing node selection
-    expect(st.sceneSelected).toBe(true);
-  });
-
-  test('selectNode also clears selectedBehaviorId and selectedEffect', () => {
-    useEditorStore.getState().selectBehavior('beh-1');
-    useEditorStore.getState().selectNode('node-1');
-    const st = useEditorStore.getState();
-    expect(st.selectedBehaviorId).toBeNull();
-    expect(st.selectedEffect).toBeNull();
-  });
-});
-
-// ── activeSceneNodes selector ─────────────────────────────────────────────────
-
-describe('activeSceneNodes()', () => {
-  test('returns only nodes for the active scene', () => {
-    useEditorStore
-      .getState()
-      .setScenes([makeScene({ id: 'scene-1' }), makeScene({ id: 'scene-2' })]);
-    useEditorStore.getState().setActiveScene('scene-1');
-    useEditorStore
-      .getState()
-      .setNodes([
-        makeNode({ id: 'n1', rootSceneNodeId: 'scene-1' }),
-        makeNode({ id: 'n2', rootSceneNodeId: 'scene-2' }),
-        makeNode({ id: 'n3', rootSceneNodeId: 'scene-1' }),
-      ]);
-    const active = useEditorStore.getState().activeSceneNodes();
-    expect(active.map((n) => n.id)).toEqual(['n1', 'n3']);
-  });
-
-  test('returns empty array when no active scene', () => {
-    useEditorStore.getState().setNodes([makeNode()]);
-    expect(useEditorStore.getState().activeSceneNodes()).toHaveLength(0);
-  });
-});
-
-// ── Behaviors ─────────────────────────────────────────────────────────────────
 
 describe('VRM bones / expressions / morph targets', () => {
   test('setVrmBonesForNode registers bones; clear removes them', () => {
@@ -687,5 +539,29 @@ describe('setEditorAudioPreviewEnabled', () => {
     expect(useEditorStore.getState().editorAudioPreviewEnabled).toBe(false);
     useEditorStore.getState().setEditorAudioPreviewEnabled(true);
     expect(useEditorStore.getState().editorAudioPreviewEnabled).toBe(true);
+  });
+});
+
+describe('scene and node selection', () => {
+  test('setActiveScene sets activeSceneId', () => {
+    useEditorStore.getState().setActiveScene('scene-2');
+    expect(useEditorStore.getState().activeSceneId).toBe('scene-2');
+  });
+
+  test('selectNode sets selectedNodeId and clears sceneSelected', () => {
+    useEditorStore.getState().setSceneSelected(true);
+    useEditorStore.getState().selectNode('node-1');
+    const st = useEditorStore.getState();
+    expect(st.selectedNodeId).toBe('node-1');
+    expect(st.sceneSelected).toBe(false);
+  });
+
+  test('setLiveNode merges and drops live transform fields', () => {
+    const st = useEditorStore.getState();
+    st.setLiveNode('n1', { x: 1 });
+    st.setLiveNode('n1', { y: 2 });
+    expect(useEditorStore.getState().liveNodes.n1).toEqual({ x: 1, y: 2 });
+    st.setLiveNode('n1', null);
+    expect(useEditorStore.getState().liveNodes.n1).toBeUndefined();
   });
 });

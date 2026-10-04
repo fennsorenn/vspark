@@ -4,9 +4,9 @@ import { MicCapture, type VowelTemplates } from '../media/MicCapture';
 import { CameraCapture } from '../media/CameraCapture';
 import { useLipsyncUplink } from '../hooks/useLipsyncUplink';
 import { editorWsRef } from '../hooks/useWsSync';
-import { useEditorStore } from '../store/editorStore';
 import { HelpButton } from '../help/HelpButton';
 import { useAllBehaviors } from '../mesh/hooks';
+import { useSceneNodes } from '../mesh/nodes';
 
 // ── Styles ───────────────────────────────────────────────────────────────────
 
@@ -276,7 +276,7 @@ export function MediaInputWindow({
 
   // Resolve component IDs from store if not provided as props
   const allBehaviors = useAllBehaviors();
-  const projectNodes = useEditorStore((s) => s.nodes);
+  const projectNodes = useSceneNodes();
   const behaviors = allBehaviors.filter((b) =>
     projectNodes.some((n) => n.id === b.nodeId)
   );

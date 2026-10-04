@@ -37,31 +37,56 @@ export function resetTestPeer(): void {
 }
 
 /** Editor-state keys that are mesh documents now, by the collection holding
- *  them. Grows as store slices move onto the replica. */
+ *  them. */
 const MESH_SLICES: Record<string, string> = {
   behaviors: 'behavior',
   cameraEffects: 'camera_effect',
   composeLayers: 'compose_layer',
   composeScenes: 'compose_layer',
+  nodes: 'scene_node',
+  scenes: 'scene_node',
 };
+
+/** Project-scoped collections: the hooks show only the open project's. */
+const PROJECT_SCOPED = new Set(['compose_layer', 'scene_node']);
+
+/** Each seed is newer than the last, so re-seeding a document replaces it. */
+let seedClock = 0;
 
 /**
  * Seed editor state the way the app holds it: the keys that are mesh documents
  * (MESH_SLICES) go into the test peer — hydrated, so they are not on the undo
- * stack — and everything else into the zustand store.
+ * stack — and everything else into the zustand store. A scene (`scenes`) is a
+ * `kind: 'scene'` root node; documents without a `projectId` get the open
+ * project's (one is opened if none is).
  */
-/** Each seed is newer than the last, so re-seeding a document replaces it. */
-let seedClock = 0;
-
 export function seedEditor(state: Record<string, unknown>): void {
   const rest: Record<string, unknown> = { ...state };
+  const projectId =
+    (state.projectId as string | undefined) ??
+    useEditorStore.getState().projectId ??
+    'proj-test';
+  rest.projectId = projectId;
   for (const [key, rtype] of Object.entries(MESH_SLICES)) {
     if (!(key in rest)) continue;
-    const docs = rest[key] as { id: string }[];
+    let docs = rest[key] as Record<string, unknown>[];
     delete rest[key];
+    if (key === 'scenes')
+      docs = docs.map((sc) => ({
+        id: sc.id,
+        name: sc.name,
+        kind: 'scene',
+        rootSceneNodeId: sc.id,
+        parentId: null,
+        components: {},
+        properties: sc.runtimeSettings ?? {},
+        projectId: sc.projectId ?? projectId,
+      }));
+    else if (PROJECT_SCOPED.has(rtype))
+      docs = docs.map((d) => ({ projectId, ...d }));
     const col = testPeer().collection<{ id: string }>(rtype);
     for (const d of docs)
-      col.put(d, { v: { t: ++seedClock, c: 0, n: 'seed' } });
+      col.put(d as { id: string }, { v: { t: ++seedClock, c: 0, n: 'seed' } });
   }
   useEditorStore.setState(rest as never);
 }

@@ -28,15 +28,9 @@
  * Started from the Editor AND the Viewer page (both render live state).
  */
 import type { MediaCommand } from '@vspark/shared/types';
-import { initMeshPeer, onSnapshot } from '../mesh/peer';
+import { initMeshPeer } from '../mesh/peer';
 import { dispatchMediaCommand } from '../components/editor/mediaRegistry';
-import { hasNodeTween, smoothNodeTransform } from '../previewSmoother';
-import { applyNodePreview, transformFieldsOf } from './nodePreview';
-import {
-  useEditorStore,
-  type SceneItem,
-  type StageObject,
-} from '../store/editorStore';
+import { useEditorStore } from '../store/editorStore';
 
 let started = false;
 
@@ -142,139 +136,11 @@ interface RawMediaControl {
   command: MediaCommand;
 }
 
-type Handles = Awaited<ReturnType<typeof initMeshPeer>>;
-
-/** Once an rtype's snapshot has landed the replica is its authority: drop
- *  store entries the replica doesn't hold. They came from the REST bundle and
- *  were removed before this tab's subscription existed, so no remove op (and
- *  no tombstone) ever reached it. Projected remote nodes belong to the
- *  projection feeder and are left alone. */
-function pruneStale(h: Handles, rtype: string): void {
-  const col = h.collections[rtype];
-  if (!col) return;
-  const held = (id: string) => col.get(id) !== undefined;
-  const s = useEditorStore.getState();
-  switch (rtype) {
-    case 'scene_node':
-      for (const sc of [...s.scenes]) if (!held(sc.id)) s.removeScene(sc.id);
-      for (const n of [...useEditorStore.getState().nodes])
-        if (!n.remote && !held(n.id))
-          useEditorStore.getState().deleteNode(n.id);
-      return;
-  }
-}
-
 export function startMeshStoreFeeder(): void {
   if (started) return;
   started = true;
   void initMeshPeer()
     .then((h) => {
-      onSnapshot((rtype) => pruneStale(h, rtype));
-      h.collections.scene_node.observe('**', (c) => {
-        const s = useEditorStore.getState();
-        // An ephemeral op IS an in-flight gesture, by construction — that's what
-        // the lossy `preview` channel carries, so it tweens. Retained ops (page
-        // load, committed edits) are model state and apply directly. The channel
-        // is the discriminator; no heuristic, and a cold load can't animate.
-        if (c.op === 'ephemeral') {
-          const node = c.doc as unknown as StageObject | undefined;
-          if (node) applyNodePreview(node.id, node, c.path);
-          return;
-        }
-        if (c.op === 'remove') {
-          // A Scene is a scene_nodes row too, but it lives in the `scenes`
-          // slice, and tearing one down means dropping its whole subtree and
-          // re-picking activeSceneId — which only removeScene does.
-          if (s.scenes.some((sc) => sc.id === c.id)) {
-            s.removeScene(c.id);
-            return;
-          }
-          // Projected (remote) nodes are owned by the projection feeder
-          // (sync/meshProjection.ts) — only local nodes are removed here.
-          const existing = s.nodes.find((n) => n.id === c.id);
-          if (existing && !existing.remote) s.deleteNode(c.id);
-          return;
-        }
-        const node = c.doc as unknown as StageObject | undefined;
-        if (!node) return;
-        // Scene roots go to the `scenes` slice, never to `nodes`. The REST
-        // bundle deliberately excludes kind==='scene' from `nodes`, so adopting
-        // one here left a stray entry behind whenever the mesh snapshot landed
-        // after setNodes.
-        if (node.kind === 'scene') {
-          // Same guard as the node path below, for the same reason: unknown
-          // projectId means don't adopt. A MOUNTED scene root carries its
-          // author's projectId, so a scene we already hold counts as ours to
-          // update — otherwise the author renaming a shared scene would never
-          // reach the receiver.
-          const known = s.scenes.some((sc) => sc.id === node.id);
-          if (!s.projectId) return;
-          if (node.projectId !== s.projectId && !known) return;
-          const item = {
-            id: node.id,
-            name: node.name,
-            runtimeSettings: (node.properties ??
-              {}) as SceneItem['runtimeSettings'],
-          };
-          if (s.scenes.some((sc) => sc.id === node.id))
-            s.updateSceneItem(node.id, item);
-          else s.setScenes([...s.scenes, item]);
-          return;
-        }
-        const existing = s.nodes.find((n) => n.id === node.id);
-        if (existing) {
-          // A placed remote-object projection is owned by the projection feeder
-          // (sync/sharedProjection.ts) — leave it alone here.
-          if (existing.remote) return;
-          // Already a local node here → apply the edit by IDENTITY, not by
-          // projectId. The document is taken WHOLE, including projectId and
-          // rootSceneNodeId: a mounted scene keeps its author's values on every
-          // peer now (mesh.md principle 2), so there is nothing local to
-          // preserve. This used to rewrite both fields on the way in, which is
-          // what made one id mean different things depending on who was asked.
-          const committed = transformFieldsOf(node);
-          if (committed && hasNodeTween(node.id)) {
-            // Mid-gesture: the committed value RETARGETS the running tween so
-            // the node glides to its final pose instead of snapping (the
-            // preview channel is lossy, so the last frame may never have
-            // landed). Apply everything else immediately, but hand the tween
-            // back the transform it is animating — writing the committed
-            // transform here would snap first and glide from nowhere.
-            s.updateNode(node.id, {
-              ...node,
-              components: {
-                ...node.components,
-                transform: transformFieldsOf(existing),
-              },
-            });
-            smoothNodeTransform(node.id, committed);
-            return;
-          }
-          s.updateNode(node.id, node);
-          return;
-        }
-        // A node we don't hold yet: adopt it only if it belongs to the open
-        // project. Foreign docs (other local projects, and placed projections —
-        // which carry the OWNER's projectId and are mirrored by the projection
-        // feeder) stay out of the store.
-        //
-        // Unknown projectId means DON'T adopt, not "adopt anything". The feeder
-        // starts on mount while projectId arrives with the async REST load, so
-        // there is a real window where it is null — and the old
-        // `s.projectId && …` form let every foreign doc through it. Dropping is
-        // safe because the REST bundle populates `nodes` immediately after.
-        //
-        // A node of a MOUNTED scene carries its author's projectId, so ownership
-        // alone is not the test any more: a node also belongs here when its
-        // scene is one we hold. `scenes` comes from the bundle, which lists our
-        // own scenes and the ones mounted into this project.
-        if (!s.projectId) return;
-        const ours =
-          node.projectId === s.projectId ||
-          s.scenes.some((sc) => sc.id === node.rootSceneNodeId);
-        if (!ours) return;
-        s.addNode(node);
-      });
       // Graph-driven param overrides. One document per overridden path, so a
       // remove IS the clear — including the whole-target clear, which arrives
       // as one remove per path rather than a single message with an optional

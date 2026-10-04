@@ -13,6 +13,7 @@ import { DND_CREATE_NODE, DND_CREATE_LAYER } from './dnd';
 import { HelpButton } from '../../help/HelpButton';
 import type { LucideIcon } from 'lucide-react';
 import { useComposeScenes } from '../../mesh/compose';
+import { useScenes } from '../../mesh/nodes';
 
 const grid: React.CSSProperties = {
   display: 'grid',
@@ -88,7 +89,7 @@ export function CreatePalette() {
   const leftTab = useEditorStore((s) => s.leftTab);
   const activeSceneId = useEditorStore((s) => s.activeSceneId);
   const activeComposeSceneId = useEditorStore((s) => s.activeComposeSceneId);
-  const scenes = useEditorStore((s) => s.scenes);
+  const scenes = useScenes();
   const composeScenes = useComposeScenes();
   const selectNode = useEditorStore((s) => s.selectNode);
   const setSceneSelected = useEditorStore((s) => s.setSceneSelected);

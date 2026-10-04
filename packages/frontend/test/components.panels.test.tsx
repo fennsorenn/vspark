@@ -28,7 +28,11 @@ import {
   userEvent,
 } from './helpers/render';
 import { useEditorStore } from '../src/store/editorStore';
-import type { SceneItem, StageObject, Behavior } from '../src/store/editorStore';
+import type {
+  SceneItem,
+  StageObject,
+  Behavior,
+} from '../src/store/editorStore';
 
 // ── Mocks (hoisted before panel imports) ─────────────────────────────────────
 
@@ -61,17 +65,27 @@ vi.mock('../src/api/client', () => ({
   api: {
     getCollabScenes: vi.fn().mockResolvedValue([]),
     getObjectGrantees: vi.fn().mockResolvedValue([]),
-    createScene: vi.fn().mockResolvedValue({ id: 'new-scene', name: 'New Scene' }),
+    createScene: vi
+      .fn()
+      .mockResolvedValue({ id: 'new-scene', name: 'New Scene' }),
     getScenes: vi.fn().mockResolvedValue({ scenes: [], nodes: [] }),
     deleteScene: vi.fn().mockResolvedValue(undefined),
     createNode: vi.fn().mockResolvedValue({
-      id: 'new-node', name: 'New', kind: 'avatar',
-      rootSceneNodeId: 'scene-1', projectId: 'proj-1', parentId: null, components: {},
+      id: 'new-node',
+      name: 'New',
+      kind: 'avatar',
+      rootSceneNodeId: 'scene-1',
+      projectId: 'proj-1',
+      parentId: null,
+      components: {},
     }),
     deleteNode: vi.fn().mockResolvedValue(undefined),
     updateNode: vi.fn().mockResolvedValue(undefined),
     uploadAsset: vi.fn().mockResolvedValue({
-      id: 'a1', name: 'model.vrm', kind: 'model', url: '/assets/model.vrm',
+      id: 'a1',
+      name: 'model.vrm',
+      kind: 'model',
+      url: '/assets/model.vrm',
     }),
     serializePreset: vi.fn().mockResolvedValue({}),
     instantiatePreset: vi.fn().mockResolvedValue(undefined),
@@ -104,12 +118,29 @@ vi.mock('../src/clipboard', () => ({
 // createKinds — defines NODE_KIND_DEFS; avoids PARTICLE_DEFAULTS / feedTemplate deps
 vi.mock('../src/components/editor/createKinds', () => ({
   NODE_KIND_DEFS: [
-    { kind: 'avatar', label: 'Avatar', icon: '🧍', description: '', defaultName: 'Avatar' },
-    { kind: 'light', label: 'Light', icon: '💡', description: '', defaultName: 'Light' },
+    {
+      kind: 'avatar',
+      label: 'Avatar',
+      icon: '🧍',
+      description: '',
+      defaultName: 'Avatar',
+    },
+    {
+      kind: 'light',
+      label: 'Light',
+      icon: '💡',
+      description: '',
+      defaultName: 'Light',
+    },
   ],
   createSceneNode: vi.fn().mockResolvedValue({
-    id: 'new-node', name: 'Avatar', kind: 'avatar',
-    rootSceneNodeId: 'scene-1', projectId: 'proj-1', parentId: null, components: {},
+    id: 'new-node',
+    name: 'Avatar',
+    kind: 'avatar',
+    rootSceneNodeId: 'scene-1',
+    projectId: 'proj-1',
+    parentId: null,
+    components: {},
   }),
   nextNodeName: vi.fn().mockReturnValue('Avatar'),
   behaviorCompatibleWith: vi.fn().mockReturnValue(true),
@@ -129,7 +160,9 @@ vi.mock('../src/components/DialogProvider', () => ({
   useConfirm: () => vi.fn().mockResolvedValue(false),
   usePrompt: () => vi.fn().mockResolvedValue(''),
   useChoose: () => vi.fn().mockResolvedValue(null),
-  DialogProvider: ({ children }: { children: React.ReactNode }) => <>{children}</>,
+  DialogProvider: ({ children }: { children: React.ReactNode }) => (
+    <>{children}</>
+  ),
 }));
 
 // HelpButton — tiny presentational
@@ -169,11 +202,12 @@ vi.mock('../src/components/editor/AssetThumb', () => ({
 // ── Panel imports (after all mocks) ──────────────────────────────────────────
 import { SceneGraph } from '../src/components/editor/SceneGraph';
 import { AssetManager } from '../src/components/editor/AssetManager';
+import { docsOf, seedEditor } from './helpers/mesh';
 
 // ── Shared state factories ────────────────────────────────────────────────────
 
 const INITIAL_STATE = {
-  projectId: null as string | null,
+  projectId: 'proj-1' as string | null, // the project the fixtures belong to
   projectName: '',
   scenes: [] as SceneItem[],
   activeSceneId: null as string | null,
@@ -228,7 +262,12 @@ const INITIAL_STATE = {
 };
 
 function makeScene(overrides: Partial<SceneItem> = {}): SceneItem {
-  return { id: 'scene-1', name: 'Scene One', runtimeSettings: {}, ...overrides };
+  return {
+    id: 'scene-1',
+    name: 'Scene One',
+    runtimeSettings: {},
+    ...overrides,
+  };
 }
 
 function makeNode(overrides: Partial<StageObject> = {}): StageObject {
@@ -245,7 +284,7 @@ function makeNode(overrides: Partial<StageObject> = {}): StageObject {
 }
 
 beforeEach(() => {
-  useEditorStore.setState(INITIAL_STATE);
+  seedEditor(INITIAL_STATE);
 });
 
 // ── SceneGraph ────────────────────────────────────────────────────────────────
@@ -274,7 +313,7 @@ describe('SceneGraph', () => {
   });
 
   it('renders seeded scene name in the scene list', () => {
-    useEditorStore.setState({
+    seedEditor({
       scenes: [makeScene({ id: 'scene-1', name: 'Main Scene' })],
       activeSceneId: 'scene-1',
     });
@@ -283,7 +322,7 @@ describe('SceneGraph', () => {
   });
 
   it('renders multiple seeded scenes', () => {
-    useEditorStore.setState({
+    seedEditor({
       scenes: [
         makeScene({ id: 's1', name: 'Alpha Scene' }),
         makeScene({ id: 's2', name: 'Beta Scene' }),
@@ -297,20 +336,35 @@ describe('SceneGraph', () => {
 
   it('renders seeded node name under the active scene', () => {
     const scene = makeScene({ id: 'scene-1', name: 'Main Scene' });
-    const node = makeNode({ id: 'node-1', name: 'My Avatar', rootSceneNodeId: 'scene-1', parentId: null });
-    useEditorStore.setState({ scenes: [scene], activeSceneId: 'scene-1', nodes: [node] });
+    const node = makeNode({
+      id: 'node-1',
+      name: 'My Avatar',
+      rootSceneNodeId: 'scene-1',
+      parentId: null,
+    });
+    seedEditor({ scenes: [scene], activeSceneId: 'scene-1', nodes: [node] });
     const { container } = renderWithProviders(<SceneGraph />);
     expect(container.textContent).toContain('My Avatar');
   });
 
   it('renders multiple seeded nodes', () => {
     const scene = makeScene({ id: 'scene-1', name: 'Stage' });
-    useEditorStore.setState({
+    seedEditor({
       scenes: [scene],
       activeSceneId: 'scene-1',
       nodes: [
-        makeNode({ id: 'n1', name: 'Alpha', rootSceneNodeId: 'scene-1', parentId: null }),
-        makeNode({ id: 'n2', name: 'Beta', rootSceneNodeId: 'scene-1', parentId: null }),
+        makeNode({
+          id: 'n1',
+          name: 'Alpha',
+          rootSceneNodeId: 'scene-1',
+          parentId: null,
+        }),
+        makeNode({
+          id: 'n2',
+          name: 'Beta',
+          rootSceneNodeId: 'scene-1',
+          parentId: null,
+        }),
       ],
     });
     const { container } = renderWithProviders(<SceneGraph />);
@@ -321,8 +375,13 @@ describe('SceneGraph', () => {
   it('clicking a node row sets selectedNodeId in the store', async () => {
     const user = userEvent.setup();
     const scene = makeScene({ id: 'scene-1', name: 'Stage' });
-    const node = makeNode({ id: 'node-1', name: 'My Avatar', rootSceneNodeId: 'scene-1', parentId: null });
-    useEditorStore.setState({
+    const node = makeNode({
+      id: 'node-1',
+      name: 'My Avatar',
+      rootSceneNodeId: 'scene-1',
+      parentId: null,
+    });
+    seedEditor({
       scenes: [scene],
       activeSceneId: 'scene-1',
       nodes: [node],
@@ -331,8 +390,16 @@ describe('SceneGraph', () => {
     const { container } = renderWithProviders(<SceneGraph />);
 
     // Find the clickable node row div (has cursor:pointer and contains the node name)
-    const rowDivs = Array.from(container.querySelectorAll<HTMLDivElement>('div[style*="cursor: pointer"]'));
-    const nodeRow = rowDivs.find((d) => d.textContent?.includes('My Avatar') && !d.textContent?.includes('Stage'));
+    const rowDivs = Array.from(
+      container.querySelectorAll<HTMLDivElement>(
+        'div[style*="cursor: pointer"]'
+      )
+    );
+    const nodeRow = rowDivs.find(
+      (d) =>
+        d.textContent?.includes('My Avatar') &&
+        !d.textContent?.includes('Stage')
+    );
     expect(nodeRow).toBeTruthy();
     await user.click(nodeRow!);
 
@@ -343,7 +410,7 @@ describe('SceneGraph', () => {
 
   it('clicking a scene row sets it active and marks sceneSelected', async () => {
     const user = userEvent.setup();
-    useEditorStore.setState({
+    seedEditor({
       scenes: [
         makeScene({ id: 'scene-1', name: 'First Scene' }),
         makeScene({ id: 'scene-2', name: 'Second Scene' }),
@@ -354,10 +421,14 @@ describe('SceneGraph', () => {
 
     // Find the "Second Scene" text and click its parent row div
     const spans = Array.from(container.querySelectorAll('span'));
-    const secondSceneSpan = spans.find((s) => s.textContent?.trim() === 'Second Scene');
+    const secondSceneSpan = spans.find(
+      (s) => s.textContent?.trim() === 'Second Scene'
+    );
     expect(secondSceneSpan).toBeTruthy();
     // Click the parent div row
-    await user.click(secondSceneSpan!.closest('div[style*="cursor: pointer"]')!);
+    await user.click(
+      secondSceneSpan!.closest('div[style*="cursor: pointer"]')!
+    );
 
     await waitFor(() => {
       const state = useEditorStore.getState();
@@ -370,19 +441,26 @@ describe('SceneGraph', () => {
     const user = userEvent.setup();
     const scene = makeScene({ id: 'scene-1', name: 'Stage' });
     const node = makeNode({
-      id: 'node-1', name: 'Avatar',
-      rootSceneNodeId: 'scene-1', parentId: null, hidden: false,
+      id: 'node-1',
+      name: 'Avatar',
+      rootSceneNodeId: 'scene-1',
+      parentId: null,
+      hidden: false,
     });
-    useEditorStore.setState({ scenes: [scene], activeSceneId: 'scene-1', nodes: [node] });
+    seedEditor({ scenes: [scene], activeSceneId: 'scene-1', nodes: [node] });
     const { container } = renderWithProviders(<SceneGraph />);
 
     // Visibility button has title "Hide" when node is visible (sceneGraph.json visibility.hide)
-    const visBtn = container.querySelector('button[title="Hide"]') as HTMLButtonElement | null;
+    const visBtn = container.querySelector(
+      'button[title="Hide"]'
+    ) as HTMLButtonElement | null;
     expect(visBtn).toBeTruthy();
     await user.click(visBtn!);
 
     await waitFor(() => {
-      const updatedNode = useEditorStore.getState().nodes.find((n) => n.id === 'node-1');
+      const updatedNode = docsOf<StageObject>('scene_node').find(
+        (n) => n.id === 'node-1'
+      );
       expect(updatedNode?.hidden).toBe(true);
     });
   });
@@ -390,14 +468,17 @@ describe('SceneGraph', () => {
   it('switches to Compose tab and renders the compose tree stub', async () => {
     const user = userEvent.setup();
     const { container } = renderWithProviders(<SceneGraph />);
-    const composeBtn = Array.from(container.querySelectorAll('button'))
-      .find((b) => b.textContent?.trim() === 'Compose');
+    const composeBtn = Array.from(container.querySelectorAll('button')).find(
+      (b) => b.textContent?.trim() === 'Compose'
+    );
     await user.click(composeBtn!);
-    expect(container.querySelector('[data-testid="mock-compose-tree"]')).toBeTruthy();
+    expect(
+      container.querySelector('[data-testid="mock-compose-tree"]')
+    ).toBeTruthy();
   });
 
   it('shows "Empty scene" text for a scene with no nodes', () => {
-    useEditorStore.setState({
+    seedEditor({
       scenes: [makeScene({ id: 'scene-1', name: 'Empty' })],
       activeSceneId: 'scene-1',
       nodes: [],
@@ -427,18 +508,26 @@ describe('AssetManager', () => {
   it('switching to the Create tab renders the Create palette stub', async () => {
     const user = userEvent.setup();
     const { container } = renderWithProviders(<AssetManager />);
-    const createBtn = Array.from(container.querySelectorAll('button'))
-      .find((b) => b.textContent?.trim() === 'Create');
+    const createBtn = Array.from(container.querySelectorAll('button')).find(
+      (b) => b.textContent?.trim() === 'Create'
+    );
     await user.click(createBtn!);
-    expect(container.querySelector('[data-testid="mock-create-palette"]')).toBeTruthy();
+    expect(
+      container.querySelector('[data-testid="mock-create-palette"]')
+    ).toBeTruthy();
   });
 
   it('shows seeded model asset names in the Models tab', () => {
-    useEditorStore.setState({
+    seedEditor({
       bottomTab: 'models',
       assets: [
         { id: 'a1', name: 'Hero.vrm', kind: 'model', url: '/assets/hero.vrm' },
-        { id: 'a2', name: 'Sidekick.vrm', kind: 'model', url: '/assets/sidekick.vrm' },
+        {
+          id: 'a2',
+          name: 'Sidekick.vrm',
+          kind: 'model',
+          url: '/assets/sidekick.vrm',
+        },
       ],
     });
     const { container } = renderWithProviders(<AssetManager />);
@@ -448,17 +537,22 @@ describe('AssetManager', () => {
   });
 
   it('shows no-assets placeholder when Models tab is empty', () => {
-    useEditorStore.setState({ bottomTab: 'models', assets: [] });
+    seedEditor({ bottomTab: 'models', assets: [] });
     const { container } = renderWithProviders(<AssetManager />);
     // assets.json empty.noAssets: "No {{tab}} yet. Upload one above."
     expect(container.textContent).toMatch(/No.*yet/i);
   });
 
   it('switching to Animations tab shows animation assets', () => {
-    useEditorStore.setState({
+    seedEditor({
       bottomTab: 'animations',
       assets: [
-        { id: 'a1', name: 'Walk.fbx', kind: 'animation', url: '/assets/walk.fbx' },
+        {
+          id: 'a1',
+          name: 'Walk.fbx',
+          kind: 'animation',
+          url: '/assets/walk.fbx',
+        },
       ],
     });
     const { container } = renderWithProviders(<AssetManager />);
@@ -467,11 +561,12 @@ describe('AssetManager', () => {
 
   it('clicking a tab updates bottomTab in the store', async () => {
     const user = userEvent.setup();
-    useEditorStore.setState({ bottomTab: 'models' });
+    seedEditor({ bottomTab: 'models' });
     const { container } = renderWithProviders(<AssetManager />);
 
-    const animBtn = Array.from(container.querySelectorAll('button'))
-      .find((b) => b.textContent?.trim() === 'Animations');
+    const animBtn = Array.from(container.querySelectorAll('button')).find(
+      (b) => b.textContent?.trim() === 'Animations'
+    );
     await user.click(animBtn!);
 
     await waitFor(() => {
@@ -482,28 +577,35 @@ describe('AssetManager', () => {
   it('renders Timeline stub when Timeline tab is active', async () => {
     const user = userEvent.setup();
     const { container } = renderWithProviders(<AssetManager />);
-    const timelineBtn = Array.from(container.querySelectorAll('button'))
-      .find((b) => b.textContent?.trim() === 'Timeline');
+    const timelineBtn = Array.from(container.querySelectorAll('button')).find(
+      (b) => b.textContent?.trim() === 'Timeline'
+    );
     await user.click(timelineBtn!);
-    expect(container.querySelector('[data-testid="mock-track-clip-timeline"]')).toBeTruthy();
+    expect(
+      container.querySelector('[data-testid="mock-track-clip-timeline"]')
+    ).toBeTruthy();
   });
 
   it('renders Presets stub when Presets tab is active', async () => {
     const user = userEvent.setup();
     const { container } = renderWithProviders(<AssetManager />);
-    const presetsBtn = Array.from(container.querySelectorAll('button'))
-      .find((b) => b.textContent?.trim() === 'Presets');
+    const presetsBtn = Array.from(container.querySelectorAll('button')).find(
+      (b) => b.textContent?.trim() === 'Presets'
+    );
     await user.click(presetsBtn!);
-    expect(container.querySelector('[data-testid="mock-preset-library"]')).toBeTruthy();
+    expect(
+      container.querySelector('[data-testid="mock-preset-library"]')
+    ).toBeTruthy();
   });
 
   it('switching tabs persists the selected tab across the store', async () => {
     const user = userEvent.setup();
-    useEditorStore.setState({ bottomTab: 'models' });
+    seedEditor({ bottomTab: 'models' });
     const { container } = renderWithProviders(<AssetManager />);
 
-    const imagesBtn = Array.from(container.querySelectorAll('button'))
-      .find((b) => b.textContent?.trim() === 'Images');
+    const imagesBtn = Array.from(container.querySelectorAll('button')).find(
+      (b) => b.textContent?.trim() === 'Images'
+    );
     await user.click(imagesBtn!);
 
     await waitFor(() => {
@@ -512,7 +614,7 @@ describe('AssetManager', () => {
   });
 
   it('shows upload section in Models tab', () => {
-    useEditorStore.setState({ bottomTab: 'models', assets: [] });
+    seedEditor({ bottomTab: 'models', assets: [] });
     const { container } = renderWithProviders(<AssetManager />);
     // assets.json upload.model = "Upload Model"
     expect(container.textContent).toContain('Upload Model');

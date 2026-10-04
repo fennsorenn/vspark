@@ -160,6 +160,7 @@ import {
   useNodeSchedule,
 } from '../../mesh/hooks';
 import { collectionOf } from '../../mesh/docs';
+import { sceneNodesNow, useSceneNodes } from '../../mesh/nodes';
 
 type GizmoMode = 'translate' | 'rotate' | 'scale';
 
@@ -5749,7 +5750,7 @@ function ModelNode({
 }
 
 function SceneInstanceContent({ sourceSceneId }: { sourceSceneId: string }) {
-  const nodes = useEditorStore((s) => s.nodes);
+  const nodes = useSceneNodes();
   const sourceNodes = nodes.filter(
     (n) => n.rootSceneNodeId === sourceSceneId && n.kind !== 'scene'
   );
@@ -5880,7 +5881,8 @@ export function SceneNodes({
   /** Scene whose nodes to render. Defaults to the store's active scene. */
   sceneId?: string;
 } = {}) {
-  const { nodes, activeSceneId } = useEditorStore();
+  const { activeSceneId } = useEditorStore();
+  const nodes = useSceneNodes();
   const effectiveSceneId = sceneId ?? activeSceneId;
   const sceneNodes = nodes.filter(
     (n) =>
@@ -6007,9 +6009,7 @@ function TransformGizmo({
 
   const onEnd = () => {
     if (orbitRef.current) orbitRef.current.enabled = true;
-    const node = useEditorStore
-      .getState()
-      .nodes.find((n) => n.id === selectedNodeId);
+    const node = sceneNodesNow().find((n) => n.id === selectedNodeId);
     if (!node) return;
     // Gizmo drag settles: one committed write, so one undo step for the drag.
     // Merged, not replaced — see mergedTransform: this write REPLACES the whole
@@ -6287,7 +6287,8 @@ export function CameraEffects({
   forceNodeId,
   sceneId,
 }: { forceNodeId?: string; sceneId?: string } = {}) {
-  const { previewEffectsCamera, nodes, activeSceneId } = useEditorStore();
+  const { previewEffectsCamera, activeSceneId } = useEditorStore();
+  const nodes = useSceneNodes();
   const effectiveSceneId = sceneId ?? activeSceneId;
 
   const effectsNodeId = forceNodeId ?? previewEffectsCamera;
@@ -6616,12 +6617,13 @@ export function ViewportCapture() {
  *  free authoring view (not a camera), so it previews shadows whenever any
  *  camera does, picking the highest requested quality. */
 function useEditorShadowQuality(): ShadowQuality | null {
-  return useEditorStore((s) => {
+  const nodes = useSceneNodes();
+  const activeSceneId = useEditorStore((s) => s.activeSceneId);
+  return useMemo(() => {
     let best: ShadowQuality | null = null;
     const rank = { low: 1, medium: 2, high: 3 } as const;
-    for (const n of s.nodes) {
-      if (n.kind !== 'camera' || n.rootSceneNodeId !== s.activeSceneId)
-        continue;
+    for (const n of nodes) {
+      if (n.kind !== 'camera' || n.rootSceneNodeId !== activeSceneId) continue;
       const cam = n.components?.camera as
         | { shadowsEnabled?: boolean; shadowQuality?: ShadowQuality }
         | undefined;
@@ -6630,7 +6632,7 @@ function useEditorShadowQuality(): ShadowQuality | null {
       if (!best || rank[q] > rank[best]) best = q;
     }
     return best;
-  });
+  }, [nodes, activeSceneId]);
 }
 
 export function Viewport() {

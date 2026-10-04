@@ -35,10 +35,13 @@ let ps: Smoother;
 
 async function fresh(): Promise<Smoother> {
   vi.resetModules();
-  const { useEditorStore } = await import('../src/store/editorStore');
-  useEditorStore.setState({
-    nodes: [nodeWith({ x: 0, y: 0, z: 0, rx: 0, ry: 0, rz: 0 })],
-  });
+  // The node, in the peer the smoother reads (the app's, as the module sees it).
+  const { getMeshHandles } = await import('../src/mesh/peer');
+  getMeshHandles()!
+    .peer.collection<{ id: string }>('scene_node')
+    .put(nodeWith({ x: 0, y: 0, z: 0, rx: 0, ry: 0, rz: 0 }), {
+      v: { t: 1, c: 0, n: 'seed' },
+    });
   return import('../src/previewSmoother');
 }
 

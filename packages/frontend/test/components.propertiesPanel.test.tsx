@@ -121,7 +121,7 @@ describe('PropertiesPanel — node inspector', () => {
     fireEvent.change(input, { target: { value: 'New Name' } });
     fireEvent.blur(input);
 
-    expect(useEditorStore.getState().nodes[0].name).toBe('New Name');
+    expect(docsOf<{ name: string }>('scene_node')[0].name).toBe('New Name');
   });
 });
 

@@ -20,6 +20,7 @@ import type { MediaCommand, MediaAction } from '@vspark/shared';
 import { collectionOf } from '../mesh/docs';
 import { trackClipRecordOf } from '../mesh/hooks';
 import { composeLayersNow } from '../mesh/compose';
+import { sceneNodesNow } from '../mesh/nodes';
 
 // Per-clip last evaluated playhead time, kept across rAF ticks (module scope so
 // it survives re-renders). Used to detect when the playhead crosses an event
@@ -143,7 +144,7 @@ export function useTrackClipEvaluator(): void {
           const supKey = `${lane.targetKind}:${lane.targetId}:${lane.paramPath}`;
           if (s.suppressedOverrides.has(supKey)) continue;
           const raw = evaluateLane(lane, t);
-          applyLaneResult(lane, raw, clip.mode, s, nodeAcc, layerAcc);
+          applyLaneResult(lane, raw, clip.mode, nodeAcc, layerAcc);
         }
       }
 
@@ -191,12 +192,11 @@ function applyLaneResult(
   lane: TrackClipLaneRecord,
   rawValue: number,
   mode: TrackClipMode,
-  store: ReturnType<typeof useEditorStore.getState>,
   nodeAcc: Map<string, NodeAccumulator>,
   layerAcc: Map<string, ComposeLayerOverride>
 ): void {
   if (lane.targetKind === 'scene_node') {
-    const node = store.nodes.find((n) => n.id === lane.targetId);
+    const node = sceneNodesNow().find((n) => n.id === lane.targetId);
     if (!node) return;
     const base = readNodeParam(node, lane.paramPath);
     if (base == null) return;

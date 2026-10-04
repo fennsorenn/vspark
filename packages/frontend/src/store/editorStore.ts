@@ -269,9 +269,15 @@ export {
 export interface EditorState {
   projectId: string | null;
   projectName: string;
-  scenes: SceneItem[];
   activeSceneId: string | null;
-  nodes: StageObject[];
+  /** Nodes projected from a peer's placed object (Phase 6, see
+   *  sync/sharedProjection.ts) — a derived view, read with the project's own
+   *  nodes through mesh/nodes.ts. Goes with the Phase-6 legacy (W7). */
+  projectedNodes: StageObject[];
+  /** What this tab shows for a node's transform while a local gesture or a
+   *  received preview's tween is running, before the documents catch up. View
+   *  state, merged over the documents by mesh/nodes.ts. */
+  liveNodes: Record<string, Record<string, number>>;
   selectedNodeId: string | null;
   sceneSelected: boolean;
   selectedBehaviorId: string | null;
@@ -372,24 +378,18 @@ export interface EditorState {
 
   // Actions
   setProject: (id: string, name: string) => void;
-  setScenes: (scenes: SceneItem[]) => void;
-  updateSceneItem: (
-    sceneId: string,
-    updates: Partial<Omit<SceneItem, 'id'>>
-  ) => void;
-  removeScene: (sceneId: string) => void;
   setActiveScene: (id: string | null) => void;
   setSceneSelected: (selected: boolean) => void;
-  setNodes: (nodes: StageObject[]) => void;
-  addNode: (node: StageObject) => void;
-  updateNode: (id: string, updates: Partial<StageObject>) => void;
-  deleteNode: (id: string) => void;
+  /** Upsert / drop a projected node (sync/sharedProjection.ts). */
+  putProjectedNode: (node: StageObject) => void;
+  dropProjectedNode: (id: string) => void;
+  /** Merge live transform fields for a node; `null` drops them. */
+  setLiveNode: (id: string, fields: Record<string, number> | null) => void;
   selectNode: (id: string | null) => void;
   selectBehavior: (id: string | null) => void;
   setAssets: (assets: AssetFile[]) => void;
   addAsset: (asset: AssetFile) => void;
   deleteAsset: (id: string) => void;
-  activeSceneNodes: () => StageObject[];
   setVrmBonesForNode: (nodeId: string, bones: string[]) => void;
   clearVrmBonesForNode: (nodeId: string) => void;
   setVrmExpressionsForNode: (nodeId: string, expressions: string[]) => void;
@@ -522,9 +522,9 @@ export interface EditorState {
 export const useEditorStore = create<EditorState>((set, get) => ({
   projectId: null,
   projectName: '',
-  scenes: [],
   activeSceneId: null,
-  nodes: [],
+  projectedNodes: [],
+  liveNodes: {},
   selectedNodeId: null,
   sceneSelected: false,
   selectedBehaviorId: null,
@@ -570,55 +570,25 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   suppressedOverrides: new Set<string>(),
 
   setProject: (id, name) => set({ projectId: id, projectName: name }),
-  setScenes: (scenes) => set({ scenes }),
-  updateSceneItem: (sceneId, updates) =>
-    set((s) => ({
-      scenes: s.scenes.map((sc) =>
-        sc.id === sceneId ? { ...sc, ...updates } : sc
-      ),
-    })),
-  removeScene: (sceneId) =>
-    set((s) => {
-      const remainingScenes = s.scenes.filter((sc) => sc.id !== sceneId);
-      const removedNodeIds = new Set(
-        s.nodes.filter((n) => n.rootSceneNodeId === sceneId).map((n) => n.id)
-      );
-      // The scene node owns itself by id; clips can be owned by it or any child.
-      removedNodeIds.add(sceneId);
-      const wasActive = s.activeSceneId === sceneId;
-      return {
-        scenes: remainingScenes,
-        nodes: s.nodes.filter((n) => n.rootSceneNodeId !== sceneId),
-        activeSceneId: wasActive
-          ? (remainingScenes[0]?.id ?? null)
-          : s.activeSceneId,
-        selectedNodeId: removedNodeIds.has(s.selectedNodeId ?? '')
-          ? null
-          : s.selectedNodeId,
-        sceneSelected: wasActive ? false : s.sceneSelected,
-      };
-    }),
   setActiveScene: (id) => set({ activeSceneId: id }),
   setSceneSelected: (selected) => set({ sceneSelected: selected }),
-  setNodes: (nodes) => set({ nodes }),
-  addNode: (node) =>
-    set((s) =>
-      // Idempotent by id: a create's REST response and its WS broadcast can race
-      // (either order), and only the broadcast path deduped before. Guard here so
-      // neither can double-insert.
-      s.nodes.some((n) => n.id === node.id) ? {} : { nodes: [...s.nodes, node] }
-    ),
-  updateNode: (id, updates) =>
+  putProjectedNode: (node) =>
     set((s) => ({
-      nodes: s.nodes.map((n) => (n.id === id ? { ...n, ...updates } : n)),
+      projectedNodes: s.projectedNodes.some((n) => n.id === node.id)
+        ? s.projectedNodes.map((n) => (n.id === node.id ? node : n))
+        : [...s.projectedNodes, node],
     })),
-  deleteNode: (id) =>
+  dropProjectedNode: (id) =>
     set((s) => ({
-      nodes: s.nodes.filter((n) => n.id !== id),
-      selectedNodeId: s.selectedNodeId === id ? null : s.selectedNodeId,
-      // A behavior selected on the deleted node goes with it.
-      selectedBehaviorId: s.selectedNodeId === id ? null : s.selectedBehaviorId,
+      projectedNodes: s.projectedNodes.filter((n) => n.id !== id),
     })),
+  setLiveNode: (id, fields) =>
+    set((s) => {
+      const next = { ...s.liveNodes };
+      if (fields) next[id] = { ...next[id], ...fields };
+      else delete next[id];
+      return { liveNodes: next };
+    }),
   selectNode: (id) =>
     set((s) => ({
       selectedNodeId: id,
@@ -632,10 +602,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   addAsset: (asset) => set((s) => ({ assets: [...s.assets, asset] })),
   deleteAsset: (id) =>
     set((s) => ({ assets: s.assets.filter((a) => a.id !== id) })),
-  activeSceneNodes: () => {
-    const { nodes, activeSceneId } = get();
-    return nodes.filter((n) => n.rootSceneNodeId === activeSceneId);
-  },
+
   setVrmBonesForNode: (nodeId, bones) =>
     set((s) => ({ vrmBonesByNode: { ...s.vrmBonesByNode, [nodeId]: bones } })),
   clearVrmBonesForNode: (nodeId) =>

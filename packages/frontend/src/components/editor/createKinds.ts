@@ -31,6 +31,7 @@ import {
   type LucideIcon,
 } from 'lucide-react';
 import { composeLayersNow, composeScenesNow } from '../../mesh/compose';
+import { sceneNodesNow } from '../../mesh/nodes';
 
 // ---------------------------------------------------------------------------
 // Shared registry of the node + compose-layer kinds the user can create, plus
@@ -171,9 +172,8 @@ export function uniqueName(base: string, taken: Set<string>): string {
 /** Default-name dedupe for a node in a given scene. */
 export function nextNodeName(def: NodeKindDef, sceneId: string): string {
   const taken = new Set(
-    useEditorStore
-      .getState()
-      .nodes.filter((n) => n.rootSceneNodeId === sceneId)
+    sceneNodesNow()
+      .filter((n) => n.rootSceneNodeId === sceneId)
       .map((n) => n.name)
   );
   return uniqueName(def.label, taken);
@@ -298,7 +298,7 @@ export async function createSceneNode(
   // If the parent is a writable *remote* node, this is a create on a shared
   // object: route it to the owner (Phase 6) instead of our local REST API.
   const parent = parentId
-    ? useEditorStore.getState().nodes.find((n) => n.id === parentId)
+    ? sceneNodesNow().find((n) => n.id === parentId)
     : null;
   if (parent) {
     const remoteNode = createRemoteChild(parent, def.kind, name, components);
@@ -420,9 +420,7 @@ export async function createLayer(
   // Camera views default to the first available camera; reassign in properties.
   let cameraNodeId: string | null = null;
   if (kind === 'camera_view') {
-    const cameras = useEditorStore
-      .getState()
-      .nodes.filter((n) => n.kind === 'camera');
+    const cameras = sceneNodesNow().filter((n) => n.kind === 'camera');
     if (cameras.length === 0) {
       alert('No cameras exist yet. Add a camera node to a scene first.');
       return;

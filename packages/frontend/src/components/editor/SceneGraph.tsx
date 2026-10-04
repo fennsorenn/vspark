@@ -125,9 +125,7 @@ function MergedSections({
   const nodeEffects = useCameraEffects(nodeId);
   const trackClips = useTrackClips();
   const behaviorKinds = useEditorStore((s) => s.behaviorKinds);
-  const nodeKind = useEditorStore(
-    (s) => s.nodes.find((n) => n.id === nodeId)?.kind ?? ''
-  );
+  const nodeKind = useSceneNode(nodeId)?.kind ?? '';
   const selectTrackClip = useEditorStore((s) => s.selectTrackClip);
   const setBottomTab = useEditorStore((s) => s.setBottomTab);
 
@@ -981,9 +979,7 @@ function BehaviorsSection({
     comp: Behavior;
   } | null>(null);
   const nodeBehaviors = useNodeBehaviors(nodeId);
-  const nodeKind = useEditorStore(
-    (s) => s.nodes.find((n) => n.id === nodeId)?.kind ?? ''
-  );
+  const nodeKind = useSceneNode(nodeId)?.kind ?? '';
   const selectedBehaviorId = useEditorStore((s) => s.selectedBehaviorId);
   const selectBehavior = useEditorStore((s) => s.selectBehavior);
   const receiverStatus = useTrackingStatuses();
@@ -1731,6 +1727,7 @@ import {
   useTrackClips,
   useTrackingStatuses,
 } from '../../mesh/hooks';
+import { useSceneNode, useSceneNodes, useScenes } from '../../mesh/nodes';
 
 function LogicListPanel() {
   const { t } = useTranslation('sceneGraph');
@@ -2261,11 +2258,8 @@ export function SceneGraph() {
   const behaviors = useAllBehaviors();
   const {
     activeSceneId,
-    scenes,
-    nodes: allNodes,
     selectedNodeId,
     selectNode,
-    deleteNode: storeDeleteNode,
     vrmBonesByNode,
     assets,
     setHoveredBone,
@@ -2276,6 +2270,8 @@ export function SceneGraph() {
     sceneSelected,
     setSceneSelected,
   } = useEditorStore();
+  const scenes = useScenes();
+  const allNodes = useSceneNodes();
 
   const dockTab = useEditorStore((s) => s.leftTab);
   const setDockTab = useEditorStore((s) => s.setLeftTab);
@@ -2486,19 +2482,6 @@ export function SceneGraph() {
     }
   };
 
-  const refreshSceneNodes = async (sceneId: string | null = activeSceneId) => {
-    if (!sceneId) return;
-    try {
-      const fetched = await api.getNodes(sceneId);
-      // Replace the target scene's nodes in the store.
-      const store = useEditorStore.getState();
-      const others = store.nodes.filter((n) => n.rootSceneNodeId !== sceneId);
-      useEditorStore.setState({ nodes: [...others, ...fetched] });
-    } catch {
-      /* non-fatal */
-    }
-  };
-
   const handlePasteNodeAsChild = async (
     parentNodeId: string | null,
     bone: string | null = null,
@@ -2516,7 +2499,6 @@ export function SceneGraph() {
         parentNodeId,
         bone
       );
-      await refreshSceneNodes(sceneId);
     } catch (e) {
       alert(e instanceof Error ? e.message : t('nodes.failPaste'));
     }
@@ -2622,12 +2604,9 @@ export function SceneGraph() {
         parentId,
         bone
       );
-      if (!copy) {
-        await api.deleteNode(draggedId);
-        storeDeleteNode(draggedId);
-      }
-      await refreshSceneNodes(targetSceneId);
-      if (!sameScene && !copy) await refreshSceneNodes(dragged.rootSceneNodeId);
+      // The instantiated subtree (and the removal, for a move) arrives through
+      // the mesh: the routes write through it.
+      if (!copy) await api.deleteNode(draggedId);
       setActiveScene(targetSceneId);
       selectNode(rootId);
       setSceneSelected(false);
