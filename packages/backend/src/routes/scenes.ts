@@ -2,9 +2,7 @@ import { Router } from 'express';
 import { randomUUID } from 'crypto';
 import { getDb } from '../db/index.js';
 import { loadClip } from './track-clips.js';
-import { broadcastBus } from '../broadcast/bus.js';
 import { keyAfter } from '@vspark/shared/fracIndex';
-import { _ws } from './shared.js';
 import { getMeshCollection, getMeshPeer } from '../mesh/index.js';
 import { getResource } from '../sync/registry.js';
 import { multiplayerManager } from '../multiplayer/manager.js';
@@ -384,48 +382,25 @@ router.put('/scenes/:sceneId', (req, res) => {
     runtimeSettings?: Record<string, unknown>;
   };
 
-  if (name != null) {
-    db.prepare(
-      `UPDATE scene_nodes SET name = ?, updated_at = datetime('now') WHERE id = ?`
-    ).run(name, sceneId);
-  }
+  // Write through the mesh: the persistence tap stores the row, reloads the
+  // scene's runtime settings, and every tab hears it through its
+  // subscription (scene roots feed the `scenes` slice).
+  const col = getMeshCollection('scene_node');
+  if (!col)
+    return res
+      .status(500)
+      .json({ ok: false, error: { message: 'store not ready' } });
+  if (name != null) col.set(sceneId, 'name', name);
+  // runtimeSettings merge into `properties` key by key (a shallow merge, as
+  // before): each top-level setting is replaced, the others are kept.
+  if (runtimeSettings && typeof runtimeSettings === 'object')
+    for (const [k, v] of Object.entries(runtimeSettings))
+      col.set(sceneId, `properties.${k}`, v);
 
-  let settingsChanged = false;
-  if (runtimeSettings && typeof runtimeSettings === 'object') {
-    // Merge runtimeSettings into the node's properties JSON
-    const currentProps = JSON.parse(row.properties || '{}') as Record<
-      string,
-      unknown
-    >;
-    const merged = { ...currentProps, ...runtimeSettings };
-    db.prepare(
-      `UPDATE scene_nodes SET properties = ?, updated_at = datetime('now') WHERE id = ?`
-    ).run(JSON.stringify(merged), sceneId);
-    settingsChanged = true;
-  }
-
-  if (settingsChanged) broadcastBus.reloadSceneSettings(sceneId);
-
+  const doc = col.get(sceneId) as Record<string, unknown> | undefined;
   const patch: Record<string, unknown> = { id: sceneId };
   if (name != null) patch.name = name;
-  if (settingsChanged) {
-    const updated = db
-      .prepare('SELECT properties FROM scene_nodes WHERE id = ?')
-      .get(sceneId) as { properties: string };
-    patch.runtimeSettings = JSON.parse(updated.properties || '{}');
-  }
-  // Load-bearing, and NOT a smoothing lane (useWsSync's `scene_updated` branch
-  // is a plain updateSceneItem). A Scene is a scene_nodes row, so the mesh
-  // mirror below does reach every tab — but meshStoreFeeder's scene_node
-  // observer writes only the `nodes` slice, and nothing feeds the `scenes`
-  // slice at runtime (setScenes/updateSceneItem are otherwise only called from
-  // REST loads and this handler). Dropping this broadcast would leave
-  // scenes[].runtimeSettings stale on other tabs until a reload.
-  _ws?.broadcast('scene_updated', patch);
-  // Mirror the canonical doc through the mesh store (keeps the replica +
-  // fan-out in sync).
-  mirrorRow('scene_node', sceneId);
-
+  if (runtimeSettings) patch.runtimeSettings = doc?.properties ?? {};
   res.json({ ok: true, data: patch });
 });
 
@@ -514,7 +489,6 @@ router.delete('/scenes/:sceneId', (req, res) => {
     db.exec('PRAGMA foreign_keys = ON');
   }
 
-  _ws?.broadcast('scene_removed', { id: sceneId });
   res.json({ ok: true, data: {} });
 });
 

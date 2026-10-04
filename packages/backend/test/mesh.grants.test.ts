@@ -286,3 +286,46 @@ describe('removing a node through the mesh', () => {
     expect(behaviors.get(beh.id)).toBeUndefined();
   });
 });
+
+describe('compose layer guard', () => {
+  let app: Express;
+
+  beforeEach(async () => {
+    ({ app } = await makeTestApp({ mesh: true }));
+  });
+
+  afterEach(() => resetBackendMesh());
+
+  it("refuses a tab's feed template that does not compile, accepts one that does", async () => {
+    const proj = (await request(app).post('/api/projects').send({ name: 'P' }))
+      .body.data;
+    const cs = (
+      await request(app)
+        .post(`/api/projects/${proj.id}/compose-scenes`)
+        .send({ name: 'Out' })
+    ).body.data;
+    const layer = (
+      await request(app)
+        .post(`/api/compose-scenes/${cs.id}/layers`)
+        .send({ kind: 'feed', name: 'Chat', config: { template: '<div />' } })
+    ).body.data;
+    expect(layer?.id).toBeTruthy();
+
+    const server = getMeshPeer()!;
+    const { peer } = attach(makeClientParticipantId(server.id, 'tab1'));
+    const layers = peer.collection<Dto>('compose_layer', {
+      authority: server.id,
+    });
+    await peer.subscribe(server.id, everything('compose_layer'));
+
+    const bad = await layers.set(layer.id, 'config.template', '<div>${(</div>')
+      .ack;
+    expect(bad.status).toBe('rejected');
+    expect(
+      (getMeshCollection('compose_layer')!.get(layer.id) as Dto).config
+    ).toMatchObject({ template: '<div />' });
+
+    const good = await layers.set(layer.id, 'config.template', '<p>hi</p>').ack;
+    expect(good.status).toBe('acked');
+  });
+});

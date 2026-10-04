@@ -267,7 +267,7 @@ export {
   type CameraEffectKind,
 } from '@vspark/shared/cameraEffects';
 
-interface EditorState {
+export interface EditorState {
   projectId: string | null;
   projectName: string;
   scenes: SceneItem[];
@@ -454,7 +454,6 @@ interface EditorState {
   setSelectedSignalNode: (id: string | null) => void;
   setBoneListExpanded: (nodeId: string, expanded: boolean) => void;
   setFbxDebugVisible: (nodeId: string, visible: boolean) => void;
-  toggleNodeHidden: (nodeId: string) => void;
   setCameraEffects: (effects: CameraEffectRecord[]) => void;
   addCameraEffect: (effect: CameraEffectRecord) => void;
   updateCameraEffect: (
@@ -907,12 +906,6 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   setFbxDebugVisible: (nodeId, visible) =>
     set((s) => ({
       fbxDebugVisible: { ...s.fbxDebugVisible, [nodeId]: visible },
-    })),
-  toggleNodeHidden: (nodeId) =>
-    set((s) => ({
-      nodes: s.nodes.map((n) =>
-        n.id === nodeId ? { ...n, hidden: !n.hidden } : n
-      ),
     })),
   setCameraEffects: (effects) => set({ cameraEffects: effects }),
   addCameraEffect: (effect) =>

@@ -53,6 +53,8 @@ import {
   toGraphDescriptor,
   type GraphDescriptorDoc,
 } from '@vspark/shared/signal';
+import { validateFeedConfig } from '@vspark/shared/feedValidation';
+import { broadcastBus } from '../broadcast/bus.js';
 import { isClientParticipant } from '@vspark/shared/sync';
 import '../sync/resources.js'; // side effect: register the descriptors
 
@@ -238,6 +240,13 @@ const BINDINGS: RtypeBinding[] = [
         ? guardClientComposeLayer({ ...(data as Dto) })
         : (data as Dto),
     persists: (d) => rowExists('projects', d.projectId),
+    // A feed layer's template/css must compile however the write was shaped
+    // (a tab's dotted-path edit, a REST patch, a collab peer): refusing it
+    // here nacks the write instead of storing markup that renders nothing.
+    guard: (d) => {
+      const err = validateFeedConfig(d.config);
+      if (err) throw new Error(err);
+    },
   },
   {
     rtype: 'track_clip',
@@ -621,6 +630,10 @@ function bindCollection(
         b.guard?.(c.doc);
         r.save?.(c.doc);
         clearTombstone(b.rtype, c.id);
+        // A scene root's properties are its runtime settings: whoever wrote
+        // them (REST, a tab, a collab peer), the running bus re-reads them.
+        if (b.rtype === 'scene_node' && c.doc.kind === 'scene')
+          broadcastBus.reloadSceneSettings(c.id);
         sync.document.upsert(b.rtype, c.id);
         // Attaching or reconfiguring a behavior instantiates its signal graph —
         // same reasoning as the remove branch above. The refresh hands each

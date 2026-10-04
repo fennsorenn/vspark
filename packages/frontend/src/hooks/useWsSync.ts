@@ -2,7 +2,6 @@ import { useEffect, useRef } from 'react';
 import { useEditorStore } from '../store/editorStore';
 import { useAssistantStore } from '../store/assistantStore';
 import type { StageObject } from '../store/editorStore';
-import type { CameraEffectRecord } from '../api/client';
 import {
   mapComposeLayer,
   mapTrackClip,
@@ -162,38 +161,6 @@ export function useWsSync() {
             }
           } else if (msg.kind === 'node_removed') {
             useEditorStore.getState().deleteNode(msg.payload.id as string);
-          } else if (msg.kind === 'scene_removed') {
-            useEditorStore.getState().removeScene(msg.payload.id as string);
-          } else if (msg.kind === 'scene_updated') {
-            const p = msg.payload as {
-              id: string;
-              name?: string;
-              runtimeSettings?: Record<string, unknown>;
-            };
-            const patch: Record<string, unknown> = {};
-            if (p.name != null) patch.name = p.name;
-            if (p.runtimeSettings != null)
-              patch.runtimeSettings = p.runtimeSettings;
-            useEditorStore.getState().updateSceneItem(p.id, patch);
-          } else if (msg.kind === 'camera_effect_added') {
-            const p = msg.payload as Record<string, unknown>;
-            const effect: CameraEffectRecord = {
-              id: p.id as string,
-              nodeId: (p.node_id ?? p.nodeId) as string,
-              kind: p.kind as string,
-              enabled: Boolean(p.enabled),
-              config:
-                typeof p.config === 'string'
-                  ? JSON.parse(p.config)
-                  : ((p.config as Record<string, unknown>) ?? {}),
-            };
-            const store = useEditorStore.getState();
-            if (store.cameraEffects.every((e) => e.id !== effect.id))
-              store.addCameraEffect(effect);
-          } else if (msg.kind === 'camera_effect_removed') {
-            useEditorStore
-              .getState()
-              .removeCameraEffect(msg.payload.id as string);
           } else if (msg.kind === 'compose_layer_added') {
             const added = mapComposeLayer(msg.payload);
             if (added.kind === 'compose_scene') {

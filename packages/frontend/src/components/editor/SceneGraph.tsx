@@ -2247,7 +2247,6 @@ export function SceneGraph() {
     setBoneListExpanded,
     previewEffectsCamera,
     setPreviewEffectsCamera,
-    toggleNodeHidden,
     sceneSelected,
     setSceneSelected,
   } = useEditorStore();
@@ -3003,10 +3002,7 @@ export function SceneGraph() {
                 }}
                 onClick={(e) => {
                   e.stopPropagation();
-                  toggleNodeHidden(node.id);
-                  api
-                    .updateNode(node.id, { hidden: !isHidden })
-                    .catch(() => {});
+                  commitNodePatch(node.id, { hidden: !isHidden });
                 }}
               >
                 {isHidden ? <EyeOff size={13} /> : <Eye size={13} />}

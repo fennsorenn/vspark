@@ -30,6 +30,7 @@ import {
   commitDocPath,
   previewDocFields,
   previewDocPath,
+  readDocPath,
   type MeshDocAdapter,
 } from './writes';
 import { useEditorStore, type StageObject } from '../store/editorStore';
@@ -102,6 +103,9 @@ export const previewLayerFields = (
   id: string,
   patch: Record<string, unknown>
 ): void => previewDocFields(layers, id, patch);
+
+export const readLayerPath = (id: string, path: string): unknown =>
+  readDocPath(layers, id, path);
 
 export const previewLayerPath = (
   id: string,
