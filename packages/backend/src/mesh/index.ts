@@ -93,8 +93,9 @@ const TAB_AUTHORED: TabRights = {
   create: true,
   delete: true,
 };
-/** Tabs only display these; servers write them. */
-const TAB_READ: TabRights = { read: true };
+/** Servers write these; tabs display them and remove them only together with
+ *  the node they belong to. */
+const TAB_READ_DELETE: TabRights = { read: true, delete: true };
 
 const rowExists = (table: string, id: unknown): boolean =>
   !!getDb()
@@ -259,7 +260,9 @@ const BINDINGS: RtypeBinding[] = [
   },
   {
     rtype: 'animation_clip',
-    clients: TAB_READ,
+    // Tabs don't author clips, but deleting a node removes the clips imported
+    // from it (removeTree), and that delete is the tab's own action.
+    clients: TAB_READ_DELETE,
     table: 'animation_clips',
     // FBX/BVH imports → their source node, so scene-subtree grants and
     // subscriptions cover them cross-type like track clips.
@@ -321,7 +324,7 @@ const BINDINGS: RtypeBinding[] = [
   },
   {
     rtype: 'scheduled_animation',
-    clients: TAB_READ,
+    clients: TAB_READ_DELETE,
     table: 'scheduled_animations',
     // Timeline entry → its avatar node, so it rides the scene-subtree
     // grants/subscriptions cross-type. No per-server path: clipId is universal
@@ -591,6 +594,13 @@ function bindCollection(
         // these two rtypes can carry overrides (ParamTargetKind).
         if (b.rtype === 'scene_node' || b.rtype === 'compose_layer')
           runtimeOverrideManager.clearAllForTarget(b.rtype, c.id);
+        // Dependents first, while their rows still exist: a node's behaviors,
+        // effects, clips and graphs go through their collections (each with a
+        // tombstone) instead of being cascade-deleted by the database, which
+        // would leave their documents alive in every replica. A tab's delete
+        // usually removed them already in the same undo action — then this is
+        // a no-op.
+        peer.removeTree(c.id);
         if (b.persists && !rowExists(b.table, c.id)) return; // never persisted
         r.remove?.(c.id);
         if (c.v) saveTombstone(b.rtype, c.id, c.v, c.ancestors);

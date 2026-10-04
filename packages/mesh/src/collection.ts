@@ -103,6 +103,7 @@ export interface PeerCore {
   readonly clock: HlcClock;
   readonly channels: ChannelRegistry;
   localWrite<T extends object>(col: Collection<T>, w: LocalWrite): WriteHandle;
+  removeTree(rootId: string): WriteHandle[];
   request<T extends object>(
     col: Collection<T>,
     w: LocalWrite,
@@ -208,6 +209,13 @@ export class Collection<T extends object> {
       undo: opts?.undo,
       to: opts?.to,
     });
+  }
+
+  /** Remove `id` and everything under it in the cross-type containment tree
+   *  (child docs and the documents hanging off them), children first, as one
+   *  undo action. See {@link MeshPeer.removeTree}. */
+  removeTree(id: string): WriteHandle[] {
+    return this.peer.removeTree(id);
   }
 
   /** Send `data` to one participant on an unstamped channel (default

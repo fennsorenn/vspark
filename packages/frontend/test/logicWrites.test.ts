@@ -53,6 +53,10 @@ const logicCollection = {
     docs.delete(id);
     return { ack: Promise.resolve({ status: 'acked' }) };
   },
+  // A graph has nothing hanging off it: the tree is the doc itself.
+  removeTree(id: string) {
+    return [this.remove(id)];
+  },
 };
 
 vi.mock('../src/mesh/peer', () => ({

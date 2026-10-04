@@ -18,6 +18,7 @@ import {
 import { makeClientParticipantId } from '@vspark/shared/sync';
 import { makeTestApp } from './helpers/testApp.js';
 import {
+  getMeshCollection,
   getMeshPeer,
   initBackendMesh,
   resetBackendMesh,
@@ -228,3 +229,60 @@ function channelsOf(rtype: string): string[] | undefined {
   if (rtype === 'media_control') return ['control'];
   return undefined;
 }
+
+describe('removing a node through the mesh', () => {
+  let app: Express;
+
+  beforeEach(async () => {
+    ({ app } = await makeTestApp({ mesh: true }));
+  });
+
+  afterEach(() => resetBackendMesh());
+
+  it('leaves no live document for its behaviors (no ghosts)', async () => {
+    const proj = (await request(app).post('/api/projects').send({ name: 'P' }))
+      .body.data;
+    const scene = (
+      await request(app)
+        .post(`/api/projects/${proj.id}/scenes`)
+        .send({ name: 'S' })
+    ).body.data;
+    const node = (
+      await request(app)
+        .post(`/api/scenes/${scene.id}/nodes`)
+        .send({ name: 'Avatar', kind: 'group' })
+    ).body.data;
+    const beh = (
+      await request(app)
+        .post(`/api/scene-nodes/${node.id}/behaviors`)
+        .send({ kind: 'breathing' })
+    ).body.data;
+    expect(beh?.id).toBeTruthy();
+
+    const server = getMeshPeer()!;
+    const { peer, flush } = attach(makeClientParticipantId(server.id, 'tab1'));
+    const nodes = peer.collection<Dto>('scene_node', { authority: server.id });
+    const behaviors = peer.collection<Dto>('behavior', {
+      authority: server.id,
+      parent: (d) =>
+        typeof d.nodeId === 'string'
+          ? { rtype: 'scene_node', id: d.nodeId }
+          : null,
+    });
+    await peer.subscribe(server.id, everything('scene_node'));
+    await peer.subscribe(server.id, everything('behavior'));
+    expect(behaviors.get(beh.id)).toBeDefined();
+
+    // The tab deletes the node (what SceneGraph's delete does).
+    expect((await nodes.remove(node.id).ack).status).toBe('acked');
+    await flush();
+
+    const rowGone = !getDb()
+      .prepare('SELECT 1 FROM behaviors WHERE id = ?')
+      .get(beh.id);
+    expect(rowGone).toBe(true);
+    // The DOCUMENT must be gone too — on the server and on the tab.
+    expect(getMeshCollection('behavior')!.get(beh.id)).toBeUndefined();
+    expect(behaviors.get(beh.id)).toBeUndefined();
+  });
+});

@@ -367,6 +367,42 @@ export class MeshPeer implements PeerCore {
     }
   }
 
+  /** Remove `rootId` and every document under it in the (cross-type)
+   *  containment tree — children before parents — as ONE undo action.
+   *
+   *  Behaviors, effects, clips and graphs hang off the node they belong to, so
+   *  removing a node through this removes them too, each with its own
+   *  tombstone, and a single undo brings the whole tree back. Removing only
+   *  the root would leave its dependents alive in every replica with nothing
+   *  to delete them.
+   *
+   *  Only document collections take part (a retained channel with authority
+   *  acks); runtime state is cleaned up by whoever authored it. A root this
+   *  peer no longer holds is skipped, so this also sweeps the dependents of a
+   *  document that was just removed. */
+  removeTree(rootId: string): WriteHandle[] {
+    const order: string[] = [];
+    const seen = new Set<string>();
+    const walk = (id: string): void => {
+      if (seen.has(id)) return;
+      seen.add(id);
+      for (const c of this.index.childrenOf(id)) walk(c);
+      order.push(id);
+    };
+    walk(rootId);
+    return this.batch(() => {
+      const handles: WriteHandle[] = [];
+      for (const id of order) {
+        const rtype = this.index.rtypeOf(id);
+        const col = rtype ? this.collections.get(rtype) : undefined;
+        if (!col?.retainedChannel || !col.replica.has(id)) continue;
+        if (!this.channels.get(col.retainedChannel)?.ack) continue;
+        handles.push(col.remove(id));
+      }
+      return handles;
+    });
+  }
+
   canUndo(): boolean {
     return this.undoStack.length > 0;
   }

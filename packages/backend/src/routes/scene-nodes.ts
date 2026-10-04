@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { randomUUID } from 'crypto';
 import { getDb } from '../db/index.js';
-import { getMeshCollection } from '../mesh/index.js';
+import { getMeshCollection, getMeshPeer } from '../mesh/index.js';
 import { assertSceneInstanceValid } from '../mesh/docGuards.js';
 
 const router: ReturnType<typeof Router> = Router();
@@ -80,7 +80,11 @@ router.post('/scenes/:sceneId/nodes', async (req, res) => {
   // client-authored create is refused on exactly the same grounds.
   if (kind === 'scene_instance') {
     try {
-      assertSceneInstanceValid(rootSceneNodeId, sceneRow.project_id, properties);
+      assertSceneInstanceValid(
+        rootSceneNodeId,
+        sceneRow.project_id,
+        properties
+      );
     } catch (e) {
       return res.status(400).json({
         ok: false,
@@ -200,18 +204,16 @@ router.put('/scene-nodes/:id', async (req, res) => {
  *       200: { description: Deleted; broadcast as node_removed over WebSocket }
  */
 router.delete('/scene-nodes/:id', async (req, res) => {
-  // Mesh remove: the tap deletes the row (FK cascade takes the subtree),
-  // persists the HLC tombstone, and emits sync.document.remove. The old
-  // ancestor-route capture fed the deleted legacy share fan-out — the mesh
-  // resolves remove routing from its containment index before the entry dies.
-  const col = getMeshCollection('scene_node');
-  if (!col)
+  // The node, its child nodes and everything hanging off them (behaviors,
+  // effects, clips, graphs) go through the mesh as one tree removal, so each
+  // document gets its own tombstone and no replica keeps a dependent alive.
+  // Runtime overrides are cleared by the persistence tap.
+  const peer = getMeshPeer();
+  if (!peer)
     return res
       .status(500)
       .json({ ok: false, error: { message: 'store not ready' } });
-  // Runtime overrides are cleared by the mesh persistence tap, so a remove
-  // authored by a tab or a collab peer clears them too.
-  await col.remove(req.params.id).ack;
+  await Promise.all(peer.removeTree(req.params.id).map((h) => h.ack));
   res.json({ ok: true, data: {} });
 });
 
@@ -296,7 +298,8 @@ router.post('/scene-nodes/:nodeId/clips', async (req, res) => {
     return res
       .status(500)
       .json({ ok: false, error: { message: outcome.reason } });
-  if (existing) return res.json({ ok: true, data: { id, name, updated: true } });
+  if (existing)
+    return res.json({ ok: true, data: { id, name, updated: true } });
   res.status(201).json({ ok: true, data: { id, name } });
 });
 

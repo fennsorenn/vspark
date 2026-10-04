@@ -5,7 +5,7 @@ import { loadClip } from './track-clips.js';
 import { broadcastBus } from '../broadcast/bus.js';
 import { keyAfter } from '@vspark/shared/fracIndex';
 import { _ws } from './shared.js';
-import { getMeshCollection } from '../mesh/index.js';
+import { getMeshCollection, getMeshPeer } from '../mesh/index.js';
 import { getResource } from '../sync/registry.js';
 import { multiplayerManager } from '../multiplayer/manager.js';
 
@@ -477,49 +477,34 @@ router.delete('/scenes/:sceneId', (req, res) => {
   // 018 migration rebuild), so delete explicitly with enforcement off.
   db.exec('PRAGMA foreign_keys = OFF');
   try {
-    // Remove every scene node through the mesh store FIRST (while the rows
-    // still exist, so the persist tap's `persists` guard doesn't early-return):
-    // the tap deletes each row, persists its HLC tombstone, and emits the
-    // canonical remove so the replica + containment index + collab/share
-    // fan-out drop the scene. FK enforcement is off, so a parent remove can't
-    // cascade-delete a sibling out from under a later remove.
-    const nodeCol = getMeshCollection('scene_node');
-    for (const nid of nodeIds) nodeCol?.remove(nid);
+    // camera_view compose layers that target this scene's cameras: a
+    // reference, not containment, so the tree removal below can't see them.
+    // Removed through their collection while the rows still exist, so each
+    // gets its tombstone (the persist tap skips rows that are already gone).
+    const layerCol = getMeshCollection('compose_layer');
+    for (const nid of nodeIds)
+      for (const { id } of db
+        .prepare('SELECT id FROM compose_layers WHERE camera_node_id = ?')
+        .all(nid) as { id: string }[])
+        layerCol?.remove(id);
 
-    // The dependent rows go through their collections too, for the same reason
-    // the nodes do. A raw DELETE removes the row but leaves the DOCUMENT alive
-    // in the replica with no tombstone, so a tab that subscribes afterwards
-    // gets a snapshot full of behaviors / effects / layers / clips whose rows
-    // are gone. Only col.remove() writes the tombstone that suppresses them.
-    const dependents: { table: string; column: string; rtype: string }[] = [
-      { table: 'behaviors', column: 'node_id', rtype: 'behavior' },
-      { table: 'camera_effects', column: 'node_id', rtype: 'camera_effect' },
-      // camera_view compose layers that targeted this scene's cameras.
-      {
-        table: 'compose_layers',
-        column: 'camera_node_id',
-        rtype: 'compose_layer',
-      },
-      // Track clips owned by this node (scene root included).
-      { table: 'track_clips', column: 'owner_node_id', rtype: 'track_clip' },
-    ];
-    for (const { table, column, rtype } of dependents) {
-      const col = getMeshCollection(rtype);
-      for (const nid of nodeIds) {
-        // Read the ids BEFORE deleting: the persist tap's `persists` guard
-        // early-returns once the row is gone, so a remove issued after the
-        // DELETE would never write its tombstone.
-        const ids = (
-          db
-            .prepare(`SELECT id FROM ${table} WHERE ${column} = ?`)
-            .all(nid) as { id: string }[]
-        ).map((r) => r.id);
-        for (const id of ids) col?.remove(id);
-        // Safety net for the same reason as the scene_nodes sweep below: the
-        // mesh store may not be initialised in a bare context.
+    // Everything else hangs off the scene root in the containment tree —
+    // nodes, behaviors, effects, clips, graphs — and goes as one removal,
+    // children first, each document with its own tombstone. FK enforcement is
+    // off, so a parent row's delete can't cascade a dependent out from under
+    // its own remove.
+    getMeshPeer()?.removeTree(sceneId);
+
+    // Safety net for a bare context with no mesh store: drop the rows the
+    // removal above would have.
+    for (const { table, column } of [
+      { table: 'behaviors', column: 'node_id' },
+      { table: 'camera_effects', column: 'node_id' },
+      { table: 'compose_layers', column: 'camera_node_id' },
+      { table: 'track_clips', column: 'owner_node_id' },
+    ])
+      for (const nid of nodeIds)
         db.prepare(`DELETE FROM ${table} WHERE ${column} = ?`).run(nid);
-      }
-    }
     // Safety net: drop any scene_nodes row the store remove missed (e.g. the
     // mesh store not yet initialised in a bare context).
     db.prepare('DELETE FROM scene_nodes WHERE root_scene_node_id = ?').run(
