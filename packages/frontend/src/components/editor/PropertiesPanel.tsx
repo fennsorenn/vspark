@@ -1,7 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import {
-  commitBehaviorPatch,
-} from '../../mesh/behaviorWrites';
+import { commitBehaviorPatch } from '../../mesh/behaviorWrites';
 import { useTranslation } from 'react-i18next';
 import { HelpButton } from '../../help/HelpButton';
 import {
@@ -59,12 +57,9 @@ import {
   ComposeLayerProperties,
   ComposeSceneProperties,
 } from './ComposeLayerProperties';
-import type { AssetFile } from '../../api/client';
+import type { AssetFile, CameraEffectRecord } from '../../api/client';
 import { setLive2dConsent } from '../../lib/puppet2d/live2d/coreLoader';
-import type {
-  Live2dParamMap,
-  ParamMapEntry,
-} from '../../lib/live2dParamMap';
+import type { Live2dParamMap, ParamMapEntry } from '../../lib/live2dParamMap';
 import { MicCapture, type VowelTemplates } from '../../media/MicCapture';
 import { useTrackClipRecorder } from '../../hooks/useTrackClipRecorder';
 import { useMeshField } from '../../hooks/useMeshField';
@@ -117,6 +112,8 @@ import {
   type AlphaMode,
   type EmissiveMapMode,
 } from './materialOverrides';
+import { useCollection, useMeshDoc } from '@vspark/mesh-react';
+import { useCameraEffects } from '../../mesh/hooks';
 
 interface Transform {
   x: number;
@@ -1930,12 +1927,8 @@ function liveOrMetaList(
 
 function VmcReceiverProps({ comp }: { comp: Behavior }) {
   const { t } = useTranslation('properties');
-  const {
-    vrmMorphTargetsByNode,
-    vrmExpressionsByNode,
-    nodes,
-    assets,
-  } = useEditorStore();
+  const { vrmMorphTargetsByNode, vrmExpressionsByNode, nodes, assets } =
+    useEditorStore();
   const meta = assetMetaForNode(
     nodes.find((n) => n.id === comp.nodeId)?.filePath,
     assets
@@ -2261,12 +2254,8 @@ function VmcReceiverProps({ comp }: { comp: Behavior }) {
  */
 function IFacialMocapReceiverProps({ comp }: { comp: Behavior }) {
   const { t } = useTranslation('properties');
-  const {
-    vrmMorphTargetsByNode,
-    vrmExpressionsByNode,
-    nodes,
-    assets,
-  } = useEditorStore();
+  const { vrmMorphTargetsByNode, vrmExpressionsByNode, nodes, assets } =
+    useEditorStore();
   const meta = assetMetaForNode(
     nodes.find((n) => n.id === comp.nodeId)?.filePath,
     assets
@@ -3728,12 +3717,8 @@ function NameListEditor({
 
 function BlendshapeLimiterProps({ comp }: { comp: Behavior }) {
   const { t } = useTranslation('properties');
-  const {
-    vrmMorphTargetsByNode,
-    vrmExpressionsByNode,
-    nodes,
-    assets,
-  } = useEditorStore();
+  const { vrmMorphTargetsByNode, vrmExpressionsByNode, nodes, assets } =
+    useEditorStore();
 
   // Names the loaded model actually exposes — offered as datalist suggestions.
   const meta = assetMetaForNode(
@@ -4941,8 +4926,9 @@ function EffectRow({
 
 function EffectPanel({ effectId, kind }: { effectId: string; kind: string }) {
   const { t } = useTranslation('properties');
-  const effect = useEditorStore((s) =>
-    s.cameraEffects.find((e) => e.id === effectId)
+  const effect = useMeshDoc(
+    useCollection<CameraEffectRecord>('camera_effect'),
+    effectId
   );
 
   if (!effect) return null;
@@ -5956,8 +5942,8 @@ function Live2DProperties({ node }: { node: StageObject }) {
           >
             <span style={{ fontSize: 11, color: '#d9b873' }}>
               Live2D rendering uses the proprietary Cubism Core, fetched at
-              runtime from Live2D&apos;s CDN (never bundled). Accepting agrees to
-              the{' '}
+              runtime from Live2D&apos;s CDN (never bundled). Accepting agrees
+              to the{' '}
               <a
                 href="https://www.live2d.com/eula/live2d-proprietary-software-license-agreement_en.html"
                 target="_blank"
@@ -6091,7 +6077,8 @@ function Live2DProperties({ node }: { node: StageObject }) {
                 style={sel}
                 value=""
                 onChange={(ev) => {
-                  if (ev.target.value) setEntry(ev.target.value, { source: '' });
+                  if (ev.target.value)
+                    setEntry(ev.target.value, { source: '' });
                 }}
               >
                 <option value="">+ add parameter override…</option>
@@ -6128,7 +6115,6 @@ export function PropertiesPanel() {
     vrmExpressionsByNode,
     vrmMorphTargetsByNode,
     behaviorKinds,
-    cameraEffects,
     selectedEffect,
     scenes,
     activeSceneId,
@@ -6151,11 +6137,9 @@ export function PropertiesPanel() {
   const selectedCompType = selectedBehavior
     ? behaviorKinds.find((ct) => ct.kind === selectedBehavior.kind)
     : null;
+  const selectedNodeEffects = useCameraEffects(selectedEffect?.nodeId);
   const selectedEffectRecord = selectedEffect
-    ? cameraEffects.find(
-        (e) =>
-          e.nodeId === selectedEffect.nodeId && e.kind === selectedEffect.kind
-      )
+    ? selectedNodeEffects.find((e) => e.kind === selectedEffect.kind)
     : null;
   const selectedEffectNode = selectedEffect
     ? nodes.find((n) => n.id === selectedEffect.nodeId)

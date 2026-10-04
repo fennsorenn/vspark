@@ -79,7 +79,6 @@ export function Editor() {
     setAssets,
     setBehaviors,
     setBehaviorKinds,
-    setCameraEffects,
     setComposeLayers,
     setComposeScenes,
     selectComposeScene,
@@ -234,42 +233,32 @@ export function Editor() {
 
     api
       .getScenes(projectId)
-      .then(
-        ({
-          scenes,
-          nodes,
-          behaviors,
-          cameraEffects,
-          composeLayers,
-          trackClips,
-        }) => {
-          // Rows another tab removed while this load was in flight stay
-          // removed (see withoutRemoved).
-          setScenes(withoutRemoved('scene_node', scenes));
-          setBehaviors(withoutRemoved('behavior', behaviors));
-          setCameraEffects(withoutRemoved('camera_effect', cameraEffects));
-          // Separate compose_scene layers from regular layers
-          const liveLayers = withoutRemoved('compose_layer', composeLayers);
-          const composeSceneItems = liveLayers.filter(
-            (l) => l.kind === 'compose_scene'
-          );
-          const regularLayers = liveLayers.filter(
-            (l) => l.kind !== 'compose_scene'
-          );
-          setComposeScenes(composeSceneItems);
-          setComposeLayers(regularLayers);
-          if (composeSceneItems.length > 0) {
-            selectComposeScene(composeSceneItems[0].id);
-          }
-          setTrackClips(withoutRemoved('track_clip', trackClips));
-          // Load every scene's nodes so the dock can render all scenes as
-          // collapsible roots; the viewport still renders only the active scene.
-          setNodes(withoutRemoved('scene_node', nodes));
-          if (scenes.length > 0) {
-            setActiveScene(scenes[0].id);
-          }
+      .then(({ scenes, nodes, behaviors, composeLayers, trackClips }) => {
+        // Rows another tab removed while this load was in flight stay
+        // removed (see withoutRemoved).
+        setScenes(withoutRemoved('scene_node', scenes));
+        setBehaviors(withoutRemoved('behavior', behaviors));
+        // Separate compose_scene layers from regular layers
+        const liveLayers = withoutRemoved('compose_layer', composeLayers);
+        const composeSceneItems = liveLayers.filter(
+          (l) => l.kind === 'compose_scene'
+        );
+        const regularLayers = liveLayers.filter(
+          (l) => l.kind !== 'compose_scene'
+        );
+        setComposeScenes(composeSceneItems);
+        setComposeLayers(regularLayers);
+        if (composeSceneItems.length > 0) {
+          selectComposeScene(composeSceneItems[0].id);
         }
-      );
+        setTrackClips(withoutRemoved('track_clip', trackClips));
+        // Load every scene's nodes so the dock can render all scenes as
+        // collapsible roots; the viewport still renders only the active scene.
+        setNodes(withoutRemoved('scene_node', nodes));
+        if (scenes.length > 0) {
+          setActiveScene(scenes[0].id);
+        }
+      });
 
     api
       .getAssets(projectId)
@@ -287,7 +276,6 @@ export function Editor() {
     setNodes,
     setAssets,
     setBehaviors,
-    setCameraEffects,
     setComposeLayers,
     setTrackClips,
     setOverliveAccounts,

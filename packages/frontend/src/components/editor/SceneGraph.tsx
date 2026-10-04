@@ -86,7 +86,9 @@ import {
 function KindIcon({ kind, size = 14 }: { kind: string; size?: number }) {
   const Ico = NODE_KIND_ICON[kind] ?? NODE_KIND_FALLBACK;
   return (
-    <span style={{ display: 'inline-flex', alignItems: 'center', flexShrink: 0 }}>
+    <span
+      style={{ display: 'inline-flex', alignItems: 'center', flexShrink: 0 }}
+    >
       <Ico size={size} />
     </span>
   );
@@ -96,7 +98,9 @@ function KindIcon({ kind, size = 14 }: { kind: string; size?: number }) {
 function BehaviorIcon({ kind, size = 14 }: { kind?: string; size?: number }) {
   const Ico = (kind && BEHAVIOR_ICON[kind]) || BEHAVIOR_FALLBACK;
   return (
-    <span style={{ display: 'inline-flex', alignItems: 'center', flexShrink: 0 }}>
+    <span
+      style={{ display: 'inline-flex', alignItems: 'center', flexShrink: 0 }}
+    >
       <Ico size={size} />
     </span>
   );
@@ -118,7 +122,7 @@ function MergedSections({
 }) {
   const { t } = useTranslation('sceneGraph');
   const behaviorsFor = useEditorStore((s) => s.behaviorsFor);
-  const cameraEffectsFor = useEditorStore((s) => s.cameraEffectsFor);
+  const nodeEffects = useCameraEffects(nodeId);
   const trackClips = useEditorStore((s) => s.trackClips);
   const behaviorKinds = useEditorStore((s) => s.behaviorKinds);
   const nodeKind = useEditorStore(
@@ -136,10 +140,9 @@ function MergedSections({
         (c) => !CAMERA_EFFECT_KINDS.some((k) => k.kind === c.kind)
       )
     : [];
-  const effects = include.effects && isCamera ? cameraEffectsFor(nodeId) : [];
+  const effects = include.effects && isCamera ? nodeEffects : [];
   const clips = trackClips.filter((c) => c.ownerNodeId === nodeId);
-  const total =
-    behaviors.length + effects.length + clips.length + logicCount;
+  const total = behaviors.length + effects.length + clips.length + logicCount;
 
   const addBehaviorKind = async (ct: (typeof behaviorKinds)[number]) => {
     const comp = {
@@ -405,7 +408,11 @@ function ShareWithMenuItem({
             >
               <span>{t('context.shareCanEdit')}</span>
               <span style={{ display: 'inline-flex', alignItems: 'center' }}>
-                {shareWithEdit ? <SquareCheck size={14} /> : <Square size={14} />}
+                {shareWithEdit ? (
+                  <SquareCheck size={14} />
+                ) : (
+                  <Square size={14} />
+                )}
               </span>
             </div>
           )}
@@ -1183,132 +1190,134 @@ function BehaviorsSection({
 
       {/* Add / paste component buttons */}
       {!flat && (
-      <div
-        style={{
-          position: 'relative',
-          padding: '3px 6px',
-          display: 'flex',
-          gap: 6,
-        }}
-      >
-        <button
+        <div
           style={{
-            background: 'none',
-            border: '1px dashed #2a2a2a',
-            borderRadius: 4,
-            color: '#555',
-            cursor: 'pointer',
-            fontSize: 11,
-            padding: '2px 8px',
-            flex: 1,
-            textAlign: 'left',
+            position: 'relative',
+            padding: '3px 6px',
+            display: 'flex',
+            gap: 6,
           }}
-          onClick={() => setShowAddMenu((v) => !v)}
         >
-          {t('behaviors.addButton')}
-        </button>
-        {canPasteBehavior && (
           <button
-            title={t('behaviors.pasteTitle')}
-            onClick={handlePasteBehavior}
             style={{
               background: 'none',
-              border: '1px dashed #3a5a4a',
+              border: '1px dashed #2a2a2a',
               borderRadius: 4,
-              color: '#9bc090',
+              color: '#555',
               cursor: 'pointer',
               fontSize: 11,
               padding: '2px 8px',
+              flex: 1,
+              textAlign: 'left',
             }}
+            onClick={() => setShowAddMenu((v) => !v)}
           >
-            {t('behaviors.pasteButton')}
+            {t('behaviors.addButton')}
           </button>
-        )}
-        {showAddMenu && (
-          <div
-            ref={menuRef}
-            style={{
-              position: 'absolute',
-              left: 6,
-              bottom: '100%',
-              marginBottom: 2,
-              background: '#1e1e1e',
-              border: '1px solid #3a3a3a',
-              borderRadius: 6,
-              minWidth: 200,
-              zIndex: 1000,
-              boxShadow: '0 4px 16px rgba(0,0,0,0.5)',
-              overflow: 'hidden',
-            }}
-          >
-            {(() => {
-              // Show components compatible with this node's kind first, then a
-              // separated "Other" group for the rest (still addable).
-              const item = (
-                ct: (typeof behaviorKinds)[number],
-                dimmed: boolean
-              ) => (
-                <div
-                  key={ct.kind}
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: 8,
-                    padding: '7px 12px',
-                    cursor: 'pointer',
-                    fontSize: 12,
-                    color: '#e0e0e0',
-                    opacity: dimmed ? 0.5 : 1,
-                  }}
-                  onMouseEnter={(e) =>
-                    ((e.currentTarget as HTMLDivElement).style.background =
-                      '#2a2a2a')
-                  }
-                  onMouseLeave={(e) =>
-                    ((e.currentTarget as HTMLDivElement).style.background =
-                      'transparent')
-                  }
-                  onClick={() => handleAdd(ct)}
-                >
-                  <BehaviorIcon kind={ct.kind} size={16} />
-                  <div>
-                    <div style={{ fontWeight: 500 }}>{ct.label}</div>
-                    <div style={{ fontSize: 10, color: '#666', marginTop: 1 }}>
-                      {ct.description}
+          {canPasteBehavior && (
+            <button
+              title={t('behaviors.pasteTitle')}
+              onClick={handlePasteBehavior}
+              style={{
+                background: 'none',
+                border: '1px dashed #3a5a4a',
+                borderRadius: 4,
+                color: '#9bc090',
+                cursor: 'pointer',
+                fontSize: 11,
+                padding: '2px 8px',
+              }}
+            >
+              {t('behaviors.pasteButton')}
+            </button>
+          )}
+          {showAddMenu && (
+            <div
+              ref={menuRef}
+              style={{
+                position: 'absolute',
+                left: 6,
+                bottom: '100%',
+                marginBottom: 2,
+                background: '#1e1e1e',
+                border: '1px solid #3a3a3a',
+                borderRadius: 6,
+                minWidth: 200,
+                zIndex: 1000,
+                boxShadow: '0 4px 16px rgba(0,0,0,0.5)',
+                overflow: 'hidden',
+              }}
+            >
+              {(() => {
+                // Show components compatible with this node's kind first, then a
+                // separated "Other" group for the rest (still addable).
+                const item = (
+                  ct: (typeof behaviorKinds)[number],
+                  dimmed: boolean
+                ) => (
+                  <div
+                    key={ct.kind}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 8,
+                      padding: '7px 12px',
+                      cursor: 'pointer',
+                      fontSize: 12,
+                      color: '#e0e0e0',
+                      opacity: dimmed ? 0.5 : 1,
+                    }}
+                    onMouseEnter={(e) =>
+                      ((e.currentTarget as HTMLDivElement).style.background =
+                        '#2a2a2a')
+                    }
+                    onMouseLeave={(e) =>
+                      ((e.currentTarget as HTMLDivElement).style.background =
+                        'transparent')
+                    }
+                    onClick={() => handleAdd(ct)}
+                  >
+                    <BehaviorIcon kind={ct.kind} size={16} />
+                    <div>
+                      <div style={{ fontWeight: 500 }}>{ct.label}</div>
+                      <div
+                        style={{ fontSize: 10, color: '#666', marginTop: 1 }}
+                      >
+                        {ct.description}
+                      </div>
                     </div>
                   </div>
-                </div>
-              );
-              const compatible = behaviorKinds.filter((ct) =>
-                behaviorCompatibleWith(ct.applicableTo, nodeKind)
-              );
-              const incompatible = behaviorKinds.filter(
-                (ct) => !behaviorCompatibleWith(ct.applicableTo, nodeKind)
-              );
-              return (
-                <>
-                  {compatible.map((ct) => item(ct, false))}
-                  {incompatible.length > 0 && (
-                    <div
-                      style={{
-                        padding: '4px 12px',
-                        fontSize: 9,
-                        color: '#555',
-                        textTransform: 'uppercase',
-                        letterSpacing: 0.5,
-                        borderTop: '1px solid #2a2a2a',
-                      }}
-                    >
-                      {t('behaviors.other')}
-                    </div>
-                  )}
-                  {incompatible.map((ct) => item(ct, true))}
-                </>
-              );
-            })()}
-          </div>
-        )}
-      </div>
+                );
+                const compatible = behaviorKinds.filter((ct) =>
+                  behaviorCompatibleWith(ct.applicableTo, nodeKind)
+                );
+                const incompatible = behaviorKinds.filter(
+                  (ct) => !behaviorCompatibleWith(ct.applicableTo, nodeKind)
+                );
+                return (
+                  <>
+                    {compatible.map((ct) => item(ct, false))}
+                    {incompatible.length > 0 && (
+                      <div
+                        style={{
+                          padding: '4px 12px',
+                          fontSize: 9,
+                          color: '#555',
+                          textTransform: 'uppercase',
+                          letterSpacing: 0.5,
+                          borderTop: '1px solid #2a2a2a',
+                        }}
+                      >
+                        {t('behaviors.other')}
+                      </div>
+                    )}
+                    {incompatible.map((ct) => item(ct, true))}
+                  </>
+                );
+              })()}
+            </div>
+          )}
+        </div>
       )}
       {ctxMenu && (
         <ContextMenu
@@ -1351,7 +1360,7 @@ function CameraEffectsSection({
   flat?: boolean;
 }) {
   const { t } = useTranslation('sceneGraph');
-  const cameraEffectsFor = useEditorStore((s) => s.cameraEffectsFor);
+  const effects = useCameraEffects(nodeId);
   const selectedEffect = useEditorStore((s) => s.selectedEffect);
   const selectEffect = useEditorStore((s) => s.selectEffect);
   const clearSelectedEffect = useEditorStore((s) => s.clearSelectedEffect);
@@ -1363,8 +1372,6 @@ function CameraEffectsSection({
     y: number;
     effect: import('../../store/editorStore').CameraEffectRecord;
   } | null>(null);
-
-  const effects = cameraEffectsFor(nodeId);
 
   const handleCopyEffect = async (
     effect: import('../../store/editorStore').CameraEffectRecord
@@ -1512,10 +1519,15 @@ function CameraEffectsSection({
             }}
           >
             <span
-              style={{ display: 'inline-flex', alignItems: 'center', flexShrink: 0 }}
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                flexShrink: 0,
+              }}
             >
               {(() => {
-                const I = CAMERA_EFFECT_ICON[effect.kind] ?? CAMERA_EFFECT_FALLBACK;
+                const I =
+                  CAMERA_EFFECT_ICON[effect.kind] ?? CAMERA_EFFECT_FALLBACK;
                 return <I size={13} />;
               })()}
             </span>
@@ -1553,121 +1565,124 @@ function CameraEffectsSection({
         );
       })}
       {!flat && (
-      <div
-        style={{
-          position: 'relative',
-          padding: '3px 6px',
-          display: 'flex',
-          gap: 6,
-        }}
-      >
-        <button
+        <div
           style={{
-            background: 'none',
-            border: '1px dashed #1e1e2e',
-            borderRadius: 4,
-            color: '#555',
-            cursor: 'pointer',
-            fontSize: 11,
-            padding: '2px 8px',
-            flex: 1,
-            textAlign: 'left',
+            position: 'relative',
+            padding: '3px 6px',
+            display: 'flex',
+            gap: 6,
           }}
-          onClick={() => setShowAddMenu((v) => !v)}
         >
-          {t('effects.addButton')}
-        </button>
-        {canPasteEffect && (
           <button
-            title={t('effects.pasteTitle')}
-            onClick={handlePasteEffect}
             style={{
               background: 'none',
-              border: '1px dashed #3a5a4a',
+              border: '1px dashed #1e1e2e',
               borderRadius: 4,
-              color: '#9bc090',
+              color: '#555',
               cursor: 'pointer',
               fontSize: 11,
               padding: '2px 8px',
+              flex: 1,
+              textAlign: 'left',
             }}
+            onClick={() => setShowAddMenu((v) => !v)}
           >
-            {t('effects.pasteButton')}
+            {t('effects.addButton')}
           </button>
-        )}
-        {showAddMenu && (
-          <div
-            ref={menuRef}
-            style={{
-              position: 'absolute',
-              left: 6,
-              bottom: '100%',
-              marginBottom: 2,
-              background: '#1e1e1e',
-              border: '1px solid #3a3a3a',
-              borderRadius: 6,
-              minWidth: 180,
-              zIndex: 1000,
-              boxShadow: '0 4px 16px rgba(0,0,0,0.5)',
-              overflow: 'hidden',
-            }}
-          >
-            {CAMERA_EFFECT_KINDS.map((ek) => {
-              const alreadyAdded = effects.some((e) => e.kind === ek.kind);
-              return (
-                <div
-                  key={ek.kind}
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: 8,
-                    padding: '7px 12px',
-                    cursor: alreadyAdded ? 'default' : 'pointer',
-                    fontSize: 12,
-                    color: alreadyAdded ? '#444' : '#e0e0e0',
-                  }}
-                  onMouseEnter={(e) => {
-                    if (!alreadyAdded)
-                      (e.currentTarget as HTMLDivElement).style.background =
-                        '#2a2a2a';
-                  }}
-                  onMouseLeave={(e) => {
-                    (e.currentTarget as HTMLDivElement).style.background =
-                      'transparent';
-                  }}
-                  onClick={() => {
-                    if (!alreadyAdded) handleAdd(ek);
-                  }}
-                >
-                  <span
+          {canPasteEffect && (
+            <button
+              title={t('effects.pasteTitle')}
+              onClick={handlePasteEffect}
+              style={{
+                background: 'none',
+                border: '1px dashed #3a5a4a',
+                borderRadius: 4,
+                color: '#9bc090',
+                cursor: 'pointer',
+                fontSize: 11,
+                padding: '2px 8px',
+              }}
+            >
+              {t('effects.pasteButton')}
+            </button>
+          )}
+          {showAddMenu && (
+            <div
+              ref={menuRef}
+              style={{
+                position: 'absolute',
+                left: 6,
+                bottom: '100%',
+                marginBottom: 2,
+                background: '#1e1e1e',
+                border: '1px solid #3a3a3a',
+                borderRadius: 6,
+                minWidth: 180,
+                zIndex: 1000,
+                boxShadow: '0 4px 16px rgba(0,0,0,0.5)',
+                overflow: 'hidden',
+              }}
+            >
+              {CAMERA_EFFECT_KINDS.map((ek) => {
+                const alreadyAdded = effects.some((e) => e.kind === ek.kind);
+                return (
+                  <div
+                    key={ek.kind}
                     style={{
-                      display: 'inline-flex',
+                      display: 'flex',
                       alignItems: 'center',
-                      flexShrink: 0,
+                      gap: 8,
+                      padding: '7px 12px',
+                      cursor: alreadyAdded ? 'default' : 'pointer',
+                      fontSize: 12,
+                      color: alreadyAdded ? '#444' : '#e0e0e0',
+                    }}
+                    onMouseEnter={(e) => {
+                      if (!alreadyAdded)
+                        (e.currentTarget as HTMLDivElement).style.background =
+                          '#2a2a2a';
+                    }}
+                    onMouseLeave={(e) => {
+                      (e.currentTarget as HTMLDivElement).style.background =
+                        'transparent';
+                    }}
+                    onClick={() => {
+                      if (!alreadyAdded) handleAdd(ek);
                     }}
                   >
-                    {(() => {
-                      const I = CAMERA_EFFECT_ICON[ek.kind] ?? CAMERA_EFFECT_FALLBACK;
-                      return <I size={15} />;
-                    })()}
-                  </span>
-                  <div>
-                    <div style={{ fontWeight: 500 }}>
-                      {t(`kinds:effect.${ek.kind}.label`, {
-                        defaultValue: ek.label,
-                      })}
-                    </div>
-                    <div style={{ fontSize: 10, color: '#666', marginTop: 1 }}>
-                      {t(`kinds:effect.${ek.kind}.description`, {
-                        defaultValue: ek.description,
-                      })}
+                    <span
+                      style={{
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        flexShrink: 0,
+                      }}
+                    >
+                      {(() => {
+                        const I =
+                          CAMERA_EFFECT_ICON[ek.kind] ?? CAMERA_EFFECT_FALLBACK;
+                        return <I size={15} />;
+                      })()}
+                    </span>
+                    <div>
+                      <div style={{ fontWeight: 500 }}>
+                        {t(`kinds:effect.${ek.kind}.label`, {
+                          defaultValue: ek.label,
+                        })}
+                      </div>
+                      <div
+                        style={{ fontSize: 10, color: '#666', marginTop: 1 }}
+                      >
+                        {t(`kinds:effect.${ek.kind}.description`, {
+                          defaultValue: ek.description,
+                        })}
+                      </div>
                     </div>
                   </div>
-                </div>
-              );
-            })}
-          </div>
-        )}
-      </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
       )}
       {ctxMenu && (
         <ContextMenu
@@ -1707,6 +1722,7 @@ const formatBoneName = (name: string) =>
 // ---------- Graph list panel ----------
 import type { GraphDescriptor } from '@vspark/shared/signal';
 import type { LogicRecord, ScopedLogicRecord } from '../../api/client';
+import { useCameraEffects } from '../../mesh/hooks';
 
 function LogicListPanel() {
   const { t } = useTranslation('sceneGraph');

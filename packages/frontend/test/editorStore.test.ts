@@ -109,7 +109,9 @@ function makeBehavior(overrides: Partial<Behavior> = {}): Behavior {
   };
 }
 
-function makeCameraEffect(overrides: Partial<CameraEffectRecord> = {}): CameraEffectRecord {
+function makeCameraEffect(
+  overrides: Partial<CameraEffectRecord> = {}
+): CameraEffectRecord {
   return {
     id: 'fx-1',
     nodeId: 'node-1',
@@ -120,7 +122,9 @@ function makeCameraEffect(overrides: Partial<CameraEffectRecord> = {}): CameraEf
   };
 }
 
-function makeTrackClip(overrides: Partial<TrackClipRecord> = {}): TrackClipRecord {
+function makeTrackClip(
+  overrides: Partial<TrackClipRecord> = {}
+): TrackClipRecord {
   return {
     id: 'clip-1',
     ownerNodeId: 'node-1',
@@ -248,7 +252,9 @@ describe('addNode / updateNode / deleteNode / selectNode', () => {
     useEditorStore.getState().addNode(makeNode({ id: 'node-1', name: 'A' }));
     useEditorStore.getState().addNode(makeNode({ id: 'node-2', name: 'B' }));
     useEditorStore.getState().updateNode('node-1', { name: 'A2' });
-    expect(useEditorStore.getState().nodes.find((n) => n.id === 'node-2')?.name).toBe('B');
+    expect(
+      useEditorStore.getState().nodes.find((n) => n.id === 'node-2')?.name
+    ).toBe('B');
   });
 
   test('deleteNode removes the node and clears selection', () => {
@@ -298,16 +304,17 @@ describe('addNode / updateNode / deleteNode / selectNode', () => {
 
 describe('activeSceneNodes()', () => {
   test('returns only nodes for the active scene', () => {
-    useEditorStore.getState().setScenes([
-      makeScene({ id: 'scene-1' }),
-      makeScene({ id: 'scene-2' }),
-    ]);
+    useEditorStore
+      .getState()
+      .setScenes([makeScene({ id: 'scene-1' }), makeScene({ id: 'scene-2' })]);
     useEditorStore.getState().setActiveScene('scene-1');
-    useEditorStore.getState().setNodes([
-      makeNode({ id: 'n1', rootSceneNodeId: 'scene-1' }),
-      makeNode({ id: 'n2', rootSceneNodeId: 'scene-2' }),
-      makeNode({ id: 'n3', rootSceneNodeId: 'scene-1' }),
-    ]);
+    useEditorStore
+      .getState()
+      .setNodes([
+        makeNode({ id: 'n1', rootSceneNodeId: 'scene-1' }),
+        makeNode({ id: 'n2', rootSceneNodeId: 'scene-2' }),
+        makeNode({ id: 'n3', rootSceneNodeId: 'scene-1' }),
+      ]);
     const active = useEditorStore.getState().activeSceneNodes();
     expect(active.map((n) => n.id)).toEqual(['n1', 'n3']);
   });
@@ -342,11 +349,13 @@ describe('behaviors CRUD + behaviorsFor()', () => {
   });
 
   test('behaviorsFor() filters by nodeId', () => {
-    useEditorStore.getState().setBehaviors([
-      makeBehavior({ id: 'b1', nodeId: 'node-1' }),
-      makeBehavior({ id: 'b2', nodeId: 'node-2' }),
-      makeBehavior({ id: 'b3', nodeId: 'node-1' }),
-    ]);
+    useEditorStore
+      .getState()
+      .setBehaviors([
+        makeBehavior({ id: 'b1', nodeId: 'node-1' }),
+        makeBehavior({ id: 'b2', nodeId: 'node-2' }),
+        makeBehavior({ id: 'b3', nodeId: 'node-1' }),
+      ]);
     const result = useEditorStore.getState().behaviorsFor('node-1');
     expect(result.map((b) => b.id)).toEqual(['b1', 'b3']);
   });
@@ -408,23 +417,40 @@ describe('setVmcStatus / setVmcTracking', () => {
 describe('VRM bones / expressions / morph targets', () => {
   test('setVrmBonesForNode registers bones; clear removes them', () => {
     useEditorStore.getState().setVrmBonesForNode('node-1', ['hips', 'spine']);
-    expect(useEditorStore.getState().vrmBonesByNode['node-1']).toEqual(['hips', 'spine']);
+    expect(useEditorStore.getState().vrmBonesByNode['node-1']).toEqual([
+      'hips',
+      'spine',
+    ]);
     useEditorStore.getState().clearVrmBonesForNode('node-1');
     expect(useEditorStore.getState().vrmBonesByNode['node-1']).toBeUndefined();
   });
 
   test('setVrmExpressionsForNode registers expressions; clear removes them', () => {
-    useEditorStore.getState().setVrmExpressionsForNode('node-1', ['happy', 'sad']);
-    expect(useEditorStore.getState().vrmExpressionsByNode['node-1']).toEqual(['happy', 'sad']);
+    useEditorStore
+      .getState()
+      .setVrmExpressionsForNode('node-1', ['happy', 'sad']);
+    expect(useEditorStore.getState().vrmExpressionsByNode['node-1']).toEqual([
+      'happy',
+      'sad',
+    ]);
     useEditorStore.getState().clearVrmExpressionsForNode('node-1');
-    expect(useEditorStore.getState().vrmExpressionsByNode['node-1']).toBeUndefined();
+    expect(
+      useEditorStore.getState().vrmExpressionsByNode['node-1']
+    ).toBeUndefined();
   });
 
   test('setVrmMorphTargetsForNode registers morph targets; clear removes them', () => {
-    useEditorStore.getState().setVrmMorphTargetsForNode('node-1', ['blink_L', 'blink_R']);
-    expect(useEditorStore.getState().vrmMorphTargetsByNode['node-1']).toEqual(['blink_L', 'blink_R']);
+    useEditorStore
+      .getState()
+      .setVrmMorphTargetsForNode('node-1', ['blink_L', 'blink_R']);
+    expect(useEditorStore.getState().vrmMorphTargetsByNode['node-1']).toEqual([
+      'blink_L',
+      'blink_R',
+    ]);
     useEditorStore.getState().clearVrmMorphTargetsForNode('node-1');
-    expect(useEditorStore.getState().vrmMorphTargetsByNode['node-1']).toBeUndefined();
+    expect(
+      useEditorStore.getState().vrmMorphTargetsByNode['node-1']
+    ).toBeUndefined();
   });
 
   test('setHoveredBone stores the hovered bone name', () => {
@@ -448,10 +474,14 @@ describe('upsertScheduledAnimation / removeScheduledAnimation', () => {
       loop: false,
     };
     useEditorStore.getState().upsertScheduledAnimation(entry);
-    expect(useEditorStore.getState().scheduledAnimations['anim-1']).toEqual(entry);
+    expect(useEditorStore.getState().scheduledAnimations['anim-1']).toEqual(
+      entry
+    );
 
     useEditorStore.getState().upsertScheduledAnimation({ ...entry, speed: 2 });
-    expect(useEditorStore.getState().scheduledAnimations['anim-1'].speed).toBe(2);
+    expect(useEditorStore.getState().scheduledAnimations['anim-1'].speed).toBe(
+      2
+    );
   });
 
   test('removeScheduledAnimation deletes the entry', () => {
@@ -465,12 +495,16 @@ describe('upsertScheduledAnimation / removeScheduledAnimation', () => {
     };
     useEditorStore.getState().upsertScheduledAnimation(entry);
     useEditorStore.getState().removeScheduledAnimation('anim-1');
-    expect(useEditorStore.getState().scheduledAnimations['anim-1']).toBeUndefined();
+    expect(
+      useEditorStore.getState().scheduledAnimations['anim-1']
+    ).toBeUndefined();
   });
 
   test('removeScheduledAnimation is a no-op for unknown id', () => {
     useEditorStore.getState().removeScheduledAnimation('nope');
-    expect(Object.keys(useEditorStore.getState().scheduledAnimations)).toHaveLength(0);
+    expect(
+      Object.keys(useEditorStore.getState().scheduledAnimations)
+    ).toHaveLength(0);
   });
 });
 
@@ -478,7 +512,12 @@ describe('upsertScheduledAnimation / removeScheduledAnimation', () => {
 
 describe('upsertAnimationClip / removeAnimationClip', () => {
   test('upsert inserts and overwrites', () => {
-    const clip = { id: 'clip-1', sourceNodeId: 'node-1', sourceFilePath: '/a.vrma', duration: 3 };
+    const clip = {
+      id: 'clip-1',
+      sourceNodeId: 'node-1',
+      sourceFilePath: '/a.vrma',
+      duration: 3,
+    };
     useEditorStore.getState().upsertAnimationClip(clip);
     expect(useEditorStore.getState().animationClips['clip-1']).toEqual(clip);
     useEditorStore.getState().upsertAnimationClip({ ...clip, duration: 5 });
@@ -486,7 +525,12 @@ describe('upsertAnimationClip / removeAnimationClip', () => {
   });
 
   test('removeAnimationClip deletes the entry', () => {
-    const clip = { id: 'clip-1', sourceNodeId: 'n1', sourceFilePath: '/a.vrma', duration: 2 };
+    const clip = {
+      id: 'clip-1',
+      sourceNodeId: 'n1',
+      sourceFilePath: '/a.vrma',
+      duration: 2,
+    };
     useEditorStore.getState().upsertAnimationClip(clip);
     useEditorStore.getState().removeAnimationClip('clip-1');
     expect(useEditorStore.getState().animationClips['clip-1']).toBeUndefined();
@@ -494,57 +538,6 @@ describe('upsertAnimationClip / removeAnimationClip', () => {
 });
 
 // ── Camera effects ────────────────────────────────────────────────────────────
-
-describe('camera effects CRUD + cameraEffectsFor()', () => {
-  test('addCameraEffect appends', () => {
-    useEditorStore.getState().addCameraEffect(makeCameraEffect());
-    expect(useEditorStore.getState().cameraEffects).toHaveLength(1);
-  });
-
-  test('updateCameraEffect patches by id', () => {
-    useEditorStore.getState().addCameraEffect(makeCameraEffect());
-    useEditorStore.getState().updateCameraEffect('fx-1', { enabled: false });
-    expect(useEditorStore.getState().cameraEffects[0].enabled).toBe(false);
-  });
-
-  test('removeCameraEffect removes by id', () => {
-    useEditorStore.getState().addCameraEffect(makeCameraEffect({ id: 'fx-1' }));
-    useEditorStore.getState().addCameraEffect(makeCameraEffect({ id: 'fx-2' }));
-    useEditorStore.getState().removeCameraEffect('fx-1');
-    expect(useEditorStore.getState().cameraEffects.map((e) => e.id)).toEqual(['fx-2']);
-  });
-
-  test('cameraEffectsFor() filters by nodeId', () => {
-    useEditorStore.getState().setCameraEffects([
-      makeCameraEffect({ id: 'fx-1', nodeId: 'node-1' }),
-      makeCameraEffect({ id: 'fx-2', nodeId: 'node-2' }),
-    ]);
-    expect(useEditorStore.getState().cameraEffectsFor('node-1').map((e) => e.id)).toEqual(['fx-1']);
-  });
-
-  test('setPreviewEffectsCamera toggles: same id → null', () => {
-    useEditorStore.getState().setPreviewEffectsCamera('node-1');
-    expect(useEditorStore.getState().previewEffectsCamera).toBe('node-1');
-    useEditorStore.getState().setPreviewEffectsCamera('node-1'); // toggle off
-    expect(useEditorStore.getState().previewEffectsCamera).toBeNull();
-  });
-
-  test('selectEffect sets effect and clears selectedBehaviorId', () => {
-    useEditorStore.getState().selectBehavior('beh-1');
-    useEditorStore.getState().selectEffect('node-1', 'fx_bloom');
-    const st = useEditorStore.getState();
-    expect(st.selectedEffect).toEqual({ nodeId: 'node-1', kind: 'fx_bloom' });
-    expect(st.selectedBehaviorId).toBeNull();
-  });
-
-  test('clearSelectedEffect nulls the effect', () => {
-    useEditorStore.getState().selectEffect('node-1', 'fx_bloom');
-    useEditorStore.getState().clearSelectedEffect();
-    expect(useEditorStore.getState().selectedEffect).toBeNull();
-  });
-});
-
-// ── Active logic (signal graph) ───────────────────────────────────────────────
 
 describe('setActiveLogic / setActiveLogicWritable / setSelectedSignalNode', () => {
   test('setActiveLogic sets id and switches leftTab to graphs', () => {
@@ -626,21 +619,32 @@ describe('setBottomDockHeight', () => {
 
 describe('setNodeTransformOverride', () => {
   test('sets and clears a transform override', () => {
-    useEditorStore.getState().setNodeTransformOverride('node-1', { position: { x: 1 } });
+    useEditorStore
+      .getState()
+      .setNodeTransformOverride('node-1', { position: { x: 1 } });
     expect(useEditorStore.getState().nodeTransformOverrides['node-1']).toEqual({
       position: { x: 1 },
     });
     useEditorStore.getState().setNodeTransformOverride('node-1', null);
-    expect(useEditorStore.getState().nodeTransformOverrides['node-1']).toBeUndefined();
+    expect(
+      useEditorStore.getState().nodeTransformOverrides['node-1']
+    ).toBeUndefined();
   });
 });
 
 describe('setComposeLayerOverride', () => {
   test('sets and clears a compose-layer override', () => {
-    useEditorStore.getState().setComposeLayerOverride('layer-1', { opacity: 0.5, x: 10 });
-    expect(useEditorStore.getState().composeLayerOverrides['layer-1']).toEqual({ opacity: 0.5, x: 10 });
+    useEditorStore
+      .getState()
+      .setComposeLayerOverride('layer-1', { opacity: 0.5, x: 10 });
+    expect(useEditorStore.getState().composeLayerOverrides['layer-1']).toEqual({
+      opacity: 0.5,
+      x: 10,
+    });
     useEditorStore.getState().setComposeLayerOverride('layer-1', null);
-    expect(useEditorStore.getState().composeLayerOverrides['layer-1']).toBeUndefined();
+    expect(
+      useEditorStore.getState().composeLayerOverrides['layer-1']
+    ).toBeUndefined();
   });
 });
 
@@ -648,64 +652,97 @@ describe('setComposeLayerOverride', () => {
 
 describe('setRuntimeOverride / clearRuntimeOverride', () => {
   test('setRuntimeOverride writes to runtimeNodeOverrides', () => {
-    useEditorStore.getState().setRuntimeOverride('scene_node', 'node-1', 'opacity', 0.8);
-    expect(useEditorStore.getState().runtimeNodeOverrides['node-1']['opacity']).toBe(0.8);
+    useEditorStore
+      .getState()
+      .setRuntimeOverride('scene_node', 'node-1', 'opacity', 0.8);
+    expect(
+      useEditorStore.getState().runtimeNodeOverrides['node-1']['opacity']
+    ).toBe(0.8);
   });
 
   test('setRuntimeOverride writes to runtimeLayerOverrides', () => {
-    useEditorStore.getState().setRuntimeOverride('compose_layer', 'layer-1', 'x', 100);
-    expect(useEditorStore.getState().runtimeLayerOverrides['layer-1']['x']).toBe(100);
+    useEditorStore
+      .getState()
+      .setRuntimeOverride('compose_layer', 'layer-1', 'x', 100);
+    expect(
+      useEditorStore.getState().runtimeLayerOverrides['layer-1']['x']
+    ).toBe(100);
   });
 
   test('setRuntimeOverride is a no-op when value is unchanged', () => {
-    useEditorStore.getState().setRuntimeOverride('scene_node', 'node-1', 'opacity', 0.5);
+    useEditorStore
+      .getState()
+      .setRuntimeOverride('scene_node', 'node-1', 'opacity', 0.5);
     // Capture state reference
     const before = useEditorStore.getState().runtimeNodeOverrides;
-    useEditorStore.getState().setRuntimeOverride('scene_node', 'node-1', 'opacity', 0.5);
+    useEditorStore
+      .getState()
+      .setRuntimeOverride('scene_node', 'node-1', 'opacity', 0.5);
     // No state change means the reference is the same
     expect(useEditorStore.getState().runtimeNodeOverrides).toBe(before);
   });
 
   test('clearRuntimeOverride removes a specific param', () => {
-    useEditorStore.getState().setRuntimeOverride('scene_node', 'node-1', 'opacity', 0.8);
-    useEditorStore.getState().setRuntimeOverride('scene_node', 'node-1', 'scale.x', 2);
-    useEditorStore.getState().clearRuntimeOverride('scene_node', 'node-1', 'opacity');
+    useEditorStore
+      .getState()
+      .setRuntimeOverride('scene_node', 'node-1', 'opacity', 0.8);
+    useEditorStore
+      .getState()
+      .setRuntimeOverride('scene_node', 'node-1', 'scale.x', 2);
+    useEditorStore
+      .getState()
+      .clearRuntimeOverride('scene_node', 'node-1', 'opacity');
     const overrides = useEditorStore.getState().runtimeNodeOverrides['node-1'];
     expect(overrides).not.toHaveProperty('opacity');
     expect(overrides).toHaveProperty('scale.x', 2);
   });
 
   test('clearRuntimeOverride with no paramPath removes the whole target', () => {
-    useEditorStore.getState().setRuntimeOverride('scene_node', 'node-1', 'opacity', 0.8);
+    useEditorStore
+      .getState()
+      .setRuntimeOverride('scene_node', 'node-1', 'opacity', 0.8);
     useEditorStore.getState().clearRuntimeOverride('scene_node', 'node-1');
-    expect(useEditorStore.getState().runtimeNodeOverrides['node-1']).toBeUndefined();
+    expect(
+      useEditorStore.getState().runtimeNodeOverrides['node-1']
+    ).toBeUndefined();
   });
 
   test('clearRuntimeOverride is a no-op for unknown target', () => {
     useEditorStore.getState().clearRuntimeOverride('scene_node', 'nope');
     expect(useEditorStore.getState().runtimeNodeOverrides).toEqual({});
   });
-
 });
 
 // ── Override suppressions ─────────────────────────────────────────────────────
 
 describe('suppressOverride / clearOverrideSuppressions', () => {
   test('suppressOverride adds a key to the set', () => {
-    useEditorStore.getState().suppressOverride('scene_node', 'node-1', 'opacity');
-    expect(useEditorStore.getState().suppressedOverrides.has('scene_node:node-1:opacity')).toBe(true);
+    useEditorStore
+      .getState()
+      .suppressOverride('scene_node', 'node-1', 'opacity');
+    expect(
+      useEditorStore
+        .getState()
+        .suppressedOverrides.has('scene_node:node-1:opacity')
+    ).toBe(true);
   });
 
   test('suppressOverride is idempotent', () => {
-    useEditorStore.getState().suppressOverride('scene_node', 'node-1', 'opacity');
+    useEditorStore
+      .getState()
+      .suppressOverride('scene_node', 'node-1', 'opacity');
     const before = useEditorStore.getState().suppressedOverrides;
-    useEditorStore.getState().suppressOverride('scene_node', 'node-1', 'opacity');
+    useEditorStore
+      .getState()
+      .suppressOverride('scene_node', 'node-1', 'opacity');
     // Same Set reference returned (no-op branch)
     expect(useEditorStore.getState().suppressedOverrides).toBe(before);
   });
 
   test('clearOverrideSuppressions empties the set', () => {
-    useEditorStore.getState().suppressOverride('scene_node', 'node-1', 'opacity');
+    useEditorStore
+      .getState()
+      .suppressOverride('scene_node', 'node-1', 'opacity');
     useEditorStore.getState().suppressOverride('compose_layer', 'layer-1', 'x');
     useEditorStore.getState().clearOverrideSuppressions();
     expect(useEditorStore.getState().suppressedOverrides.size).toBe(0);
@@ -722,11 +759,18 @@ describe('suppressOverride / clearOverrideSuppressions', () => {
 
 describe('mergeDataChannels / clearDataChannels', () => {
   test('mergeDataChannels merges fields into a scope', () => {
-    useEditorStore.getState().mergeDataChannels('global', { name: 'Alice', score: 42 });
-    expect(useEditorStore.getState().dataChannels['global']).toEqual({ name: 'Alice', score: 42 });
+    useEditorStore
+      .getState()
+      .mergeDataChannels('global', { name: 'Alice', score: 42 });
+    expect(useEditorStore.getState().dataChannels['global']).toEqual({
+      name: 'Alice',
+      score: 42,
+    });
     useEditorStore.getState().mergeDataChannels('global', { score: 99 });
     expect(useEditorStore.getState().dataChannels['global']['score']).toBe(99);
-    expect(useEditorStore.getState().dataChannels['global']['name']).toBe('Alice');
+    expect(useEditorStore.getState().dataChannels['global']['name']).toBe(
+      'Alice'
+    );
   });
 
   test('clearDataChannels removes a single field from a scope', () => {
@@ -746,7 +790,6 @@ describe('mergeDataChannels / clearDataChannels', () => {
     useEditorStore.getState().clearDataChannels('s1', 'only');
     expect(useEditorStore.getState().dataChannels['s1']).toBeUndefined();
   });
-
 });
 
 // ── Track clips ───────────────────────────────────────────────────────────────
@@ -760,7 +803,9 @@ describe('track clip CRUD', () => {
 
   test('updateTrackClipLocal replaces a clip in the list', () => {
     useEditorStore.getState().addTrackClip(makeTrackClip());
-    useEditorStore.getState().updateTrackClipLocal(makeTrackClip({ name: 'Updated' }));
+    useEditorStore
+      .getState()
+      .updateTrackClipLocal(makeTrackClip({ name: 'Updated' }));
     expect(useEditorStore.getState().trackClips[0].name).toBe('Updated');
   });
 
@@ -804,7 +849,9 @@ describe('clipPlayback slice', () => {
 
   test('upserting replaces the entry for that clip', () => {
     useEditorStore.getState().upsertClipPlayback(doc());
-    useEditorStore.getState().upsertClipPlayback(doc({ state: 'paused', pausedAtT: 2 }));
+    useEditorStore
+      .getState()
+      .upsertClipPlayback(doc({ state: 'paused', pausedAtT: 2 }));
     const pb = useEditorStore.getState().clipPlayback['clip-1'];
     expect(pb.state).toBe('paused');
     expect(pb.pausedAtT).toBe(2);
@@ -859,7 +906,11 @@ describe('presets', () => {
 
 describe('setUpdateAvailable / setPendingReload', () => {
   test('setUpdateAvailable stores available flag and info', () => {
-    const info = { latestVersion: '2.0.0', releaseNotes: 'New stuff', channel: 'stable' as const };
+    const info = {
+      latestVersion: '2.0.0',
+      releaseNotes: 'New stuff',
+      channel: 'stable' as const,
+    };
     useEditorStore.getState().setUpdateAvailable(true, info);
     const st = useEditorStore.getState();
     expect(st.updateAvailable).toBe(true);

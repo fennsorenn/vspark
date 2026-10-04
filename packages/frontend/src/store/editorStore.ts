@@ -316,7 +316,6 @@ export interface EditorState {
   selectedSignalNodeId: string | null;
   boneListExpanded: Record<string, boolean>; // nodeId → bone list open in SceneGraph
   fbxDebugVisible: Record<string, boolean>; // nodeId → FBX debug model shown
-  cameraEffects: CameraEffectRecord[];
   previewEffectsCamera: string | null; // nodeId of the camera with Preview Effects active
   selectedEffect: { nodeId: string; kind: string } | null;
 
@@ -455,14 +454,6 @@ export interface EditorState {
   setSelectedSignalNode: (id: string | null) => void;
   setBoneListExpanded: (nodeId: string, expanded: boolean) => void;
   setFbxDebugVisible: (nodeId: string, visible: boolean) => void;
-  setCameraEffects: (effects: CameraEffectRecord[]) => void;
-  addCameraEffect: (effect: CameraEffectRecord) => void;
-  updateCameraEffect: (
-    id: string,
-    updates: Partial<Omit<CameraEffectRecord, 'id' | 'nodeId'>>
-  ) => void;
-  removeCameraEffect: (id: string) => void;
-  cameraEffectsFor: (nodeId: string) => CameraEffectRecord[];
   setPreviewEffectsCamera: (nodeId: string | null) => void;
   selectEffect: (nodeId: string, kind: string) => void;
   clearSelectedEffect: () => void;
@@ -618,7 +609,6 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   boneListExpanded: {},
   fbxDebugVisible: {},
 
-  cameraEffects: [],
   previewEffectsCamera: null,
   selectedEffect: null,
 
@@ -666,9 +656,6 @@ export const useEditorStore = create<EditorState>((set, get) => ({
         scenes: remainingScenes,
         nodes: s.nodes.filter((n) => n.rootSceneNodeId !== sceneId),
         behaviors: s.behaviors.filter((c) => !removedNodeIds.has(c.nodeId)),
-        cameraEffects: s.cameraEffects.filter(
-          (e) => !removedNodeIds.has(e.nodeId)
-        ),
         trackClips: s.trackClips.filter(
           (t) => !(t.ownerNodeId != null && removedNodeIds.has(t.ownerNodeId))
         ),
@@ -732,7 +719,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       // connection flags for behaviors that no longer exist, so a stale
       // `tracking: true` can't outlive the behavior that set it.
       const live = new Set(comps.map((c) => c.id));
-      const prune = <T,>(rec: Record<string, T>): Record<string, T> =>
+      const prune = <T>(rec: Record<string, T>): Record<string, T> =>
         Object.fromEntries(Object.entries(rec).filter(([id]) => live.has(id)));
       return {
         behaviors: comps,
@@ -785,7 +772,9 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   // never the other way round. The doc's own id only matters for removes, which
   // arrive carrying it and nothing else.
   upsertClipPlayback: (entry) =>
-    set((s) => ({ clipPlayback: { ...s.clipPlayback, [entry.clipId]: entry } })),
+    set((s) => ({
+      clipPlayback: { ...s.clipPlayback, [entry.clipId]: entry },
+    })),
   upsertLogic: (entry) =>
     set((s) => ({ logic: { ...s.logic, [entry.id]: entry } })),
   removeLogicLocal: (id) =>
@@ -908,19 +897,6 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     set((s) => ({
       fbxDebugVisible: { ...s.fbxDebugVisible, [nodeId]: visible },
     })),
-  setCameraEffects: (effects) => set({ cameraEffects: effects }),
-  addCameraEffect: (effect) =>
-    set((s) => ({ cameraEffects: [...s.cameraEffects, effect] })),
-  updateCameraEffect: (id, updates) =>
-    set((s) => ({
-      cameraEffects: s.cameraEffects.map((e) =>
-        e.id === id ? { ...e, ...updates } : e
-      ),
-    })),
-  removeCameraEffect: (id) =>
-    set((s) => ({ cameraEffects: s.cameraEffects.filter((e) => e.id !== id) })),
-  cameraEffectsFor: (nodeId) =>
-    get().cameraEffects.filter((e) => e.nodeId === nodeId),
   setPreviewEffectsCamera: (nodeId) =>
     set((s) => ({
       previewEffectsCamera: s.previewEffectsCamera === nodeId ? null : nodeId,
@@ -1069,10 +1045,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
         if (typeof a.topic === 'string')
           useHelpStore
             .getState()
-            .openHelp(
-              a.topic,
-              typeof a.anchor === 'string' ? a.anchor : null
-            );
+            .openHelp(a.topic, typeof a.anchor === 'string' ? a.anchor : null);
         break;
       }
       case 'open_window': {

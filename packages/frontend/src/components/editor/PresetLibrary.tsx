@@ -128,7 +128,6 @@ export function PresetLibrary() {
     const store = useEditorStore.getState();
     store.setNodes(data.nodes);
     store.setBehaviors(data.behaviors);
-    store.setCameraEffects(data.cameraEffects);
     store.setTrackClips(data.trackClips);
     return result;
   };
@@ -298,11 +297,7 @@ export function PresetLibrary() {
       <div style={sectionHeader}>
         <span style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
           {t('header')}
-          <HelpButton
-            topic="presets"
-            anchor="what"
-            tip={t('help.presets')}
-          />
+          <HelpButton topic="presets" anchor="what" tip={t('help.presets')} />
         </span>
         <div style={{ display: 'flex', gap: 4 }}>
           <button
@@ -315,9 +310,7 @@ export function PresetLibrary() {
             }}
             disabled={!canSave}
             title={
-              canSave
-                ? t('actions.saveTitle')
-                : t('actions.saveDisabledTitle')
+              canSave ? t('actions.saveTitle') : t('actions.saveDisabledTitle')
             }
           >
             {t('actions.save')}

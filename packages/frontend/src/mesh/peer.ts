@@ -52,7 +52,12 @@ function tabUuid(): string {
 }
 
 export function initMeshPeer(): Promise<MeshHandles> {
-  if (!_init) _init = doInit();
+  // A failed start (server not answering yet) may be retried.
+  if (!_init)
+    _init = doInit().catch((e) => {
+      _init = null;
+      throw e;
+    });
   return _init;
 }
 

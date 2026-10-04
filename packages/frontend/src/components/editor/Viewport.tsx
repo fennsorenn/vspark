@@ -153,6 +153,7 @@ import {
 } from '../../particleUtils';
 import type { ParticlePool } from '../../particleUtils';
 import { resolveParticleTextureUrl } from '../../particleTextures';
+import { useCameraEffects } from '../../mesh/hooks';
 
 type GizmoMode = 'translate' | 'rotate' | 'scale';
 
@@ -4262,10 +4263,10 @@ function Live2DNode({
     ...LIVE2D_NODE_DEFAULTS,
     ...((node.components?.live2d ?? {}) as Partial<Live2DConfig>),
   };
-  const rawMap = (node.components?.live2d as Record<string, unknown> | undefined)
-    ?.paramMap as Live2dParamMap | undefined;
-  const userMap =
-    rawMap && Object.keys(rawMap).length > 0 ? rawMap : undefined;
+  const rawMap = (
+    node.components?.live2d as Record<string, unknown> | undefined
+  )?.paramMap as Live2dParamMap | undefined;
+  const userMap = rawMap && Object.keys(rawMap).length > 0 ? rawMap : undefined;
 
   const runtimeRef = useRef<Live2DRuntime | null>(null);
   const [texture, setTexture] = useState<THREE.Texture | null>(null);
@@ -6292,14 +6293,13 @@ export function CameraEffects({
   forceNodeId,
   sceneId,
 }: { forceNodeId?: string; sceneId?: string } = {}) {
-  const { previewEffectsCamera, cameraEffects, nodes, activeSceneId } =
-    useEditorStore();
+  const { previewEffectsCamera, nodes, activeSceneId } = useEditorStore();
   const effectiveSceneId = sceneId ?? activeSceneId;
 
   const effectsNodeId = forceNodeId ?? previewEffectsCamera;
-  const activeEffects = effectsNodeId
-    ? cameraEffects.filter((e) => e.nodeId === effectsNodeId && e.enabled)
-    : [];
+  const activeEffects = useCameraEffects(effectsNodeId).filter(
+    (e) => e.enabled
+  );
 
   const get = <T,>(kind: string, key: string, fallback: T): T => {
     const e = activeEffects.find((e) => e.kind === kind);

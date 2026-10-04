@@ -312,15 +312,20 @@ export class MeshPeer implements PeerCore {
     this.channels.define(name, props);
   }
 
-  /** Open the collection for `rtype`. A type declared in `models` brings its
-   *  declaration; `local` adds what only this peer contributes. A local
-   *  `validate` runs after the declared one, on its result. */
+  /** The collection for `rtype`, opening it on first use. A type declared in
+   *  `models` brings its declaration; `local` adds what only this peer
+   *  contributes, and can only be given when the collection is opened. A
+   *  local `validate` runs after the declared one, on its result. */
   collection<T extends object>(
     rtype: string,
-    local: CollectionConfig<T> = {}
+    local?: CollectionConfig<T>
   ): Collection<T> {
-    if (this.collections.has(rtype))
-      throw new Error(`collection '${rtype}' already defined`);
+    const open = this.collections.get(rtype);
+    if (open) {
+      if (local) throw new Error(`collection '${rtype}' already defined`);
+      return open as unknown as Collection<T>;
+    }
+    local ??= {};
     const model = this.cfg.models?.[rtype] as ModelDecl<T> | undefined;
     const cfg: CollectionConfig<T> = { ...model, ...local };
     if (model?.validate && local.validate) {

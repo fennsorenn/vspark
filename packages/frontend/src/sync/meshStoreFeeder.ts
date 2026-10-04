@@ -47,11 +47,7 @@ import {
   type AnimationClipMeta,
 } from '../store/editorStore';
 import { mapLogic, mapTrackClip } from '../api/client';
-import type {
-  CameraEffectRecord,
-  ComposeLayerRecord,
-  RawLogic,
-} from '../api/client';
+import type { ComposeLayerRecord, RawLogic } from '../api/client';
 
 let started = false;
 
@@ -189,10 +185,6 @@ function pruneStale(h: Handles, rtype: string): void {
     case 'behavior':
       for (const b of [...s.behaviors]) if (!held(b.id)) s.removeBehavior(b.id);
       return;
-    case 'camera_effect':
-      for (const e of [...s.cameraEffects])
-        if (!held(e.id)) s.removeCameraEffect(e.id);
-      return;
     case 'compose_layer':
       for (const l of [...s.composeLayers])
         if (!held(l.id)) s.removeComposeLayer(l.id);
@@ -328,19 +320,6 @@ export function startMeshStoreFeeder(): void {
         if (!b || parentIsRemote(b.nodeId)) return;
         if (s.behaviors.some((x) => x.id === b.id)) s.updateBehavior(b.id, b);
         else s.addBehavior(b);
-      });
-      h.collections.camera_effect.observe('**', (c) => {
-        if (c.op === 'ephemeral') return;
-        const s = useEditorStore.getState();
-        if (c.op === 'remove') {
-          s.removeCameraEffect(c.id);
-          return;
-        }
-        const e = c.doc as unknown as CameraEffectRecord | undefined;
-        if (!e || parentIsRemote(e.nodeId)) return;
-        if (s.cameraEffects.some((x) => x.id === e.id))
-          s.updateCameraEffect(e.id, { enabled: e.enabled, config: e.config });
-        else s.addCameraEffect(e);
       });
       h.collections.compose_layer.observe('**', (c) => {
         const s = useEditorStore.getState();

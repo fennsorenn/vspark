@@ -226,7 +226,6 @@ export function useWsSync() {
                   s.setScenes(data.scenes);
                   s.setNodes(data.nodes);
                   s.setBehaviors(data.behaviors);
-                  s.setCameraEffects(data.cameraEffects);
                   s.setActiveScene(p.sceneId);
                 })
                 .catch(() => {});
@@ -343,8 +342,9 @@ export function useWsSync() {
             // Tag this session with the project it has open so the agent /
             // external MCP clients can identify it in list_ui_sessions.
             const projectId =
-              /\/(?:editor|viewer)\/([^/]+)/.exec(window.location.pathname)?.[1] ??
-              useEditorStore.getState().projectId;
+              /\/(?:editor|viewer)\/([^/]+)/.exec(
+                window.location.pathname
+              )?.[1] ?? useEditorStore.getState().projectId;
             const sock = wsRef.current;
             if (sock && sock.readyState === WebSocket.OPEN)
               sock.send(JSON.stringify({ kind: 'ui_register', projectId }));
@@ -402,7 +402,10 @@ export function useWsSync() {
                   ? {
                       kind: 'viewport_screenshot_result',
                       requestId: p.requestId,
-                      pngBase64: dataUrl.replace(/^data:image\/png;base64,/, ''),
+                      pngBase64: dataUrl.replace(
+                        /^data:image\/png;base64,/,
+                        ''
+                      ),
                     }
                   : {
                       kind: 'viewport_screenshot_result',

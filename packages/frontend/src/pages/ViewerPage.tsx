@@ -66,7 +66,6 @@ export function ViewerPage() {
     setActiveScene,
     setNodes,
     setBehaviors,
-    setCameraEffects,
     setComposeLayers,
     setComposeScenes,
     selectComposeScene,
@@ -117,13 +116,11 @@ export function ViewerPage() {
           scenes,
           nodes: sceneNodes,
           behaviors,
-          cameraEffects,
           composeLayers,
           trackClips,
         }) => {
           setScenes(scenes);
           setBehaviors(behaviors);
-          setCameraEffects(cameraEffects);
           // Split compose_scene containers from regular layers (mirrors Editor).
           setComposeScenes(
             composeLayers.filter((l) => l.kind === 'compose_scene')
@@ -166,7 +163,6 @@ export function ViewerPage() {
     setActiveScene,
     setNodes,
     setBehaviors,
-    setCameraEffects,
     setComposeLayers,
     setComposeScenes,
     selectComposeScene,

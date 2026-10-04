@@ -101,7 +101,14 @@ vi.mock('../src/api/client', () => ({
   mapTrackClipLane: (p: unknown) => p,
   mapTrackClipKeyframe: (p: unknown) => p,
   mapTrackClipEvent: (p: unknown) => p,
-  getScenes: vi.fn().mockResolvedValue({ scenes: [], nodes: [], behaviors: [], cameraEffects: [] }),
+  getScenes: vi
+    .fn()
+    .mockResolvedValue({
+      scenes: [],
+      nodes: [],
+      behaviors: [],
+      cameraEffects: [],
+    }),
   getCollabScenes: vi.fn().mockResolvedValue([]),
 }));
 
@@ -184,7 +191,9 @@ describe('useEscapeKey', () => {
     const { unmount } = renderHook(() => useEscapeKey(handler));
 
     act(() => {
-      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+      window.dispatchEvent(
+        new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })
+      );
     });
 
     expect(handler).toHaveBeenCalledTimes(1);
@@ -196,8 +205,12 @@ describe('useEscapeKey', () => {
     const { unmount } = renderHook(() => useEscapeKey(handler));
 
     act(() => {
-      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
-      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowUp', bubbles: true }));
+      window.dispatchEvent(
+        new KeyboardEvent('keydown', { key: 'Enter', bubbles: true })
+      );
+      window.dispatchEvent(
+        new KeyboardEvent('keydown', { key: 'ArrowUp', bubbles: true })
+      );
     });
 
     expect(handler).not.toHaveBeenCalled();
@@ -210,7 +223,9 @@ describe('useEscapeKey', () => {
     unmount();
 
     act(() => {
-      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+      window.dispatchEvent(
+        new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })
+      );
     });
 
     expect(handler).not.toHaveBeenCalled();
@@ -221,7 +236,9 @@ describe('useEscapeKey', () => {
     const { unmount } = renderHook(() => useEscapeKey(handler, false));
 
     act(() => {
-      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+      window.dispatchEvent(
+        new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })
+      );
     });
 
     expect(handler).not.toHaveBeenCalled();
@@ -231,17 +248,23 @@ describe('useEscapeKey', () => {
   it('re-attaches listener when enabled flips from false to true', () => {
     const handler = vi.fn();
     let enabled = false;
-    const { rerender, unmount } = renderHook(() => useEscapeKey(handler, enabled));
+    const { rerender, unmount } = renderHook(() =>
+      useEscapeKey(handler, enabled)
+    );
 
     act(() => {
-      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+      window.dispatchEvent(
+        new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })
+      );
     });
     expect(handler).toHaveBeenCalledTimes(0);
 
     enabled = true;
     rerender();
     act(() => {
-      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+      window.dispatchEvent(
+        new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })
+      );
     });
     expect(handler).toHaveBeenCalledTimes(1);
     unmount();
@@ -426,6 +449,7 @@ describe('useWsSync', () => {
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { useTrackClipEvaluator } from '../src/hooks/useTrackClipEvaluator';
+import { testPeer } from './helpers/mesh';
 
 /**
  * useTrackClipEvaluator drives a requestAnimationFrame loop. We replace rAF
@@ -476,7 +500,9 @@ describe('useTrackClipEvaluator', () => {
   });
 
   it('clears stale nodeTransformOverrides when nothing is playing', () => {
-    useEditorStore.getState().setNodeTransformOverride('stale-node', { position: { x: 5 } });
+    useEditorStore
+      .getState()
+      .setNodeTransformOverride('stale-node', { position: { x: 5 } });
 
     const { unmount } = renderHook(() => useTrackClipEvaluator());
 
@@ -484,7 +510,9 @@ describe('useTrackClipEvaluator', () => {
       flushRaf();
     });
 
-    expect(useEditorStore.getState().nodeTransformOverrides['stale-node']).toBeUndefined();
+    expect(
+      useEditorStore.getState().nodeTransformOverrides['stale-node']
+    ).toBeUndefined();
     unmount();
   });
 
@@ -508,14 +536,26 @@ describe('useTrackClipEvaluator', () => {
           defaultValue: 0,
           keyframes: [
             {
-              id: 'kf-0', laneId: 'lane-1', t: 0, value: 0, easing: 'linear' as const,
-              inHandleTFraction: null, inHandleVFraction: null,
-              outHandleTFraction: null, outHandleVFraction: null,
+              id: 'kf-0',
+              laneId: 'lane-1',
+              t: 0,
+              value: 0,
+              easing: 'linear' as const,
+              inHandleTFraction: null,
+              inHandleVFraction: null,
+              outHandleTFraction: null,
+              outHandleVFraction: null,
             },
             {
-              id: 'kf-1', laneId: 'lane-1', t: 1, value: 10, easing: 'linear' as const,
-              inHandleTFraction: null, inHandleVFraction: null,
-              outHandleTFraction: null, outHandleVFraction: null,
+              id: 'kf-1',
+              laneId: 'lane-1',
+              t: 1,
+              value: 10,
+              easing: 'linear' as const,
+              inHandleTFraction: null,
+              inHandleVFraction: null,
+              outHandleTFraction: null,
+              outHandleVFraction: null,
             },
           ],
         },
@@ -530,7 +570,19 @@ describe('useTrackClipEvaluator', () => {
       parentId: null,
       name: 'Avatar',
       kind: 'vrm',
-      components: { transform: { x: 0, y: 0, z: 0, rx: 0, ry: 0, rz: 0, sx: 1, sy: 1, sz: 1 } },
+      components: {
+        transform: {
+          x: 0,
+          y: 0,
+          z: 0,
+          rx: 0,
+          ry: 0,
+          rz: 0,
+          sx: 1,
+          sy: 1,
+          sz: 1,
+        },
+      },
     };
 
     // 0.5 s into the clip → position.x should be ~5 (halfway on linear 0→10 over 1 s)
@@ -556,7 +608,8 @@ describe('useTrackClipEvaluator', () => {
       flushRaf();
     });
 
-    const override = useEditorStore.getState().nodeTransformOverrides['node-eval'];
+    const override =
+      useEditorStore.getState().nodeTransformOverrides['node-eval'];
     expect(override).toBeDefined();
     expect(override?.position?.x).toBeDefined();
     // At t≈0.5 the interpolated value is ≈5 (allow ±2 for timing jitter)
@@ -601,10 +654,12 @@ describe('useTrackClipEvaluator', () => {
       flushRaf();
     });
 
-    // The evaluator stops a finished clip in the document.
-    expect(
-      useEditorStore.getState().clipPlayback['clip-done']?.state
-    ).not.toBe('playing');
+    // The evaluator stops a finished clip in the document (on the mesh, as
+    // in the app: the tab's peer is the store).
+    const doc = testPeer()
+      .collection<{ id: string; state: string }>('clip_playback')
+      .get('pb:clip-done');
+    expect(doc?.state).not.toBe('playing');
     unmount();
   });
 
@@ -628,14 +683,26 @@ describe('useTrackClipEvaluator', () => {
           defaultValue: 0,
           keyframes: [
             {
-              id: 'kf-p0', laneId: 'lane-p', t: 0, value: 0, easing: 'linear' as const,
-              inHandleTFraction: null, inHandleVFraction: null,
-              outHandleTFraction: null, outHandleVFraction: null,
+              id: 'kf-p0',
+              laneId: 'lane-p',
+              t: 0,
+              value: 0,
+              easing: 'linear' as const,
+              inHandleTFraction: null,
+              inHandleVFraction: null,
+              outHandleTFraction: null,
+              outHandleVFraction: null,
             },
             {
-              id: 'kf-p1', laneId: 'lane-p', t: 10, value: 100, easing: 'linear' as const,
-              inHandleTFraction: null, inHandleVFraction: null,
-              outHandleTFraction: null, outHandleVFraction: null,
+              id: 'kf-p1',
+              laneId: 'lane-p',
+              t: 10,
+              value: 100,
+              easing: 'linear' as const,
+              inHandleTFraction: null,
+              inHandleVFraction: null,
+              outHandleTFraction: null,
+              outHandleVFraction: null,
             },
           ],
         },
@@ -650,7 +717,19 @@ describe('useTrackClipEvaluator', () => {
       parentId: null,
       name: 'Avatar2',
       kind: 'vrm',
-      components: { transform: { x: 0, y: 0, z: 0, rx: 0, ry: 0, rz: 0, sx: 1, sy: 1, sz: 1 } },
+      components: {
+        transform: {
+          x: 0,
+          y: 0,
+          z: 0,
+          rx: 0,
+          ry: 0,
+          rz: 0,
+          sx: 1,
+          sy: 1,
+          sz: 1,
+        },
+      },
     };
 
     act(() => {
@@ -670,15 +749,21 @@ describe('useTrackClipEvaluator', () => {
 
     const { unmount } = renderHook(() => useTrackClipEvaluator());
 
-    act(() => { flushRaf(); });
+    act(() => {
+      flushRaf();
+    });
 
-    const override1 = useEditorStore.getState().nodeTransformOverrides['node-paused'];
+    const override1 =
+      useEditorStore.getState().nodeTransformOverrides['node-paused'];
     expect(override1?.position?.x).toBeCloseTo(50, 0);
 
     // Second tick — must not advance
-    act(() => { flushRaf(); });
+    act(() => {
+      flushRaf();
+    });
 
-    const override2 = useEditorStore.getState().nodeTransformOverrides['node-paused'];
+    const override2 =
+      useEditorStore.getState().nodeTransformOverrides['node-paused'];
     expect(override2?.position?.x).toBeCloseTo(50, 0);
 
     // Paused clip must still be in playback (not completed)

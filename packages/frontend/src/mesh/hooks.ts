@@ -30,11 +30,16 @@
  * (a doc the user has already selected, so both sources are populated).
  */
 import { useEffect, useState } from 'react';
-import { useCanWrite, useMeshDoc } from '@vspark/mesh-react';
+import {
+  useCanWrite,
+  useCollection,
+  useMeshChildren,
+  useMeshDoc,
+} from '@vspark/mesh-react';
 import type { Collection, MeshPeer } from '@vspark/mesh';
 import { getMeshHandles, onMeshReady, type MeshHandles } from './peer';
 import { useEditorStore, type StageObject } from '../store/editorStore';
-import type { ComposeLayerRecord } from '../api/client';
+import type { CameraEffectRecord, ComposeLayerRecord } from '../api/client';
 
 type Dto = Record<string, unknown>;
 
@@ -161,3 +166,11 @@ const EMPTY_COL = {
   get: () => undefined,
   observe: () => () => {},
 } as unknown as Collection<Dto>;
+
+/** The camera effects on a node, live from the replica. */
+export function useCameraEffects(
+  nodeId: string | null | undefined
+): CameraEffectRecord[] {
+  const col = useCollection<CameraEffectRecord>('camera_effect');
+  return useMeshChildren(col, nodeId ?? '');
+}
