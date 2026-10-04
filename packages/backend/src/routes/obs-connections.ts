@@ -35,7 +35,9 @@ function mapConnection(r: ConnectionRow) {
     label: r.label,
     host: r.host,
     port: r.port,
-    password: r.password,
+    // The password never leaves the backend; callers learn only whether one is
+    // set. A PUT without `password` keeps the stored one.
+    hasPassword: r.password !== '',
     enabled: r.enabled === 1,
     status: r.status,
     statusReason: r.status_reason,

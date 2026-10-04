@@ -9,6 +9,7 @@ import { openApiDoc } from './routes/openapi.js';
 import swaggerUi from 'swagger-ui-express';
 import { getIdentity } from './multiplayer/identity.js';
 import type { WSSync } from './ws/index.js';
+import { localAccessGuard } from './localAccess.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -26,6 +27,7 @@ export interface CreateAppOptions {
  */
 export function createApp(opts: CreateAppOptions = {}): express.Express {
   const app = express();
+  app.use(localAccessGuard);
 
   const UPLOADS_DIR = join(process.cwd(), 'uploads');
   mkdirSync(UPLOADS_DIR, { recursive: true });

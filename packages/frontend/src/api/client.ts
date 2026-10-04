@@ -1079,7 +1079,8 @@ export interface OverliveAppCredentialRecord {
   projectId: string;
   label: string;
   clientId: string;
-  clientSecret: string;
+  /** The client secret itself never leaves the backend. */
+  hasClientSecret: boolean;
   redirectUri: string;
   createdAt?: string;
   updatedAt?: string;
@@ -1228,7 +1229,8 @@ export interface ObsConnectionRecord {
   label: string;
   host: string;
   port: number;
-  password: string;
+  /** The password itself never leaves the backend. */
+  hasPassword: boolean;
   enabled: boolean;
   status: ObsConnectionStatus;
   statusReason: string | null;

@@ -230,7 +230,7 @@ export function OverliveAccountsModal({ onClose }: Props) {
     label: string;
     host: string;
     port: number;
-    password: string;
+    password?: string;
   }) => {
     if (!projectId) return;
     try {
@@ -640,14 +640,18 @@ function ObsConnectionDialog({
     label: string;
     host: string;
     port: number;
-    password: string;
+    /** Omitted = keep the stored password. */
+    password?: string;
   }) => void | Promise<void>;
 }) {
   const { t } = useTranslation('accounts');
   const [label, setLabel] = useState(existing?.label ?? 'OBS');
   const [host, setHost] = useState(existing?.host ?? 'localhost');
   const [port, setPort] = useState(String(existing?.port ?? 4455));
-  const [password, setPassword] = useState(existing?.password ?? '');
+  // The stored password is never sent to the browser. The field starts empty
+  // and is only submitted once the user types in it.
+  const [password, setPassword] = useState('');
+  const [passwordTouched, setPasswordTouched] = useState(false);
   const [busy, setBusy] = useState(false);
 
   const handleSave = async () => {
@@ -662,7 +666,7 @@ function ObsConnectionDialog({
         label: label.trim(),
         host: host.trim(),
         port: Number(port) || 4455,
-        password,
+        ...(passwordTouched || !existing ? { password } : {}),
       });
     } finally {
       setBusy(false);
@@ -727,9 +731,15 @@ function ObsConnectionDialog({
           <input
             style={inputStyle}
             value={password}
-            onChange={(e) => setPassword(e.target.value)}
+            onChange={(e) => {
+              setPassword(e.target.value);
+              setPasswordTouched(true);
+            }}
             type="password"
             autoComplete="off"
+            placeholder={
+              existing?.hasPassword ? t('obs.fields.passwordUnchanged') : ''
+            }
           />
         </div>
         <div
