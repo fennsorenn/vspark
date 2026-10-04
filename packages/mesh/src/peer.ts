@@ -9,10 +9,8 @@
  */
 import {
   ContainmentIndex,
-  evaluateAccess,
-  grantCoversSubscription,
-  granteeCandidates,
   makeKey,
+  participantServer,
   subscriptionMatches,
   compareHLC,
   randomUUID,
@@ -21,6 +19,16 @@ import {
   type Right,
   type Subscription,
 } from '@vspark/shared/sync';
+import {
+  allows,
+  GrantStore,
+  grantOverlapsSubscription,
+  projectOp,
+  projectValue,
+  readScope,
+  scopeTouches,
+  type ReadScope,
+} from './grants.js';
 import { ChannelRegistry, type ChannelProps } from './channels.js';
 import { HlcClock } from './clock.js';
 import {
@@ -28,10 +36,11 @@ import {
   type CollectionConfig,
   type LocalWrite,
   type PeerCore,
+  type RequestOutcome,
   type WriteHandle,
   type WriteOutcome,
 } from './collection.js';
-import { deepEqual } from './paths.js';
+import { deepEqual, flattenToLeaves, getPath, setPath } from './paths.js';
 import type { DocState } from './replica.js';
 import type { MeshTransport, PeerLink } from './transport.js';
 import type {
@@ -47,6 +56,11 @@ import type {
 
 export interface MeshPeerConfig {
   identity: { peerId: string; displayName?: string };
+  /** The peer this one derives its authority and grants from (a tab's own
+   *  server). Messages to it are not projected through grants: it is the
+   *  source of truth for them, not a recipient they gate. Every other
+   *  recipient only receives what this peer's grants let it read. */
+  home?: string;
   transports?: MeshTransport[];
   /** Guarded-write ack timeout (ms) before the recency-gated local revert. */
   ackTimeoutMs?: number;
@@ -141,10 +155,6 @@ interface InSub {
   sub: Subscription & { channels?: string[] };
 }
 
-interface GrantEntry extends Grant {
-  gid: string;
-}
-
 interface ClockState {
   seq: number;
   samples: { offset: number; rtt: number }[];
@@ -175,8 +185,11 @@ export class MeshPeer implements PeerCore {
     parentTypes: [],
     canBeRoot: true,
   }));
-  private readonly grantEntries: GrantEntry[] = [];
-  private readonly grantObservers: ((grants: Grant[]) => void)[] = [];
+  private readonly grantStore = new GrantStore(uuid);
+  /** Removed id → [id, ...ancestors] as they were at removal. The containment
+   *  index forgets a removed entity; grants scoped to a subtree still need to
+   *  know whether a tombstone falls inside it. */
+  private readonly tombChains = new Map<string, string[]>();
   private readonly links = new Map<string, PeerLink>();
   /** participant → admitted incoming subscriptions (what we fan out to them). */
   private readonly inSubs = new Map<string, InSub[]>();
@@ -187,6 +200,26 @@ export class MeshPeer implements PeerCore {
   /** Per-link clock-sync state (offset/rtt estimates + sampler timers). */
   private readonly clocks = new Map<string, ClockState>();
   private readonly now: () => number;
+
+  /** Unstamped-op identity: this instance's epoch + a running sequence. */
+  private readonly epoch = Date.now() * 1000 + Math.floor(Math.random() * 1000);
+  private seq = 0;
+  /** Per origin: the (epoch, seq) window already applied (see alreadySeen). */
+  private readonly seen = new Map<
+    string,
+    { qe: number; max: number; ids: Set<number> }
+  >();
+  /** Per participant whose home we are: who it reaches directly. */
+  private readonly directLinks = new Map<string, Set<string>>();
+  /** Requests awaiting a reply, by request id. */
+  private readonly pendingRequests = new Map<
+    string,
+    {
+      to: string;
+      resolve: (o: RequestOutcome) => void;
+      timer: ReturnType<typeof setTimeout>;
+    }
+  >();
 
   /** Per-peer undo/redo log (committed writes only), one entry per action. */
   private readonly undoStack: UndoGroup[] = [];
@@ -236,11 +269,26 @@ export class MeshPeer implements PeerCore {
       throw new Error(`collection '${rtype}' already defined`);
     const col = new Collection<T>(this, rtype, cfg);
     this.collections.set(rtype, col as unknown as AnyCollection);
+    // A grant to this peer's own id covers its client participants and no one
+    // else (granteeCandidates): the collection's declared tab rights.
+    if (cfg.clients)
+      this.grantStore.add({
+        grantee: this.id,
+        entityRtype: rtype,
+        entityId: '*',
+        includeDescendants: false,
+        pathPrefix: '',
+        rights: cfg.clients,
+      });
     return col;
   }
 
   /** Single-cell sugar: a one-document collection of `{ id, value }` docs. */
-  value<V>(rtype: string, id: string, cfg: CollectionConfig<{ id: string; value: V }> = {}): MeshValue<V> {
+  value<V>(
+    rtype: string,
+    id: string,
+    cfg: CollectionConfig<{ id: string; value: V }> = {}
+  ): MeshValue<V> {
     let col = this.collections.get(rtype) as
       | Collection<{ id: string; value: V }>
       | undefined;
@@ -248,28 +296,16 @@ export class MeshPeer implements PeerCore {
     return new MeshValue(col, id);
   }
 
+  /** The whitelist. Nothing is readable or writable by another participant
+   *  without a grant (principle 9). */
   readonly grants = {
-    grant: (g: Grant): string => {
-      const gid = uuid();
-      this.grantEntries.push({ ...g, gid });
-      this.notifyGrants();
-      return gid;
-    },
+    grant: (g: Grant): string => this.grantStore.add(g),
     revoke: (gid: string): void => {
-      const i = this.grantEntries.findIndex((g) => g.gid === gid);
-      if (i < 0) return;
-      this.grantEntries.splice(i, 1);
-      this.revalidateInSubs();
-      this.notifyGrants();
+      if (this.grantStore.remove(gid)) this.revalidateInSubs();
     },
-    list: (): (Grant & { gid: string })[] => [...this.grantEntries],
-    observe: (cb: (grants: Grant[]) => void): (() => void) => {
-      this.grantObservers.push(cb);
-      return () => {
-        const i = this.grantObservers.indexOf(cb);
-        if (i >= 0) this.grantObservers.splice(i, 1);
-      };
-    },
+    list: (): (Grant & { gid: string })[] => this.grantStore.list(),
+    observe: (cb: (grants: Grant[]) => void): (() => void) =>
+      this.grantStore.observe(cb),
   };
 
   /** Declare interest at `peerId`; resolves once the snapshot is applied. */
@@ -282,13 +318,20 @@ export class MeshPeer implements PeerCore {
       return Promise.reject(new Error(`peer '${peerId}' is not connected`));
     const subId = uuid();
     return new Promise<MeshSubscription>((resolve, reject) => {
-      const entry: OutSub = { subId, peer: peerId, sub, status: 'pending', resolve, reject };
+      const entry: OutSub = {
+        subId,
+        peer: peerId,
+        sub,
+        status: 'pending',
+        resolve,
+        reject,
+      };
       entry.timer = setTimeout(() => {
         this.outSubs.delete(subId);
         reject(new Error('subscribe timed out'));
       }, this.cfg.subscribeTimeoutMs ?? 10_000);
       this.outSubs.set(subId, entry);
-      link.send({ t: 'sub', subId, sub });
+      this.transmit(peerId, { t: 'sub', subId, sub });
     });
   }
 
@@ -325,6 +368,42 @@ export class MeshPeer implements PeerCore {
     } finally {
       this.currentGroup = null;
     }
+  }
+
+  /** Remove `rootId` and every document under it in the (cross-type)
+   *  containment tree — children before parents — as ONE undo action.
+   *
+   *  Behaviors, effects, clips and graphs hang off the node they belong to, so
+   *  removing a node through this removes them too, each with its own
+   *  tombstone, and a single undo brings the whole tree back. Removing only
+   *  the root would leave its dependents alive in every replica with nothing
+   *  to delete them.
+   *
+   *  Only document collections take part (a retained channel with authority
+   *  acks); runtime state is cleaned up by whoever authored it. A root this
+   *  peer no longer holds is skipped, so this also sweeps the dependents of a
+   *  document that was just removed. */
+  removeTree(rootId: string): WriteHandle[] {
+    const order: string[] = [];
+    const seen = new Set<string>();
+    const walk = (id: string): void => {
+      if (seen.has(id)) return;
+      seen.add(id);
+      for (const c of this.index.childrenOf(id)) walk(c);
+      order.push(id);
+    };
+    walk(rootId);
+    return this.batch(() => {
+      const handles: WriteHandle[] = [];
+      for (const id of order) {
+        const rtype = this.index.rtypeOf(id);
+        const col = rtype ? this.collections.get(rtype) : undefined;
+        if (!col?.retainedChannel || !col.replica.has(id)) continue;
+        if (!this.channels.get(col.retainedChannel)?.ack) continue;
+        handles.push(col.remove(id));
+      }
+      return handles;
+    });
   }
 
   canUndo(): boolean {
@@ -455,7 +534,10 @@ export class MeshPeer implements PeerCore {
     resolved: { e: UndoEntry; col: AnyCollection | undefined }[],
     edge: 'first' | 'last'
   ): boolean {
-    const net = new Map<string, { e: UndoEntry; col: AnyCollection | undefined }>();
+    const net = new Map<
+      string,
+      { e: UndoEntry; col: AnyCollection | undefined }
+    >();
     for (const r of resolved) {
       const key = `${r.e.rtype}\u0000${r.e.id}`;
       if (edge === 'last' || !net.has(key)) net.set(key, r);
@@ -470,7 +552,11 @@ export class MeshPeer implements PeerCore {
 
   /** Guarded policy: apply only if the doc's current committed value still
    *  matches what this peer left it at. 'naive' always applies. */
-  private policyAllows(col: AnyCollection, id: string, expected: unknown): boolean {
+  private policyAllows(
+    col: AnyCollection,
+    id: string,
+    expected: unknown
+  ): boolean {
     if (this.undoPolicy !== 'guarded') return true;
     return deepEqual(col.replica.raw(id), expected);
   }
@@ -535,14 +621,14 @@ export class MeshPeer implements PeerCore {
     const interval = setInterval(ping, CLOCK_INTERVAL_MS);
     state.timers.push(interval);
     // Don't hold a Node process open for drift tracking (no-op in browsers).
-    for (const t of state.timers)
-      (t as { unref?: () => void }).unref?.();
+    for (const t of state.timers) (t as { unref?: () => void }).unref?.();
   }
 
   private stopClockSync(peerId: string): void {
     const state = this.clocks.get(peerId);
     if (!state) return;
-    for (const t of state.timers) clearTimeout(t as ReturnType<typeof setTimeout>);
+    for (const t of state.timers)
+      clearTimeout(t as ReturnType<typeof setTimeout>);
     this.clocks.delete(peerId);
   }
 
@@ -572,6 +658,8 @@ export class MeshPeer implements PeerCore {
     for (const t of this.transports) t.stop();
     for (const p of this.pendingAcks.values()) clearTimeout(p.timer);
     this.pendingAcks.clear();
+    for (const r of this.pendingRequests.values()) clearTimeout(r.timer);
+    this.pendingRequests.clear();
     for (const peerId of [...this.clocks.keys()]) this.stopClockSync(peerId);
   }
 
@@ -598,7 +686,21 @@ export class MeshPeer implements PeerCore {
 
   indexUpsert(rtype: string, id: string, parentId: string | null): void {
     this.index.upsert(rtype, id, { p: parentId });
+    this.tombChains.delete(id);
   }
+
+  noteRemoved(id: string, chain: string[]): void {
+    this.tombChains.set(id, chain);
+  }
+
+  /** Containment check that also places tombstoned ids where they were. */
+  private readonly isDescendantOrWas = (
+    rtype: string,
+    childId: string,
+    ancestorId: string
+  ): boolean =>
+    this.index.isDescendant(rtype, childId, ancestorId) ||
+    (this.tombChains.get(childId)?.includes(ancestorId) ?? false);
 
   // --- mounts ------------------------------------------------------------------
   //
@@ -673,11 +775,22 @@ export class MeshPeer implements PeerCore {
     if (!ch) throw new Error(`unknown channel '${w.channel}'`);
     const meta = { origin: this.id, channel: w.channel, hydrate: !!w.hydrateV };
 
-    // Ephemeral: overlay locally, fan out lossily, never guarded.
+    // Unstamped (preview / control): never guarded. Every op gets an
+    // (epoch, seq) identity so a receiver applies it once however many paths
+    // it arrives over.
     if (!ch.stamped) {
+      const env = this.envelope(col, w, undefined);
+      env.qe = this.epoch;
+      env.q = ++this.seq;
+      // Addressed: routed toward its one recipient, applied only there.
+      if (w.to !== undefined && w.to !== this.id) {
+        const hop = this.nextHop(w.to);
+        if (!hop) return done({ status: 'rejected', reason: 'unreachable' });
+        this.transmit(hop, env, ch.transport === 'lossy');
+        return done({ status: 'unguarded' });
+      }
       const change = col.applyOp(w.op, w.id, w.path, w.data, undefined, meta);
-      if (change)
-        this.fanout(col, this.envelope(col, w, undefined), undefined, undefined);
+      if (change) this.fanout(col, env, undefined, undefined);
       return done({ status: 'unguarded' });
     }
 
@@ -719,7 +832,9 @@ export class MeshPeer implements PeerCore {
 
     // For removes, routing/ancestry must be resolved before the index entry dies.
     const preRecipients =
-      w.op === 'remove' ? this.recipients(col, w.id, w.path, w.channel) : undefined;
+      w.op === 'remove'
+        ? this.recipients(col, w.id, w.path, w.channel)
+        : undefined;
     const preChain = w.op === 'remove' ? col.ancestorChain(w.id) : undefined;
 
     const change = col.applyOp(w.op, w.id, w.path, data, v, meta);
@@ -792,12 +907,35 @@ export class MeshPeer implements PeerCore {
   private onPeerConnected(peerId: string, link: PeerLink): void {
     this.links.set(peerId, link);
     this.startClockSync(peerId);
+    this.announceLinks();
+    this.renewSubscriptions(peerId);
     this.notifyStatus();
+  }
+
+  /** A link came back: re-send the subscriptions that went stale when it
+   *  dropped. The snapshot that answers each one reconciles whatever changed
+   *  while we were away, so callers subscribe once and keep their handle. */
+  private renewSubscriptions(peerId: string): void {
+    for (const s of this.outSubs.values()) {
+      if (s.peer !== peerId || s.status !== 'stale') continue;
+      s.status = 'pending';
+      this.transmit(peerId, { t: 'sub', subId: s.subId, sub: s.sub });
+    }
+  }
+
+  /** Tell our home which participants we reach directly (see LinksMsg). */
+  private announceLinks(): void {
+    const home = this.cfg.home;
+    if (!home || !this.links.has(home)) return;
+    const peers = [...this.links.keys()].filter((p) => p !== home);
+    this.transmit(home, { t: 'links', peers });
   }
 
   private onPeerDisconnected(peerId: string): void {
     this.links.delete(peerId);
     this.inSubs.delete(peerId);
+    this.directLinks.delete(peerId);
+    this.announceLinks();
     this.stopClockSync(peerId);
     for (const s of this.outSubs.values())
       if (s.peer === peerId && s.status === 'active') s.status = 'stale';
@@ -806,6 +944,9 @@ export class MeshPeer implements PeerCore {
 
   private onMessage(senderId: string, msg: MeshMessage): void {
     switch (msg.t) {
+      case 'links':
+        this.directLinks.set(senderId, new Set(msg.peers));
+        return;
       case 'op':
         return this.handleOp(senderId, msg);
       case 'sub':
@@ -852,6 +993,7 @@ export class MeshPeer implements PeerCore {
     const ch = this.channels.get(env.ch);
     if (!col || !ch) return;
     if (env.origin === this.id) return; // loop suppression
+    if (!ch.stamped && this.alreadySeen(env)) return; // arrived over another path
 
     // Creates of unknown ids aren't in the containment index yet, so subtree
     // grants/subscriptions can't match them. Provisionally index the node from
@@ -873,7 +1015,8 @@ export class MeshPeer implements PeerCore {
       if (provisional) this.indexRemove(env.id);
     };
 
-    if (!this.opAllowed(senderId, env, col)) {
+    const admitted = this.admitOp(senderId, env, col);
+    if (!admitted) {
       dropProvisional();
       if (env.ack)
         this.sendTo(senderId, {
@@ -883,16 +1026,51 @@ export class MeshPeer implements PeerCore {
           reason: 'denied',
           value: col.get(env.id),
           v: col.replica.rootStamp(env.id),
+          rtype: env.rtype,
+          id: env.id,
         });
       return;
     }
+    // A partial-view writer's upsert arrives as the merge-patch it may make.
+    env = admitted;
 
-    // Ephemeral: overlay + relay, nothing else.
+    // Addressed to someone else: pass it on toward them, apply nothing here.
+    if (env.to !== undefined && env.to !== this.id) {
+      const hop = this.nextHop(env.to, senderId);
+      if (hop) this.transmit(hop, env, ch.transport === 'lossy');
+      else if (env.mid !== undefined)
+        this.transmit(
+          senderId,
+          this.replyEnvelope(env, undefined, 'unreachable')
+        );
+      return;
+    }
+    // A reply to one of our requests: resolves it, never touches the replica.
+    if (env.re !== undefined) {
+      this.handleReply(env);
+      return;
+    }
+
+    // Ephemeral: overlay + relay, nothing else. A request is surfaced to
+    // observers with what they need to answer it.
     if (!ch.stamped || !env.v) {
-      const change = col.applyOp(env.op, env.id, env.path, env.data, undefined, {
-        origin: env.origin,
-        channel: env.ch,
-      });
+      const change = col.applyOp(
+        env.op,
+        env.id,
+        env.path,
+        env.data,
+        undefined,
+        {
+          origin: env.origin,
+          channel: env.ch,
+          request:
+            env.mid !== undefined
+              ? { mid: env.mid, from: env.origin }
+              : undefined,
+        }
+      );
+      // Delivered to us specifically: nobody else is meant to see it.
+      if (env.to === this.id) return;
       if (change) this.relay(col, env, senderId, undefined, undefined);
       return;
     }
@@ -917,6 +1095,8 @@ export class MeshPeer implements PeerCore {
             reason: errMsg(e),
             value: col.get(env.id),
             v: col.replica.rootStamp(env.id),
+            rtype: env.rtype,
+            id: env.id,
           });
         return;
       }
@@ -929,7 +1109,8 @@ export class MeshPeer implements PeerCore {
       env.op === 'remove'
         ? this.recipients(col, env.id, env.path, env.ch)
         : undefined;
-    const preChain = env.op === 'remove' ? col.ancestorChain(env.id) : undefined;
+    const preChain =
+      env.op === 'remove' ? col.ancestorChain(env.id) : undefined;
     const pre = guarded ? col.replica.captureState(env.id) : undefined;
 
     // A correction is the authority's own write: fresh stamp, fresh origin.
@@ -954,6 +1135,8 @@ export class MeshPeer implements PeerCore {
             reason: errMsg(e),
             value: col.get(env.id),
             v: col.replica.rootStamp(env.id),
+            rtype: env.rtype,
+            id: env.id,
           });
           return;
         }
@@ -964,6 +1147,8 @@ export class MeshPeer implements PeerCore {
         status: corrected ? 'corrected' : 'acked',
         value: corrected ? data : undefined,
         v: corrected ? v : undefined,
+        rtype: env.rtype,
+        id: env.id,
       });
       if (change) {
         const fwd: OpEnvelope = corrected
@@ -997,42 +1182,68 @@ export class MeshPeer implements PeerCore {
     this.relay(col, { ...env, data }, senderId, preRecipients, preChain);
   }
 
-  /** Accept an op if it matches one of OUR active subscriptions to the sender,
-   *  or the ORIGIN holds a write grant we issued. */
-  private opAllowed(
+  /** Admission for an incoming op. Accepted if it matches one of OUR active
+   *  subscriptions to the sender (we asked that peer for this data), or the
+   *  ORIGIN holds the grants for it. Returns the op to apply — possibly
+   *  narrowed — or null when it is refused.
+   *
+   *  Writes are checked per leaf, so field-level update grants work: a
+   *  merge-patch passes when every leaf it sets is writable. A whole-document
+   *  upsert from an origin that may not write the whole document is applied as
+   *  a merge-patch of the leaves it may write — a peer with a partial view
+   *  never overwrites what it cannot see. */
+  private admitOp(
     senderId: string,
     env: OpEnvelope,
     col: AnyCollection
-  ): boolean {
+  ): OpEnvelope | null {
     const key = makeKey(env.rtype, env.id, env.path || undefined);
     for (const s of this.outSubs.values()) {
       if (s.peer !== senderId || s.status !== 'active') continue;
       if (!this.channelOk(s.sub.channels, env.ch, col)) continue;
-      if (subscriptionMatches(s.sub, key, this.index.isDescendant)) return true;
+      if (subscriptionMatches(s.sub, key, this.isDescendantOrWas)) return env;
     }
-    const need: Right =
-      env.op === 'remove'
-        ? 'delete'
-        : env.op === 'upsert' && !col.replica.has(env.id)
-          ? 'create'
-          : 'update';
-    return evaluateAccess(
-      this.grantsFor(env.origin),
-      key,
-      need,
-      this.index.isDescendant
-    );
+    const grants = this.grantStore.for(env.origin);
+    const can = (need: Right, path?: string): boolean =>
+      allows(
+        grants,
+        makeKey(env.rtype, env.id, path || undefined),
+        need,
+        this.isDescendantOrWas
+      );
+    if (env.op === 'remove') return can('delete') ? env : null;
+    if (env.op === 'upsert') {
+      if (!col.replica.has(env.id)) return can('create') ? env : null;
+      if (can('update')) return env;
+      const writable = flattenToLeaves(env.data).filter(
+        ([p]) => p !== '' && can('update', p)
+      );
+      if (writable.length === 0) return null;
+      let partial: unknown = {};
+      for (const [p, v] of writable) partial = setPath(partial, p, v);
+      return { ...env, op: 'patch', path: undefined, data: partial };
+    }
+    if (env.path) return can('update', env.path) ? env : null;
+    return flattenToLeaves(env.data).every(([p]) => can('update', p))
+      ? env
+      : null;
   }
 
   // --- subscriptions (incoming) ---------------------------------------------------------
 
   private handleSub(senderId: string, msg: SubscribeMsg): void {
-    const grants = this.grantsFor(senderId);
+    // Admitted when some read grant overlaps the subscription; what it then
+    // receives — snapshot included — is projected per message at egress.
+    const grants = this.grantStore.for(senderId);
     const admitted = grants.some((g) =>
-      grantCoversSubscription(g, msg.sub, this.index.isDescendant)
+      grantOverlapsSubscription(g, msg.sub, this.isDescendantOrWas)
     );
     if (!admitted) {
-      this.sendTo(senderId, { t: 'sub_err', subId: msg.subId, reason: 'denied' });
+      this.sendTo(senderId, {
+        t: 'sub_err',
+        subId: msg.subId,
+        reason: 'denied',
+      });
       return;
     }
     const list = this.inSubs.get(senderId) ?? [];
@@ -1049,19 +1260,25 @@ export class MeshPeer implements PeerCore {
       }
       for (const id of col.replica.ids()) {
         const key = makeKey(rtype, id);
-        if (!subscriptionMatches(msg.sub, key, this.index.isDescendant)) continue;
+        if (!subscriptionMatches(msg.sub, key, this.index.isDescendant))
+          continue;
         docs.push({
           rtype,
           id,
           doc: col.replica.raw(id),
           v: col.replica.rootStamp(id),
+          paths: col.replica.pathStampsOf(id),
         });
       }
-      // Removed entities can't be matched through the (gone) tree — send the
-      // collection's tombstones whenever the rtype could be covered. Coarse
-      // but safe: receivers apply them through LWW.
-      for (const t of col.replica.tombstones())
+      // Removed entities are placed where they were (tombChains), so only the
+      // tombstones inside the subscription's scope go out; egress then drops
+      // any the subscriber's grants don't cover.
+      for (const t of col.replica.tombstones()) {
+        const key = makeKey(rtype, t.id);
+        if (!subscriptionMatches(msg.sub, key, this.isDescendantOrWas))
+          continue;
         tombstones.push({ rtype, id: t.id, v: t.v });
+      }
     }
     this.sendTo(senderId, {
       t: 'sub_ok',
@@ -1092,23 +1309,36 @@ export class MeshPeer implements PeerCore {
         continue; // snapshot doc fails validation — skip it
       }
       const v = d.v ?? { t: 0, c: 0, n: senderId };
-      const change = col.applyOp('upsert', d.id, undefined, data, v, {
-        origin: senderId,
-        channel: col.retainedChannel,
-      });
-      if (change) {
+      const meta = { origin: senderId, channel: col.retainedChannel };
+      const applied = (
+        change: ReturnType<AnyCollection['applyOp']>,
+        env: OpEnvelope
+      ): void => {
+        if (!change) return;
         try {
           col.runTaps(change);
         } catch (e) {
-          console.error(`[mesh] snapshot tap failed for ${d.rtype}:${d.id}:`, e);
+          console.error(
+            `[mesh] snapshot tap failed for ${d.rtype}:${d.id}:`,
+            e
+          );
         }
-        this.relay(
-          col,
-          this.snapshotEnv(col, 'upsert', d.id, data, v, senderId),
-          senderId,
-          undefined,
-          undefined
-        );
+        this.relay(col, env, senderId, undefined, undefined);
+      };
+      applied(
+        col.applyOp('upsert', d.id, undefined, data, v, meta),
+        this.snapshotEnv(col, 'upsert', d.id, data, v, senderId)
+      );
+      // Then each field written after the root, under its own stamp — the
+      // root stamp alone loses to a copy we already hold, which would drop a
+      // field edit made while we were away.
+      for (const [path, pv] of Object.entries(d.paths ?? {})) {
+        const value = getPath(data, path);
+        applied(col.applyOp('patch', d.id, path, value, pv, meta), {
+          ...this.snapshotEnv(col, 'upsert', d.id, value, pv, senderId),
+          op: 'patch',
+          path,
+        });
       }
     }
     for (const t of msg.tombstones) {
@@ -1131,7 +1361,12 @@ export class MeshPeer implements PeerCore {
         )
       )
         continue;
-      const preRecipients = this.recipients(col, t.id, undefined, col.retainedChannel);
+      const preRecipients = this.recipients(
+        col,
+        t.id,
+        undefined,
+        col.retainedChannel
+      );
       const preChain = col.ancestorChain(t.id);
       const change = col.applyOp('remove', t.id, undefined, undefined, t.v, {
         origin: senderId,
@@ -1141,7 +1376,10 @@ export class MeshPeer implements PeerCore {
         try {
           col.runTaps(change);
         } catch (e) {
-          console.error(`[mesh] snapshot tap failed for ${t.rtype}:${t.id}:`, e);
+          console.error(
+            `[mesh] snapshot tap failed for ${t.rtype}:${t.id}:`,
+            e
+          );
         }
         this.relay(
           col,
@@ -1205,10 +1443,17 @@ export class MeshPeer implements PeerCore {
     this.revertPending(p);
     if (msg.value !== undefined && msg.v) {
       this.clock.observe(msg.v);
-      const change = p.col.applyOp('upsert', p.id, undefined, msg.value, msg.v, {
-        origin: senderId,
-        channel: p.col.retainedChannel ?? 'committed',
-      });
+      const change = p.col.applyOp(
+        'upsert',
+        p.id,
+        undefined,
+        msg.value,
+        msg.v,
+        {
+          origin: senderId,
+          channel: p.col.retainedChannel ?? 'committed',
+        }
+      );
       if (change) this.safeTaps(p.col, change);
     }
     p.resolve({
@@ -1274,7 +1519,8 @@ export class MeshPeer implements PeerCore {
       preRecipients ?? this.recipients(col, env.id, env.path, env.ch)
     );
     const authority = col.cfg.authority ?? 'self';
-    if (authority !== 'self' && this.links.has(authority)) targets.add(authority);
+    if (authority !== 'self' && this.links.has(authority))
+      targets.add(authority);
     this.deliver(env, targets);
   }
 
@@ -1291,19 +1537,89 @@ export class MeshPeer implements PeerCore {
     );
     targets.delete(senderId);
     targets.delete(env.origin);
+    // Send once per path: a recipient that reaches the origin directly
+    // already has this lossy op first-hand. Reliable traffic is still
+    // relayed — it is the path that survives a direct link dropping silently.
+    if (this.channels.get(env.ch)?.transport === 'lossy')
+      for (const t of [...targets])
+        if (this.directLinks.get(t)?.has(env.origin)) targets.delete(t);
     this.deliver(env, targets);
   }
 
   private deliver(env: OpEnvelope, targets: Set<string>): void {
-    const ch = this.channels.get(env.ch);
-    const lossy = ch?.transport === 'lossy';
-    for (const t of targets) {
-      if (t === this.id) continue;
-      const link = this.links.get(t);
-      if (!link) continue;
-      if (lossy && link.sendLossy) link.sendLossy(env);
-      else link.send(env);
+    const lossy = this.channels.get(env.ch)?.transport === 'lossy';
+    for (const t of targets) if (t !== this.id) this.transmit(t, env, lossy);
+  }
+
+  // --- egress ---------------------------------------------------------------------------------
+  //
+  // THE choke point: every message this peer sends goes through `transmit`,
+  // which projects it through the recipient's grants. Field-level read grants
+  // are only safe because nothing can bypass this.
+
+  private transmit(peerId: string, msg: MeshMessage, lossy = false): void {
+    const link = this.links.get(peerId);
+    if (!link) return;
+    const out = this.egress(peerId, msg);
+    if (!out) return;
+    if (lossy && link.sendLossy) link.sendLossy(out);
+    else link.send(out);
+  }
+
+  /** What `peerId` may receive of `msg`, or null for nothing. */
+  private egress(peerId: string, msg: MeshMessage): MeshMessage | null {
+    if (peerId === this.cfg.home) return msg;
+    switch (msg.t) {
+      case 'op':
+        // A collection's authority owns its documents; writes flow to it to be
+        // decided, not read through our grants.
+        if (this.collections.get(msg.rtype)?.cfg.authority === peerId)
+          return msg;
+        return projectOp(msg, this.scopeFor(peerId, msg.rtype, msg.id));
+      case 'sub_ok': {
+        const docs: SnapshotDoc[] = [];
+        for (const d of msg.docs) {
+          const scope = this.scopeFor(peerId, d.rtype, d.id);
+          const doc = projectValue(d.doc, scope);
+          if (doc === undefined) continue;
+          // Field stamps go with the fields: none for a path it can't read.
+          const paths =
+            d.paths &&
+            Object.fromEntries(
+              Object.entries(d.paths).filter(([p]) => scopeTouches(scope, p))
+            );
+          docs.push(
+            doc === d.doc && paths === d.paths ? d : { ...d, doc, paths }
+          );
+        }
+        const tombstones = msg.tombstones.filter(
+          (t) => this.scopeFor(peerId, t.rtype, t.id).kind !== 'none'
+        );
+        return { ...msg, docs, tombstones };
+      }
+      case 'ack': {
+        if (msg.value === undefined) return msg;
+        // A rejected writer must not learn a value it cannot read.
+        const value =
+          msg.rtype !== undefined && msg.id !== undefined
+            ? projectValue(msg.value, this.scopeFor(peerId, msg.rtype, msg.id))
+            : undefined;
+        return value === undefined
+          ? { ...msg, value: undefined, v: undefined }
+          : { ...msg, value };
+      }
+      default:
+        return msg;
     }
+  }
+
+  private scopeFor(peerId: string, rtype: string, id: string): ReadScope {
+    return readScope(
+      this.grantStore.for(peerId),
+      rtype,
+      id,
+      this.isDescendantOrWas
+    );
   }
 
   /** Ephemeral channel selections implicitly include the retained channel —
@@ -1358,20 +1674,109 @@ export class MeshPeer implements PeerCore {
       origin: this.id,
       ch: w.channel,
       ack: opId,
+      to: w.to,
+      mid: w.mid,
+      re: w.re,
     };
   }
 
-  private grantsFor(participant: string): Grant[] {
-    const candidates = granteeCandidates(participant);
-    return this.grantEntries.filter((g) => candidates.includes(g.grantee));
+  // --- addressed delivery + request/reply ------------------------------------------------
+  //
+  // The routing seam: `nextHop` is where a destination participant becomes a
+  // link. Today that is the participant itself, else its server, else our
+  // home; direct links (principle 8) slot in here without changing callers.
+
+  private nextHop(to: string, exclude?: string): string | undefined {
+    for (const c of [to, participantServer(to), this.cfg.home])
+      if (c && c !== exclude && c !== this.id && this.links.has(c)) return c;
+    return undefined;
+  }
+
+  /** Has this unstamped op already been applied (it came over another path)?
+   *  Tracks, per origin, its current instance epoch and a window of sequence
+   *  numbers. Ops from an older instance of the origin are dropped too. */
+  private alreadySeen(env: OpEnvelope): boolean {
+    if (env.q === undefined || env.qe === undefined) return false;
+    let s = this.seen.get(env.origin);
+    if (!s || s.qe !== env.qe) {
+      if (s && env.qe < s.qe) return true;
+      s = { qe: env.qe, max: 0, ids: new Set() };
+      this.seen.delete(env.origin); // re-insert: Map order = recency
+      this.seen.set(env.origin, s);
+      if (this.seen.size > SEEN_ORIGINS) {
+        const oldest = this.seen.keys().next().value;
+        if (oldest !== undefined) this.seen.delete(oldest);
+      }
+    }
+    if (env.q <= s.max - SEEN_WINDOW || s.ids.has(env.q)) return true;
+    s.ids.add(env.q);
+    if (env.q > s.max) s.max = env.q;
+    if (s.ids.size > SEEN_WINDOW)
+      for (const q of s.ids) if (q <= s.max - SEEN_WINDOW) s.ids.delete(q);
+    return false;
+  }
+
+  /** PeerCore: send `w` to `w.to` and await its reply. */
+  request<T extends object>(
+    c: Collection<T>,
+    w: LocalWrite,
+    timeoutMs: number
+  ): Promise<RequestOutcome> {
+    const to = w.to!;
+    if (!this.nextHop(to)) return Promise.resolve({ status: 'unreachable' });
+    const mid = uuid();
+    return new Promise<RequestOutcome>((resolve) => {
+      const timer = setTimeout(() => {
+        this.pendingRequests.delete(mid);
+        resolve({ status: 'timeout' });
+      }, timeoutMs);
+      this.pendingRequests.set(mid, { to, resolve, timer });
+      this.localWrite(c, { ...w, mid });
+    });
+  }
+
+  private handleReply(env: OpEnvelope): void {
+    const p = this.pendingRequests.get(env.re!);
+    // Only the addressee answers; a hop on the way may only report failure.
+    if (!p || (env.origin !== p.to && env.err === undefined)) return;
+    this.pendingRequests.delete(env.re!);
+    clearTimeout(p.timer);
+    p.resolve(
+      env.err === 'unreachable'
+        ? { status: 'unreachable' }
+        : env.err !== undefined
+          ? { status: 'error', reason: env.err }
+          : { status: 'replied', data: env.data }
+    );
+  }
+
+  private replyEnvelope(
+    req: OpEnvelope,
+    data: unknown,
+    err?: string
+  ): OpEnvelope {
+    return {
+      t: 'op',
+      rtype: req.rtype,
+      op: 'upsert',
+      id: req.id,
+      data,
+      origin: this.id,
+      ch: req.ch,
+      to: req.origin,
+      re: req.mid,
+      err,
+      qe: this.epoch,
+      q: ++this.seq,
+    };
   }
 
   private revalidateInSubs(): void {
     for (const [peerId, subs] of [...this.inSubs]) {
-      const grants = this.grantsFor(peerId);
+      const grants = this.grantStore.for(peerId);
       const kept = subs.filter((s) =>
         grants.some((g) =>
-          grantCoversSubscription(g, s.sub, this.index.isDescendant)
+          grantOverlapsSubscription(g, s.sub, this.isDescendantOrWas)
         )
       );
       if (kept.length) this.inSubs.set(peerId, kept);
@@ -1379,7 +1784,10 @@ export class MeshPeer implements PeerCore {
     }
   }
 
-  private safeTaps(col: AnyCollection, change: Parameters<AnyCollection['runTaps']>[0]): void {
+  private safeTaps(
+    col: AnyCollection,
+    change: Parameters<AnyCollection['runTaps']>[0]
+  ): void {
     try {
       col.runTaps(change);
     } catch (e) {
@@ -1388,17 +1796,12 @@ export class MeshPeer implements PeerCore {
   }
 
   private sendTo(peerId: string, msg: MeshMessage): void {
-    this.links.get(peerId)?.send(msg);
+    this.transmit(peerId, msg);
   }
 
   private notifyStatus(): void {
     const s = this.status();
     for (const cb of [...this.statusObservers]) cb(s);
-  }
-
-  private notifyGrants(): void {
-    const list = this.grants.list();
-    for (const cb of [...this.grantObservers]) cb(list);
   }
 }
 
@@ -1427,6 +1830,10 @@ export function createMeshPeer(cfg: MeshPeerConfig): MeshPeer {
   return new MeshPeer(cfg);
 }
 
+/** Dedup window per origin, and how many origins are tracked. */
+const SEEN_WINDOW = 1024;
+const SEEN_ORIGINS = 4096;
+
 function done(o: WriteOutcome): WriteHandle {
   return { ack: Promise.resolve(o) };
 }
@@ -1439,7 +1846,11 @@ function makeUndoEntry(
   after: unknown
 ): UndoEntry {
   const op: UndoOp =
-    before === undefined ? 'created' : after === undefined ? 'removed' : 'modified';
+    before === undefined
+      ? 'created'
+      : after === undefined
+        ? 'removed'
+        : 'modified';
   return { rtype, id, op, before, after };
 }
 

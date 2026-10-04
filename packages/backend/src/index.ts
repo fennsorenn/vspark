@@ -2,6 +2,8 @@ import { createServer } from 'http';
 import { existsSync } from 'fs';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
+import { currentPairingCode, onPairingCode } from './auth/clients.js';
+import { publishStatus } from './mesh/status.js';
 import { createApp } from './app.js';
 import { upgradeAllowed } from './localAccess.js';
 import { runMigrations, getDb, closeDb } from './db/index.js';
@@ -174,12 +176,11 @@ async function start() {
                   onProgress,
                 })
               ),
-        onStatus: (status) => wsSync.broadcast('output_window_status', status),
+        onStatus: (status) =>
+          publishStatus('output_window', 'main', { ...status }),
       });
       outputWindows = mgr;
-      wsSync.onClientConnected((ws) =>
-        wsSync.sendTo(ws, 'output_window_status', mgr.status)
-      );
+      publishStatus('output_window', 'main', { ...mgr.status });
       const resync = () =>
         outputWindows?.setScenes(composeLayers.all() as unknown as ComposeSceneDoc[]);
       let pending: ReturnType<typeof setTimeout> | null = null;
@@ -454,6 +455,9 @@ async function start() {
   const port = PORT;
   server.listen(port, async () => {
     console.log(`vspark listening on http://localhost:${port}`);
+    // Browsers on other machines enroll with this code (auth/clients.ts).
+    console.log(`Pairing code for other devices: ${currentPairingCode()}`);
+    onPairingCode((code) => console.log(`New pairing code: ${code}`));
     if (existsSync(PUBLIC_DIR)) {
       const { default: open } = await import('open');
       open(`http://localhost:${port}`);

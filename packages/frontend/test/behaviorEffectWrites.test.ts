@@ -47,6 +47,10 @@ const collectionFor = (rtype: string) => ({
     docs.delete(id);
     return { ack: Promise.resolve({ status: 'acked' }) };
   },
+  // These docs have nothing hanging off them: the tree is the doc itself.
+  removeTree(id: string) {
+    return [this.remove(id)];
+  },
 });
 
 vi.mock('../src/mesh/peer', () => ({

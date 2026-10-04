@@ -305,7 +305,7 @@ Before this landed, the vmc_receiver carried a `poseTimeout` config field (UI la
 
 `checkTimeouts()` resolves both from `Math.min(quietSince ?? now, lastSeen)` — **whichever dropout began first drives the window**, so a source that freezes and *then* disconnects doesn't restart its grace period on the disconnect. It skips receivers whose `trackingActive !== true` (already lost, or never latched — `null`), matching the connect-time snapshot which skips `null` for the same reason.
 
-`setTracking(behaviorId, tracking)` is the single transition point: it collapses no-op repeats, broadcasts `vmc_tracking_state`, and keeps the `broadcastBus.removeBehavior` teardown paired with the loss that caused it. All three call sites (movement resume, both loss paths) funnel through it.
+`setTracking(behaviorId, tracking)` is the single transition point: it collapses no-op repeats, publishes the receiver's `tracking` status (a `server_status` document, see [mesh.md](mesh.md#runtime-state-the-runtime-channel)), and keeps the `broadcastBus.removeBehavior` teardown paired with the loss that caused it. All three call sites (movement resume, both loss paths) funnel through it.
 
 **Sweep period is 250ms** in both managers (VMC dropped from 2000ms). The smallest configurable window is 0.1s, so a 2s tick would silently round every short setting up to its own period.
 

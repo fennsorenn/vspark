@@ -23,7 +23,6 @@ import {
 } from '../mesh/shares.js';
 import {
   publishNodeStream,
-  publishClipPlayback,
   publishCollabRuntime,
   setCollabRuntimeApplier,
 } from '../mesh/streams.js';
@@ -95,11 +94,11 @@ import type { ShareKind } from './shares.js';
  *  name updates live, so we exchange it on connect + on change). */
 const PROFILE_RTYPE = 'peer_profile';
 
-/** Runtime WS broadcast kinds that have NO sync.document / stream mesh path and
- *  must be mirrored to collab peers verbatim: Set Data bus, runtime overrides,
- *  media control, and the ephemeral entities/clips a Spawn node produces (regular
- *  node/clip CRUD goes through sync.document, so those kinds are excluded to avoid
- *  double-forwarding). Clip play frames are handled per-clip in the relay. */
+/** Runtime WS broadcast kinds mirrored to collab peers verbatim: only the
+ *  ephemeral entities/clips a Spawn node produces are left here (Set Data,
+ *  runtime overrides and media control are mesh collections now; regular
+ *  node/clip CRUD and clip transport are documents). Tracked as W7 of
+ *  dev-notes/plans/mesh-sole-channel.md. */
 const COLLAB_RELAY_KINDS = new Set<string>([
   'node_added',
   'node_removed',

@@ -13,7 +13,14 @@ import { useDeleteElement } from '../hooks/useDeleteElement';
 import { useTrackClipEvaluator } from '../hooks/useTrackClipEvaluator';
 import { useSharedSubscriptions } from '../hooks/useSharedSubscriptions';
 import { useClientMesh } from '../hooks/useClientMesh';
-import { initMeshPeer, meshUndo, meshRedo } from '../mesh/peer';
+import {
+  initMeshPeer,
+  meshUndo,
+  meshRedo,
+  setPairingPrompt,
+  withoutRemoved,
+} from '../mesh/peer';
+import { usePrompt } from '../components/DialogProvider';
 import { startMeshProjection } from '../sync/meshProjection';
 import { startMeshStoreFeeder } from '../sync/meshStoreFeeder';
 import { TopBar } from '../components/editor/TopBar';
@@ -48,6 +55,19 @@ export function Editor() {
     startMeshProjection();
     startMeshStoreFeeder();
   }, []);
+  // A browser on another machine joins with vspark's pairing code.
+  const prompt = usePrompt();
+  const { t: tConn } = useTranslation('connections');
+  useEffect(() => {
+    setPairingPrompt(() =>
+      prompt({
+        title: tConn('pairing.title'),
+        message: tConn('pairing.message'),
+        placeholder: '000000',
+        confirmLabel: tConn('pairing.confirm'),
+      })
+    );
+  }, [prompt, tConn]);
   const { t } = useTranslation('editor');
   const { deleteSelected } = useDeleteElement();
   const { projectId } = useParams<{ projectId: string }>();
@@ -168,9 +188,17 @@ export function Editor() {
             state.selectedNodeId // parentId — drop under the selection, if any
           );
           const data = await api.getScenes(state.projectId!);
-          useEditorStore.getState().setNodes(data.nodes);
-          useEditorStore.getState().setComposeLayers(data.composeLayers);
-          useEditorStore.getState().setTrackClips(data.trackClips);
+          useEditorStore
+            .getState()
+            .setNodes(withoutRemoved('scene_node', data.nodes));
+          useEditorStore
+            .getState()
+            .setComposeLayers(
+              withoutRemoved('compose_layer', data.composeLayers)
+            );
+          useEditorStore
+            .getState()
+            .setTrackClips(withoutRemoved('track_clip', data.trackClips));
         } catch {
           /* not a preset on clipboard */
         }
@@ -215,14 +243,17 @@ export function Editor() {
           composeLayers,
           trackClips,
         }) => {
-          setScenes(scenes);
-          setBehaviors(behaviors);
-          setCameraEffects(cameraEffects);
+          // Rows another tab removed while this load was in flight stay
+          // removed (see withoutRemoved).
+          setScenes(withoutRemoved('scene_node', scenes));
+          setBehaviors(withoutRemoved('behavior', behaviors));
+          setCameraEffects(withoutRemoved('camera_effect', cameraEffects));
           // Separate compose_scene layers from regular layers
-          const composeSceneItems = composeLayers.filter(
+          const liveLayers = withoutRemoved('compose_layer', composeLayers);
+          const composeSceneItems = liveLayers.filter(
             (l) => l.kind === 'compose_scene'
           );
-          const regularLayers = composeLayers.filter(
+          const regularLayers = liveLayers.filter(
             (l) => l.kind !== 'compose_scene'
           );
           setComposeScenes(composeSceneItems);
@@ -230,10 +261,10 @@ export function Editor() {
           if (composeSceneItems.length > 0) {
             selectComposeScene(composeSceneItems[0].id);
           }
-          setTrackClips(trackClips);
+          setTrackClips(withoutRemoved('track_clip', trackClips));
           // Load every scene's nodes so the dock can render all scenes as
           // collapsible roots; the viewport still renders only the active scene.
-          setNodes(nodes);
+          setNodes(withoutRemoved('scene_node', nodes));
           if (scenes.length > 0) {
             setActiveScene(scenes[0].id);
           }

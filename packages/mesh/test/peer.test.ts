@@ -369,8 +369,10 @@ describe('pure-stream collections (preview-only, routed by containment)', () => 
     sa.set('avatar', '', { id: 'avatar', kind: 'pose' }, { channel: 'preview' });
     await lb.flush();
     expect(seen.map((f) => f.kind)).toEqual(['pose']);
-    expect(sb.get('avatar')?.kind).toBe('pose'); // overlay composed
-    expect(sb.replica.raw('avatar')).toBeUndefined(); // never retained
+    // Delivered to observers, not kept: with no retained channel there is no
+    // document for an overlay to preview.
+    expect(sb.get('avatar')).toBeUndefined();
+    expect(sb.replica.raw('avatar')).toBeUndefined();
 
     // A frame keyed OUTSIDE the granted subtree never crosses.
     sa.set('elsewhere', '', { id: 'elsewhere', kind: 'x' }, { channel: 'preview' });
@@ -512,7 +514,9 @@ describe('tombstone scoping + epoch reset', () => {
     na.create({ id: 's-root', name: 'S', parentId: null });
     nb.put({ id: 's-root', name: 'S', parentId: null }, { v: { t: 10, c: 0, n: 'A' } });
     nb.put({ id: 's-gone', name: 'dead', parentId: 's-root' }, { v: { t: 10, c: 0, n: 'A' } });
-    na.putTombstone('s-gone', { t: 99, c: 0, n: 'A' });
+    // Hydrated with the ancestry a durable peer persists next to the stamp —
+    // the subtree grant can only be checked against where the entity WAS.
+    na.putTombstone('s-gone', { t: 99, c: 0, n: 'A' }, ['s-root']);
     a.grants.grant(subtreeGrant('B', 's-root'));
 
     await b.subscribe('A', subtreeSub('s-root'));

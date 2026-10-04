@@ -12,6 +12,7 @@ import {
   commitLayerDeleteKeepChildren,
   commitLayerPatch,
   commitLayerPath,
+  commitComposeSceneCreate,
 } from '../../mesh/layerWrites';
 import { commitLogicCreate } from '../../mesh/logicWrites';
 import type { ComposeLayerKind } from '../../api/client';
@@ -233,9 +234,6 @@ function LayerRow({
   );
   const selectComposeLayer = useEditorStore((s) => s.selectComposeLayer);
   const selectNode = useEditorStore((s) => s.selectNode);
-  const updateComposeLayerLocal = useEditorStore(
-    (s) => s.updateComposeLayerLocal
-  );
   const [dropPos, setDropPos] = useState<DropZone | null>(null);
 
   // Siblings in display order (front-first), used for drag-reorder.
@@ -423,12 +421,8 @@ function LayerRow({
   const locked = layer.config.locked === true;
   const locked3d = layer.config.locked3d === true;
 
-  const toggleLock = async (key: 'locked' | 'locked3d') => {
-    const nextConfig = { ...layer.config, [key]: !layer.config[key] };
-    updateComposeLayerLocal(layer.id, { config: nextConfig });
-    await api
-      .updateComposeLayer(layer.id, { config: nextConfig })
-      .catch(() => {});
+  const toggleLock = (key: 'locked' | 'locked3d') => {
+    commitLayerPath(layer.id, `config.${key}`, !layer.config[key]);
   };
 
   return (
@@ -1040,7 +1034,6 @@ export function ComposeTree() {
   const prompt = usePrompt();
   const { projectId } = useParams<{ projectId: string }>();
   const composeScenes = useEditorStore((s) => s.composeScenes);
-  const addComposeScene = useEditorStore((s) => s.addComposeScene);
   const selectComposeScene = useEditorStore((s) => s.selectComposeScene);
 
   const handleNewComposeScene = async () => {
@@ -1052,11 +1045,7 @@ export function ComposeTree() {
     });
     if (!name?.trim()) return;
     try {
-      const created = await api.createComposeScene(projectId, {
-        name: name.trim(),
-      });
-      addComposeScene(created);
-      selectComposeScene(created.id);
+      selectComposeScene(await commitComposeSceneCreate(name.trim()));
     } catch (e) {
       alert(e instanceof Error ? e.message : t('tree.errors.createFailed'));
     }

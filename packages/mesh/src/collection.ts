@@ -25,6 +25,14 @@ export interface WriteHandle {
   ack: Promise<WriteOutcome>;
 }
 
+/** How a {@link Collection.request} ended. Delivery is at most once, so a
+ *  request that is lost or never answered ends in `timeout`. */
+export type RequestOutcome =
+  | { status: 'replied'; data: unknown }
+  | { status: 'timeout' }
+  | { status: 'unreachable' }
+  | { status: 'error'; reason: string };
+
 export interface WriteOpts {
   channel?: string;
   /** Set `false` to keep a committed write OFF the authoring peer's undo stack.
@@ -36,6 +44,9 @@ export interface WriteOpts {
    *  edit. Such a write still replicates, persists and acks exactly as normal —
    *  the only thing it skips is the undo entry. */
   undo?: boolean;
+  /** Deliver to this one participant only (unstamped channels: commands are
+   *  addressed, state is shared). Routed toward it and applied only there. */
+  to?: string;
 }
 
 export interface CollectionConfig<T extends object> {
@@ -53,6 +64,15 @@ export interface CollectionConfig<T extends object> {
   channels?: string[];
   /** Ack authority: 'self' on the home peer, the home's peer id elsewhere. */
   authority?: 'self' | string;
+  /** Rights this peer's own client participants (its tabs) hold on every
+   *  document of the collection. Grants are a whitelist (principle 9): a
+   *  collection that declares none is unreachable from tabs, visibly. */
+  clients?: {
+    read?: boolean;
+    update?: boolean;
+    create?: boolean;
+    delete?: boolean;
+  };
 }
 
 export type Selector = string | { subtree: string } | '**';
@@ -69,6 +89,12 @@ export interface LocalWrite {
   undo?: boolean;
   /** hydration: apply with this restored stamp; never acked; taps skip it. */
   hydrateV?: HLC;
+  /** addressed delivery (see WriteOpts.to). */
+  to?: string;
+  /** request id (set by the peer for Collection.request). */
+  mid?: string;
+  /** reply to request `re` (Collection.reply). */
+  re?: string;
 }
 
 /** The slice of the peer a collection needs (implemented by MeshPeer). */
@@ -77,6 +103,12 @@ export interface PeerCore {
   readonly clock: HlcClock;
   readonly channels: ChannelRegistry;
   localWrite<T extends object>(col: Collection<T>, w: LocalWrite): WriteHandle;
+  removeTree(rootId: string): WriteHandle[];
+  request<T extends object>(
+    col: Collection<T>,
+    w: LocalWrite,
+    timeoutMs: number
+  ): Promise<RequestOutcome>;
   connected(peerId: string): boolean;
   childrenIds(id: string, rtype: string): string[];
   subtreeIds(rootId: string): string[];
@@ -86,6 +118,9 @@ export interface PeerCore {
   effectiveStamp(id: string, v: HLC, parentHint?: string | null): HLC;
   indexUpsert(rtype: string, id: string, parentId: string | null): void;
   indexRemove(id: string): void;
+  /** A document was removed; `chain` is its id + ancestors as they were, so a
+   *  tombstone can still be scope-checked once its containment entry is gone. */
+  noteRemoved(id: string, chain: string[]): void;
 }
 
 interface Observer<T> {
@@ -147,6 +182,7 @@ export class Collection<T extends object> {
       data: doc,
       channel: this.writeChannel(opts),
       undo: opts?.undo,
+      to: opts?.to,
     });
   }
 
@@ -158,6 +194,7 @@ export class Collection<T extends object> {
       data: partial,
       channel: this.writeChannel(opts),
       undo: opts?.undo,
+      to: opts?.to,
     });
   }
 
@@ -170,6 +207,45 @@ export class Collection<T extends object> {
       data: value,
       channel: this.writeChannel(opts),
       undo: opts?.undo,
+      to: opts?.to,
+    });
+  }
+
+  /** Remove `id` and everything under it in the cross-type containment tree
+   *  (child docs and the documents hanging off them), children first, as one
+   *  undo action. See {@link MeshPeer.removeTree}. */
+  removeTree(id: string): WriteHandle[] {
+    return this.peer.removeTree(id);
+  }
+
+  /** Send `data` to one participant on an unstamped channel (default
+   *  `control`) and await its answer. The receiver sees the op with
+   *  `change.request` set and answers with {@link reply}. */
+  request(
+    id: string,
+    data: unknown,
+    opts: { to: string; channel?: string; timeoutMs?: number }
+  ): Promise<RequestOutcome> {
+    const channel = opts.channel ?? 'control';
+    this.requireUnstamped(channel, 'request');
+    return this.peer.request(
+      this,
+      { op: 'upsert', id, data, channel, to: opts.to },
+      opts.timeoutMs ?? 5000
+    );
+  }
+
+  /** Answer a request (a change carrying `request`) with `data`. */
+  reply(change: AppliedChange<T>, data: unknown): void {
+    if (!change.request)
+      throw new Error(`${this.rtype}: change is not a request`);
+    this.peer.localWrite(this, {
+      op: 'upsert',
+      id: change.id,
+      data,
+      channel: change.channel,
+      to: change.request.from,
+      re: change.request.mid,
     });
   }
 
@@ -179,6 +255,7 @@ export class Collection<T extends object> {
       id,
       channel: this.writeChannel(opts),
       undo: opts?.undo,
+      to: opts?.to,
     });
   }
 
@@ -193,14 +270,17 @@ export class Collection<T extends object> {
     });
   }
 
-  /** Hydrate one tombstone with its restored stamp. */
-  putTombstone(id: string, v: HLC): void {
+  /** Hydrate one tombstone with its restored stamp. `ancestors` (nearest
+   *  first, as persisted from the remove's `AppliedChange.ancestors`) restores
+   *  where the entity sat, so subtree-scoped grants can still be checked. */
+  putTombstone(id: string, v: HLC, ancestors?: string[]): void {
     this.peer.localWrite(this, {
       op: 'remove',
       id,
       channel: this.requireRetained('putTombstone'),
       hydrateV: v,
     });
+    if (ancestors?.length) this.peer.noteRemoved(id, [id, ...ancestors]);
   }
 
   /** Forget a deletion marker (LOCAL only — nothing fans out). The epoch-reset
@@ -254,6 +334,10 @@ export class Collection<T extends object> {
   ): AppliedChange<T> | null {
     if (v === undefined) {
       const change = this.replica.ephemeral(id, path ?? '', data, meta);
+      // A collection with no retained channel carries commands or stream
+      // frames: delivered to observers, never kept. An overlay only means
+      // something over a retained document it previews.
+      if (!this.retainedChannel) this.replica.dropOverlays(id);
       this.notify(change);
       return change;
     }
@@ -277,7 +361,11 @@ export class Collection<T extends object> {
     if (op === 'remove') {
       preChain = this.ancestorChain(id);
       change = this.replica.remove(id, v, meta);
-      if (change) this.peer.indexRemove(id);
+      if (change) {
+        change.ancestors = preChain.slice(1);
+        this.peer.noteRemoved(id, preChain);
+        this.peer.indexRemove(id);
+      }
     } else if (op === 'upsert') {
       change = this.replica.upsert(id, data as T, v, meta);
     } else {
@@ -290,7 +378,11 @@ export class Collection<T extends object> {
     if (op !== 'remove') {
       const doc = this.replica.raw(id);
       if (doc !== undefined)
-        this.peer.indexUpsert(this.rtype, id, this.cfg.parent?.(doc)?.id ?? null);
+        this.peer.indexUpsert(
+          this.rtype,
+          id,
+          this.cfg.parent?.(doc)?.id ?? null
+        );
     }
     this.notify(change, preChain);
     return change;
@@ -361,7 +453,18 @@ export class Collection<T extends object> {
       );
     if (!this.allowedChannels.includes(ch))
       throw new Error(`${this.rtype}: channel '${ch}' not allowed`);
+    if (opts?.to !== undefined) this.requireUnstamped(ch, 'an addressed write');
     return ch;
+  }
+
+  /** Addressing belongs to commands: shared state is never per-recipient. */
+  private requireUnstamped(ch: string, what: string): void {
+    if (!this.allowedChannels.includes(ch))
+      throw new Error(`${this.rtype}: channel '${ch}' not allowed`);
+    if (this.peer.channels.get(ch)?.stamped)
+      throw new Error(
+        `${this.rtype}: ${what} needs an unstamped channel; '${ch}' carries state`
+      );
   }
 
   private requireRetained(what: string): string {

@@ -2,7 +2,6 @@ import { useEffect, useRef } from 'react';
 import { useEditorStore } from '../store/editorStore';
 import { useAssistantStore } from '../store/assistantStore';
 import type { StageObject } from '../store/editorStore';
-import type { CameraEffectRecord } from '../api/client';
 import {
   mapComposeLayer,
   mapTrackClip,
@@ -119,17 +118,7 @@ export function useWsSync() {
             applyRemote(msg.payload as unknown as SyncEnvelope);
             return;
           }
-          if (msg.kind === 'vmc_status') {
-            setVmcStatus(
-              msg.payload.behaviorId as string,
-              msg.payload.connected as boolean
-            );
-          } else if (msg.kind === 'vmc_tracking_state') {
-            setVmcTracking(
-              msg.payload.behaviorId as string,
-              msg.payload.tracking as boolean
-            );
-          } else if (msg.kind === 'vmc_pose') {
+          if (msg.kind === 'vmc_pose') {
             setVmcPose(
               msg.payload.nodeId as string,
               msg.payload.bones as Record<
@@ -162,38 +151,6 @@ export function useWsSync() {
             }
           } else if (msg.kind === 'node_removed') {
             useEditorStore.getState().deleteNode(msg.payload.id as string);
-          } else if (msg.kind === 'scene_removed') {
-            useEditorStore.getState().removeScene(msg.payload.id as string);
-          } else if (msg.kind === 'scene_updated') {
-            const p = msg.payload as {
-              id: string;
-              name?: string;
-              runtimeSettings?: Record<string, unknown>;
-            };
-            const patch: Record<string, unknown> = {};
-            if (p.name != null) patch.name = p.name;
-            if (p.runtimeSettings != null)
-              patch.runtimeSettings = p.runtimeSettings;
-            useEditorStore.getState().updateSceneItem(p.id, patch);
-          } else if (msg.kind === 'camera_effect_added') {
-            const p = msg.payload as Record<string, unknown>;
-            const effect: CameraEffectRecord = {
-              id: p.id as string,
-              nodeId: (p.node_id ?? p.nodeId) as string,
-              kind: p.kind as string,
-              enabled: Boolean(p.enabled),
-              config:
-                typeof p.config === 'string'
-                  ? JSON.parse(p.config)
-                  : ((p.config as Record<string, unknown>) ?? {}),
-            };
-            const store = useEditorStore.getState();
-            if (store.cameraEffects.every((e) => e.id !== effect.id))
-              store.addCameraEffect(effect);
-          } else if (msg.kind === 'camera_effect_removed') {
-            useEditorStore
-              .getState()
-              .removeCameraEffect(msg.payload.id as string);
           } else if (msg.kind === 'compose_layer_added') {
             const added = mapComposeLayer(msg.payload);
             if (added.kind === 'compose_scene') {
@@ -213,20 +170,6 @@ export function useWsSync() {
             useEditorStore.getState().addTrackClip(mapTrackClip(msg.payload));
           } else if (msg.kind === 'track_clip_removed') {
             useEditorStore.getState().removeTrackClip(msg.payload.id as string);
-          } else if (msg.kind === 'obs_connection_status') {
-            const p = msg.payload as {
-              connectionId: string;
-              status: import('../api/client').ObsConnectionStatus;
-              reason: string | null;
-              message: string | null;
-            };
-            useEditorStore.getState().patchObsConnectionStatus(p);
-          } else if (msg.kind === 'output_window_status') {
-            useEditorStore
-              .getState()
-              .setOutputWindowStatus(
-                msg.payload as import('../store/editorStore').OutputWindowStatus
-              );
           } else if (msg.kind === 'mp_status') {
             useConnectionsStore
               .getState()

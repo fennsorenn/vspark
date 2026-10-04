@@ -20,6 +20,7 @@ import { join } from 'path';
 import { getDb } from '../../db/index.js';
 import { BehaviorKind } from '../decorator.js';
 import { trackingGraceMs } from '../tracking_grace.js';
+import { publishTracking } from '../../mesh/status.js';
 
 // ---------- Minimal OSC parser ----------
 
@@ -243,22 +244,6 @@ export class VmcManager {
     // configured window starts at 0.1s. A 2s tick would round every short "Idle
     // after" setting up to its own period.
     this.timer = setInterval(() => this.checkTimeouts(), 250);
-
-    // Send current receiver state to any new WebSocket client (handles page refresh / new tabs).
-    ws.onClientConnected((client) => {
-      for (const [behaviorId, info] of this.receivers) {
-        ws.sendTo(client, 'vmc_status', {
-          behaviorId,
-          connected: info.connected,
-        });
-        if (info.trackingActive !== null) {
-          ws.sendTo(client, 'vmc_tracking_state', {
-            behaviorId,
-            tracking: info.trackingActive,
-          });
-        }
-      }
-    });
   }
 
   // ── graph management ───────────────────────────────────────────────────────
@@ -416,7 +401,7 @@ export class VmcManager {
     console.log(
       `[VMC] Tracking ${tracking ? 'ACTIVE' : 'LOST'} (component ${behaviorId})`
     );
-    this.ws.broadcast('vmc_tracking_state', { behaviorId, tracking });
+    publishTracking({ behaviorId, tracking });
     // Drop our bus slot on tracking loss so the merge falls back to other
     // producers (or the additive-identity fallback frame if we were the
     // only one). Resume is automatic — the next publishBones re-creates it.
@@ -458,7 +443,7 @@ export class VmcManager {
         console.log(
           `[VMC] Client connected: ${rinfo.address}:${rinfo.port} → port ${port} (component ${behaviorId})`
         );
-        this.ws.broadcast('vmc_status', {
+        publishTracking({
           behaviorId,
           connected: true,
           remoteAddress: rinfo.address,
@@ -548,14 +533,14 @@ export class VmcManager {
     this.interceptorCleanups.delete(behaviorId);
     broadcastBus.removeBehavior(behaviorId);
     if (info.connected)
-      this.ws.broadcast('vmc_status', { behaviorId, connected: false });
+      publishTracking({ behaviorId, connected: false });
     // Signal tracking loss on teardown. Tracking-false is otherwise only emitted
     // from the /Body handler, which needs packets still arriving — disabling the
     // source stops them, so the transition would never fire and every client
     // would keep a stale `tracking: true` forever (pinning avatars to their base
     // animation, unreachable idle). Mirrors MediaPipeTrackerManager.stop().
     if (info.trackingActive)
-      this.ws.broadcast('vmc_tracking_state', {
+      publishTracking({
         behaviorId,
         tracking: false,
       });
@@ -657,7 +642,7 @@ export class VmcManager {
       if (info.connected && now - info.lastSeen > 3000) {
         info.connected = false;
         console.log(`[VMC] Client timed out (component ${behaviorId})`);
-        this.ws.broadcast('vmc_status', { behaviorId, connected: false });
+        publishTracking({ behaviorId, connected: false });
       }
 
       // Both loss paths resolve here, on one clock. The signal counts as alive

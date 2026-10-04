@@ -19,7 +19,7 @@
  */
 import type { IncomingMessage } from 'http';
 import type { Duplex } from 'stream';
-import type { RequestHandler } from 'express';
+import type { Request, RequestHandler } from 'express';
 import { isIP } from 'net';
 
 function allowLan(): boolean {
@@ -37,6 +37,19 @@ export function isLoopbackAddress(addr: string | undefined): boolean {
   if (!addr) return false;
   const a = addr.startsWith('::ffff:') ? addr.slice(7) : addr;
   return a === '::1' || a.startsWith('127.');
+}
+
+/** The browser's own address. Behind the Vite dev proxy every request arrives
+ *  from loopback, so the proxy's X-Forwarded-For is used — trusted only when
+ *  the connection itself is from loopback, i.e. from that proxy — and only its
+ *  LAST entry: the proxy appends the address it saw, while anything before it
+ *  came from the browser and can say whatever the browser likes. */
+export function browserAddress(req: Request): string | undefined {
+  const socket = req.socket.remoteAddress;
+  const fwd = req.headers['x-forwarded-for'];
+  if (isLoopbackAddress(socket) && typeof fwd === 'string' && fwd.trim())
+    return fwd.split(',').at(-1)!.trim();
+  return socket;
 }
 
 /** Hostname of a `Host` header or URL authority, lower-cased, without port. */

@@ -64,8 +64,8 @@ export function OverliveAccountsModal({ onClose }: Props) {
   const [showSeForm, setShowSeForm] = useState(false);
   const [pendingTwitchAppPick, setPendingTwitchAppPick] = useState(false);
   const [otherProjects, setOtherProjects] = useState<Project[]>([]);
-  // OBS connections use the editor store as source of truth so live
-  // obs_connection_status WS updates flow into the status pills.
+  // OBS connections use the editor store as source of truth so live status
+  // (server_status documents, applied by the mesh feeder) reaches the pills.
   const obsConnections = useEditorStore((s) => s.obsConnections);
   const setObsConnections = useEditorStore((s) => s.setObsConnections);
   // null = closed; 'new' = add form; a record = editing it.
@@ -252,7 +252,7 @@ export function OverliveAccountsModal({ onClose }: Props) {
   const handleTestObs = async (conn: ObsConnectionRecord) => {
     try {
       await api.testObsConnection(conn.id);
-      // Live status arrives via the obs_connection_status WS patch.
+      // Live status arrives as a server_status document (mesh feeder).
     } catch {
       /* non-fatal — status pill reflects the outcome */
     }

@@ -546,3 +546,86 @@ describe('mesh undo/redo — the undo:false opt-out', () => {
     expect(r.a.undoStatus().canUndo).toBe(false);
   });
 });
+
+describe('removeTree', () => {
+  it('removes a node and its cross-type dependents as one undoable action', async () => {
+    const lb = createLoopbackPair('S', 'T');
+    const s = createMeshPeer({ identity: { peerId: 'S' }, transports: [lb.a] });
+    const t = createMeshPeer({
+      identity: { peerId: 'T' },
+      home: 'S',
+      transports: [lb.b],
+    });
+    type D = { id: string; parentId?: string | null; nodeId?: string };
+    const nodeParent = (d: D) =>
+      d.parentId ? { rtype: 'node', id: d.parentId } : null;
+    const behParent = (d: D) =>
+      d.nodeId ? { rtype: 'node', id: d.nodeId } : null;
+    const sn = s.collection<D>('node', {
+      parent: nodeParent,
+      clients: { read: true, update: true, create: true, delete: true },
+    });
+    const sb = s.collection<D>('beh', {
+      parent: behParent,
+      clients: { read: true, update: true, create: true, delete: true },
+    });
+    const tn = t.collection<D>('node', { parent: nodeParent, authority: 'S' });
+    const tb = t.collection<D>('beh', { parent: behParent, authority: 'S' });
+    const all = (rtype: string) => ({
+      entityRtype: rtype,
+      entityId: '*',
+      includeDescendants: false,
+      pathPrefix: '',
+    });
+    s.grants.grant({
+      grantee: 'T',
+      entityRtype: '*',
+      entityId: '*',
+      includeDescendants: false,
+      pathPrefix: '',
+      rights: { read: true, update: true, create: true, delete: true },
+    });
+    await t.subscribe('S', all('node'));
+    await t.subscribe('S', all('beh'));
+
+    tn.create({ id: 'root', parentId: null });
+    tn.create({ id: 'child', parentId: 'root' });
+    tb.create({ id: 'b1', nodeId: 'child' });
+    tb.create({ id: 'b2', nodeId: 'root' });
+    await lb.flush();
+
+    const outcomes = await Promise.all(t.removeTree('root').map((h) => h.ack));
+    expect(outcomes.map((o) => o.status)).toEqual([
+      'acked',
+      'acked',
+      'acked',
+      'acked',
+    ]);
+    await lb.flush();
+    for (const id of ['root', 'child']) expect(sn.get(id)).toBeUndefined();
+    for (const id of ['b1', 'b2']) expect(sb.get(id)).toBeUndefined();
+
+    // One undo restores the whole tree.
+    expect(t.undo()).toBe(true);
+    await lb.flush();
+    expect(sn.get('root')).toBeDefined();
+    expect(sn.get('child')?.parentId).toBe('root');
+    expect(sb.get('b1')?.nodeId).toBe('child');
+    expect(sb.get('b2')?.nodeId).toBe('root');
+  });
+
+  it('sweeps the dependents of a root that is already gone', () => {
+    const p = createMeshPeer({ identity: { peerId: 'P' } });
+    type D = { id: string; nodeId?: string };
+    const nodes = p.collection<D>('node');
+    const behs = p.collection<D>('beh', {
+      parent: (d) => (d.nodeId ? { rtype: 'node', id: d.nodeId } : null),
+    });
+    nodes.create({ id: 'n' });
+    behs.create({ id: 'b', nodeId: 'n' });
+    nodes.remove('n');
+    expect(behs.get('b')).toBeDefined();
+    p.removeTree('n');
+    expect(behs.get('b')).toBeUndefined();
+  });
+});

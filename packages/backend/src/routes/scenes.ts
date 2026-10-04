@@ -2,22 +2,9 @@ import { Router } from 'express';
 import { randomUUID } from 'crypto';
 import { getDb } from '../db/index.js';
 import { loadClip } from './track-clips.js';
-import { broadcastBus } from '../broadcast/bus.js';
 import { keyAfter } from '@vspark/shared/fracIndex';
-import { _ws } from './shared.js';
-import { getMeshCollection } from '../mesh/index.js';
-import { getResource } from '../sync/registry.js';
+import { getMeshCollection, getMeshPeer } from '../mesh/index.js';
 import { multiplayerManager } from '../multiplayer/manager.js';
-
-/** Mirror a freshly-persisted row into the mesh store (§10 write-through): the
- *  onCommitted tap re-persists (idempotent upsert) + emits the canonical
- *  sync.document upsert, and the write fans out to mesh subscribers (tabs,
- *  collab peers) with one HLC stamp. Replaces the old `sync.document.touch`. */
-function mirrorRow(rtype: string, id: string): void {
-  const col = getMeshCollection(rtype);
-  const dto = getResource(rtype)?.load?.(id);
-  if (col && dto) col.set(id, '', dto);
-}
 
 const router: ReturnType<typeof Router> = Router();
 
@@ -177,7 +164,7 @@ router.get('/projects/:projectId/scenes', (req, res) => {
  *       201: { description: Scene created }
  *       400: { description: Missing name, content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
  */
-router.post('/projects/:projectId/scenes', (req, res) => {
+router.post('/projects/:projectId/scenes', async (req, res) => {
   const { name } = req.body;
   if (!name)
     return res.status(400).json({
@@ -191,7 +178,6 @@ router.post('/projects/:projectId/scenes', (req, res) => {
 
   const id = randomUUID();
   const projectId = req.params.projectId;
-  const db = getDb();
   // Scenes are EMPTY by default: creating a scene and furnishing it are separate
   // acts, and seeding surprised callers who then added their own camera/lights on
   // top (the agent duplicating "Key Light" was the visible symptom). Seeding is
@@ -199,142 +185,144 @@ router.post('/projects/:projectId/scenes', (req, res) => {
   // that asks for it.
   const populate = req.body.populate === true;
 
-  // Create a kind='scene' node with root_scene_node_id pointing to itself
-  db.prepare(
-    `INSERT INTO scene_nodes (id, root_scene_node_id, project_id, parent_id, name, kind, properties)
-     VALUES (?, ?, ?, NULL, ?, 'scene', '{}')`
-  ).run(id, id, projectId, name);
+  // Every document is committed through the mesh store (the persistence tap
+  // writes the rows), scene root first so the rest hangs off it in the
+  // containment tree. Same document shapes a tab writes.
+  const nodes = getMeshCollection('scene_node');
+  const layers = getMeshCollection('compose_layer');
+  if (!nodes || !layers)
+    return res
+      .status(500)
+      .json({ ok: false, error: { message: 'store not ready' } });
+  const node = (fields: Record<string, unknown>) => ({
+    rootSceneNodeId: id,
+    projectId,
+    parentId: null,
+    boneAttachment: null,
+    filePath: null,
+    components: {},
+    properties: {},
+    hidden: false,
+    ...fields,
+  });
+  const transform = (x: number, y: number, z: number) => ({
+    type: 'transform',
+    x,
+    y,
+    z,
+    rx: 0,
+    ry: 0,
+    rz: 0,
+    sx: 1,
+    sy: 1,
+    sz: 1,
+  });
+  const layer = (fields: Record<string, unknown>) => ({
+    projectId,
+    rootComposeSceneId: null,
+    cameraNodeId: null,
+    parentId: null,
+    assetId: null,
+    config: {},
+    x: 0,
+    y: 0,
+    width: 1920,
+    height: 1080,
+    rotation: 0,
+    anchorH: 'left',
+    anchorV: 'top',
+    orderKey: keyAfter(null),
+    visible: true,
+    ...fields,
+  });
 
-  const createdNodeIds: string[] = [id];
-  const createdLayerIds: string[] = [];
+  const writes = [
+    nodes.set(id, '', node({ id, rootSceneNodeId: id, name, kind: 'scene' })),
+  ];
   if (populate) {
-    // Default camera
     const camId = randomUUID();
-    createdNodeIds.push(camId);
-    db.prepare(
-      `INSERT INTO scene_nodes (id, root_scene_node_id, project_id, parent_id, name, kind, components, properties)
-       VALUES (?, ?, ?, NULL, 'Camera', 'camera', ?, '{}')`
-    ).run(
-      camId,
-      id,
-      projectId,
-      JSON.stringify({
-        transform: {
-          type: 'transform',
-          x: 0,
-          y: 1.3,
-          z: 2,
-          rx: 0,
-          ry: 0,
-          rz: 0,
-          sx: 1,
-          sy: 1,
-          sz: 1,
-        },
-        // Matches the default for a manually created camera (createKinds.ts):
-        // orthographic, which suits 2D-style avatar framing. Previously this was
-        // omitted entirely, so the seeded camera fell back to perspective and was
-        // the one camera in the app that disagreed with every other.
-        camera: {
-          type: 'camera',
-          projection: 'orthographic',
-          fov: 50,
-          orthoSize: 2,
-          near: 0.1,
-          far: 1000,
-        },
-      })
-    );
-
-    // Default key light
-    const keyLightId = randomUUID();
-    db.prepare(
-      `INSERT INTO scene_nodes (id, root_scene_node_id, project_id, parent_id, name, kind, components, properties)
-       VALUES (?, ?, ?, NULL, 'Key Light', 'light', ?, ?)`
-    ).run(
-      keyLightId,
-      id,
-      projectId,
-      JSON.stringify({
-        transform: {
-          type: 'transform',
-          x: 2,
-          y: 3,
-          z: 1,
-          rx: 0,
-          ry: 0,
-          rz: 0,
-          sx: 1,
-          sy: 1,
-          sz: 1,
-        },
-        light: {
-          type: 'light',
-          lightType: 'directional',
-          color: '#ffffff',
-          intensity: 1,
-        },
-      }),
-      '{}'
-    );
-
-    // Default fill light
-    const fillLightId = randomUUID();
-    db.prepare(
-      `INSERT INTO scene_nodes (id, root_scene_node_id, project_id, parent_id, name, kind, components, properties)
-       VALUES (?, ?, ?, NULL, 'Fill Light', 'light', ?, ?)`
-    ).run(
-      fillLightId,
-      id,
-      projectId,
-      JSON.stringify({
-        transform: {
-          type: 'transform',
-          x: -2,
-          y: 2,
-          z: 1,
-          rx: 0,
-          ry: 0,
-          rz: 0,
-          sx: 1,
-          sy: 1,
-          sz: 1,
-        },
-        light: {
-          type: 'light',
-          lightType: 'directional',
-          color: '#ffffff',
-          intensity: 0.5,
-        },
-      }),
-      '{}'
-    );
-
-    createdNodeIds.push(keyLightId, fillLightId);
-    // Default compose scene
     const composeSceneId = randomUUID();
     const cameraViewId = randomUUID();
-    createdLayerIds.push(composeSceneId, cameraViewId);
-    db.prepare(
-      `INSERT INTO compose_layers (id, project_id, root_compose_scene_id, camera_node_id, parent_id, name, kind, config,
-         x, y, width, height, rotation, anchor_h, anchor_v, order_key, visible)
-       VALUES (?, ?, NULL, NULL, NULL, ?, 'compose_scene', '{}', 0, 0, 1920, 1080, 0, 'left', 'top', ?, 1)`
-    ).run(composeSceneId, projectId, name + ' Output', keyAfter(null));
-
-    // Default camera_view layer inside the compose scene
-    db.prepare(
-      `INSERT INTO compose_layers (id, project_id, root_compose_scene_id, camera_node_id, parent_id, name, kind, config,
-         x, y, width, height, rotation, anchor_h, anchor_v, order_key, visible)
-       VALUES (?, ?, ?, ?, NULL, 'Camera View', 'camera_view', '{}', 0, 0, 1920, 1080, 0, 'left', 'top', ?, 1)`
-    ).run(cameraViewId, projectId, composeSceneId, camId, keyAfter(null));
+    writes.push(
+      nodes.set(
+        camId,
+        '',
+        node({
+          id: camId,
+          name: 'Camera',
+          kind: 'camera',
+          components: {
+            transform: transform(0, 1.3, 2),
+            // Matches a manually created camera (createKinds.ts):
+            // orthographic, which suits 2D-style avatar framing.
+            camera: {
+              type: 'camera',
+              projection: 'orthographic',
+              fov: 50,
+              orthoSize: 2,
+              near: 0.1,
+              far: 1000,
+            },
+          },
+        })
+      )
+    );
+    for (const [lightName, pos, intensity] of [
+      ['Key Light', [2, 3, 1], 1],
+      ['Fill Light', [-2, 2, 1], 0.5],
+    ] as const) {
+      const lightId = randomUUID();
+      writes.push(
+        nodes.set(
+          lightId,
+          '',
+          node({
+            id: lightId,
+            name: lightName,
+            kind: 'light',
+            components: {
+              transform: transform(pos[0], pos[1], pos[2]),
+              light: {
+                type: 'light',
+                lightType: 'directional',
+                color: '#ffffff',
+                intensity,
+              },
+            },
+          })
+        )
+      );
+    }
+    // Default compose scene with the camera's view in it.
+    writes.push(
+      layers.set(
+        composeSceneId,
+        '',
+        layer({
+          id: composeSceneId,
+          name: name + ' Output',
+          kind: 'compose_scene',
+        })
+      ),
+      layers.set(
+        cameraViewId,
+        '',
+        layer({
+          id: cameraViewId,
+          rootComposeSceneId: composeSceneId,
+          cameraNodeId: camId,
+          name: 'Camera View',
+          kind: 'camera_view',
+        })
+      )
+    );
   }
-
-  // Write the created rows through the mesh store so they fan out to tabs +
-  // collab/share subscribers and the containment index/collab routing stay
-  // current. Scene root is first in createdNodeIds, so its containment entry
-  // exists before the camera/lights that hang off it.
-  for (const nid of createdNodeIds) mirrorRow('scene_node', nid);
-  for (const lid of createdLayerIds) mirrorRow('compose_layer', lid);
+  const outcomes = await Promise.all(writes.map((w) => w.ack));
+  const refused = outcomes.find((o) => o.status === 'rejected');
+  if (refused && refused.status === 'rejected')
+    return res
+      .status(500)
+      .json({ ok: false, error: { message: refused.reason } });
 
   res
     .status(201)
@@ -384,48 +372,25 @@ router.put('/scenes/:sceneId', (req, res) => {
     runtimeSettings?: Record<string, unknown>;
   };
 
-  if (name != null) {
-    db.prepare(
-      `UPDATE scene_nodes SET name = ?, updated_at = datetime('now') WHERE id = ?`
-    ).run(name, sceneId);
-  }
+  // Write through the mesh: the persistence tap stores the row, reloads the
+  // scene's runtime settings, and every tab hears it through its
+  // subscription (scene roots feed the `scenes` slice).
+  const col = getMeshCollection('scene_node');
+  if (!col)
+    return res
+      .status(500)
+      .json({ ok: false, error: { message: 'store not ready' } });
+  if (name != null) col.set(sceneId, 'name', name);
+  // runtimeSettings merge into `properties` key by key (a shallow merge, as
+  // before): each top-level setting is replaced, the others are kept.
+  if (runtimeSettings && typeof runtimeSettings === 'object')
+    for (const [k, v] of Object.entries(runtimeSettings))
+      col.set(sceneId, `properties.${k}`, v);
 
-  let settingsChanged = false;
-  if (runtimeSettings && typeof runtimeSettings === 'object') {
-    // Merge runtimeSettings into the node's properties JSON
-    const currentProps = JSON.parse(row.properties || '{}') as Record<
-      string,
-      unknown
-    >;
-    const merged = { ...currentProps, ...runtimeSettings };
-    db.prepare(
-      `UPDATE scene_nodes SET properties = ?, updated_at = datetime('now') WHERE id = ?`
-    ).run(JSON.stringify(merged), sceneId);
-    settingsChanged = true;
-  }
-
-  if (settingsChanged) broadcastBus.reloadSceneSettings(sceneId);
-
+  const doc = col.get(sceneId) as Record<string, unknown> | undefined;
   const patch: Record<string, unknown> = { id: sceneId };
   if (name != null) patch.name = name;
-  if (settingsChanged) {
-    const updated = db
-      .prepare('SELECT properties FROM scene_nodes WHERE id = ?')
-      .get(sceneId) as { properties: string };
-    patch.runtimeSettings = JSON.parse(updated.properties || '{}');
-  }
-  // Load-bearing, and NOT a smoothing lane (useWsSync's `scene_updated` branch
-  // is a plain updateSceneItem). A Scene is a scene_nodes row, so the mesh
-  // mirror below does reach every tab — but meshStoreFeeder's scene_node
-  // observer writes only the `nodes` slice, and nothing feeds the `scenes`
-  // slice at runtime (setScenes/updateSceneItem are otherwise only called from
-  // REST loads and this handler). Dropping this broadcast would leave
-  // scenes[].runtimeSettings stale on other tabs until a reload.
-  _ws?.broadcast('scene_updated', patch);
-  // Mirror the canonical doc through the mesh store (keeps the replica +
-  // fan-out in sync).
-  mirrorRow('scene_node', sceneId);
-
+  if (runtimeSettings) patch.runtimeSettings = doc?.properties ?? {};
   res.json({ ok: true, data: patch });
 });
 
@@ -477,49 +442,24 @@ router.delete('/scenes/:sceneId', (req, res) => {
   // 018 migration rebuild), so delete explicitly with enforcement off.
   db.exec('PRAGMA foreign_keys = OFF');
   try {
-    // Remove every scene node through the mesh store FIRST (while the rows
-    // still exist, so the persist tap's `persists` guard doesn't early-return):
-    // the tap deletes each row, persists its HLC tombstone, and emits the
-    // canonical remove so the replica + containment index + collab/share
-    // fan-out drop the scene. FK enforcement is off, so a parent remove can't
-    // cascade-delete a sibling out from under a later remove.
-    const nodeCol = getMeshCollection('scene_node');
-    for (const nid of nodeIds) nodeCol?.remove(nid);
+    // Everything hangs off the scene root in the containment tree — nodes,
+    // behaviors, effects, clips, graphs — and goes as one removal, children
+    // first, each document with its own tombstone; camera_view layers that
+    // show one of the scene's cameras go with it (scene_node binding,
+    // onRemoving). FK enforcement is off, so a parent row's delete can't
+    // cascade a dependent out from under its own remove.
+    getMeshPeer()?.removeTree(sceneId);
 
-    // The dependent rows go through their collections too, for the same reason
-    // the nodes do. A raw DELETE removes the row but leaves the DOCUMENT alive
-    // in the replica with no tombstone, so a tab that subscribes afterwards
-    // gets a snapshot full of behaviors / effects / layers / clips whose rows
-    // are gone. Only col.remove() writes the tombstone that suppresses them.
-    const dependents: { table: string; column: string; rtype: string }[] = [
-      { table: 'behaviors', column: 'node_id', rtype: 'behavior' },
-      { table: 'camera_effects', column: 'node_id', rtype: 'camera_effect' },
-      // camera_view compose layers that targeted this scene's cameras.
-      {
-        table: 'compose_layers',
-        column: 'camera_node_id',
-        rtype: 'compose_layer',
-      },
-      // Track clips owned by this node (scene root included).
-      { table: 'track_clips', column: 'owner_node_id', rtype: 'track_clip' },
-    ];
-    for (const { table, column, rtype } of dependents) {
-      const col = getMeshCollection(rtype);
-      for (const nid of nodeIds) {
-        // Read the ids BEFORE deleting: the persist tap's `persists` guard
-        // early-returns once the row is gone, so a remove issued after the
-        // DELETE would never write its tombstone.
-        const ids = (
-          db
-            .prepare(`SELECT id FROM ${table} WHERE ${column} = ?`)
-            .all(nid) as { id: string }[]
-        ).map((r) => r.id);
-        for (const id of ids) col?.remove(id);
-        // Safety net for the same reason as the scene_nodes sweep below: the
-        // mesh store may not be initialised in a bare context.
+    // Safety net for a bare context with no mesh store: drop the rows the
+    // removal above would have.
+    for (const { table, column } of [
+      { table: 'behaviors', column: 'node_id' },
+      { table: 'camera_effects', column: 'node_id' },
+      { table: 'compose_layers', column: 'camera_node_id' },
+      { table: 'track_clips', column: 'owner_node_id' },
+    ])
+      for (const nid of nodeIds)
         db.prepare(`DELETE FROM ${table} WHERE ${column} = ?`).run(nid);
-      }
-    }
     // Safety net: drop any scene_nodes row the store remove missed (e.g. the
     // mesh store not yet initialised in a bare context).
     db.prepare('DELETE FROM scene_nodes WHERE root_scene_node_id = ?').run(
@@ -529,7 +469,6 @@ router.delete('/scenes/:sceneId', (req, res) => {
     db.exec('PRAGMA foreign_keys = ON');
   }
 
-  _ws?.broadcast('scene_removed', { id: sceneId });
   res.json({ ok: true, data: {} });
 });
 

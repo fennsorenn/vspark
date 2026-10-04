@@ -8,6 +8,7 @@ import { configRoutes } from './routes/config.js';
 import { openApiDoc } from './routes/openapi.js';
 import swaggerUi from 'swagger-ui-express';
 import { getIdentity } from './multiplayer/identity.js';
+import { authRoutes } from './auth/routes.js';
 import type { WSSync } from './ws/index.js';
 import { localAccessGuard } from './localAccess.js';
 
@@ -42,6 +43,7 @@ export function createApp(opts: CreateAppOptions = {}): express.Express {
   app.use('/api', apiRoutes);
   app.use('/api', updateRoutes);
   app.use('/api', configRoutes);
+  app.use('/api', authRoutes);
   app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(openApiDoc));
   app.get('/api-docs.json', (_req, res) => res.json(openApiDoc));
   app.get('/health', (_req, res) => {

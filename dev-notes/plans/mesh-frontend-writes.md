@@ -1,6 +1,7 @@
 # Plan: Migrate frontend writes onto the tab mesh peer (make undo real)
 
-> **Status:** in progress — **this is the LIVE plan.** Step 0 was decided as shape
+> **Status:** shipped — landed in `dev` at 77bfdb4; follow-up is [`mesh-sole-channel.md`](./mesh-sole-channel.md).
+> (Historical status:) Step 0 was decided as shape
 > **(b)**: free functions in `packages/frontend/src/mesh/writes.ts` (generic over rtype,
 > with `mesh/layerWrites.ts` for compose layers) and `canMeshWrite()` as the gate; REST
 > survives only as the in-helper fallback for foreign/unwritable docs. Landed: `scene_node`

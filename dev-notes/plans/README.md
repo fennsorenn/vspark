@@ -11,9 +11,11 @@ Read that header before reading the plan. Most of these files are **historical**
 record what someone intended at the time, often for an architecture that has since been
 replaced. A plan is not a description of running code.
 
-**The live plan is [`mesh-frontend-writes.md`](./mesh-frontend-writes.md)** — migrating
-frontend UI writes off REST onto the tab's own mesh peer. Everything else is either
-shipped, superseded, or (in two cases) shipped-but-with-a-named-blocker.
+**The live plan is [`mesh-sole-channel.md`](./mesh-sole-channel.md)**: making the mesh
+the only client↔server channel (principles 7–9: sole channel, most direct path, authenticated whitelist grants), as an inventory of every stream that
+still bypasses it and the mesh feature each one reveals. Its predecessor,
+[`mesh-frontend-writes.md`](./mesh-frontend-writes.md), shipped and landed in `dev` at
+77bfdb4. Everything else is shipped, superseded, or shipped with a named blocker.
 
 **If you only read one historical file, read [`mesh-sync-refactor.md`](./mesh-sync-refactor.md).**
 It is the plan that was actually executed, and the code cites its section numbers (`§8`
@@ -36,8 +38,9 @@ Design → executed → follow-ups. Each supersedes roughly what came before it.
 | [`permissioned-sync-mesh.md`](./permissioned-sync-mesh.md)                 | **design-only** — a design-alignment doc with no implementation slices                      |
 | [`mesh-sync-refactor.md`](./mesh-sync-refactor.md)                         | **shipped — the executed plan.** Cited by the code                                          |
 | [`mesh-native-undo.md`](./mesh-native-undo.md)                             | shipped — engine in `packages/mesh/src/peer.ts` (+ `batch()`, added later than this design) |
-| [`mesh-drop-legacy-sync-and-undo.md`](./mesh-drop-legacy-sync-and-undo.md) | in progress — undo (B) shipped; envelope retirement (A) blocked at A4/A5                    |
-| [`mesh-frontend-writes.md`](./mesh-frontend-writes.md)                     | **in progress — LIVE**                                                                      |
+| [`mesh-drop-legacy-sync-and-undo.md`](./mesh-drop-legacy-sync-and-undo.md) | in progress — undo (B) shipped; envelope retirement (A) → W7 of `mesh-sole-channel.md`     |
+| [`mesh-frontend-writes.md`](./mesh-frontend-writes.md)                     | shipped — in `dev` at 77bfdb4                                                               |
+| [`mesh-sole-channel.md`](./mesh-sole-channel.md)                           | **in progress — LIVE** (principles 7–9; supersedes §12)                                    |
 
 ## Multiplayer
 

@@ -14,6 +14,7 @@ import {
 import type { Landmark } from '@vspark/shared';
 import type { WSSync } from '../../ws/index.js';
 import { broadcastBus } from '../../broadcast/bus.js';
+import { publishTracking } from '../../mesh/status.js';
 
 /** Fallback grace period when the avatar node has no `trackingGracePeriod` set.
  *  No landmark frame for this long ⇒ the browser stopped tracking (camera off,
@@ -61,17 +62,6 @@ export class TrackingManager {
   constructor(private readonly ws?: WSSync) {
     // Poll for tracking loss (browser stopped sending).
     this.timer = setInterval(() => this.checkTimeouts(), SWEEP_MS);
-    // Re-send current tracking state to a freshly-connected client (refresh /
-    // new tab), mirroring the VMC receiver, so the SceneGraph indicator is right
-    // immediately.
-    this.ws?.onClientConnected((client) => {
-      for (const [behaviorId, active] of this.trackingActive) {
-        this.ws?.sendTo(client, 'vmc_tracking_state', {
-          behaviorId,
-          tracking: active,
-        });
-      }
-    });
   }
 
   private _setTracking(behaviorId: string, active: boolean): void {
@@ -80,7 +70,7 @@ export class TrackingManager {
     console.log(
       `[MediaPipe] Tracking ${active ? 'ACTIVE' : 'LOST'} (component ${behaviorId})`
     );
-    this.ws?.broadcast('vmc_tracking_state', { behaviorId, tracking: active });
+    publishTracking({ behaviorId, tracking: active });
     // On loss, drop the bus slot so the tracked pose falls out of the merge
     // (mirrors vmc_receiver). The next landmark frame re-creates it.
     if (!active) broadcastBus.removeBehavior(behaviorId);

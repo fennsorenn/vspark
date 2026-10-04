@@ -18,12 +18,7 @@
  * (the landing write supersedes the preview).
  */
 import { compareHLC, type HLC } from '@vspark/shared/sync';
-import {
-  flattenToLeaves,
-  getPath,
-  pathAtOrAbove,
-  setPath,
-} from './paths.js';
+import { flattenToLeaves, getPath, pathAtOrAbove, setPath } from './paths.js';
 import type { DocOp } from './wire.js';
 
 export interface ApplyMeta {
@@ -33,6 +28,8 @@ export interface ApplyMeta {
   hydrate?: boolean;
   /** local rollback of an unacked optimistic write — taps skip it too. */
   restored?: boolean;
+  /** this op is a request: answer it with `Collection.reply(change, data)`. */
+  request?: { mid: string; from: string };
 }
 
 export interface AppliedChange<T> {
@@ -47,6 +44,11 @@ export interface AppliedChange<T> {
   channel: string;
   hydrate?: boolean;
   restored?: boolean;
+  /** remove only: the removed doc's ancestor ids, nearest first, as they were
+   *  before the removal (a durable peer persists them with the tombstone). */
+  ancestors?: string[];
+  /** this op is a request: answer it with `Collection.reply(change, data)`. */
+  request?: { mid: string; from: string };
 }
 
 interface ParkedPatch {
@@ -133,6 +135,12 @@ export class Replica<T extends object> {
     return best;
   }
 
+  /** Every per-path stamp on `id` (fields written after the root). */
+  pathStampsOf(id: string): Record<string, HLC> | undefined {
+    const m = this.pathStamps.get(id);
+    return m && m.size ? Object.fromEntries(m) : undefined;
+  }
+
   /** The stamp recorded exactly at `path` ('' = root) — recency gate for reverts. */
   stampAt(id: string, path: string): HLC | undefined {
     if (path === '') return this.rootStamps.get(id);
@@ -210,7 +218,14 @@ export class Replica<T extends object> {
       }
     }
     if (!applied) return null;
-    return { op: 'patch', id, path: '', doc: this.get(id), v, ...metaFields(meta) };
+    return {
+      op: 'patch',
+      id,
+      path: '',
+      doc: this.get(id),
+      v,
+      ...metaFields(meta),
+    };
   }
 
   remove(id: string, v: HLC, meta: ApplyMeta): AppliedChange<T> | null {
@@ -248,6 +263,11 @@ export class Replica<T extends object> {
       doc: this.get(id),
       ...metaFields(meta),
     };
+  }
+
+  /** Forget every overlay on `id` (nothing retained underneath to compose). */
+  dropOverlays(id: string): void {
+    if (this.overlays.delete(id)) this.composed.delete(id);
   }
 
   // --- reverts (bypass LWW; local rollback of optimistic writes) ----------------
@@ -306,6 +326,11 @@ export class Replica<T extends object> {
   }
 
   // --- snapshots / tombstones ----------------------------------------------------
+
+  /** Was `id` removed (and not re-created since)? */
+  isTombstoned(id: string): boolean {
+    return this.tombs.has(id);
+  }
 
   tombstones(): { id: string; v: HLC }[] {
     return [...this.tombs].map(([id, t]) => ({ id, v: t.v }));
@@ -382,11 +407,13 @@ function metaFields(meta: ApplyMeta): {
   channel: string;
   hydrate?: boolean;
   restored?: boolean;
+  request?: { mid: string; from: string };
 } {
   return {
     origin: meta.origin,
     channel: meta.channel,
     hydrate: meta.hydrate,
     restored: meta.restored,
+    ...(meta.request ? { request: meta.request } : {}),
   };
 }

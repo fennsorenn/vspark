@@ -1,6 +1,6 @@
 # Sync Layer (unified state-replication)
 
-> **Status: Legacy layer; core refactored into `@vspark/mesh`.** The unified envelope design lives on in the mesh package's API (collections, channels, HLC, acks). **REST write-through is complete** (commits 768ea2d–86a6e8c): all five mutation rtypes now write through `collection.set/remove`; `sync.document` is emitted by the `onCommitted` tap, not the routes. The legacy bridge's remaining role is read-side: `sync.document` callers that still emit directly (template bulk creation, preset instantiation) mirror into the mesh via the bridge. Frontend bindings (Zustand → mesh-react) remain pending. See [mesh.md](mesh.md) and [dev-notes/plans/mesh-sync-refactor.md](../plans/mesh-sync-refactor.md) for the target design and integration roadmap. Content below documents the current implementation for reference.
+> **Status: Legacy layer; core refactored into `@vspark/mesh`.** The unified envelope design lives on in the mesh package's API (collections, channels, HLC, acks). **REST write-through is complete** (commits 768ea2d–86a6e8c): all five mutation rtypes now write through `collection.set/remove`; `sync.document` is emitted by the `onCommitted` tap, not the routes. The legacy bridge's remaining role is read-side: `sync.document` callers that still emit directly (template bulk creation, preset instantiation) mirror into the mesh via the bridge. The frontend reads the mesh replica through `sync/meshStoreFeeder.ts` and writes through the mesh helpers in `frontend/src/mesh/`; no tab reads the envelope. See [mesh.md](mesh.md) and [dev-notes/plans/mesh-sync-refactor.md](../plans/mesh-sync-refactor.md) for the target design and integration roadmap. Content below documents the current implementation for reference.
 
 **Status: Phases 0–2 + 4 implemented; Phase 3 API-surface-only; field-fold / live-stream migration / manager-fold deferred.**
 
@@ -85,12 +85,7 @@ The client keeps the last applied stamp per `rtype:key` in `lastVersion`. An inc
 
 For the five migrated document rtypes (`scene_node`, `behavior`, `camera_effect`, `compose_layer`, `track_clip`), REST routes no longer call `sync.document.upsert/remove` directly. Instead they call `collection.set/remove` on the `@vspark/mesh` store; the `onCommitted` tap in `packages/backend/src/mesh/index.ts` calls `sync.document.upsert/remove` on their behalf (and persists to SQLite). The legacy bridge handles the reverse: legacy `sync.document` emissions mirror into the mesh replica.
 
-For a **new** CRUD document using the legacy path (not yet on mesh), two edits:
-
-1. **Backend** — `defineResource({ rtype, cls: 'document', scope?, load })` in `packages/backend/src/sync/resources.ts`, where `load` reads the row and returns the canonical camelCase DTO. Call `sync.document.upsert(rtype, id)` from the CREATE route and `sync.document.remove(rtype, id)` from the DELETE route.
-2. **Frontend** — `bindResource(rtype, { apply })` in `packages/frontend/src/sync/resources.ts`, dedup-on-`upsert` and `remove`-on-remove into the right store slice.
-
-No new WS message kind, no new `useWsSync` branch, no new mapper. New entities should prefer the mesh-write-through path (see [mesh.md](mesh.md)) over the legacy route-emit path.
+A **new** document type goes on the mesh (see [mesh.md](mesh.md), "Extending"): a backend binding in `packages/backend/src/mesh/index.ts` (with a `defineResource` descriptor in `packages/backend/src/sync/resources.ts` for persistence) and a frontend feeder branch. The legacy route-emit path and the frontend `bindResource` bindings file are gone.
 
 ## Migrated vs. still on legacy WS kinds
 
@@ -134,7 +129,7 @@ The `'sync'`-envelope bindings for `behavior`, `camera_effect`, `compose_layer`,
 
 - **Live pose pipeline** — `vmc_pose` / `vmc_blendshapes` / `ik_targets` still emit their legacy kinds at ~60–90 Hz; the stream rtypes are registered but `sync.stream.publish` is not yet on the hot path (deferred until runtime-verifiable).
 - **Spawn manager** — still emits `node_added` / `compose_layer_added` / `track_clip_added` (and removals) inline with full data, so those legacy handlers are **kept** even for the migrated document types. See [spawn.md](spawn.md).
-- **Runtime overrides** (`runtime_override_*`) and **data channels** (`data_channel_*`) — still on their own managers/messages; folding them into `sync.field.*` is deferred.
+- **Runtime overrides** and **data channels** are mesh collections on the `runtime` channel (`runtime_override`, `data_field`); their old `runtime_override_*` / `data_channel_*` messages are gone.
 
 ## Deferred / not yet done
 
@@ -160,6 +155,5 @@ The `'sync'`-envelope bindings for `behavior`, `camera_effect`, `compose_layer`,
 - `packages/backend/src/sync/index.ts` — the `sync` producer hub
 - `packages/backend/src/sync/resources.ts` — backend descriptors
 - `packages/frontend/src/sync/registry.ts` — `bindResource` / `applyRemote` + HLC stale-drop
-- `packages/frontend/src/sync/resources.ts` — client bindings
 - `packages/frontend/src/compositor.ts` — `compositeScalars` read-model
 - `packages/frontend/src/hooks/useWsSync.ts` — `'sync'` envelope routing

@@ -43,7 +43,7 @@ router.get('/scene-nodes/:nodeId/effects', (req, res) => {
  *         application/json:
  *           schema: { $ref: '#/components/schemas/CreateCameraEffect' }
  *     responses:
- *       201: { description: Effect created; broadcast as camera_effect_added over WebSocket }
+ *       201: { description: Effect created (committed through the mesh store) }
  *       400: { description: Missing kind, content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
  */
 router.post('/scene-nodes/:nodeId/effects', async (req, res) => {

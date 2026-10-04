@@ -41,18 +41,13 @@ const RTYPES = [
   'runtime_override',
   'data_field',
   'media_control',
+  'server_status',
 ] as const;
 
-/** Reliable + stamped + retained, no ack — runtime state that must reach a
- *  late joiner without landing on anyone's undo stack. MUST match the backend
- *  registration in `packages/backend/src/mesh/runtime.ts`: an op whose channel
- *  this peer doesn't know is dropped silently on arrival. */
+/** Built-in mesh channels (packages/mesh/src/channels.ts): `runtime` is
+ *  retained state without undo, `control` is commands that are never replayed
+ *  to a tab that connects later. */
 const RUNTIME_CHANNEL = 'runtime';
-
-/** Reliable but UNSTAMPED and UNRETAINED — commands, not state. A media
- *  command must not be replayed to a tab that connects an hour later, which is
- *  exactly what retention would do. Same name as the backend's
- *  (mesh/runtime.ts). */
 const CONTROL_CHANNEL = 'control';
 
 /** rtypes that live on a channel other than the default committed/preview
@@ -62,6 +57,7 @@ const CHANNELS: Partial<Record<string, string[]>> = {
   runtime_override: [RUNTIME_CHANNEL],
   data_field: [RUNTIME_CHANNEL],
   media_control: [CONTROL_CHANNEL],
+  server_status: [RUNTIME_CHANNEL],
 };
 
 const childOfNode = (d: Dto) =>
@@ -88,7 +84,8 @@ const PARENTS: Partial<
   compose_layer: (d) =>
     typeof d.parentId === 'string'
       ? { rtype: 'compose_layer', id: d.parentId }
-      : typeof d.rootComposeSceneId === 'string' && d.rootComposeSceneId !== d.id
+      : typeof d.rootComposeSceneId === 'string' &&
+          d.rootComposeSceneId !== d.id
         ? { rtype: 'compose_layer', id: d.rootComposeSceneId }
         : null,
   track_clip: (d) =>
@@ -128,6 +125,13 @@ const PARENTS: Partial<
     typeof d.targetId === 'string'
       ? { rtype: d.targetKind, id: d.targetId }
       : null,
+  // A status about a document hangs off it (backend mesh/status.ts `of`).
+  server_status: (d) => {
+    const of = d.of as { rtype?: unknown; id?: unknown } | null | undefined;
+    return of && typeof of.rtype === 'string' && typeof of.id === 'string'
+      ? { rtype: of.rtype, id: of.id }
+      : null;
+  },
   // Owned polymorphically. A project-owned graph has no parent: there is no
   // `project` rtype in the mesh. Must match the backend BINDINGS entry exactly.
   logic: (d) =>
@@ -217,6 +221,92 @@ export function onMeshUndoChange(cb: (s: UndoStatus) => void): () => void {
   return () => _undoObservers.delete(cb);
 }
 
+// --- authentication ---------------------------------------------------------
+//
+// Every participant authenticates (principle 9). This tab presents a token the
+// backend issued when this browser enrolled; a browser on the vspark machine
+// enrolls automatically, any other one with the pairing code vspark shows.
+
+const TOKEN_KEY = 'vspark.mesh.token';
+
+function storedToken(): string | undefined {
+  try {
+    return localStorage.getItem(TOKEN_KEY) ?? undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function storeToken(token: string | undefined): void {
+  try {
+    if (token) localStorage.setItem(TOKEN_KEY, token);
+    else localStorage.removeItem(TOKEN_KEY);
+  } catch {
+    /* storage unavailable: the token lives for this page only */
+  }
+}
+
+/** Asks the user for the pairing code (registered by the editor, which owns
+ *  the dialog). Resolves null when they cancel. */
+type PairingPrompt = () => Promise<string | null>;
+let _askPairing: PairingPrompt | null = null;
+const _pairingWaiters: ((ask: PairingPrompt) => void)[] = [];
+let _pairingDeclined = false;
+
+/** Register the dialog that asks for a pairing code. */
+export function setPairingPrompt(ask: PairingPrompt): void {
+  _askPairing = ask;
+  for (const w of _pairingWaiters.splice(0)) w(ask);
+}
+
+async function askPairingCode(): Promise<string | null> {
+  const ask =
+    _askPairing ??
+    (await new Promise<PairingPrompt>((r) => _pairingWaiters.push(r)));
+  return ask();
+}
+
+let _token: string | undefined = storedToken();
+let _enrolling: Promise<string | undefined> | null = null;
+
+/** Get a token from the backend, asking for the pairing code if this browser
+ *  is not on the vspark machine. Concurrent callers share one attempt. */
+function enroll(): Promise<string | undefined> {
+  _enrolling ??= (async () => {
+    let code: string | undefined;
+    for (;;) {
+      const res = await fetch('/api/mesh/enroll', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          label: navigator.userAgent.slice(0, 120),
+          code,
+        }),
+      });
+      const body = (await res.json().catch(() => null)) as {
+        data?: { token?: string };
+        error?: { code?: string };
+      } | null;
+      if (res.ok && body?.data?.token) return body.data.token;
+      if (body?.error?.code !== 'PAIRING_REQUIRED' || _pairingDeclined)
+        return undefined;
+      const entered = await askPairingCode();
+      if (!entered?.trim()) {
+        _pairingDeclined = true; // don't keep asking after a cancel
+        return undefined;
+      }
+      code = entered.trim();
+    }
+  })().finally(() => {
+    _enrolling = null;
+  });
+  return _enrolling.then((token) => {
+    _token = token;
+    storeToken(token);
+    return token;
+  });
+}
+
 async function doInit(): Promise<MeshHandles> {
   const res = await fetch('/api/mesh/identity');
   const { serverPeerId } = (await res.json()) as { serverPeerId: string };
@@ -224,24 +314,23 @@ async function doInit(): Promise<MeshHandles> {
   const wsProto = window.location.protocol === 'https:' ? 'wss' : 'ws';
   const peer = createMeshPeer({
     identity: { peerId: participantId },
+    // Our server is the source of our grants, not a recipient they gate.
+    home: serverPeerId,
     transports: [
       new WsBackendTransport({
         url: `${wsProto}://${window.location.host}/mesh`,
         participantId,
         serverPeerId,
+        token: () => _token ?? enroll(),
+        // A token the backend no longer accepts (revoked, or a fresh
+        // database) is dropped and replaced.
+        onUnauthorized: async () => {
+          _token = undefined;
+          storeToken(undefined);
+          await enroll();
+        },
       }),
     ],
-  });
-
-  peer.channel(RUNTIME_CHANNEL, {
-    transport: 'reliable',
-    stamped: true,
-    retained: true,
-  });
-  peer.channel(CONTROL_CHANNEL, {
-    transport: 'reliable',
-    stamped: false,
-    retained: false,
   });
 
   const collections: Record<string, Collection<Dto>> = {};
@@ -260,32 +349,26 @@ async function doInit(): Promise<MeshHandles> {
     for (const cb of _undoObservers) cb(s);
   });
 
-  // Subscribe to every document rtype; re-arm after each reconnect (the peer
-  // marks outgoing subscriptions stale on disconnect — they don't auto-renew).
-  let armed = false;
+  // Subscribe to every rtype once. The peer renews them itself after a
+  // reconnect; this only retries the ones that never got through.
+  const subscribed = new Set<string>();
   let arming = false;
-  let stale: { unsubscribe(): void }[] = [];
   const armSubscriptions = async () => {
     const connected = peer.status().peers.some((p) => p.id === serverPeerId);
-    if (!connected) {
-      armed = false;
-      return;
-    }
-    if (armed || arming) return;
+    if (!connected || arming) return;
     arming = true;
     try {
-      for (const s of stale) s.unsubscribe();
-      stale = [];
-      for (const rtype of RTYPES)
-        stale.push(
-          await peer.subscribe(serverPeerId, {
-            entityRtype: rtype,
-            entityId: '*',
-            includeDescendants: false,
-            pathPrefix: '',
-          })
-        );
-      armed = true;
+      for (const rtype of RTYPES) {
+        if (subscribed.has(rtype)) continue;
+        await peer.subscribe(serverPeerId, {
+          entityRtype: rtype,
+          entityId: '*',
+          includeDescendants: false,
+          pathPrefix: '',
+        });
+        subscribed.add(rtype);
+        for (const cb of _snapshotObservers) cb(rtype);
+      }
     } catch (e) {
       console.warn('[mesh] subscribe failed (will retry on reconnect):', e);
     } finally {
@@ -302,4 +385,29 @@ async function doInit(): Promise<MeshHandles> {
   // `doInit` resolves and nothing re-renders it afterwards.
   for (const cb of _readyObservers) cb(_handles);
   return _handles;
+}
+
+/** Drop rows the mesh has already seen removed.
+ *
+ *  The editor still loads from the REST scene bundle (W6 of
+ *  plans/mesh-sole-channel.md replaces that with the subscription snapshot).
+ *  A bundle fetched before another tab's delete can arrive AFTER the delete
+ *  reached this tab through the mesh — and would put the deleted document back
+ *  into the store. The replica's tombstone is the newer truth. */
+export function withoutRemoved<T extends { id: string }>(
+  rtype: string,
+  rows: T[]
+): T[] {
+  const col = _handles?.collections[rtype];
+  return col ? rows.filter((r) => !col.replica.isTombstoned(r.id)) : rows;
+}
+
+const _snapshotObservers = new Set<(rtype: string) => void>();
+
+/** Be told when the first snapshot of an rtype has been applied: from then on
+ *  the replica is the authority for that collection, and anything the store
+ *  got elsewhere (the REST bundle) that the replica doesn't hold is stale. */
+export function onSnapshot(cb: (rtype: string) => void): () => void {
+  _snapshotObservers.add(cb);
+  return () => _snapshotObservers.delete(cb);
 }

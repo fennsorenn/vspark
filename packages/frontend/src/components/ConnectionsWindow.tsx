@@ -563,6 +563,7 @@ export function ConnectionsWindow({ visible }: { visible: boolean }) {
       </div>
 
       <div style={{ padding: 10 }}>
+        <DeviceCode />
         {!enabled && (
           <div style={{ color: C.dim, padding: '8px 0' }}>{t('disabled')}</div>
         )}
@@ -762,6 +763,45 @@ export function ConnectionsWindow({ visible }: { visible: boolean }) {
           </>
         )}
       </div>
+    </div>
+  );
+}
+
+/** The code a browser on another device enters to open this vspark (see the
+ *  `device-code` help section). Shown only to callers on this machine — the
+ *  backend refuses the request from anywhere else, and then nothing renders. */
+function DeviceCode() {
+  const { t } = useTranslation('connections');
+  const [code, setCode] = useState<string | null>(null);
+  useEffect(() => {
+    let live = true;
+    void fetch('/api/mesh/pairing-code')
+      .then((r) => (r.ok ? r.json() : null))
+      .then((b: { data?: { code?: string } } | null) => {
+        if (live && b?.data?.code) setCode(b.data.code);
+      })
+      .catch(() => {});
+    return () => {
+      live = false;
+    };
+  }, []);
+  if (!code) return null;
+  return (
+    <div style={{ ...S.row, marginBottom: 8, color: C.dim }}>
+      <span style={{ flex: 1 }}>
+        {t('deviceCode.label')}{' '}
+        <span
+          style={{ fontFamily: 'monospace', color: C.text, letterSpacing: 2 }}
+        >
+          {code}
+        </span>
+      </span>
+      <HelpButton
+        topic="multiplayer"
+        anchor="device-code"
+        tip={t('deviceCode.tip')}
+        size={12}
+      />
     </div>
   );
 }

@@ -28,7 +28,7 @@
  * Started from the Editor AND the Viewer page (both render live state).
  */
 import type { MediaCommand } from '@vspark/shared/types';
-import { initMeshPeer } from '../mesh/peer';
+import { initMeshPeer, onSnapshot } from '../mesh/peer';
 import { dispatchMediaCommand } from '../components/editor/mediaRegistry';
 import {
   hasLayerTween,
@@ -105,6 +105,52 @@ function parseDataFieldId(id: string): { scope: string; field: string } | null {
   return { scope: id.slice(0, i), field: id.slice(i + 1) };
 }
 
+/** A `server_status` document (backend mesh/status.ts). */
+interface RawStatus {
+  id: string;
+  kind: 'tracking' | 'obs_connection' | 'overlive_account' | 'output_window';
+  key: string;
+  [field: string]: unknown;
+}
+
+/** Route one status document into the store slice that shows it. */
+function applyStatus(d: RawStatus): void {
+  const s = useEditorStore.getState();
+  switch (d.kind) {
+    case 'tracking':
+      if (typeof d.connected === 'boolean') s.setVmcStatus(d.key, d.connected);
+      if (typeof d.tracking === 'boolean') s.setVmcTracking(d.key, d.tracking);
+      return;
+    case 'obs_connection':
+      s.patchObsConnectionStatus({
+        connectionId: d.key,
+        status: d.status as import('../api/client').ObsConnectionStatus,
+        reason: (d.reason as string | null) ?? null,
+        message: (d.message as string | null) ?? null,
+      });
+      return;
+    case 'overlive_account':
+      s.setOverliveAccounts(
+        s.overliveAccounts.map((a) =>
+          a.id === d.key
+            ? {
+                ...a,
+                status: d.status as typeof a.status,
+                statusReason: (d.reason as string | null) ?? null,
+                statusMessage: (d.message as string | null) ?? null,
+              }
+            : a
+        )
+      );
+      return;
+    case 'output_window':
+      s.setOutputWindowStatus(
+        d as unknown as import('../store/editorStore').OutputWindowStatus
+      );
+      return;
+  }
+}
+
 /** A `media_control` document. */
 interface RawMediaControl {
   id: string;
@@ -121,11 +167,51 @@ function parentIsRemote(nodeId: unknown): boolean {
   );
 }
 
+type Handles = Awaited<ReturnType<typeof initMeshPeer>>;
+
+/** Once an rtype's snapshot has landed the replica is its authority: drop
+ *  store entries the replica doesn't hold. They came from the REST bundle and
+ *  were removed before this tab's subscription existed, so no remove op (and
+ *  no tombstone) ever reached it. Projected remote nodes belong to the
+ *  projection feeder and are left alone. */
+function pruneStale(h: Handles, rtype: string): void {
+  const col = h.collections[rtype];
+  if (!col) return;
+  const held = (id: string) => col.get(id) !== undefined;
+  const s = useEditorStore.getState();
+  switch (rtype) {
+    case 'scene_node':
+      for (const sc of [...s.scenes]) if (!held(sc.id)) s.removeScene(sc.id);
+      for (const n of [...useEditorStore.getState().nodes])
+        if (!n.remote && !held(n.id))
+          useEditorStore.getState().deleteNode(n.id);
+      return;
+    case 'behavior':
+      for (const b of [...s.behaviors]) if (!held(b.id)) s.removeBehavior(b.id);
+      return;
+    case 'camera_effect':
+      for (const e of [...s.cameraEffects])
+        if (!held(e.id)) s.removeCameraEffect(e.id);
+      return;
+    case 'compose_layer':
+      for (const l of [...s.composeLayers])
+        if (!held(l.id)) s.removeComposeLayer(l.id);
+      for (const c of [...s.composeScenes])
+        if (!held(c.id)) s.removeComposeScene(c.id);
+      return;
+    case 'track_clip':
+      for (const c of [...s.trackClips])
+        if (!held(c.id)) s.removeTrackClip(c.id);
+      return;
+  }
+}
+
 export function startMeshStoreFeeder(): void {
   if (started) return;
   started = true;
   void initMeshPeer()
     .then((h) => {
+      onSnapshot((rtype) => pruneStale(h, rtype));
       h.collections.scene_node.observe('**', (c) => {
         const s = useEditorStore.getState();
         // An ephemeral op IS an in-flight gesture, by construction — that's what
@@ -169,7 +255,8 @@ export function startMeshStoreFeeder(): void {
           const item = {
             id: node.id,
             name: node.name,
-            runtimeSettings: (node.properties ?? {}) as SceneItem['runtimeSettings'],
+            runtimeSettings: (node.properties ??
+              {}) as SceneItem['runtimeSettings'],
           };
           if (s.scenes.some((sc) => sc.id === node.id))
             s.updateSceneItem(node.id, item);
@@ -419,6 +506,14 @@ export function startMeshStoreFeeder(): void {
       // Media commands. An EVENT, not state: the collection has no retained
       // channel, so there is nothing to seed from and nothing replayed to a tab
       // that connects later — a play from an hour ago must not fire now.
+      // Server status (backend mesh/status.ts): retained while the server
+      // runs, so a tab that opens later gets it from the snapshot.
+      h.collections.server_status.observe('**', (c) => {
+        if (c.op !== 'remove' && c.doc)
+          applyStatus(c.doc as unknown as RawStatus);
+      });
+      for (const d of h.collections.server_status.all())
+        applyStatus(d as unknown as RawStatus);
       h.collections.media_control.observe('**', (c) => {
         const d = c.doc as unknown as RawMediaControl | undefined;
         if (c.op === 'remove' || !d?.command) return;

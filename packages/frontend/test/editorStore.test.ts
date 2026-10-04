@@ -294,16 +294,6 @@ describe('addNode / updateNode / deleteNode / selectNode', () => {
   });
 });
 
-describe('toggleNodeHidden', () => {
-  test('flips the hidden flag', () => {
-    useEditorStore.getState().addNode(makeNode({ hidden: false }));
-    useEditorStore.getState().toggleNodeHidden('node-1');
-    expect(useEditorStore.getState().nodes[0].hidden).toBe(true);
-    useEditorStore.getState().toggleNodeHidden('node-1');
-    expect(useEditorStore.getState().nodes[0].hidden).toBe(false);
-  });
-});
-
 // ── activeSceneNodes selector ─────────────────────────────────────────────────
 
 describe('activeSceneNodes()', () => {

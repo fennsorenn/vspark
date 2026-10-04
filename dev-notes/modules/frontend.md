@@ -65,12 +65,12 @@ Maintains a persistent WS connection to `/ws` (auto-selects `wss` on HTTPS). Aut
 Incoming message handlers:
 | Kind | Effect |
 |------|--------|
-| `vmc_status` | `setVmcStatus(behaviorId, connected)` |
-| `vmc_tracking_state` | `setVmcTracking(behaviorId, tracking)` |
 | `vmc_pose` | Writes pose data into store for Viewport to consume |
 | `vmc_blendshapes` | Writes blendshape weights into store |
 | `sync` (envelope) | Routed through `applyRemote` — currently only `scene_node` (node_added/updated/removed). Behaviors, camera_effects, compose_layers, and track_clips have migrated to the mesh feeder (see below). |
 | `server_update` | Sets `updateAvailable` + `updateInfo` in store |
+
+Receiver connected/tracking state is no longer a WS message: it arrives as `server_status` mesh documents, applied by `applyStatus` in `sync/meshStoreFeeder.ts`.
 
 **pendingReload-on-reconnect**: a `pendingReloadRef` (not store state — avoids re-render) is set when a `server_update` message carries `reloadOnReconnect: true`. On the next `ws.onopen`, if the ref is set, the page is reloaded. Normal reconnects are unaffected.
 

@@ -19,6 +19,10 @@ type Observer = (c: Op) => void;
 
 /** Captures the observer the feeder registers per rtype so tests can drive ops. */
 const observers = new Map<string, Observer>();
+/** The feeder's snapshot callback (mesh/peer onSnapshot), captured per run. */
+let snapshotCb: ((rtype: string) => void) | null = null;
+/** Ids the fake replica holds, per rtype (for the post-snapshot prune). */
+const replicaHas = new Map<string, Set<string>>();
 
 // Answer for ANY rtype rather than listing them. A hardcoded list here is a
 // second copy of RTYPES in mesh/peer.ts, and it drifts the moment one is added:
@@ -26,6 +30,10 @@ const observers = new Map<string, Observer>();
 // that into a console warning, EVERY observer silently stops being registered —
 // so the whole suite goes green-but-inert rather than failing loudly.
 vi.mock('../src/mesh/peer', () => ({
+  onSnapshot: (cb: (rtype: string) => void) => {
+    snapshotCb = cb;
+    return () => {};
+  },
   initMeshPeer: () =>
     Promise.resolve({
       collections: new Proxy(
@@ -33,6 +41,8 @@ vi.mock('../src/mesh/peer', () => ({
         {
           get: (_t, rtype: string) => ({
             observe: (_p: string, cb: Observer) => observers.set(rtype, cb),
+            get: (id: string) =>
+              replicaHas.get(rtype)?.has(id) ? { id } : undefined,
             // Slices with no REST load (`logic`, `runtime_override`) seed
             // themselves from the replica. Without this the seed throws, the
             // feeder swallows it, and every observer AFTER the seed silently
@@ -176,9 +186,8 @@ describe('meshStoreFeeder — scene_node previews', () => {
   });
 
   const transformOf = () =>
-    (
-      useEditorStore.getState().nodes[0].components as Record<string, unknown>
-    ).transform as Record<string, number>;
+    (useEditorStore.getState().nodes[0].components as Record<string, unknown>)
+      .transform as Record<string, number>;
 
   const withTransform = (t: Record<string, number>) => ({
     ...meshDoc('n1', 'p1'),
@@ -251,7 +260,11 @@ describe('meshStoreFeeder — scene_node previews', () => {
       path: 'components.transform.x',
       doc: withTransform({ x: 100, y: 0, z: 0, ry: 0 }),
     });
-    feed({ op: 'upsert', id: 'n1', doc: withTransform({ x: 100, y: 0, z: 0 }) });
+    feed({
+      op: 'upsert',
+      id: 'n1',
+      doc: withTransform({ x: 100, y: 0, z: 0 }),
+    });
     // Still gliding: the committed value must not jump the node to its final
     // pose, or the drag ends with a visible snap on every watching tab.
     expect(transformOf().x).toBe(0);
@@ -612,10 +625,11 @@ describe('meshStoreFeeder — track_clip routing', () => {
       keyframes: {},
     };
     feedClip({ op: 'upsert', id: 'c1', doc: withTwo });
-    expect(clips()[0].lanes.map((l) => l.paramPath).sort()).toEqual([
-      'opacity',
-      'position.x',
-    ]);
+    expect(
+      clips()[0]
+        .lanes.map((l) => l.paramPath)
+        .sort()
+    ).toEqual(['opacity', 'position.x']);
   });
 
   it('applies a lane removal (was track_clip_lane_removed)', () => {
@@ -663,5 +677,97 @@ describe('meshStoreFeeder — track_clip routing', () => {
     feedClip({ op: 'upsert', id: 'c1', doc: clipDoc() });
     feedClip({ op: 'remove', id: 'c1' });
     expect(clips()).toEqual([]);
+  });
+});
+
+describe('meshStoreFeeder — server_status routing', () => {
+  const status = (doc: Record<string, unknown>) =>
+    observers.get('server_status')!({
+      op: 'upsert',
+      id: doc.id as string,
+      doc,
+    });
+
+  beforeEach(async () => {
+    await startFeeder();
+  });
+
+  it('routes a receiver status into the tracking slices', () => {
+    status({ id: 'tracking:b1', kind: 'tracking', key: 'b1', connected: true });
+    status({
+      id: 'tracking:b1',
+      kind: 'tracking',
+      key: 'b1',
+      connected: true,
+      tracking: true,
+    });
+    const s = useEditorStore.getState();
+    expect(s.vmcStatus['b1']).toBe(true);
+    expect(s.vmcTracking['b1']).toBe(true);
+  });
+
+  it('patches an OBS connection with its live status', () => {
+    useEditorStore.setState({
+      obsConnections: [
+        {
+          id: 'c1',
+          status: 'disconnected',
+          statusReason: null,
+          statusMessage: null,
+        },
+      ] as never,
+    });
+    status({
+      id: 'obs_connection:c1',
+      kind: 'obs_connection',
+      key: 'c1',
+      status: 'connected',
+      reason: null,
+      message: null,
+    });
+    expect(useEditorStore.getState().obsConnections[0].status).toBe(
+      'connected'
+    );
+  });
+
+  it('sets the output window runtime state', () => {
+    status({
+      id: 'output_window:main',
+      kind: 'output_window',
+      key: 'main',
+      state: 'ready',
+    });
+    expect(useEditorStore.getState().outputWindowStatus).toMatchObject({
+      state: 'ready',
+    });
+  });
+});
+
+describe('meshStoreFeeder — after a snapshot', () => {
+  beforeEach(async () => {
+    replicaHas.clear();
+    await startFeeder();
+  });
+
+  it('drops store nodes the replica does not hold (removed before we subscribed)', () => {
+    useEditorStore.setState({
+      projectId: 'p1',
+      nodes: [
+        { ...meshDoc('kept', 'p1') },
+        { ...meshDoc('stale', 'p1') },
+        { ...meshDoc('shared', 'p1'), remote: true },
+      ] as never,
+    });
+    replicaHas.set('scene_node', new Set(['kept']));
+    snapshotCb!('scene_node');
+    expect(
+      useEditorStore
+        .getState()
+        .nodes.map((n) => n.id)
+        .sort()
+    ).toEqual([
+      'kept',
+      'shared', // projected remote nodes belong to the projection feeder
+    ]);
   });
 });

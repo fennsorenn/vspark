@@ -36,8 +36,13 @@
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { getPath } from '@vspark/mesh';
-import { useEditorStore } from '../store/editorStore';
+import { useEditorStore, type EditorState } from '../store/editorStore';
 import { commitNodePath, previewNodePath, readNodePath } from '../mesh/writes';
+import {
+  commitLayerPath,
+  previewLayerPath,
+  readLayerPath,
+} from '../mesh/layerWrites';
 
 export interface MeshField<T> {
   /** Current value: the in-flight draft while editing, else the stored value. */
@@ -60,20 +65,67 @@ export interface MeshFieldOptions<T> {
   /** Convert the raw input string for `bind()`. Defaults to identity (string);
    *  pass `Number` for numeric inputs. */
   parse?: (raw: string) => T;
+  /** Show the in-progress edit to everyone while it's being typed (default).
+   *  Turn off for values that are expensive or broken half-typed — a browser
+   *  layer's URL would reload the page on every keystroke, a feed template
+   *  would fail to compile — so only the draft changes until commit. */
+  livePreview?: boolean;
 }
 
+/** How one kind of mesh document is read and written from a bound control. */
+interface FieldBinding {
+  select: (s: EditorState, id: string) => object | undefined;
+  read: (id: string, path: string) => unknown;
+  preview: (id: string, path: string, v: unknown) => void;
+  commit: (id: string, path: string, v: unknown) => void;
+}
+
+const NODE_FIELDS: FieldBinding = {
+  select: (s, id) => s.nodes.find((n) => n.id === id),
+  read: readNodePath,
+  preview: previewNodePath,
+  commit: commitNodePath,
+};
+
+const LAYER_FIELDS: FieldBinding = {
+  select: (s, id) =>
+    s.composeLayers.find((l) => l.id === id) ??
+    s.composeScenes.find((l) => l.id === id),
+  read: readLayerPath,
+  preview: previewLayerPath,
+  commit: commitLayerPath,
+};
+
+/** Bind a control to one field of a scene node. */
 export function useMeshField<T>(
   nodeId: string,
   path: string,
   fallback: T,
   opts: MeshFieldOptions<T> = {}
 ): MeshField<T> {
+  return useDocField(NODE_FIELDS, nodeId, path, fallback, opts);
+}
+
+/** Bind a control to one field of a compose layer (or compose scene). */
+export function useLayerField<T>(
+  layerId: string,
+  path: string,
+  fallback: T,
+  opts: MeshFieldOptions<T> = {}
+): MeshField<T> {
+  return useDocField(LAYER_FIELDS, layerId, path, fallback, opts);
+}
+
+function useDocField<T>(
+  b: FieldBinding,
+  id: string,
+  path: string,
+  fallback: T,
+  opts: MeshFieldOptions<T>
+): MeshField<T> {
+  const live = opts.livePreview !== false;
   const stored = useEditorStore(
-    (s) =>
-      getPath(
-        s.nodes.find((n) => n.id === nodeId),
-        path
-      ) as T | undefined
+    (s) => getPath(b.select(s, id), path) as T | undefined
   );
   const [draft, setDraft] = useState<{ v: T } | null>(null);
   // The value this gesture started from. `preview` applies to the store so the
@@ -87,18 +139,18 @@ export function useMeshField<T>(
   useEffect(() => {
     setDraft(null);
     gesture.current = null;
-  }, [nodeId, path]);
+  }, [id, path]);
 
   const value = draft ? draft.v : (stored ?? fallback);
 
   const preview = useCallback(
     (v: T) => {
       if (!gesture.current)
-        gesture.current = { base: readNodePath(nodeId, path) as T | undefined };
+        gesture.current = { base: b.read(id, path) as T | undefined };
       setDraft({ v });
-      previewNodePath(nodeId, path, v);
+      if (live) b.preview(id, path, v);
     },
-    [nodeId, path]
+    [b, id, path, live]
   );
 
   const commit = useCallback(
@@ -109,17 +161,17 @@ export function useMeshField<T>(
       setDraft(null);
       if (next === undefined) return;
       if (next === (g ? g.base : stored)) return; // genuinely unchanged
-      commitNodePath(nodeId, path, next);
+      b.commit(id, path, next);
     },
-    [nodeId, path, draft, stored]
+    [b, id, path, draft, stored]
   );
 
   const set = useCallback(
     (v: T) => {
-      previewNodePath(nodeId, path, v);
+      if (live) b.preview(id, path, v);
       commit(v);
     },
-    [nodeId, path, commit]
+    [b, id, path, live, commit]
   );
 
   const bind = useCallback(

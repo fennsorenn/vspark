@@ -29,26 +29,17 @@ import {
   clipCollabScene,
   isCollabScene,
   allCollabSceneIds,
-  type ClipPlaybackAction,
 } from '../multiplayer/collabScene.js';
 
 export { CONTROL_CHANNEL };
 
 export const NODE_STREAM_RTYPE = 'node_stream';
-export const CLIP_CONTROL_RTYPE = 'clip_control';
 export const RUNTIME_CONTROL_RTYPE = 'runtime_control';
 
 interface StreamFrame {
   id: string; // subject scene-node id (replica key + containment hook)
   kind: string;
   payload: Record<string, unknown>;
-  [k: string]: unknown;
-}
-
-interface ClipControlEvent {
-  id: string; // clip id (containment: clip → owner node → scene)
-  action: ClipPlaybackAction;
-  t?: number;
   [k: string]: unknown;
 }
 
@@ -65,7 +56,6 @@ interface RuntimeEvent {
 }
 
 let _col: Collection<StreamFrame> | null = null;
-let _clipCol: Collection<ClipControlEvent> | null = null;
 let _runtimeCol: Collection<RuntimeEvent> | null = null;
 let _applyRuntime:
   | ((kind: string, payload: Record<string, unknown>, from: string) => void)
@@ -87,8 +77,7 @@ export function initMeshStreams(
   broadcast: (kind: string, payload: Record<string, unknown>) => void
 ): void {
   if (_col) return;
-  // CONTROL_CHANNEL is registered by initMeshRuntime (mesh/runtime.ts), which
-  // runs as part of initBackendMesh — before this. One definition, one place.
+  // Server-to-server only: no `clients` grant, so tabs can't subscribe.
   _col = peer.collection<StreamFrame>(NODE_STREAM_RTYPE, {
     channels: ['preview'],
   });
@@ -144,18 +133,4 @@ export function publishCollabRuntime(
       { id: sceneId, eventId, kind, payload },
       { channel: CONTROL_CHANNEL }
     );
-}
-
-/** Publish a clip playback control to the clip's collab peers (reliable). */
-export function publishClipPlayback(
-  clipId: string,
-  action: ClipPlaybackAction,
-  t?: number
-): void {
-  _clipCol?.set(
-    clipId,
-    '',
-    { id: clipId, action, t },
-    { channel: CONTROL_CHANNEL }
-  );
 }

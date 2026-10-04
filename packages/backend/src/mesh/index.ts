@@ -26,6 +26,7 @@ import {
   type MeshPeer,
 } from '@vspark/mesh';
 import { WsServerTransport } from '@vspark/mesh-transports/wsServer';
+import { verifyClientToken } from '../auth/clients.js';
 import { getDb } from '../db/index.js';
 import { getIdentity } from '../multiplayer/identity.js';
 import { getResource } from '../sync/registry.js';
@@ -42,6 +43,11 @@ import {
 } from './docGuards.js';
 import { runtimeOverrideManager } from '../runtime_overrides/manager.js';
 import { initMeshRuntime, resetMeshRuntime } from './runtime.js';
+import {
+  clearStatusOf,
+  initServerStatus,
+  resetServerStatus,
+} from './status.js';
 import { refreshAllBehaviorManagers } from '../behaviors/refresh.js';
 import { logicLifecycle } from '../logic/lifecycle.js';
 import {
@@ -53,6 +59,8 @@ import {
   toGraphDescriptor,
   type GraphDescriptorDoc,
 } from '@vspark/shared/signal';
+import { validateFeedConfig } from '@vspark/shared/feedValidation';
+import { broadcastBus } from '../broadcast/bus.js';
 import { isClientParticipant } from '@vspark/shared/sync';
 import '../sync/resources.js'; // side effect: register the descriptors
 
@@ -75,10 +83,60 @@ interface RtypeBinding {
    *  `validate` it sees dotted-path writes as well as whole-doc ones — use it
    *  for anything that has to hold however the write was shaped. */
   guard?: (dto: Dto) => void;
+  /** What this server's own tabs may do on the collection. Grants are a
+   *  whitelist: tabs get exactly these rights and nothing else. */
+  clients: TabRights;
+  /** Side effects of a committed document, whoever authored it (a REST
+   *  route, a tab, an undo, a collab peer) — they run in the persistence tap,
+   *  never in a route, or a write that bypasses the route would skip them.
+   *  `onRemoving` runs before the row is deleted, the others after. */
+  onSaved?: (dto: Dto) => void;
+  onRemoving?: (id: string) => void;
+  onRemoved?: (id: string) => void;
 }
 
+/** camera_view layers show a camera by id — a reference, not containment, so
+ *  removeTree can't see them. They go with their camera, through their
+ *  collection while the rows still exist (each gets its tombstone; the
+ *  database would otherwise cascade-delete the row and leave the document). */
+function removeCameraViewsOf(nodeId: string): void {
+  const layers = COLLECTIONS.get('compose_layer');
+  if (!layers) return;
+  for (const { id } of getDb()
+    .prepare('SELECT id FROM compose_layers WHERE camera_node_id = ?')
+    .all(nodeId) as { id: string }[])
+    if (layers.get(id)) layers.remove(id);
+}
+
+/** Runtime overrides target a doc by id and outlive its row, so they go
+ *  with it. Only scene nodes and compose layers can carry overrides
+ *  (ParamTargetKind). */
+const clearOverridesOf =
+  (rtype: 'scene_node' | 'compose_layer') =>
+  (id: string): void =>
+    runtimeOverrideManager.clearAllForTarget(rtype, id);
+
+type TabRights = {
+  read?: boolean;
+  update?: boolean;
+  create?: boolean;
+  delete?: boolean;
+};
+/** Tabs author these documents (mesh write helpers in frontend/src/mesh/). */
+const TAB_AUTHORED: TabRights = {
+  read: true,
+  update: true,
+  create: true,
+  delete: true,
+};
+/** Servers write these; tabs display them and remove them only together with
+ *  the node they belong to. */
+const TAB_READ_DELETE: TabRights = { read: true, delete: true };
+
 const rowExists = (table: string, id: unknown): boolean =>
-  !!getDb().prepare(`SELECT 1 FROM ${table} WHERE id = ?`).get(id as string);
+  !!getDb()
+    .prepare(`SELECT 1 FROM ${table} WHERE id = ?`)
+    .get(id as string);
 
 /** A project of OURS — not one we merely hold for a peer (migration 039). */
 const ownProject = (id: unknown): boolean =>
@@ -92,6 +150,16 @@ const childOfNode = (d: Dto) =>
 const BINDINGS: RtypeBinding[] = [
   {
     rtype: 'scene_node',
+    clients: TAB_AUTHORED,
+    onRemoving: (id) => {
+      clearOverridesOf('scene_node')(id);
+      removeCameraViewsOf(id);
+    },
+    // A scene root's properties are its runtime settings: the running bus
+    // re-reads them whoever wrote them.
+    onSaved: (d) => {
+      if (d.kind === 'scene') broadcastBus.reloadSceneSettings(d.id as string);
+    },
     table: 'scene_nodes',
     // Top-level nodes have parent_id NULL and hang off the scene root via
     // root_scene_node_id (the scene root itself is its own root → null).
@@ -122,7 +190,8 @@ const BINDINGS: RtypeBinding[] = [
       // run here instead — a throw nacks the write and the client rolls its
       // optimistic copy back. Collab peers are servers, not clients, and their
       // docs are re-scoped below rather than validated against our data.
-      if (originId && isClientParticipant(originId)) d = guardClientSceneNode(d);
+      if (originId && isClientParticipant(originId))
+        d = guardClientSceneNode(d);
       const rootId =
         typeof d.rootSceneNodeId === 'string' ? d.rootSceneNodeId : undefined;
       if (!rootId) return d;
@@ -145,7 +214,8 @@ const BINDINGS: RtypeBinding[] = [
         const cur = getDb()
           .prepare('SELECT file_path FROM scene_nodes WHERE id = ?')
           .get(d.id as string) as { file_path: string | null } | undefined;
-        if (cur?.file_path && cur.file_path !== incoming) d.filePath = cur.file_path;
+        if (cur?.file_path && cur.file_path !== incoming)
+          d.filePath = cur.file_path;
       }
       return d;
     },
@@ -159,10 +229,17 @@ const BINDINGS: RtypeBinding[] = [
     // whose scene we also mount would have one — it must still not persist.
     persists: (d) =>
       ownProject(d.projectId) ||
-      (typeof d.rootSceneNodeId === 'string' && isCollabScene(d.rootSceneNodeId)),
+      (typeof d.rootSceneNodeId === 'string' &&
+        isCollabScene(d.rootSceneNodeId)),
   },
   {
     rtype: 'behavior',
+    clients: TAB_AUTHORED,
+    // Attaching, reconfiguring or detaching a behavior starts, restarts or
+    // tears down its signal graph. Each manager re-reads the full row set, so
+    // the refresh is idempotent; on remove it runs after the row is gone.
+    onSaved: () => refreshAllBehaviorManagers(),
+    onRemoved: () => refreshAllBehaviorManagers(),
     // Tabs author behaviors directly now, so the route's owner check runs here
     // — and it matters more than for effects, because a committed behavior doc
     // makes the onCommitted tap instantiate its signal graph.
@@ -176,6 +253,7 @@ const BINDINGS: RtypeBinding[] = [
   },
   {
     rtype: 'camera_effect',
+    clients: TAB_AUTHORED,
     // Tabs author effects directly now, so the route's owner check has to run
     // here too — see guardClientNodeChild. Collab peers are servers, not
     // clients, and their docs are gated by `persists` instead.
@@ -189,6 +267,8 @@ const BINDINGS: RtypeBinding[] = [
   },
   {
     rtype: 'compose_layer',
+    clients: TAB_AUTHORED,
+    onRemoving: clearOverridesOf('compose_layer'),
     table: 'compose_layers',
     // Top-level layers have parent_id NULL and hang off their compose scene
     // via root_compose_scene_id (the compose scene root itself → null) — the
@@ -209,9 +289,17 @@ const BINDINGS: RtypeBinding[] = [
         ? guardClientComposeLayer({ ...(data as Dto) })
         : (data as Dto),
     persists: (d) => rowExists('projects', d.projectId),
+    // A feed layer's template/css must compile however the write was shaped
+    // (a tab's dotted-path edit, a REST patch, a collab peer): refusing it
+    // here nacks the write instead of storing markup that renders nothing.
+    guard: (d) => {
+      const err = validateFeedConfig(d.config);
+      if (err) throw new Error(err);
+    },
   },
   {
     rtype: 'track_clip',
+    clients: TAB_AUTHORED,
     table: 'track_clips',
     // Clip → its owning node/layer, so scene-subtree grants and subscriptions
     // cover clips cross-type (the §9 cutover relies on this).
@@ -230,6 +318,9 @@ const BINDINGS: RtypeBinding[] = [
   },
   {
     rtype: 'animation_clip',
+    // Tabs don't author clips, but deleting a node removes the clips imported
+    // from it (removeTree), and that delete is the tab's own action.
+    clients: TAB_READ_DELETE,
     table: 'animation_clips',
     // FBX/BVH imports → their source node, so scene-subtree grants and
     // subscriptions cover them cross-type like track clips.
@@ -250,7 +341,8 @@ const BINDINGS: RtypeBinding[] = [
     //    it and re-points the row once the blob lands.
     validate: (data) => {
       const d = { ...(data as Dto) };
-      const incoming = typeof d.sourceFilePath === 'string' ? d.sourceFilePath : null;
+      const incoming =
+        typeof d.sourceFilePath === 'string' ? d.sourceFilePath : null;
       if (!incoming) return d;
       // Our own managed path (an exact asset_files stored_path — covers legit
       // local edits AND a receiver's /_shared cache entry, which the
@@ -290,6 +382,7 @@ const BINDINGS: RtypeBinding[] = [
   },
   {
     rtype: 'scheduled_animation',
+    clients: TAB_READ_DELETE,
     table: 'scheduled_animations',
     // Timeline entry → its avatar node, so it rides the scene-subtree
     // grants/subscriptions cross-type. No per-server path: clipId is universal
@@ -316,6 +409,11 @@ const BINDINGS: RtypeBinding[] = [
   },
   {
     rtype: 'logic',
+    clients: TAB_AUTHORED,
+    // A graph's descriptor IS its program: committing one starts, restarts or
+    // stops the running instance.
+    onSaved: (d) => logicLifecycle.onCommitted(d.id as string),
+    onRemoved: (id) => logicLifecycle.onRemoved(id),
     table: 'logic',
     // Owned polymorphically: by a project, a scene node, or a compose layer.
     // The two entity kinds parent normally so a scene-subtree grant covers a
@@ -353,6 +451,7 @@ const BINDINGS: RtypeBinding[] = [
   },
   {
     rtype: 'clip_playback',
+    clients: TAB_AUTHORED,
     table: 'clip_playback',
     // Transport state → its clip, which itself parents to the owning node or
     // compose layer — so a scene-subtree grant covers playback transitively,
@@ -415,16 +514,32 @@ export function mirrorIntoMesh(rtype: string, id: string): void {
  *  longer may resurrect a deletion on reconnect (accepted trade-off, §8.7). */
 const TOMBSTONE_MAX_AGE_DAYS = 30;
 
-function saveTombstone(rtype: string, id: string, v: HLC): void {
+/** Persist a tombstone with where the entity sat (`ancestors`, nearest first):
+ *  subtree-scoped grants can only be checked against the old position, which
+ *  the containment index forgets on removal (migration 042). */
+function saveTombstone(
+  rtype: string,
+  id: string,
+  v: HLC,
+  ancestors?: string[]
+): void {
   getDb()
     .prepare(
-      `INSERT INTO mesh_tombstones (rtype, id, v_t, v_c, v_n)
-       VALUES (?, ?, ?, ?, ?)
+      `INSERT INTO mesh_tombstones (rtype, id, v_t, v_c, v_n, ancestors)
+       VALUES (?, ?, ?, ?, ?, ?)
        ON CONFLICT(rtype, id) DO UPDATE SET
          v_t = excluded.v_t, v_c = excluded.v_c, v_n = excluded.v_n,
+         ancestors = excluded.ancestors,
          deleted_at = datetime('now')`
     )
-    .run(rtype, id, v.t, v.c, v.n);
+    .run(
+      rtype,
+      id,
+      v.t,
+      v.c,
+      v.n,
+      ancestors?.length ? JSON.stringify(ancestors) : null
+    );
 }
 
 function clearTombstone(rtype: string, id: string): void {
@@ -443,7 +558,10 @@ export function initBackendMesh(): MeshPeer {
        WHERE deleted_at < datetime('now', '-${TOMBSTONE_MAX_AGE_DAYS} days')`
     )
     .run();
-  _transport = new WsServerTransport(peerId);
+  _transport = new WsServerTransport(peerId, {
+    // Only enrolled browsers join (principle 9; see auth/clients.ts).
+    authenticate: ({ token }) => verifyClientToken(token) !== null,
+  });
   const peer = createMeshPeer({
     identity: { peerId },
     transports: [_transport],
@@ -456,20 +574,11 @@ export function initBackendMesh(): MeshPeer {
   // the call site so a mesh peer cannot exist without it — a missing runtime
   // collection is silent, and the overrides simply stop arriving.
   initMeshRuntime(peer);
+  initServerStatus(peer);
   // The animation-clip asset follow-up re-points sourceFilePath through the
   // store once a fetched blob lands.
   const animCol = COLLECTIONS.get('animation_clip');
   if (animCol) setAnimationClipCollection(animCol);
-
-  // This server's own tabs hold full rights on everything it serves.
-  peer.grants.grant({
-    grantee: peerId,
-    entityRtype: '*',
-    entityId: '*',
-    includeDescendants: false,
-    pathPrefix: '',
-    rights: { read: true, update: true, create: true, delete: true },
-  });
 
   _peer = peer;
   return peer;
@@ -493,6 +602,7 @@ export function resetBackendMesh(): void {
   _transport = null;
   COLLECTIONS.clear();
   resetMeshRuntime();
+  resetServerStatus();
 }
 
 /** Epoch reset: forget deletion markers for the given ids — replica AND the
@@ -528,6 +638,7 @@ function bindCollection(
     parent: b.parent,
     validate: b.validate,
     authority: 'self',
+    clients: b.clients,
   });
   COLLECTIONS.set(b.rtype, col);
   if (!r?.load) return col;
@@ -544,25 +655,20 @@ function bindCollection(
     applyingFromMesh.add(key);
     try {
       if (c.op === 'remove') {
-        // Runtime overrides target a doc by id and outlive its row, so they are
-        // cleared here rather than in the DELETE route: a remove authored by a
-        // tab (undoable deletes) or a collab peer must clear them too. Only
-        // these two rtypes can carry overrides (ParamTargetKind).
-        if (b.rtype === 'scene_node' || b.rtype === 'compose_layer')
-          runtimeOverrideManager.clearAllForTarget(b.rtype, c.id);
+        b.onRemoving?.(c.id);
+        // Dependents first, while their rows still exist: a node's behaviors,
+        // effects, clips and graphs go through their collections (each with a
+        // tombstone) instead of being cascade-deleted by the database, which
+        // would leave their documents alive in every replica. A tab's delete
+        // usually removed them already in the same undo action — then this is
+        // a no-op.
+        peer.removeTree(c.id);
+        clearStatusOf(c.id);
         if (b.persists && !rowExists(b.table, c.id)) return; // never persisted
         r.remove?.(c.id);
-        if (c.v) saveTombstone(b.rtype, c.id, c.v);
+        if (c.v) saveTombstone(b.rtype, c.id, c.v, c.ancestors);
         sync.document.remove(b.rtype, c.id);
-        // Detaching a behavior tears down its signal graph. This has to happen
-        // HERE, not in the DELETE route: a remove authored by a tab, an undo, or
-        // a collab peer never passes through a route, and would otherwise leave
-        // the graph running for a behavior that no longer exists. After the row
-        // is gone, so the refresh re-reads without it.
-        if (b.rtype === 'behavior') refreshAllBehaviorManagers();
-        // A graph's descriptor IS its program: committing one has to start,
-        // restart or stop the running instance, exactly as a behavior's does.
-        if (b.rtype === 'logic') logicLifecycle.onRemoved(c.id);
+        b.onRemoved?.(c.id);
       } else if (c.doc) {
         if (b.persists && !b.persists(c.doc)) return;
         // Before persisting: a throw here nacks the write and restores the
@@ -571,12 +677,7 @@ function bindCollection(
         r.save?.(c.doc);
         clearTombstone(b.rtype, c.id);
         sync.document.upsert(b.rtype, c.id);
-        // Attaching or reconfiguring a behavior instantiates its signal graph —
-        // same reasoning as the remove branch above. The refresh hands each
-        // manager the full row set, so it is idempotent and needs no knowledge
-        // of what changed.
-        if (b.rtype === 'behavior') refreshAllBehaviorManagers();
-        if (b.rtype === 'logic') logicLifecycle.onCommitted(c.id);
+        b.onSaved?.(c.doc);
       }
     } finally {
       applyingFromMesh.delete(key);
@@ -626,8 +727,20 @@ function bindCollection(
 
   // Re-hydrate persisted tombstones (order vs docs is irrelevant — LWW).
   for (const t of db
-    .prepare('SELECT id, v_t, v_c, v_n FROM mesh_tombstones WHERE rtype = ?')
-    .all(b.rtype) as { id: string; v_t: number; v_c: number; v_n: string }[])
-    col.putTombstone(t.id, { t: t.v_t, c: t.v_c, n: t.v_n });
+    .prepare(
+      'SELECT id, v_t, v_c, v_n, ancestors FROM mesh_tombstones WHERE rtype = ?'
+    )
+    .all(b.rtype) as {
+    id: string;
+    v_t: number;
+    v_c: number;
+    v_n: string;
+    ancestors: string | null;
+  }[])
+    col.putTombstone(
+      t.id,
+      { t: t.v_t, c: t.v_c, n: t.v_n },
+      t.ancestors ? (JSON.parse(t.ancestors) as string[]) : undefined
+    );
   return col;
 }

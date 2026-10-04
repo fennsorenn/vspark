@@ -27,6 +27,7 @@ import { getDb } from '../db/index.js';
 import { logicManager } from '../logic/manager.js';
 import { ObsWsClient, type ObsWsClientOptions } from './ws_client.js';
 import type { WSSync } from '../ws/index.js';
+import { publishStatus } from '../mesh/status.js';
 
 interface ObsConnectionRow {
   id: string;
@@ -226,7 +227,7 @@ export class ObsWsManager {
     } catch {
       /* row may have been deleted mid-flight */
     }
-    this._ws?.broadcast('obs_connection_status', {
+    publishStatus('obs_connection', conn.id, {
       connectionId: conn.id,
       projectId: conn.projectId,
       status,

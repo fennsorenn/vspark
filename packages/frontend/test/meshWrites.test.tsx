@@ -43,6 +43,25 @@ const collection = {
     note(`remove:${id}`);
     return { ack: Promise.resolve({ status: 'acked' }) };
   },
+  // Stand-in for MeshPeer.removeTree (tested in packages/mesh): children
+  // first, all in one batch.
+  removeTree: (id: string) => {
+    const order: string[] = [];
+    const walk = (x: string): void => {
+      for (const d of state.docs.values())
+        if ((d as { parentId?: string | null }).parentId === x)
+          walk((d as { id: string }).id);
+      order.push(x);
+    };
+    walk(id);
+    batched = [];
+    try {
+      return order.map((x) => collection.remove(x));
+    } finally {
+      batches.push(batched!);
+      batched = null;
+    }
+  },
 };
 
 vi.mock('../src/mesh/peer', () => ({
@@ -362,7 +381,12 @@ describe('commitNodeDelete', () => {
   });
 
   it('routes a remote node to REST rather than the local peer', async () => {
-    seed(node({ remote: true, remoteOwnerPeerId: 'peer-b' } as Partial<StageObject>));
+    seed(
+      node({
+        remote: true,
+        remoteOwnerPeerId: 'peer-b',
+      } as Partial<StageObject>)
+    );
     await commitNodeDelete(NODE_ID);
     expect(removes).toEqual([]);
   });

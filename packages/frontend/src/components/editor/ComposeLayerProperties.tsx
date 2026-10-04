@@ -1,10 +1,10 @@
-import { useEffect, useState, type CSSProperties } from 'react';
+import { type CSSProperties } from 'react';
+import { useLayerField } from '../../hooks/useMeshField';
 import { useTranslation } from 'react-i18next';
 import {
   useEditorStore,
   type ComposeLayerRecord,
 } from '../../store/editorStore';
-import { api } from '../../api/client';
 import type { ComposeAnchorH, ComposeAnchorV } from '../../api/client';
 import { LAYER_KIND_ICON } from '../icons';
 import { Globe } from 'lucide-react';
@@ -119,7 +119,6 @@ export function ComposeLayerProperties({
   const { t } = useTranslation('compose');
   const assets = useEditorStore((s) => s.assets);
   const composeLayers = useEditorStore((s) => s.composeLayers);
-  const updateLayerLocal = useEditorStore((s) => s.updateComposeLayerLocal);
   const flashBottomTab = useEditorStore((s) => s.flashBottomTab);
   const nodes = useEditorStore((s) => s.nodes);
   const { canRecord, recordKeyframe, recordKeyframes } = useTrackClipRecorder();
@@ -136,17 +135,21 @@ export function ComposeLayerProperties({
   const commit = (patch: Partial<ComposeLayerRecord>) =>
     commitLayerPatch(layer.id, patch);
 
-  // The name is typed into a local draft and committed on blur. Mirroring each
-  // keystroke into the store (the old path) let any replica echo for this layer
-  // — e.g. a just-committed visibility toggle — overwrite the unsaved text
-  // before blur read it back.
-  const [nameDraft, setNameDraft] = useState<string | null>(null);
-  useEffect(() => setNameDraft(null), [layer.id]);
-  const commitName = () => {
-    if (nameDraft !== null && nameDraft !== layer.name)
-      commitLayerPath(layer.id, 'name', nameDraft);
-    setNameDraft(null);
-  };
+  // Text fields bind to the layer document: a local draft while typing (so a
+  // replica echo can't clobber it), one committed write on blur. The URL and
+  // the feed template/css only commit — half-typed, they would reload the
+  // page or fail to compile in every tab.
+  const nameField = useLayerField<string>(layer.id, 'name', '');
+  const urlField = useLayerField<string>(layer.id, 'config.url', '', {
+    livePreview: false,
+  });
+  const contentField = useLayerField<string>(layer.id, 'config.content', '');
+  const templateField = useLayerField<string>(layer.id, 'config.template', '', {
+    livePreview: false,
+  });
+  const cssField = useLayerField<string>(layer.id, 'config.css', '', {
+    livePreview: false,
+  });
 
   // Stack order. Drag-and-drop in the compose tree is the primary way to
   // reorder; these buttons are the precision path. Paint order is ascending
@@ -391,9 +394,7 @@ export function ComposeLayerProperties({
       <input
         type="text"
         className="vs-layer-name"
-        value={nameDraft ?? layer.name}
-        onChange={(e) => setNameDraft(e.target.value)}
-        onBlur={commitName}
+        {...nameField.bind()}
         style={textInput}
       />
 
@@ -962,19 +963,7 @@ export function ComposeLayerProperties({
           <div style={sectionHeader}>{t('properties.sectionUrl')}</div>
           <input
             type="text"
-            value={(layer.config.url as string | undefined) ?? ''}
-            onChange={(e) =>
-              updateLayerLocal(layer.id, {
-                config: { ...layer.config, url: e.target.value },
-              })
-            }
-            onBlur={(e) =>
-              api
-                .updateComposeLayer(layer.id, {
-                  config: { ...layer.config, url: e.target.value },
-                })
-                .catch(() => {})
-            }
+            {...urlField.bind()}
             placeholder="https://…"
             style={textInput}
           />
@@ -985,19 +974,7 @@ export function ComposeLayerProperties({
         <>
           <div style={sectionHeader}>{t('properties.sectionText')}</div>
           <textarea
-            value={(layer.config.content as string | undefined) ?? ''}
-            onChange={(e) =>
-              updateLayerLocal(layer.id, {
-                config: { ...layer.config, content: e.target.value },
-              })
-            }
-            onBlur={(e) =>
-              api
-                .updateComposeLayer(layer.id, {
-                  config: { ...layer.config, content: e.target.value },
-                })
-                .catch(() => {})
-            }
+            {...contentField.bind()}
             rows={3}
             style={{ ...textInput, resize: 'vertical' }}
           />
@@ -1098,19 +1075,7 @@ export function ComposeLayerProperties({
         <>
           <div style={sectionHeader}>{t('properties.sectionTemplate')}</div>
           <textarea
-            value={(layer.config.template as string | undefined) ?? ''}
-            onChange={(e) =>
-              updateLayerLocal(layer.id, {
-                config: { ...layer.config, template: e.target.value },
-              })
-            }
-            onBlur={(e) =>
-              api
-                .updateComposeLayer(layer.id, {
-                  config: { ...layer.config, template: e.target.value },
-                })
-                .catch(() => {})
-            }
+            {...templateField.bind()}
             placeholder={
               '<div className="chat">\n  ${(chat || []).map((m) => html`\n    <div key=${m.id}>${m.displayName}: <${Emote} html=${m.html} /></div>\n  `)}\n</div>'
             }
@@ -1137,19 +1102,7 @@ export function ComposeLayerProperties({
 
           <div style={sectionHeader}>{t('properties.sectionStyles')}</div>
           <textarea
-            value={(layer.config.css as string | undefined) ?? ''}
-            onChange={(e) =>
-              updateLayerLocal(layer.id, {
-                config: { ...layer.config, css: e.target.value },
-              })
-            }
-            onBlur={(e) =>
-              api
-                .updateComposeLayer(layer.id, {
-                  config: { ...layer.config, css: e.target.value },
-                })
-                .catch(() => {})
-            }
+            {...cssField.bind()}
             placeholder={'.chat { display:flex; flex-direction:column; }'}
             rows={6}
             spellCheck={false}
@@ -1223,7 +1176,8 @@ export function ComposeSceneProperties({
   const updateSceneLocal = useEditorStore((s) => s.updateComposeSceneLocal);
   const imageAssets = assets.filter((a) => a.kind === 'image');
 
-  const w = scene.width && scene.width > 0 ? scene.width : DEFAULT_COMPOSE_WIDTH;
+  const w =
+    scene.width && scene.width > 0 ? scene.width : DEFAULT_COMPOSE_WIDTH;
   const h =
     scene.height && scene.height > 0 ? scene.height : DEFAULT_COMPOSE_HEIGHT;
   const pb = (scene.config?.previewBg ?? {}) as PreviewBg;
@@ -1262,7 +1216,12 @@ export function ComposeSceneProperties({
       />
 
       <div
-        style={{ ...sectionHeader, display: 'flex', alignItems: 'center', gap: 6 }}
+        style={{
+          ...sectionHeader,
+          display: 'flex',
+          alignItems: 'center',
+          gap: 6,
+        }}
       >
         {t('sceneProps.obsWindowHeader')}
         <HelpButton
@@ -1299,7 +1258,9 @@ export function ComposeSceneProperties({
           }}
         >
           {runtime?.state === 'downloading'
-            ? t('sceneProps.obsWindowDownloading', { progress: runtime.progress })
+            ? t('sceneProps.obsWindowDownloading', {
+                progress: runtime.progress,
+              })
             : runtime?.state === 'error'
               ? t('sceneProps.obsWindowError', { message: runtime.message })
               : runtime?.state === 'unavailable'
@@ -1311,7 +1272,14 @@ export function ComposeSceneProperties({
       )}
 
       <div style={sectionHeader}>{t('sceneProps.previewBgHeader')}</div>
-      <div style={{ fontSize: 10, color: '#666', lineHeight: 1.4, marginBottom: 8 }}>
+      <div
+        style={{
+          fontSize: 10,
+          color: '#666',
+          lineHeight: 1.4,
+          marginBottom: 8,
+        }}
+      >
         {t('sceneProps.previewBgHint')}
       </div>
       <div style={row}>

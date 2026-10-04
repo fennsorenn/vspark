@@ -304,10 +304,10 @@ function descendantsBottomUp<T extends { id: string }>(
 
 /** Delete a doc and everything under it, as ONE undo action.
  *
- *  Descendants are removed explicitly rather than left to the server's FK
- *  cascade, so each one carries a tombstone and can be restored. Undo re-creates
- *  the whole subtree; without this it would restore the root alone and the
- *  children would be unrecoverable. */
+ *  "Under it" is the cross-type containment tree (MeshPeer.removeTree): child
+ *  docs and the behaviors, effects, clips and graphs hanging off them. They are
+ *  removed explicitly rather than left to the server's FK cascade, so each one
+ *  carries a tombstone and can be restored; undo re-creates the whole tree. */
 export async function commitDocDelete<T extends { id: string }>(
   a: MeshDocAdapter<T>,
   id: string
@@ -318,11 +318,9 @@ export async function commitDocDelete<T extends { id: string }>(
   const subtree = descendantsBottomUp(a, id);
 
   if (mine(a, doc) && col?.canWrite() && col.get(id)) {
-    const acks = meshBatch(() => [
-      ...subtree.map((d) => col.remove(d.id).ack),
-      col.remove(id).ack,
-    ]);
-    const outcomes = await Promise.all(acks);
+    // The whole containment tree — child docs AND what hangs off them
+    // (behaviors, effects, clips, graphs) — as one undo action.
+    const outcomes = await Promise.all(col.removeTree(id).map((h) => h.ack));
     return outcomes.every((o) => o.status !== 'rejected');
   }
 
@@ -483,4 +481,73 @@ export function commitNodeCreate(
         hidden: false,
       }) as Promise<StageObject>
   );
+}
+
+// --- scenes -------------------------------------------------------------------
+
+/** Create an empty scene (a `kind: 'scene'` root node) in the open project.
+ *  Resolves the new scene's id. The feeder puts it into the scenes slice. */
+export async function commitSceneCreate(name: string): Promise<string> {
+  const projectId = useEditorStore.getState().projectId ?? '';
+  const col = getMeshHandles()?.collections.scene_node;
+  if (col?.canWrite()) {
+    const id = crypto.randomUUID();
+    const outcome = await col.set(id, '', {
+      id,
+      rootSceneNodeId: id,
+      projectId,
+      parentId: null,
+      boneAttachment: null,
+      name,
+      kind: 'scene',
+      filePath: null,
+      components: {},
+      properties: {},
+      hidden: false,
+    }).ack;
+    if (outcome.status === 'rejected') {
+      reportRejected(actionLabel('scene_node'), outcome.reason);
+      throw new Error(outcome.reason ?? 'scene create refused');
+    }
+    return id;
+  }
+  const scene = await api.createScene(projectId, name);
+  const data = await api.getScenes(projectId);
+  useEditorStore.getState().setScenes(data.scenes);
+  useEditorStore.getState().setNodes(data.nodes);
+  return scene.id;
+}
+
+/** Delete a scene as ONE undo action: everything in its containment tree,
+ *  plus the compose camera views that show one of its cameras (a reference,
+ *  not containment). */
+export async function commitSceneDelete(sceneId: string): Promise<boolean> {
+  const handles = getMeshHandles();
+  const nodesCol = handles?.collections.scene_node;
+  const layersCol = handles?.collections.compose_layer;
+  if (handles && nodesCol?.canWrite() && nodesCol.get(sceneId)) {
+    const inScene = new Set(
+      useEditorStore
+        .getState()
+        .nodes.filter((n) => n.rootSceneNodeId === sceneId)
+        .map((n) => n.id)
+    );
+    const views = useEditorStore
+      .getState()
+      .composeLayers.filter(
+        (l) => l.cameraNodeId && inScene.has(l.cameraNodeId)
+      );
+    const outcomes = await Promise.all(
+      meshBatch(() => [
+        ...views
+          .filter((l) => layersCol?.get(l.id))
+          .map((l) => layersCol!.remove(l.id)),
+        ...nodesCol.removeTree(sceneId),
+      ]).map((h) => h.ack)
+    );
+    return outcomes.every((o) => o.status !== 'rejected');
+  }
+  await api.deleteScene(sceneId);
+  useEditorStore.getState().removeScene(sceneId);
+  return true;
 }

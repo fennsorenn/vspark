@@ -149,9 +149,9 @@ long grace period.
 
 ## Shared surfaces (no new plumbing)
 
-- **WebSocket**: reuses `vmc_status` and `vmc_tracking_state`, both already keyed
-  by `behaviorId`. No store, message-kind or `useWsSync` change was needed; the
-  SceneGraph connection/tracking dots just needed the kind added to their check.
+- **Status**: publishes the same `tracking` status document as the VMC receiver
+  (`server_status`, keyed by `behaviorId`, via `publishTracking`), so the
+  SceneGraph connection/tracking dots needed only the kind added to their check.
 - **Broadcast bus**: standard producer — `pose_broadcast` / `blendshapes_broadcast`
   fed a `behaviorId` from a `behavior_id` node, and `removeBehavior` on tracking
   loss / teardown.
