@@ -17,7 +17,6 @@ import {
   type Grant,
   type HLC,
   type Right,
-  type Subscription,
 } from '@vspark/shared/sync';
 import {
   allows,
