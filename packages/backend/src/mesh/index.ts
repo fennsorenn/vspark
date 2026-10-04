@@ -86,7 +86,22 @@ interface RtypeBinding {
   /** What this server's own tabs may do on the collection. Grants are a
    *  whitelist: tabs get exactly these rights and nothing else. */
   clients: TabRights;
+  /** Side effects of a committed document, whoever authored it (a REST
+   *  route, a tab, an undo, a collab peer) — they run in the persistence tap,
+   *  never in a route, or a write that bypasses the route would skip them.
+   *  `onRemoving` runs before the row is deleted, the others after. */
+  onSaved?: (dto: Dto) => void;
+  onRemoving?: (id: string) => void;
+  onRemoved?: (id: string) => void;
 }
+
+/** Runtime overrides target a doc by id and outlive its row, so they go
+ *  with it. Only scene nodes and compose layers can carry overrides
+ *  (ParamTargetKind). */
+const clearOverridesOf =
+  (rtype: 'scene_node' | 'compose_layer') =>
+  (id: string): void =>
+    runtimeOverrideManager.clearAllForTarget(rtype, id);
 
 type TabRights = {
   read?: boolean;
@@ -123,6 +138,12 @@ const BINDINGS: RtypeBinding[] = [
   {
     rtype: 'scene_node',
     clients: TAB_AUTHORED,
+    onRemoving: clearOverridesOf('scene_node'),
+    // A scene root's properties are its runtime settings: the running bus
+    // re-reads them whoever wrote them.
+    onSaved: (d) => {
+      if (d.kind === 'scene') broadcastBus.reloadSceneSettings(d.id as string);
+    },
     table: 'scene_nodes',
     // Top-level nodes have parent_id NULL and hang off the scene root via
     // root_scene_node_id (the scene root itself is its own root → null).
@@ -198,6 +219,11 @@ const BINDINGS: RtypeBinding[] = [
   {
     rtype: 'behavior',
     clients: TAB_AUTHORED,
+    // Attaching, reconfiguring or detaching a behavior starts, restarts or
+    // tears down its signal graph. Each manager re-reads the full row set, so
+    // the refresh is idempotent; on remove it runs after the row is gone.
+    onSaved: () => refreshAllBehaviorManagers(),
+    onRemoved: () => refreshAllBehaviorManagers(),
     // Tabs author behaviors directly now, so the route's owner check runs here
     // — and it matters more than for effects, because a committed behavior doc
     // makes the onCommitted tap instantiate its signal graph.
@@ -226,6 +252,7 @@ const BINDINGS: RtypeBinding[] = [
   {
     rtype: 'compose_layer',
     clients: TAB_AUTHORED,
+    onRemoving: clearOverridesOf('compose_layer'),
     table: 'compose_layers',
     // Top-level layers have parent_id NULL and hang off their compose scene
     // via root_compose_scene_id (the compose scene root itself → null) — the
@@ -367,6 +394,10 @@ const BINDINGS: RtypeBinding[] = [
   {
     rtype: 'logic',
     clients: TAB_AUTHORED,
+    // A graph's descriptor IS its program: committing one starts, restarts or
+    // stops the running instance.
+    onSaved: (d) => logicLifecycle.onCommitted(d.id as string),
+    onRemoved: (id) => logicLifecycle.onRemoved(id),
     table: 'logic',
     // Owned polymorphically: by a project, a scene node, or a compose layer.
     // The two entity kinds parent normally so a scene-subtree grant covers a
@@ -608,12 +639,7 @@ function bindCollection(
     applyingFromMesh.add(key);
     try {
       if (c.op === 'remove') {
-        // Runtime overrides target a doc by id and outlive its row, so they are
-        // cleared here rather than in the DELETE route: a remove authored by a
-        // tab (undoable deletes) or a collab peer must clear them too. Only
-        // these two rtypes can carry overrides (ParamTargetKind).
-        if (b.rtype === 'scene_node' || b.rtype === 'compose_layer')
-          runtimeOverrideManager.clearAllForTarget(b.rtype, c.id);
+        b.onRemoving?.(c.id);
         // Dependents first, while their rows still exist: a node's behaviors,
         // effects, clips and graphs go through their collections (each with a
         // tombstone) instead of being cascade-deleted by the database, which
@@ -626,15 +652,7 @@ function bindCollection(
         r.remove?.(c.id);
         if (c.v) saveTombstone(b.rtype, c.id, c.v, c.ancestors);
         sync.document.remove(b.rtype, c.id);
-        // Detaching a behavior tears down its signal graph. This has to happen
-        // HERE, not in the DELETE route: a remove authored by a tab, an undo, or
-        // a collab peer never passes through a route, and would otherwise leave
-        // the graph running for a behavior that no longer exists. After the row
-        // is gone, so the refresh re-reads without it.
-        if (b.rtype === 'behavior') refreshAllBehaviorManagers();
-        // A graph's descriptor IS its program: committing one has to start,
-        // restart or stop the running instance, exactly as a behavior's does.
-        if (b.rtype === 'logic') logicLifecycle.onRemoved(c.id);
+        b.onRemoved?.(c.id);
       } else if (c.doc) {
         if (b.persists && !b.persists(c.doc)) return;
         // Before persisting: a throw here nacks the write and restores the
@@ -642,17 +660,8 @@ function bindCollection(
         b.guard?.(c.doc);
         r.save?.(c.doc);
         clearTombstone(b.rtype, c.id);
-        // A scene root's properties are its runtime settings: whoever wrote
-        // them (REST, a tab, a collab peer), the running bus re-reads them.
-        if (b.rtype === 'scene_node' && c.doc.kind === 'scene')
-          broadcastBus.reloadSceneSettings(c.id);
         sync.document.upsert(b.rtype, c.id);
-        // Attaching or reconfiguring a behavior instantiates its signal graph —
-        // same reasoning as the remove branch above. The refresh hands each
-        // manager the full row set, so it is idempotent and needs no knowledge
-        // of what changed.
-        if (b.rtype === 'behavior') refreshAllBehaviorManagers();
-        if (b.rtype === 'logic') logicLifecycle.onCommitted(c.id);
+        b.onSaved?.(c.doc);
       }
     } finally {
       applyingFromMesh.delete(key);
