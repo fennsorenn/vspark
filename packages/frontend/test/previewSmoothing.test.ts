@@ -93,4 +93,31 @@ describe('preview smoothing', () => {
     t.stop();
     t.close();
   });
+
+  it('tweens a node that has no transform committed yet', async () => {
+    const t = await twoTabs();
+    const { components: _c, ...bare } = node;
+    testPeer()
+      .collection('scene_node')
+      .put({ ...bare, id: 'n2' }, { v: { t: 2, c: 0, n: 'seed' } });
+    await t.flush();
+    t.theirs.set('n2', 'components.transform.x', 3, { channel: 'preview' });
+    await t.flush();
+    const { hasNodeTween } = await import('../src/previewSmoother');
+    expect(hasNodeTween('n2')).toBe(true);
+    t.stop();
+    t.close();
+  });
+
+  it("this tab's committed transform clears what it showed for the gesture", async () => {
+    const t = await twoTabs();
+    // The smoother's own store instance (modules are reset per test).
+    const { useEditorStore: store } = await import('../src/store/editorStore');
+    store.getState().setLiveNode('n1', { x: 5 });
+    testPeer().collection('scene_node').set('n1', 'components.transform.x', 5);
+    await t.flush();
+    expect(store.getState().liveNodes.n1).toBeUndefined();
+    t.stop();
+    t.close();
+  });
 });

@@ -284,6 +284,13 @@ describe('direct links and grants', () => {
       peerConnected: (_id, link) => link.send(forged),
       peerDisconnected: () => {},
       message: () => {},
+      directory: {
+        self: 'S3#c',
+        wanted: () => [],
+        onWanted: () => () => {},
+        signal: () => {},
+        onSignal: () => () => {},
+      },
     });
     await t.flush();
     expect(t.bDocs.get('d1')?.x).toBe(0);

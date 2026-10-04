@@ -40,8 +40,9 @@ export function useClientMesh(): void {
       .then((id) => {
         if (cancelled || !id?.peerId) return;
         clientMesh.configure({
-          // Same participant id as the tab's mesh peer: the direct links
-          // this mesh opens are that peer's links too (mesh/directTransport).
+          // Same participant id as the tab's mesh peer. The mesh peer opens
+          // its own direct links (WebRtcTransport); this legacy mesh carries
+          // only object-share and blob traffic until W7.
           selfId: makeClientParticipantId(id.peerId, meshTabUuid()),
           getWs: () => editorWsRef.current,
           onChange: (ids) => {

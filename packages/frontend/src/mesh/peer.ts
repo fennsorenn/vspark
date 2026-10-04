@@ -8,9 +8,8 @@
  *
  * Lifecycle: `initMeshPeer()` once per tab (idempotent), awaited in main.tsx
  * before the first render, so every hook finds its collection open. The
- * participant id is `${serverPeerId}#${tabUuid}` and stable across reloads
- * (sessionStorage), so HLC origins and grants stay consistent per tab.
- * Subscriptions re-arm automatically after reconnects.
+ * participant id is `${serverPeerId}#${tabUuid}`, new on every page load (see
+ * `tabUuid`). Subscriptions re-arm automatically after reconnects.
  */
 import {
   createMeshPeer,
@@ -19,8 +18,8 @@ import {
   type UndoStatus,
 } from '@vspark/mesh';
 import { WsBackendTransport } from '@vspark/mesh-transports/wsClient';
+import { WebRtcTransport } from '@vspark/mesh-transports/webrtc';
 import { makeClientParticipantId, randomUUID } from '@vspark/shared/sync';
-import { DirectTransport } from './directTransport';
 import { MODELS, TAB_MODELS } from '@vspark/shared/models';
 
 type Dto = Record<string, unknown>;
@@ -37,19 +36,24 @@ const RTYPES = TAB_MODELS;
 
 let _init: Promise<MeshHandles> | null = null;
 
+/** ICE servers for direct links, as our server last sent them (STUN, and TURN
+ *  with credentials it refreshes; see WsBackendTransport `onInfo`). */
+let _iceServers: RTCIceServer[] = [];
+
 /** This tab's id, shared by the mesh peer and the client mesh's WebRTC links. */
 export function meshTabUuid(): string {
   return tabUuid();
 }
 
+/** New for every page load, never stored. It used to live in sessionStorage
+ *  to survive reloads, but browsers copy sessionStorage into a duplicated tab,
+ *  and two tabs under one id share one link on the server: the newer tab got
+ *  the older one's acks, so the older one's writes reverted. Nothing depends
+ *  on the id outliving the page (grants cover the server's prefix). */
+let _tabUuid: string | undefined;
+
 function tabUuid(): string {
-  const KEY = 'vspark.mesh.tab';
-  let id = sessionStorage.getItem(KEY);
-  if (!id) {
-    id = randomUUID();
-    sessionStorage.setItem(KEY, id);
-  }
-  return id;
+  return (_tabUuid ??= randomUUID());
 }
 
 export function initMeshPeer(): Promise<MeshHandles> {
@@ -222,9 +226,14 @@ async function doInit(): Promise<MeshHandles> {
           storeToken(undefined);
           await enroll();
         },
+        onInfo: (info) => {
+          if (Array.isArray(info.iceServers))
+            _iceServers = info.iceServers as RTCIceServer[];
+        },
       }),
-      // Direct links (principle 8) to tabs of other servers over WebRTC.
-      new DirectTransport(serverPeerId),
+      // Direct links (principle 8) to the tabs of servers ours shares with,
+      // as our server reports them; set up through the mesh itself.
+      new WebRtcTransport({ iceServers: () => _iceServers }),
     ],
   });
 

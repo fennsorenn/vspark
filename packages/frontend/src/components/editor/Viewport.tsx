@@ -6,6 +6,7 @@ import {
   useContext,
   useCallback,
 } from 'react';
+import { NodeActive, useNodeActive } from './nodeActive';
 import { useTranslation } from 'react-i18next';
 import {
   Move,
@@ -160,7 +161,11 @@ import {
   useNodeSchedule,
 } from '../../mesh/hooks';
 import { collectionOf } from '../../mesh/docs';
-import { sceneNodesNow, useSceneNodes } from '../../mesh/nodes';
+import {
+  sceneNodesNow,
+  useLiveTransform,
+  useSceneNodes,
+} from '../../mesh/nodes';
 import { useDataFields, useRuntimeOverrides } from '../../mesh/runtime';
 
 type GizmoMode = 'translate' | 'rotate' | 'scale';
@@ -925,8 +930,12 @@ interface Transform {
   receiveShadow: boolean;
 }
 
-function getTransform(node: StageObject): Transform {
-  const t = node.components?.transform as Partial<Transform> | undefined;
+function getTransform(
+  node: StageObject,
+  transform: Record<string, unknown> | undefined = node.components
+    ?.transform as Record<string, unknown> | undefined
+): Transform {
+  const t = transform as Partial<Transform> | undefined;
   return {
     x: t?.x ?? 0,
     y: t?.y ?? 0,
@@ -953,7 +962,8 @@ function getTransform(node: StageObject): Transform {
 function useTransformWithOverride(node: StageObject): Transform {
   const clipOverride = useEditorStore((s) => s.nodeTransformOverrides[node.id]);
   const runtimeOverride = useRuntimeOverrides('scene_node', node.id);
-  const base = getTransform(node);
+  // A running gesture or another tab's drag tween (liveNodes), per node.
+  const base = getTransform(node, useLiveTransform(node));
   if (!clipOverride && !runtimeOverride) return base;
   // Base + both override layers keyed by paramPath, folded low → high.
   const baseMap = {
@@ -1017,9 +1027,10 @@ function useApplyOpacity(
       { lastOpacity: number; origTransparent: boolean }
     >()
   );
+  const active = useNodeActive();
   useFrame(() => {
     const root = groupRef.current;
-    if (!root) return;
+    if (!root || !active) return;
     const cache = cacheRef.current;
     root.traverse((obj) => {
       const m = (obj as THREE.Mesh).material as
@@ -1069,9 +1080,10 @@ function useApplyMeshFlags(
       { lastOpacity: number; origTransparent: boolean }
     >()
   );
+  const active = useNodeActive();
   useFrame(() => {
     const root = groupRef.current;
-    if (!root) return;
+    if (!root || !active) return;
     const cache = cacheRef.current;
     root.traverse((obj) => {
       const mesh = obj as THREE.Mesh;
@@ -2132,6 +2144,7 @@ function AvatarNode({
   // Active animation layer driving the clock-anchored playhead (read in useFrame).
   const activeLayerRef = useRef<ActiveAnimLayer | null>(null);
   const [vrmLoaded, setVrmLoaded] = useState(false);
+  const active = useNodeActive();
   const t = useTransformWithOverride(node);
   useApplyMeshFlags(outerRef, t.opacity, t.castShadow, t.receiveShadow);
 
@@ -2923,6 +2936,7 @@ function AvatarNode({
   const _q = useRef(new THREE.Quaternion()).current;
 
   useFrame((_, delta) => {
+    if (!active) return;
     const vrm = vrmRef.current;
     const cyl = boneCylRef.current;
     if (cyl) {
@@ -4251,6 +4265,7 @@ function Live2DNode({
 }) {
   const outerRef = useRef<THREE.Group>(null);
   const facingRef = useRef<THREE.Group>(null);
+  const active = useNodeActive();
   const t = useTransformWithOverride(node);
   useApplyOpacity(outerRef, t.opacity);
   const cfg: Live2DConfig = {
@@ -4328,7 +4343,7 @@ function Live2DNode({
       }
     }
     const rt = runtimeRef.current;
-    if (!rt || !texture) return;
+    if (!rt || !texture || !active) return;
     // Drive Live2D parameters from this node's tracking feed (same per-node
     // blendshape + head-pose data a VRM avatar consumes), then advance + redraw.
     const bs = getVmcBlendshapes(node.id);
@@ -5516,8 +5531,9 @@ function ParticleNode({ node }: { node: StageObject }) {
   const geoCountRef = useRef<number>(-1);
   const emitterWorld = useRef(new THREE.Vector3());
 
+  const active = useNodeActive();
   useFrame(({ camera }, delta) => {
-    if (!pool.current || !outerRef.current) return;
+    if (!pool.current || !outerRef.current || !active) return;
 
     // First frame after local-space mount: initialize instanceColor and shader on the R3F mesh
     if (
@@ -5790,44 +5806,56 @@ function renderNodeElement(
   if (node.kind === 'avatar')
     return (
       <>
-        <group key={node.id} visible={visible}>
-          <AvatarNode node={node}>{childElements}</AvatarNode>
-        </group>
+        <NodeActive key={node.id} visible={visible}>
+          <group visible={visible}>
+            <AvatarNode node={node}>{childElements}</AvatarNode>
+          </group>
+        </NodeActive>
         {boneFollowers}
       </>
     );
   if (node.kind === 'light')
     return (
-      <group key={node.id} visible={visible}>
-        <LightNode node={node} viewerMode={viewerMode} />
-      </group>
+      <NodeActive key={node.id} visible={visible}>
+        <group visible={visible}>
+          <LightNode node={node} viewerMode={viewerMode} />
+        </group>
+      </NodeActive>
     );
   if (node.kind === 'audio')
     return (
-      <group key={node.id} visible={visible}>
-        <AudioNode node={node} viewerMode={viewerMode} />
-      </group>
+      <NodeActive key={node.id} visible={visible}>
+        <group visible={visible}>
+          <AudioNode node={node} viewerMode={viewerMode} />
+        </group>
+      </NodeActive>
     );
   if (node.kind === 'camera')
     return (
-      <group key={node.id} visible={visible}>
-        <CameraNode node={node} />
-      </group>
+      <NodeActive key={node.id} visible={visible}>
+        <group visible={visible}>
+          <CameraNode node={node} />
+        </group>
+      </NodeActive>
     );
   if (node.kind === 'godray_caster')
     return (
-      <group key={node.id} visible={visible}>
-        <GodrayCasterNode node={node} />
-      </group>
+      <NodeActive key={node.id} visible={visible}>
+        <group visible={visible}>
+          <GodrayCasterNode node={node} />
+        </group>
+      </NodeActive>
     );
   // Group nodes are invisible transform containers — children inherit their
   // position. remote_object (a placed peer share) is the same: an opaque, empty
   // container whose transform drives the projected shared subtree below it.
   if (node.kind === 'group' || node.kind === 'remote_object')
     return (
-      <group key={node.id} visible={visible}>
-        <ModelNode node={node}>{childElements}</ModelNode>
-      </group>
+      <NodeActive key={node.id} visible={visible}>
+        <group visible={visible}>
+          <ModelNode node={node}>{childElements}</ModelNode>
+        </group>
+      </NodeActive>
     );
   // Scene instance: render the source scene's nodes inside this node's transform (read-only)
   if (node.kind === 'scene_instance') {
@@ -5836,11 +5864,13 @@ function renderNodeElement(
     )?.sourceSceneId as string | undefined;
     if (!sourceSceneId) return null;
     return (
-      <group key={node.id} visible={visible}>
-        <ModelNode node={node}>
-          <SceneInstanceContent sourceSceneId={sourceSceneId} />
-        </ModelNode>
-      </group>
+      <NodeActive key={node.id} visible={visible}>
+        <group visible={visible}>
+          <ModelNode node={node}>
+            <SceneInstanceContent sourceSceneId={sourceSceneId} />
+          </ModelNode>
+        </group>
+      </NodeActive>
     );
   }
   // Scene-root nodes (kind 'scene') ride the mesh so their properties reach the
@@ -5860,9 +5890,11 @@ function renderNodeElement(
   if (node.kind === 'feed') return null;
   if (node.kind === 'live2d') return null;
   return (
-    <group key={node.id} visible={visible}>
-      <ModelNode node={node}>{childElements}</ModelNode>
-    </group>
+    <NodeActive key={node.id} visible={visible}>
+      <group visible={visible}>
+        <ModelNode node={node}>{childElements}</ModelNode>
+      </group>
+    </NodeActive>
   );
 }
 
@@ -5924,39 +5956,53 @@ export function SceneNodes({
     <>
       {rootNodes.map((node) => renderNodeElement(node, sceneNodes, viewerMode))}
       {flatParticles.map((node) => (
-        <group key={node.id} visible={effectiveVisible(node)}>
-          <ParticleNode node={node} />
-        </group>
+        <NodeActive key={node.id} visible={effectiveVisible(node)}>
+          <group visible={effectiveVisible(node)}>
+            <ParticleNode node={node} />
+          </group>
+        </NodeActive>
       ))}
       {flatBillboards.map((node) => (
-        <group key={node.id} visible={effectiveVisible(node)}>
-          <BillboardNode node={node} />
-        </group>
+        <NodeActive key={node.id} visible={effectiveVisible(node)}>
+          <group visible={effectiveVisible(node)}>
+            <BillboardNode node={node} />
+          </group>
+        </NodeActive>
       ))}
       {flatVideos.map((node) => (
-        <group key={node.id} visible={effectiveVisible(node)}>
-          <VideoNode node={node} viewerMode={viewerMode} />
-        </group>
+        <NodeActive key={node.id} visible={effectiveVisible(node)}>
+          <group visible={effectiveVisible(node)}>
+            <VideoNode node={node} viewerMode={viewerMode} />
+          </group>
+        </NodeActive>
       ))}
       {flatTextTroika.map((node) => (
-        <group key={node.id} visible={effectiveVisible(node)}>
-          <TextTroikaNode node={node} />
-        </group>
+        <NodeActive key={node.id} visible={effectiveVisible(node)}>
+          <group visible={effectiveVisible(node)}>
+            <TextTroikaNode node={node} />
+          </group>
+        </NodeActive>
       ))}
       {flatTextCanvas.map((node) => (
-        <group key={node.id} visible={effectiveVisible(node)}>
-          <TextCanvasNode node={node} />
-        </group>
+        <NodeActive key={node.id} visible={effectiveVisible(node)}>
+          <group visible={effectiveVisible(node)}>
+            <TextCanvasNode node={node} />
+          </group>
+        </NodeActive>
       ))}
       {flatFeed.map((node) => (
-        <group key={node.id} visible={effectiveVisible(node)}>
-          <FeedCanvasNode node={node} viewerMode={viewerMode} />
-        </group>
+        <NodeActive key={node.id} visible={effectiveVisible(node)}>
+          <group visible={effectiveVisible(node)}>
+            <FeedCanvasNode node={node} viewerMode={viewerMode} />
+          </group>
+        </NodeActive>
       ))}
       {flatLive2d.map((node) => (
-        <group key={node.id} visible={effectiveVisible(node)}>
-          <Live2DNode node={node} viewerMode={viewerMode} />
-        </group>
+        <NodeActive key={node.id} visible={effectiveVisible(node)}>
+          <group visible={effectiveVisible(node)}>
+            <Live2DNode node={node} viewerMode={viewerMode} />
+          </group>
+        </NodeActive>
       ))}
     </>
   );

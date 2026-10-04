@@ -34,9 +34,16 @@ let tab: MeshPeer;
 let serverNodes: Collection<Node>;
 let tabNodes: Collection<Node>;
 const db = new Map<string, Node>();
+let transport: WsServerTransport;
+/** Transport info the tab was handed (welcome extras, then pushes). */
+const infos: Record<string, unknown>[] = [];
+const STUN = [{ urls: 'stun:stun.example:3478' }];
 
 beforeAll(async () => {
-  const transport = new WsServerTransport(SERVER_ID, { authenticate });
+  transport = new WsServerTransport(SERVER_ID, {
+    authenticate,
+    welcome: () => ({ iceServers: STUN }),
+  });
   http = createServer();
   http.on('upgrade', (req, socket, head) => {
     if (req.url?.startsWith('/mesh')) transport.upgrade(req, socket, head);
@@ -73,6 +80,7 @@ beforeAll(async () => {
         participantId,
         serverPeerId: SERVER_ID,
         token: () => GOOD_TOKEN,
+        onInfo: (i) => infos.push(i),
       }),
     ],
   });
@@ -177,5 +185,73 @@ describe('ws transport authentication', () => {
     await waitFor(() => second.status().peers.some((p) => p.id === SERVER_ID));
     expect(refusals).toBe(1);
     second.close();
+  });
+});
+
+describe('ws transport info', () => {
+  it('hands the tab the welcome extras, then what the server pushes', async () => {
+    expect(infos[0]).toEqual({ iceServers: STUN });
+    const fresh = [
+      { urls: 'turn:turn.example:3478', username: 'u', credential: 'c' },
+    ];
+    transport.push({ iceServers: fresh });
+    await waitFor(() => infos.length === 2);
+    expect(infos[1]).toEqual({ iceServers: fresh });
+  });
+
+  it('pushes nothing to a socket that has not authenticated', async () => {
+    const ws = new WebSocket(`ws://127.0.0.1:${port}/mesh`);
+    const got: string[] = [];
+    ws.onmessage = (e) => got.push(String(e.data));
+    await new Promise<void>((r) => (ws.onopen = () => r()));
+    transport.push({ iceServers: [{ urls: 'turn:x', credential: 'secret' }] });
+    await new Promise((r) => setTimeout(r, 100));
+    expect(got).toEqual([]);
+    ws.close();
+  });
+});
+
+describe('ws transport: one socket per participant', () => {
+  it('a newer socket under the same id replaces the older one, which stays away', async () => {
+    const participantId = makeClientParticipantId(SERVER_ID, 'twin');
+    const sub = {
+      entityRtype: 'node',
+      entityId: '*',
+      includeDescendants: false,
+      pathPrefix: '',
+    };
+    const open = () => {
+      const peer = createMeshPeer({
+        identity: { peerId: participantId },
+        transports: [
+          new WsBackendTransport({
+            url: `ws://127.0.0.1:${port}/mesh`,
+            participantId,
+            serverPeerId: SERVER_ID,
+            token: () => GOOD_TOKEN,
+            reconnectDelayMs: 10,
+          }),
+        ],
+      });
+      return { peer, nodes: peer.collection<Node>('node') };
+    };
+    const older = open();
+    await older.peer.subscribe(sub);
+    const newer = open();
+    await newer.peer.subscribe(sub);
+
+    // The older one is told it was replaced and does not reconnect.
+    await waitFor(() => older.peer.status().peers.length === 0);
+    await new Promise((r) => setTimeout(r, 100));
+    expect(older.peer.status().peers).toHaveLength(0);
+
+    // The newer one keeps its link: its writes are acked.
+    serverNodes.create({ id: 'tw', name: 'before' });
+    await waitFor(() => newer.nodes.get('tw') !== undefined);
+    expect((await newer.nodes.update('tw', { name: 'after' }).ack).status).toBe(
+      'acked'
+    );
+    older.peer.close();
+    newer.peer.close();
   });
 });

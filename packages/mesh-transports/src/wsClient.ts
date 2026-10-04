@@ -12,6 +12,8 @@
  * the tab's token, and the backend is announced as a peer only once it has
  * answered with a welcome. A refused hello (close code 4401) is reported to
  * `onUnauthorized`, which can obtain a new token before the next attempt.
+ * Transport info the server sends (the welcome's extra fields, and later
+ * `info` frames) goes to `onInfo`.
  */
 import {
   encode,
@@ -23,6 +25,9 @@ import {
 
 /** Close code the backend uses for a refused hello. */
 const UNAUTHENTICATED = 4401;
+/** Close code for a socket the backend replaced with a newer one under the
+ *  same participant id: someone else holds this id now, so don't fight it. */
+const REPLACED = 4409;
 
 export interface WsBackendTransportOptions {
   /** e.g. `ws://localhost:3001/mesh` */
@@ -36,6 +41,8 @@ export interface WsBackendTransportOptions {
   /** Called when the backend refuses the credential; the next connect waits
    *  for it to settle (typically: enroll again and store the new token). */
   onUnauthorized?: () => void | Promise<void>;
+  /** Transport info from the server, e.g. `{ iceServers }`. */
+  onInfo?: (info: Record<string, unknown>) => void;
   reconnectDelayMs?: number;
 }
 
@@ -79,7 +86,13 @@ export class WsBackendTransport implements MeshTransport {
       } catch {
         return;
       }
-      if ((msg as { t?: string }).t === 'welcome') {
+      const t = (msg as { t?: string }).t;
+      if (t === 'welcome' || t === 'info') {
+        const { t: _t, ...info } = msg as unknown as Record<string, unknown>;
+        if (Object.keys(info).length) this.opts.onInfo?.(info);
+      }
+      if (t === 'info') return;
+      if (t === 'welcome') {
         if (this.announced) return;
         const link: PeerLink = {
           send: (m: MeshMessage) => {
@@ -94,11 +107,12 @@ export class WsBackendTransport implements MeshTransport {
         this.handlers?.message(this.opts.serverPeerId, msg);
     };
     ws.onclose = (e) => {
+      if (ws !== this.ws) return; // a socket we already replaced
       if (this.announced) {
         this.announced = false;
         this.handlers?.peerDisconnected(this.opts.serverPeerId);
       }
-      if (this.stopped) return;
+      if (this.stopped || e.code === REPLACED) return;
       const retry = () =>
         setTimeout(
           () => void this.connect(),

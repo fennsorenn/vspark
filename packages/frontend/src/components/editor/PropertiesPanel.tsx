@@ -115,7 +115,7 @@ import {
 import { useCollection, useMeshDoc } from '@vspark/mesh-react';
 import { useAnimationClips, useCameraEffects } from '../../mesh/hooks';
 import { useComposeLayers, useComposeScenes } from '../../mesh/compose';
-import { useSceneNodes, useScenes } from '../../mesh/nodes';
+import { useSceneNode, useSceneNodes, useScenes } from '../../mesh/nodes';
 
 interface Transform {
   x: number;
@@ -6137,7 +6137,8 @@ export function PropertiesPanel() {
   const activeScene = scenes.find((s) => s.id === activeSceneId) ?? null;
   const animAssets: AssetFile[] = assets.filter((a) => a.kind === 'animation');
   const modelAssets: AssetFile[] = assets.filter((a) => a.kind === 'model');
-  const node = nodes.find((n) => n.id === selectedNodeId) ?? null;
+  // With its live transform: the transform fields follow a drag in progress.
+  const node = useSceneNode(selectedNodeId) ?? null;
   const animationClips = useAnimationClips();
   const selectedBehavior = selectedBehaviorDoc ?? null;
   const selectedCompType = selectedBehavior

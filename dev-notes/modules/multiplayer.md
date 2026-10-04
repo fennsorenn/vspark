@@ -31,7 +31,7 @@ Design context: [plans/multiplayer-phase5.md](../plans/multiplayer-phase5.md),
 | `shares.ts` | `shares` table DAO + `gatherObjectSnapshot` / `findOwningRoot`. |
 | `blobs.ts`, `blobTransfer.ts` | Content-addressed asset transfer (`BlobManager`, `_blob_*` rtypes) over any `MeshTransport` — symmetric across server and browser receivers. |
 | `manager.ts` | `MultiplayerManager` singleton — wires identity → rendezvous → meshes → sharing; accept policy; broadcasts `mp_*` WS events; dispatches inbound `_blob_*` from browsers into the owner's `BlobManager`. |
-| `frontend .../mesh/clientMesh.ts` | Browser-side WebRTC mesh participant; envelope send/sink (`sendEnvelope` / `onEnvelope` / `isConnected`). |
+| `frontend .../mesh/clientMesh.ts` | Browser-side WebRTC mesh participant; envelope send/sink (`sendEnvelope` / `onEnvelope` / `isConnected`). Legacy: carries only object-share and blob envelopes; the `@vspark/mesh` peer's direct links use `WebRtcTransport` instead (see [mesh.md → Direct links](mesh.md#direct-links-tabs)). Goes with mesh-sole-channel W7. |
 | `frontend .../mesh/blobReceiver.ts` | Browser-side mirror of the backend blob receiver — same `_blob_*` protocol, caches to object URLs. |
 | `frontend .../sync/shareDirect.ts` | Receiver-side consumption of `_share_*` over the direct edge (mirrors the WS `mp_shared_*` path); browser-side asset localization via `blobReceiver`. |
 
@@ -64,7 +64,11 @@ varies:
 - **co-located client↔own-server** → WebSocket (never WebRTC). A browser reaches
   its own backend over WS, so the frontend skips its own server id when dialing.
 - **server↔server** → `ServerMesh` WebRTC.
-- **client↔remote-browser** → browser-to-browser WebRTC (`clientMesh`).
+- **client↔remote-browser** → browser-to-browser WebRTC (`clientMesh`, legacy
+  envelopes only). The `@vspark/mesh` peer has its own tab↔tab links
+  (`WebRtcTransport`), discovered through core `roster` messages and signaled
+  through the mesh, not through `clientMeshRelay` or the `/ws` `mesh_roster`
+  (mesh-store-surface step 4; see [mesh.md](mesh.md#direct-links-tabs)).
 - **client↔remote-server** → `BrowserPeerMesh` WebRTC (new).
 
 Signaling for all WebRTC edges is relayed through backends (`clientMeshRelay`);

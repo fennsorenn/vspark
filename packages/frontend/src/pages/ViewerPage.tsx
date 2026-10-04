@@ -27,7 +27,7 @@ import {
 } from '../components/editor/ComposeView';
 import { useSceneFadeIn } from '../hooks/useSceneFadeIn';
 import { useComposeLayers, useComposeScenes } from '../mesh/compose';
-import { useSceneNodes, useScenes } from '../mesh/nodes';
+import { useSceneNode, useSceneNodes, useScenes } from '../mesh/nodes';
 
 function getT(components: Record<string, unknown> | undefined) {
   const t = components?.transform as
@@ -63,6 +63,8 @@ export function ViewerPage() {
   const { setProject, setActiveScene, selectComposeScene, assets } =
     useEditorStore();
   const nodes = useSceneNodes();
+  // The camera with its live transform, so the output follows a camera drag.
+  const liveCamNode = useSceneNode(nodeId);
   const scenes = useScenes();
   const composeLayers = useComposeLayers();
   const composeScenes = useComposeScenes();
@@ -165,7 +167,7 @@ export function ViewerPage() {
   }
 
   // ── Single-camera mode (legacy /viewer/:projectId/:nodeId) ──
-  const camNode = nodes.find((n) => n.id === nodeId);
+  const camNode = liveCamNode;
   const cc = camNode?.components?.camera as
     | {
         projection?: 'perspective' | 'orthographic';
