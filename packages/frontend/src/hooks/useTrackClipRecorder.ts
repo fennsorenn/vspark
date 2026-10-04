@@ -8,6 +8,7 @@ import type {
   TrackClipTargetKind,
 } from '../api/client';
 import { defaultBezierHandles } from '../components/editor/TrackClipTimeline';
+import { useClipPlaybacks } from '../mesh/hooks';
 
 const KF_TIME_EPSILON = 1e-3;
 
@@ -29,7 +30,7 @@ export function useTrackClipRecorder(): {
   const bottomTab = useEditorStore((s) => s.bottomTab);
   const selectedClipId = useEditorStore((s) => s.selectedTrackClipId);
   const trackClips = useEditorStore((s) => s.trackClips);
-  const playback = useEditorStore((s) => s.clipPlayback);
+  const playback = useClipPlaybacks();
 
   const selectedClip = trackClips.find((c) => c.id === selectedClipId) ?? null;
   const canRecord = bottomTab === 'clips' && selectedClip != null;

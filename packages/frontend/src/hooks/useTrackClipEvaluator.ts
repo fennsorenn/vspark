@@ -1,5 +1,5 @@
 import { useEffect } from 'react';
-import { useEditorStore } from '../store/editorStore';
+import { useEditorStore, type ClipPlayback } from '../store/editorStore';
 import type {
   ComposeLayerOverride,
   NodeTransformOverride,
@@ -17,6 +17,7 @@ import { dispatchMediaCommand } from '../components/editor/mediaRegistry';
 import { playheadAt } from '@vspark/shared/clipPlayback';
 import { commitStop } from '../mesh/playbackWrites';
 import type { MediaCommand, MediaAction } from '@vspark/shared';
+import { collectionOf } from '../mesh/docs';
 
 // Per-clip last evaluated playhead time, kept across rAF ticks (module scope so
 // it survives re-renders). Used to detect when the playhead crosses an event
@@ -72,7 +73,9 @@ export function useTrackClipEvaluator(): void {
       const s = useEditorStore.getState();
       // The synced documents ARE the transport state — the parallel run is
       // over. A clip with no document is not playing anywhere.
-      const playbackEntries = Object.entries(s.clipPlayback);
+      const playbackEntries = collectionOf<ClipPlayback>('clip_playback')
+        .all()
+        .map((p) => [p.clipId, p] as const);
       // Fast exit + cleanup when nothing is playing.
       if (playbackEntries.length === 0) {
         if (lastTByClip.size > 0) lastTByClip.clear();
@@ -216,7 +219,14 @@ function applyLaneResult(
 /** Read the persisted base for a compose-layer paramPath. Mirrors the
  *  paramPath registry in shared (kept in sync with packages/shared/src/paramPaths.ts). */
 function readComposeParam(
-  layer: { x: number; y: number; rotation: number; width: number; height: number; config: Record<string, unknown> },
+  layer: {
+    x: number;
+    y: number;
+    rotation: number;
+    width: number;
+    height: number;
+    config: Record<string, unknown>;
+  },
   paramPath: string
 ): number | null {
   switch (paramPath) {
@@ -231,7 +241,9 @@ function readComposeParam(
     case 'height':
       return layer.height;
     case 'opacity':
-      return typeof layer.config.opacity === 'number' ? layer.config.opacity : 1;
+      return typeof layer.config.opacity === 'number'
+        ? layer.config.opacity
+        : 1;
     default:
       return null;
   }

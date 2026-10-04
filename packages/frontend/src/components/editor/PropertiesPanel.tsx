@@ -113,7 +113,7 @@ import {
   type EmissiveMapMode,
 } from './materialOverrides';
 import { useCollection, useMeshDoc } from '@vspark/mesh-react';
-import { useCameraEffects } from '../../mesh/hooks';
+import { useAnimationClips, useCameraEffects } from '../../mesh/hooks';
 
 interface Transform {
   x: number;
@@ -6134,7 +6134,7 @@ export function PropertiesPanel() {
   const animAssets: AssetFile[] = assets.filter((a) => a.kind === 'animation');
   const modelAssets: AssetFile[] = assets.filter((a) => a.kind === 'model');
   const node = nodes.find((n) => n.id === selectedNodeId) ?? null;
-  const animationClips = useEditorStore((s) => s.animationClips);
+  const animationClips = useAnimationClips();
   const selectedBehavior = selectedBehaviorDoc ?? null;
   const selectedCompType = selectedBehavior
     ? behaviorKinds.find((ct) => ct.kind === selectedBehavior.kind)

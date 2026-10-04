@@ -12,22 +12,22 @@
  * carries the same flag. See principle-adjacent notes in
  * dev-notes/modules/mesh.md (Undo / redo → Opting out).
  */
-import { getMeshHandles } from './peer';
+import { collectionOf } from './docs';
 import {
   anchorFor,
   playbackDocId,
   playheadAt,
 } from '@vspark/shared/clipPlayback';
-import { useEditorStore, type ClipPlayback } from '../store/editorStore';
+import type { ClipPlayback } from '../store/editorStore';
 
 /** Transport never lands on the undo stack. */
 const OPTS = { undo: false } as const;
 
-const col = () => getMeshHandles()?.collections.clip_playback;
+const col = () => collectionOf<ClipPlayback>('clip_playback');
 
 /** Current transport state for a clip, from this tab's replica. */
 export const playbackOf = (clipId: string): ClipPlayback | undefined =>
-  useEditorStore.getState().clipPlayback[clipId];
+  col().get(playbackDocId(clipId));
 
 /** Whole-document write. Playback docs are small and always written as a unit —
  *  a partial would leave the anchor and the state disagreeing between ops. */
@@ -45,15 +45,7 @@ function put(clipId: string, patch: Partial<ClipPlayback>): void {
     ...cur,
     ...patch,
   };
-  if (c?.canWrite()) {
-    c.set(doc.id, '', doc, OPTS);
-    return;
-  }
-  // No peer to author through — keep this tab coherent anyway. Nothing
-  // persists and nothing fans out, but the transport still responds, which
-  // matters for the window before the peer arms and for a viewer running
-  // without one.
-  useEditorStore.getState().upsertClipPlayback(doc);
+  c.set(doc.id, '', doc, OPTS);
 }
 
 /** Start from the beginning. */
@@ -104,20 +96,12 @@ export function commitSeek(clipId: string, t: number): void {
  *
  *  One overlay PER FIELD — a pathless ephemeral write is a root overlay that
  *  replaces the composed doc wholesale, losing the id along with everything
- *  else. Falls back to a local apply when the peer cannot author, so the
- *  scrubbing tab still tracks its own drag. */
+ *  else. */
 export function previewSeek(clipId: string, t: number): void {
   const c = col();
   const id = playbackDocId(clipId);
   const fields = { state: 'paused', pausedAtT: t, startEpoch: null };
-  if (c?.canWrite() && c.get(id)) {
-    for (const [field, value] of Object.entries(fields))
-      c.set(id, field, value, { channel: 'preview' });
-    return;
-  }
-  const cur = playbackOf(clipId);
-  if (cur)
-    useEditorStore
-      .getState()
-      .upsertClipPlayback({ ...cur, ...fields } as ClipPlayback);
+  if (!c.get(id)) return;
+  for (const [field, value] of Object.entries(fields))
+    c.set(id, field, value, { channel: 'preview' });
 }

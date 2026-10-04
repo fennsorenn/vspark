@@ -101,14 +101,12 @@ vi.mock('../src/api/client', () => ({
   mapTrackClipLane: (p: unknown) => p,
   mapTrackClipKeyframe: (p: unknown) => p,
   mapTrackClipEvent: (p: unknown) => p,
-  getScenes: vi
-    .fn()
-    .mockResolvedValue({
-      scenes: [],
-      nodes: [],
-      behaviors: [],
-      cameraEffects: [],
-    }),
+  getScenes: vi.fn().mockResolvedValue({
+    scenes: [],
+    nodes: [],
+    behaviors: [],
+    cameraEffects: [],
+  }),
   getCollabScenes: vi.fn().mockResolvedValue([]),
 }));
 
@@ -162,7 +160,6 @@ const INITIAL_STATE = {
   selectedComposeLayerId: null,
   trackClips: [],
   selectedTrackClipId: null,
-  clipPlayback: {},
   nodeTransformOverrides: {},
   composeLayerOverrides: {},
   runtimeNodeOverrides: {},
@@ -455,6 +452,13 @@ import { testPeer } from './helpers/mesh';
  * useTrackClipEvaluator drives a requestAnimationFrame loop. We replace rAF
  * with a synchronous call-accumulator so we can trigger ticks on demand.
  */
+/** Transport state lives in the tab's peer, as in the app. */
+let seedT = 0;
+const seedPlayback = (doc: { id: string }) =>
+  testPeer()
+    .collection<{ id: string }>('clip_playback')
+    .put(doc, { v: { t: ++seedT, c: 0, n: 'seed' } });
+
 describe('useTrackClipEvaluator', () => {
   let rafCallbacks: FrameRequestCallback[] = [];
   let rafId = 0;
@@ -591,7 +595,7 @@ describe('useTrackClipEvaluator', () => {
     act(() => {
       useEditorStore.getState().addNode(node);
       useEditorStore.getState().addTrackClip(clip);
-      useEditorStore.getState().upsertClipPlayback({
+      seedPlayback({
         id: 'pb:clip-eval',
         clipId: 'clip-eval',
         state: 'playing',
@@ -637,7 +641,7 @@ describe('useTrackClipEvaluator', () => {
     const startedAt = Date.now() - 2000;
     act(() => {
       useEditorStore.getState().addTrackClip(clip);
-      useEditorStore.getState().upsertClipPlayback({
+      seedPlayback({
         id: 'pb:clip-done',
         clipId: 'clip-done',
         state: 'playing',
@@ -736,7 +740,7 @@ describe('useTrackClipEvaluator', () => {
       useEditorStore.getState().addNode(node);
       useEditorStore.getState().addTrackClip(clip);
       // Paused at t=5 → position.x = 50 (halfway)
-      useEditorStore.getState().upsertClipPlayback({
+      seedPlayback({
         id: 'pb:clip-paused',
         clipId: 'clip-paused',
         state: 'paused',
@@ -767,7 +771,9 @@ describe('useTrackClipEvaluator', () => {
     expect(override2?.position?.x).toBeCloseTo(50, 0);
 
     // Paused clip must still be in playback (not completed)
-    expect(useEditorStore.getState().clipPlayback['clip-paused']).toBeDefined();
+    expect(
+      testPeer().collection('clip_playback').get('pb:clip-paused')
+    ).toBeDefined();
 
     unmount();
   });

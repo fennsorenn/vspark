@@ -36,14 +36,19 @@ import {
   useMeshAll,
   useMeshChildren,
   useMeshDoc,
+  useMeshSelector,
 } from '@vspark/mesh-react';
 import type { Collection, MeshPeer } from '@vspark/mesh';
 import { getMeshHandles, onMeshReady, type MeshHandles } from './peer';
 import {
   useEditorStore,
+  type AnimationClipMeta,
   type Behavior,
+  type ClipPlayback,
+  type ScheduledAnimation,
   type StageObject,
 } from '../store/editorStore';
+import { playbackDocId } from '@vspark/shared/clipPlayback';
 import type { CameraEffectRecord, ComposeLayerRecord } from '../api/client';
 
 type Dto = Record<string, unknown>;
@@ -211,4 +216,38 @@ export function useTrackingStatuses(): Record<string, TrackingStatus> {
   const out: Record<string, TrackingStatus> = {};
   for (const d of all) if (d.kind === 'tracking') out[d.key] = d;
   return out;
+}
+
+/** Clip transport state, by clip id (the documents are keyed `pb:<clipId>`). */
+export function useClipPlaybacks(): Record<string, ClipPlayback> {
+  return useMeshSelector(
+    useCollection<ClipPlayback>('clip_playback'),
+    '**',
+    (c) => Object.fromEntries(c.all().map((p) => [p.clipId, p]))
+  );
+}
+
+/** One clip's transport state. */
+export function useClipPlayback(clipId: string): ClipPlayback | undefined {
+  return useMeshDoc(
+    useCollection<ClipPlayback>('clip_playback'),
+    playbackDocId(clipId)
+  );
+}
+
+/** Imported animation clips, by id. */
+export function useAnimationClips(): Record<string, AnimationClipMeta> {
+  return useMeshSelector(
+    useCollection<AnimationClipMeta>('animation_clip'),
+    '**',
+    (c) => Object.fromEntries(c.all().map((a) => [a.id, a]))
+  );
+}
+
+/** An avatar's clip timeline. */
+export function useNodeSchedule(nodeId: string): ScheduledAnimation[] {
+  return useMeshChildren(
+    useCollection<ScheduledAnimation>('scheduled_animation'),
+    nodeId
+  );
 }

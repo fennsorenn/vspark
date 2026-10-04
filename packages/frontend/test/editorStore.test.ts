@@ -351,82 +351,6 @@ describe('VRM bones / expressions / morph targets', () => {
 
 // ── Scheduled animations ──────────────────────────────────────────────────────
 
-describe('upsertScheduledAnimation / removeScheduledAnimation', () => {
-  test('upsert inserts and overwrites', () => {
-    const entry = {
-      id: 'anim-1',
-      avatarNodeId: 'node-1',
-      clipId: 'clip-1',
-      startEpoch: 1000,
-      speed: 1,
-      loop: false,
-    };
-    useEditorStore.getState().upsertScheduledAnimation(entry);
-    expect(useEditorStore.getState().scheduledAnimations['anim-1']).toEqual(
-      entry
-    );
-
-    useEditorStore.getState().upsertScheduledAnimation({ ...entry, speed: 2 });
-    expect(useEditorStore.getState().scheduledAnimations['anim-1'].speed).toBe(
-      2
-    );
-  });
-
-  test('removeScheduledAnimation deletes the entry', () => {
-    const entry = {
-      id: 'anim-1',
-      avatarNodeId: 'node-1',
-      clipId: 'clip-1',
-      startEpoch: 1000,
-      speed: 1,
-      loop: false,
-    };
-    useEditorStore.getState().upsertScheduledAnimation(entry);
-    useEditorStore.getState().removeScheduledAnimation('anim-1');
-    expect(
-      useEditorStore.getState().scheduledAnimations['anim-1']
-    ).toBeUndefined();
-  });
-
-  test('removeScheduledAnimation is a no-op for unknown id', () => {
-    useEditorStore.getState().removeScheduledAnimation('nope');
-    expect(
-      Object.keys(useEditorStore.getState().scheduledAnimations)
-    ).toHaveLength(0);
-  });
-});
-
-// ── Animation clips ───────────────────────────────────────────────────────────
-
-describe('upsertAnimationClip / removeAnimationClip', () => {
-  test('upsert inserts and overwrites', () => {
-    const clip = {
-      id: 'clip-1',
-      sourceNodeId: 'node-1',
-      sourceFilePath: '/a.vrma',
-      duration: 3,
-    };
-    useEditorStore.getState().upsertAnimationClip(clip);
-    expect(useEditorStore.getState().animationClips['clip-1']).toEqual(clip);
-    useEditorStore.getState().upsertAnimationClip({ ...clip, duration: 5 });
-    expect(useEditorStore.getState().animationClips['clip-1'].duration).toBe(5);
-  });
-
-  test('removeAnimationClip deletes the entry', () => {
-    const clip = {
-      id: 'clip-1',
-      sourceNodeId: 'n1',
-      sourceFilePath: '/a.vrma',
-      duration: 2,
-    };
-    useEditorStore.getState().upsertAnimationClip(clip);
-    useEditorStore.getState().removeAnimationClip('clip-1');
-    expect(useEditorStore.getState().animationClips['clip-1']).toBeUndefined();
-  });
-});
-
-// ── Camera effects ────────────────────────────────────────────────────────────
-
 describe('setActiveLogic / setActiveLogicWritable / setSelectedSignalNode', () => {
   test('setActiveLogic sets id and switches leftTab to graphs', () => {
     useEditorStore.getState().setActiveLogic('graph-1');
@@ -714,51 +638,6 @@ describe('track clip CRUD', () => {
     expect(st.selectedTrackClipId).toBeNull();
   });
 });
-
-describe('clipPlayback slice', () => {
-  const doc = (over = {}) => ({
-    id: 'pb:clip-1',
-    clipId: 'clip-1',
-    state: 'playing' as const,
-    startEpoch: 1000,
-    pausedAtT: null,
-    speed: 1,
-    loop: false,
-    ...over,
-  });
-
-  test('is keyed by CLIP id, not document id', () => {
-    // Every reader has a clip in hand and wants its transport; the doc id only
-    // matters for removes, which arrive carrying it and nothing else.
-    useEditorStore.getState().upsertClipPlayback(doc());
-    expect(useEditorStore.getState().clipPlayback['clip-1']).toEqual(doc());
-    expect(useEditorStore.getState().clipPlayback['pb:clip-1']).toBeUndefined();
-  });
-
-  test('upserting replaces the entry for that clip', () => {
-    useEditorStore.getState().upsertClipPlayback(doc());
-    useEditorStore
-      .getState()
-      .upsertClipPlayback(doc({ state: 'paused', pausedAtT: 2 }));
-    const pb = useEditorStore.getState().clipPlayback['clip-1'];
-    expect(pb.state).toBe('paused');
-    expect(pb.pausedAtT).toBe(2);
-  });
-
-  test('removing resolves the DOCUMENT id back to its clip key', () => {
-    useEditorStore.getState().upsertClipPlayback(doc());
-    useEditorStore.getState().removeClipPlayback('pb:clip-1');
-    expect(useEditorStore.getState().clipPlayback['clip-1']).toBeUndefined();
-  });
-
-  test('removing an unknown document id is a no-op', () => {
-    useEditorStore.getState().upsertClipPlayback(doc());
-    useEditorStore.getState().removeClipPlayback('pb:nope');
-    expect(useEditorStore.getState().clipPlayback['clip-1']).toBeDefined();
-  });
-});
-
-// ── Presets ───────────────────────────────────────────────────────────────────
 
 describe('presets', () => {
   const preset = {

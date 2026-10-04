@@ -153,7 +153,12 @@ import {
 } from '../../particleUtils';
 import type { ParticlePool } from '../../particleUtils';
 import { resolveParticleTextureUrl } from '../../particleTextures';
-import { useCameraEffects, useNodeBehaviors } from '../../mesh/hooks';
+import {
+  useAnimationClips,
+  useCameraEffects,
+  useNodeBehaviors,
+  useNodeSchedule,
+} from '../../mesh/hooks';
 import { collectionOf } from '../../mesh/docs';
 
 type GizmoMode = 'translate' | 'rotate' | 'scale';
@@ -2208,12 +2213,8 @@ function AvatarNode({
   const legacyAnim = node.components?.animation as
     | { idleUrl?: string; speed?: number }
     | undefined;
-  const scheduledMap = useEditorStore((s) => s.scheduledAnimations);
-  const animationClips = useEditorStore((s) => s.animationClips);
-  const scheduledForNode = useMemo(
-    () => Object.values(scheduledMap).filter((e) => e.avatarNodeId === node.id),
-    [scheduledMap, node.id]
-  );
+  const scheduledForNode = useNodeSchedule(node.id);
+  const animationClips = useAnimationClips();
   const idleClip = animIdle?.clipId
     ? animationClips[animIdle.clipId]
     : undefined;

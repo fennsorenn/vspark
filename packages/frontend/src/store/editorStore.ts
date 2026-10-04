@@ -277,18 +277,9 @@ export interface EditorState {
   sceneSelected: boolean;
   selectedBehaviorId: string | null;
   assets: AssetFile[];
-  /** Avatar animation timeline (scheduled_animation docs), keyed by entry id.
-   *  Fed from the mesh replica; the avatar's animation effect reads the entries
-   *  for its node, ordered by startEpoch. */
-  scheduledAnimations: Record<string, ScheduledAnimation>;
-  /** clip_playback docs, keyed by CLIP id (not doc id) — callers look up by clip. */
-  clipPlayback: Record<string, ClipPlayback>;
   /** logic (signal graph) docs, keyed by id. Fed from the mesh replica; the
    *  panels used to re-poll REST every 3 seconds for this. */
   logic: Record<string, LogicRecord>;
-  /** Animation clips (animation_clip docs), keyed by clip id. Resolves a
-   *  timeline/idle clipId to its source asset URL + duration. */
-  animationClips: Record<string, AnimationClipMeta>;
   vrmBonesByNode: Record<string, string[]>; // nodeId → VRM humanoid bone names
   vrmExpressionsByNode: Record<string, string[]>; // nodeId → VRM expression names
   vrmMorphTargetsByNode: Record<string, string[]>; // nodeId → mesh morph target names
@@ -402,14 +393,8 @@ export interface EditorState {
   addAsset: (asset: AssetFile) => void;
   deleteAsset: (id: string) => void;
   activeSceneNodes: () => StageObject[];
-  upsertScheduledAnimation: (entry: ScheduledAnimation) => void;
-  removeScheduledAnimation: (id: string) => void;
-  upsertClipPlayback: (entry: ClipPlayback) => void;
-  removeClipPlayback: (docId: string) => void;
   upsertLogic: (entry: LogicRecord) => void;
   removeLogicLocal: (id: string) => void;
-  upsertAnimationClip: (entry: AnimationClipMeta) => void;
-  removeAnimationClip: (id: string) => void;
   setVrmBonesForNode: (nodeId: string, bones: string[]) => void;
   clearVrmBonesForNode: (nodeId: string) => void;
   setVrmExpressionsForNode: (nodeId: string, expressions: string[]) => void;
@@ -573,10 +558,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   sceneSelected: false,
   selectedBehaviorId: null,
   assets: [],
-  scheduledAnimations: {},
-  clipPlayback: {},
   logic: {},
-  animationClips: {},
   vrmBonesByNode: {},
   vrmExpressionsByNode: {},
   live2dParamsByNode: {},
@@ -689,24 +671,6 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     const { nodes, activeSceneId } = get();
     return nodes.filter((n) => n.rootSceneNodeId === activeSceneId);
   },
-  upsertScheduledAnimation: (entry) =>
-    set((s) => ({
-      scheduledAnimations: { ...s.scheduledAnimations, [entry.id]: entry },
-    })),
-  removeScheduledAnimation: (id) =>
-    set((s) => {
-      if (!(id in s.scheduledAnimations)) return {};
-      const next = { ...s.scheduledAnimations };
-      delete next[id];
-      return { scheduledAnimations: next };
-    }),
-  // Keyed by CLIP id: every reader has a clip in hand and wants its transport,
-  // never the other way round. The doc's own id only matters for removes, which
-  // arrive carrying it and nothing else.
-  upsertClipPlayback: (entry) =>
-    set((s) => ({
-      clipPlayback: { ...s.clipPlayback, [entry.clipId]: entry },
-    })),
   upsertLogic: (entry) =>
     set((s) => ({ logic: { ...s.logic, [entry.id]: entry } })),
   removeLogicLocal: (id) =>
@@ -715,27 +679,6 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       const next = { ...s.logic };
       delete next[id];
       return { logic: next };
-    }),
-  removeClipPlayback: (docId) =>
-    set((s) => {
-      const key = Object.keys(s.clipPlayback).find(
-        (clipId) => s.clipPlayback[clipId].id === docId
-      );
-      if (key === undefined) return {};
-      const next = { ...s.clipPlayback };
-      delete next[key];
-      return { clipPlayback: next };
-    }),
-  upsertAnimationClip: (entry) =>
-    set((s) => ({
-      animationClips: { ...s.animationClips, [entry.id]: entry },
-    })),
-  removeAnimationClip: (id) =>
-    set((s) => {
-      if (!(id in s.animationClips)) return {};
-      const next = { ...s.animationClips };
-      delete next[id];
-      return { animationClips: next };
     }),
   setVrmBonesForNode: (nodeId, bones) =>
     set((s) => ({ vrmBonesByNode: { ...s.vrmBonesByNode, [nodeId]: bones } })),
@@ -1016,9 +959,6 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     })),
   removeTrackClip: (id) =>
     set((s) => {
-      const nextPlayback = { ...s.clipPlayback };
-      delete nextPlayback[id];
-
       // Drop any overrides/suppressions this clip's lanes left behind so the
       // deleted clip can't keep governing a layer/node's position.
       const clip = s.trackClips.find((c) => c.id === id);
@@ -1039,7 +979,6 @@ export const useEditorStore = create<EditorState>((set, get) => ({
         trackClips: s.trackClips.filter((c) => c.id !== id),
         selectedTrackClipId:
           s.selectedTrackClipId === id ? null : s.selectedTrackClipId,
-        clipPlayback: nextPlayback,
         composeLayerOverrides: nextLayerOverrides,
         nodeTransformOverrides: nextNodeOverrides,
         ...(suppressionsTouched ? { suppressedOverrides: nextSuppressed } : {}),

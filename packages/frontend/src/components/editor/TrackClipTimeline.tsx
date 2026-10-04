@@ -30,6 +30,7 @@ import type {
   TrackClipMode,
   TrackClipEasing,
 } from '../../api/client';
+import { useClipPlayback, useClipPlaybacks } from '../../mesh/hooks';
 
 const MEDIA_ACTIONS = [
   'play',
@@ -112,7 +113,7 @@ function TimelineEditor({ clip }: { clip: TrackClipRecord }) {
   const selectedComposeId = useEditorStore((s) => s.selectedComposeLayerId);
   const nodes = useEditorStore((s) => s.nodes);
   const composeLayers = useEditorStore((s) => s.composeLayers);
-  const playback = useEditorStore((s) => s.clipPlayback);
+  const playback = useClipPlaybacks();
 
   const [adding, setAdding] = useState(false);
   const [selected, setSelected] = useState<SelectedKey | null>(null);
@@ -218,7 +219,9 @@ function TimelineEditor({ clip }: { clip: TrackClipRecord }) {
           onChange={(e) => handlePatchClip({ name: e.target.value })}
           style={inputStyle}
         />
-        <label style={{ color: '#888', fontSize: 11 }}>{t('header.duration')}</label>
+        <label style={{ color: '#888', fontSize: 11 }}>
+          {t('header.duration')}
+        </label>
         <input
           className="vs-clip-duration"
           type="number"
@@ -243,7 +246,11 @@ function TimelineEditor({ clip }: { clip: TrackClipRecord }) {
         </label>
         <label
           style={{ color: '#888', fontSize: 11 }}
-          title={clip.loop ? t('header.autoplayTitle_enabled') : t('header.autoplayTitle_disabled')}
+          title={
+            clip.loop
+              ? t('header.autoplayTitle_enabled')
+              : t('header.autoplayTitle_disabled')
+          }
         >
           <input
             className="vs-clip-autoplay"
@@ -254,7 +261,9 @@ function TimelineEditor({ clip }: { clip: TrackClipRecord }) {
           />{' '}
           {t('header.autoplay')}
         </label>
-        <label style={{ color: '#888', fontSize: 11 }}>{t('header.blend')}</label>
+        <label style={{ color: '#888', fontSize: 11 }}>
+          {t('header.blend')}
+        </label>
         <select
           className="vs-clip-blend"
           value={clip.mode}
@@ -269,19 +278,35 @@ function TimelineEditor({ clip }: { clip: TrackClipRecord }) {
         <div style={{ flex: 1 }} />
         {activePlayback?.state === 'playing' ? (
           <>
-            <button className="vs-clip-pause" onClick={handlePause} style={btnNeutral}>
+            <button
+              className="vs-clip-pause"
+              onClick={handlePause}
+              style={btnNeutral}
+            >
               {t('transport.pause')}
             </button>
-            <button className="vs-clip-stop" onClick={handleStop} style={btnStop}>
+            <button
+              className="vs-clip-stop"
+              onClick={handleStop}
+              style={btnStop}
+            >
               {t('transport.stop')}
             </button>
           </>
         ) : activePlayback?.state === 'paused' ? (
           <>
-            <button className="vs-clip-play" onClick={handleResume} style={btnPlay}>
+            <button
+              className="vs-clip-play"
+              onClick={handleResume}
+              style={btnPlay}
+            >
               {t('transport.resume')}
             </button>
-            <button className="vs-clip-stop" onClick={handleStop} style={btnStop}>
+            <button
+              className="vs-clip-stop"
+              onClick={handleStop}
+              style={btnStop}
+            >
               {t('transport.stop')}
             </button>
           </>
@@ -378,7 +403,11 @@ function TimelineEditor({ clip }: { clip: TrackClipRecord }) {
             onConfirm={handleAddLane}
           />
         ) : (
-          <button className="vs-clip-add-lane" onClick={() => setAdding(true)} style={btnPrimary}>
+          <button
+            className="vs-clip-add-lane"
+            onClick={() => setAdding(true)}
+            style={btnPrimary}
+          >
             {t('lane.addLane')}
           </button>
         )}
@@ -870,7 +899,7 @@ function LaneRow({
 }) {
   const { t } = useTranslation('clips');
   const trackRef = useRef<HTMLDivElement>(null);
-  const playback = useEditorStore((s) => s.clipPlayback[clip.id]);
+  const playback = useClipPlayback(clip.id);
   const [, forceTick] = useState(0);
   // Local size so SVG can render in pixel coordinates instead of percentages
   // (we need pixel-accurate handle math).
@@ -996,7 +1025,12 @@ function LaneRow({
             [{range.min.toFixed(2)}, {range.max.toFixed(2)}]
           </span>
         </span>
-        <button className="vs-lane-delete" onClick={onDeleteLane} style={btnDanger} title={t('lane.removeLaneTitle')}>
+        <button
+          className="vs-lane-delete"
+          onClick={onDeleteLane}
+          style={btnDanger}
+          title={t('lane.removeLaneTitle')}
+        >
           ×
         </button>
       </div>
@@ -1317,7 +1351,11 @@ function KeyframeDot({
         onPointerMove={onPointerMove}
         onPointerUp={onPointerUp}
         onContextMenu={onContextMenu}
-        title={t('keyframe.dotTitle', { t: kf.t.toFixed(2), v: kf.value.toFixed(3), easing: kf.easing })}
+        title={t('keyframe.dotTitle', {
+          t: kf.t.toFixed(2),
+          v: kf.value.toFixed(3),
+          easing: kf.easing,
+        })}
         style={{
           position: 'absolute',
           left: kx - KF_RADIUS,
@@ -1437,7 +1475,10 @@ function EventLane({
           {events.map((e) => (
             <div
               key={e.id}
-              title={t('events.markerTitle', { action: e.action, t: e.t.toFixed(2) })}
+              title={t('events.markerTitle', {
+                action: e.action,
+                t: e.t.toFixed(2),
+              })}
               style={{
                 position: 'absolute',
                 top: 3,
@@ -1516,7 +1557,9 @@ function EventLane({
             {needsValue(e.action) && (
               <>
                 <label style={{ color: '#888', fontSize: 11 }}>
-                  {e.action === 'seek' ? t('events.seekLabel') : t('events.volLabel')}
+                  {e.action === 'seek'
+                    ? t('events.seekLabel')
+                    : t('events.volLabel')}
                 </label>
                 <input
                   type="number"
