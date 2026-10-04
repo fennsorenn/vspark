@@ -37,11 +37,23 @@ function attach(peerId: string): {
   server.addTransport(lb.a);
   const peer = createMeshPeer({
     identity: { peerId },
-    home: server.id,
     transports: [lb.b],
     ackTimeoutMs: 200,
   });
   return { peer, flush: lb.flush };
+}
+
+/** Who serves `sub` once things have settled: nobody, when no grant covers
+ *  it (the subscription waits for one). */
+async function servedBy(
+  peer: MeshPeer,
+  sub: ReturnType<typeof everything>,
+  flush: () => Promise<void>
+): Promise<string[]> {
+  let handle: { sources(): string[] } | undefined;
+  void peer.subscribe(sub).then((h) => (handle = h));
+  for (let i = 0; i < 4; i++) await flush();
+  return handle?.sources() ?? [];
 }
 
 const everything = (rtype: string) => ({
@@ -75,28 +87,27 @@ describe('tab rights are what each collection declares', () => {
         authority: server.id,
         channels: channelsOf(rtype),
       });
-      await expect(
-        peer.subscribe(server.id, everything(rtype))
-      ).resolves.toBeDefined();
+      await expect(peer.subscribe(everything(rtype))).resolves.toBeDefined();
     }
   });
 
   it('a tab cannot subscribe to server-to-server collections', async () => {
     const server = getMeshPeer()!;
-    const { peer } = attach(makeClientParticipantId(server.id, 'tab1'));
+    const { peer, flush } = attach(makeClientParticipantId(server.id, 'tab1'));
     peer.collection('node_stream', { channels: ['preview'] });
-    await expect(
-      peer.subscribe(server.id, everything('node_stream'))
-    ).rejects.toThrow(/denied/);
+    expect(await servedBy(peer, everything('node_stream'), flush)).toEqual([]);
   });
 
   it('a remote peer gets nothing without a grant', async () => {
-    const server = getMeshPeer()!;
-    const { peer } = attach('someone-else');
-    peer.collection('scene_node', { authority: server.id });
-    await expect(
-      peer.subscribe(server.id, everything('scene_node'))
-    ).rejects.toThrow(/denied/);
+    const proj = (await request(app).post('/api/projects').send({ name: 'P' }))
+      .body.data;
+    await request(app)
+      .post(`/api/projects/${proj.id}/scenes`)
+      .send({ name: 'S', populate: false });
+    const { peer, flush } = attach('someone-else');
+    const nodes = peer.collection('scene_node');
+    expect(await servedBy(peer, everything('scene_node'), flush)).toEqual([]);
+    expect(nodes.all()).toEqual([]);
   });
 
   it('a tab cannot write a collection it may only read', async () => {
@@ -105,7 +116,7 @@ describe('tab rights are what each collection declares', () => {
     const clips = peer.collection<Dto>('animation_clip', {
       authority: server.id,
     });
-    await peer.subscribe(server.id, everything('animation_clip'));
+    await peer.subscribe(everything('animation_clip'));
     const res = await clips.create({ id: 'clip-x', name: 'forged' }).ack;
     expect(res.status).toBe('rejected');
     const row = getDb()
@@ -125,7 +136,7 @@ describe('tab rights are what each collection declares', () => {
     const server = getMeshPeer()!;
     const { peer, flush } = attach(makeClientParticipantId(server.id, 'tab1'));
     const nodes = peer.collection<Dto>('scene_node', { authority: server.id });
-    await peer.subscribe(server.id, everything('scene_node'));
+    await peer.subscribe(everything('scene_node'));
     await flush();
     const res = await nodes.set(scene.id, 'name', 'Renamed by tab').ack;
     expect(res.status).toBe('acked');
@@ -213,7 +224,7 @@ async function deleteThenRestartAndSubscribe(
       },
       { v: { t: 1, c: 0, n: server.id } }
     );
-    await peer.subscribe(server.id, {
+    await peer.subscribe({
       entityRtype: 'scene_node',
       entityId: scene.id,
       includeDescendants: true,
@@ -269,8 +280,8 @@ describe('removing a node through the mesh', () => {
           ? { rtype: 'scene_node', id: d.nodeId }
           : null,
     });
-    await peer.subscribe(server.id, everything('scene_node'));
-    await peer.subscribe(server.id, everything('behavior'));
+    await peer.subscribe(everything('scene_node'));
+    await peer.subscribe(everything('behavior'));
     expect(behaviors.get(beh.id)).toBeDefined();
 
     // The tab deletes the node (what SceneGraph's delete does).
@@ -316,7 +327,7 @@ describe('compose layer guard', () => {
     const layers = peer.collection<Dto>('compose_layer', {
       authority: server.id,
     });
-    await peer.subscribe(server.id, everything('compose_layer'));
+    await peer.subscribe(everything('compose_layer'));
 
     const bad = await layers.set(layer.id, 'config.template', '<div>${(</div>')
       .ack;
@@ -371,7 +382,7 @@ describe('server status documents', () => {
       channels: ['runtime'],
       authority: server.id,
     });
-    await peer.subscribe(server.id, everything('server_status'));
+    await peer.subscribe(everything('server_status'));
     expect(status.get(`tracking:${beh.id}`)).toMatchObject({
       connected: true,
       tracking: true,
@@ -381,43 +392,5 @@ describe('server status documents', () => {
     await request(app).delete(`/api/behaviors/${beh.id}`).expect(200);
     await flush();
     expect(status.get(`tracking:${beh.id}`)).toBeUndefined();
-  });
-});
-
-describe('grants delivered to tabs (peer_grant)', () => {
-  beforeEach(async () => {
-    await makeTestApp({ mesh: true });
-  });
-
-  afterEach(() => resetBackendMesh());
-
-  it('mirrors grants for other servers to our tabs, and follows a revoke', async () => {
-    const server = getMeshPeer()!;
-    const { peer, flush } = attach(makeClientParticipantId(server.id, 'tab1'));
-    const pg = peer.collection<Dto>('peer_grant', {
-      channels: ['runtime'],
-      authority: server.id,
-    });
-    await peer.subscribe(server.id, everything('peer_grant'));
-    // Our own tabs' collection grants are not delivered.
-    expect(pg.all()).toHaveLength(0);
-
-    const gid = server.grants.grant({
-      grantee: 'remote-server',
-      entityRtype: '*',
-      entityId: 'scene-x',
-      includeDescendants: true,
-      pathPrefix: '',
-      rights: { read: true, update: true },
-    });
-    await flush();
-    expect(pg.get(gid)?.grant).toMatchObject({
-      grantee: 'remote-server',
-      entityId: 'scene-x',
-    });
-
-    server.grants.revoke(gid);
-    await flush();
-    expect(pg.get(gid)).toBeUndefined();
   });
 });

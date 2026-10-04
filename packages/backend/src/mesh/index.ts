@@ -43,7 +43,6 @@ import {
 } from './docGuards.js';
 import { runtimeOverrideManager } from '../runtime_overrides/manager.js';
 import { initMeshRuntime, resetMeshRuntime } from './runtime.js';
-import { initPeerGrants } from './peerGrants.js';
 import {
   clearStatusOf,
   initServerStatus,
@@ -117,7 +116,7 @@ const clearOverridesOf =
   (id: string): void =>
     runtimeOverrideManager.clearAllForTarget(rtype, id);
 
-type TabRights = {
+export type TabRights = {
   read?: boolean;
   update?: boolean;
   create?: boolean;
@@ -464,6 +463,24 @@ function clearTombstone(rtype: string, id: string): void {
     .run(rtype, id);
 }
 
+/** Grant this server's tabs `rights` on every document of `rtype`. A grant
+ *  to the server's own id covers its participants (its tabs) and no one else;
+ *  grants are a whitelist, so a type without one is unreachable from tabs. */
+export function grantTabs(
+  peer: MeshPeer,
+  rtype: string,
+  rights: TabRights
+): string {
+  return peer.grants.grant({
+    grantee: peer.id,
+    entityRtype: rtype,
+    entityId: '*',
+    includeDescendants: false,
+    pathPrefix: '',
+    rights,
+  });
+}
+
 /** Create + hydrate the backend mesh peer. Idempotent. */
 export function initBackendMesh(): MeshPeer {
   if (_peer) return _peer;
@@ -492,7 +509,6 @@ export function initBackendMesh(): MeshPeer {
   // collection is silent, and the overrides simply stop arriving.
   initMeshRuntime(peer);
   initServerStatus(peer);
-  initPeerGrants(peer);
   // The animation-clip asset follow-up re-points sourceFilePath through the
   // store once a fetched blob lands.
   const animCol = COLLECTIONS.get('animation_clip');
@@ -552,11 +568,9 @@ function bindCollection(
   b: RtypeBinding
 ): Collection<Dto> {
   const r = getResource(b.rtype);
-  const col = peer.collection<Dto>(b.rtype, {
-    validate: b.validate,
-    authority: 'self',
-    clients: b.clients,
-  });
+  const col = peer.collection<Dto>(b.rtype, { validate: b.validate });
+  // A grant to our own id covers our tabs and no one else: what they may do.
+  grantTabs(peer, b.rtype, b.clients);
   COLLECTIONS.set(b.rtype, col);
   if (!r?.load) return col;
 

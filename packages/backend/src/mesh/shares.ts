@@ -12,8 +12,7 @@
  * on the owner. Nothing is persisted from it — the persistence tap skips
  * docs that don't resolve to local rows (see ./index.ts) — so the docs live
  * only in the replica and fan out to this server's tabs, which project them.
- * Subscriptions are re-armed by the frontend on reconnect (it re-issues
- * the subscribe REST call whenever the owner comes back).
+ * The mesh keeps the subscription across reconnects.
  *
  * Streams (pose/preview), asset transfer, Phase-6 writes, and the
  * advertise/unshared offer flow stay on the legacy `_share_*` protocol.
@@ -74,49 +73,26 @@ export function hydrateShareGrants(peer: MeshPeer): void {
 
 // --- receiver: placed-object subscriptions -----------------------------------
 
-const placed = new Map<string, MeshSubscription>(); // `${owner}\0${objectId}`
-const arming = new Set<string>();
+const placed = new Map<string, Promise<MeshSubscription>>(); // `${owner}\0${objectId}`
 
-/** First-place race: the owner mirrors the grant when the share is created,
- *  but a just-granted share may still beat the advertise round-trip. */
-const SUBSCRIBE_RETRY_MS = 3000;
-const SUBSCRIBE_MAX_RETRIES = 10;
-
-/** Receiver: subscribe to a peer's shared object over the mesh (idempotent;
- *  retried on denial). The snapshot seeds the replica; live ops follow. */
-export function subscribeSharedObject(
-  owner: string,
-  objectId: string,
-  attempt = 0
-): void {
+/** Receiver: subscribe to a peer's shared object over the mesh (idempotent).
+ *  The mesh serves it from the owner — who granted it — and holds it while
+ *  the grant is still on its way. The snapshot seeds the replica; live ops
+ *  follow. */
+export function subscribeSharedObject(owner: string, objectId: string): void {
   const peer = getMeshPeer();
   if (!peer) return;
   const k = key(owner, objectId);
-  if (placed.has(k) || arming.has(k)) return;
-  if (!peer.status().peers.some((p) => p.id === owner)) return;
-  arming.add(k);
-  peer
-    .subscribe(owner, {
+  if (placed.has(k)) return;
+  placed.set(
+    k,
+    peer.subscribe({
       entityRtype: '*',
       entityId: objectId,
       includeDescendants: true,
       pathPrefix: '',
     })
-    .then((sub) => {
-      arming.delete(k);
-      placed.set(k, sub);
-    })
-    .catch((e) => {
-      arming.delete(k);
-      if (attempt < SUBSCRIBE_MAX_RETRIES) {
-        setTimeout(
-          () => subscribeSharedObject(owner, objectId, attempt + 1),
-          SUBSCRIBE_RETRY_MS
-        );
-      } else {
-        console.warn(`[mesh] place subscribe ${objectId} @ ${owner} gave up:`, e);
-      }
-    });
+  );
 }
 
 /** Receiver: drop a placed subscription (container removed / unshared). */
@@ -124,12 +100,7 @@ export function unsubscribeSharedObject(owner: string, objectId: string): void {
   const k = key(owner, objectId);
   const sub = placed.get(k);
   placed.delete(k);
-  arming.delete(k);
-  try {
-    sub?.unsubscribe();
-  } catch {
-    /* link may already be gone */
-  }
+  void sub?.then((s) => s.unsubscribe());
 }
 
 /** The owner peer of the placed object whose subtree contains `nodeId`, if
@@ -146,18 +117,7 @@ export function placedOwnerOf(
   return undefined;
 }
 
-/** Prune placed subscriptions whose owner disconnected, so the frontend's
- *  re-subscribe on reconnect arms a fresh one (snapshot = reconcile). */
-function pruneStalePlaced(peer: MeshPeer): void {
-  const connected = new Set(peer.status().peers.map((p) => p.id));
-  for (const k of [...placed.keys()]) {
-    const owner = k.split('\0')[0];
-    if (!connected.has(owner)) placed.delete(k);
-  }
-}
-
-/** Wire share grants + placed subscriptions to the mesh peer lifecycle. */
+/** Wire share grants to the mesh peer. */
 export function initMeshShares(peer: MeshPeer): void {
   hydrateShareGrants(peer);
-  peer.onStatus(() => pruneStalePlaced(peer));
 }

@@ -82,17 +82,10 @@ export interface ModelDecl<T extends object = Record<string, unknown>> {
 }
 
 export interface CollectionConfig<T extends object> extends ModelDecl<T> {
-  /** Ack authority: 'self' on the home peer, the home's peer id elsewhere. */
+  /** Who decides (acks) writes to this collection, when it isn't what the
+   *  mesh derives: a participant's own server, or whoever granted this peer
+   *  a write on the document, or this peer. */
   authority?: 'self' | string;
-  /** Rights this peer's own client participants (its tabs) hold on every
-   *  document of the collection. Grants are a whitelist (principle 9): a
-   *  collection that declares none is unreachable from tabs, visibly. */
-  clients?: {
-    read?: boolean;
-    update?: boolean;
-    create?: boolean;
-    delete?: boolean;
-  };
 }
 
 export type Selector = string | { subtree: string } | '**';
@@ -130,6 +123,7 @@ export interface PeerCore {
     timeoutMs: number
   ): Promise<RequestOutcome>;
   connected(peerId: string): boolean;
+  authorityFor(col: Collection<any>, id?: string): string;
   childrenIds(id: string, rtype: string): string[];
   subtreeIds(rootId: string): string[];
   parentIdOf(id: string): string | null;
@@ -335,8 +329,10 @@ export class Collection<T extends object> {
     };
   }
 
-  canWrite(): boolean {
-    const a = this.cfg.authority ?? 'self';
+  /** Can a committed write be decided right now: is its authority this
+   *  peer, or linked? */
+  canWrite(id?: string): boolean {
+    const a = this.peer.authorityFor(this, id);
     return a === 'self' || this.peer.connected(a);
   }
 

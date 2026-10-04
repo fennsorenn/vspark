@@ -136,7 +136,6 @@ export const MODELS = {
         : null;
     },
   },
-  peer_grant: { channels: [RUNTIME] },
   // Server-to-server only: pose/blendshape/drag frames on collab nodes, and
   // runtime events per collab scene.
   node_stream: { channels: ['preview'] },
@@ -160,5 +159,4 @@ export const TAB_MODELS: readonly ModelName[] = [
   'data_field',
   'media_control',
   'server_status',
-  'peer_grant',
 ];

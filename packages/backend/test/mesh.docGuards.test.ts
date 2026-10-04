@@ -263,7 +263,6 @@ describe('scene-node guards on single-field edits from a tab', () => {
     server.addTransport(lb.a);
     const tab = createMeshPeer({
       identity: { peerId: tabId },
-      home: server.id,
       transports: [lb.b],
       ackTimeoutMs: 500,
     });
@@ -272,7 +271,7 @@ describe('scene-node guards on single-field edits from a tab', () => {
       { authority: server.id }
     );
     await lb.flush();
-    await tab.subscribe(server.id, {
+    await tab.subscribe({
       entityRtype: 'scene_node',
       entityId: '*',
       includeDescendants: false,

@@ -152,7 +152,7 @@ describe('runtime_override collection', () => {
     // Set FIRST, subscribe after — the ordering the snapshot has to survive.
     m.set('scene_node', 'node-1', 'opacity', 0.25);
     await lb.flush();
-    await client.subscribe('server', {
+    await client.subscribe({
       entityRtype: RUNTIME_OVERRIDE_RTYPE,
       entityId: '*',
       includeDescendants: false,

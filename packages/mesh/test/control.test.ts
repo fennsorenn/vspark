@@ -39,9 +39,15 @@ function star(
   opts: { tabRights?: Record<string, boolean>; double?: string } = {}
 ) {
   const s = createMeshPeer({ identity: { peerId: 'S' }, transports: [] });
-  const sCol = s.collection<Cmd>('cmd', {
-    channels: ['control'],
-    clients: opts.tabRights ?? { read: true, update: true, create: true },
+  const sCol = s.collection<Cmd>('cmd', { channels: ['control'] });
+  // A grant to S's own id covers its tabs.
+  s.grants.grant({
+    grantee: 'S',
+    entityRtype: 'cmd',
+    entityId: '*',
+    includeDescendants: false,
+    pathPrefix: '',
+    rights: opts.tabRights ?? { read: true, update: true, create: true },
   });
   const flushes: (() => Promise<void>)[] = [];
   const tabs: Record<string, { peer: MeshPeer; col: Collection<Cmd> }> = {};
@@ -51,7 +57,6 @@ function star(
     s.addTransport(lb.a);
     const peer = createMeshPeer({
       identity: { peerId: id },
-      home: 'S',
       transports: [opts.double === name ? doubled(lb.b) : lb.b],
     });
     const col = peer.collection<Cmd>('cmd', {
@@ -66,7 +71,7 @@ function star(
   };
   const subscribeAll = async () => {
     for (const t of Object.values(tabs))
-      await t.peer.subscribe('S', {
+      await t.peer.subscribe({
         entityRtype: 'cmd',
         entityId: '*',
         includeDescendants: false,
@@ -278,7 +283,12 @@ describe('control: delivered, not stored', () => {
     const { sCol, tabs, flush, subscribeAll } = star();
     await subscribeAll();
     const seen = record(tabs.t1.col);
-    sCol.set('door', '', { id: 'door', action: 'open' }, { channel: 'control' });
+    sCol.set(
+      'door',
+      '',
+      { id: 'door', action: 'open' },
+      { channel: 'control' }
+    );
     await flush();
     expect(seen.map((c) => c.doc?.action)).toEqual(['open']);
     expect(tabs.t1.col.get('door')).toBeUndefined();

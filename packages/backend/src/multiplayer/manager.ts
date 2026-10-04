@@ -41,7 +41,11 @@ import { MeshRouter } from '../sync/meshRouter.js';
 import { grantsForRequester, canAccess } from '../sync/grants.js';
 import { containmentIndex } from '../sync/containmentIndex.js';
 import { getDb } from '../db/index.js';
-import { gatherObjectSnapshot, gatherSceneSnapshot, type ObjectSnapshot } from './shares.js';
+import {
+  gatherObjectSnapshot,
+  gatherSceneSnapshot,
+  type ObjectSnapshot,
+} from './shares.js';
 import {
   registerCollabScene,
   removeCollabScene,
@@ -294,8 +298,10 @@ class MultiplayerManager {
         // blobs over the same `_blob_*` protocol a server would. The transport
         // facade routes our replies back over the same WebRTC channel; source-
         // side grant admission still gates what flows.
-        if (SHARE_RTYPES.has(env?.rtype)) this.sharing?.handleEnvelope(from, env);
-        else if (BLOB_RTYPES.has(env?.rtype)) this.blob?.handleEnvelope(from, env);
+        if (SHARE_RTYPES.has(env?.rtype))
+          this.sharing?.handleEnvelope(from, env);
+        else if (BLOB_RTYPES.has(env?.rtype))
+          this.blob?.handleEnvelope(from, env);
       }
     );
 
@@ -596,13 +602,15 @@ class MultiplayerManager {
    *  and records our 'author' link + indexes the scene for fan-out. */
   shareCollabScene(sceneId: string, granteePeerId: string): void {
     const row = getDb()
-      .prepare("SELECT project_id, name FROM scene_nodes WHERE id = ? AND kind = 'scene'")
+      .prepare(
+        "SELECT project_id, name FROM scene_nodes WHERE id = ? AND kind = 'scene'"
+      )
       .get(sceneId) as { project_id: string; name: string } | undefined;
     if (!row) return;
     addShare('scene', sceneId, granteePeerId, true);
     registerCollabScene(sceneId, granteePeerId, 'author', row.project_id);
     indexCollabScene(sceneId);
-    // Mesh: standing RUCD grant + mutual subscription for the new link.
+    // Mesh: the standing RUCD grant for the new link (one way: we decide).
     const mp = getMeshPeer();
     if (mp) syncCollabLinks(mp);
     this.sharing?.reAdvertiseAll();
@@ -610,7 +618,11 @@ class MultiplayerManager {
 
   /** Receiver: ask the owner to send a collab scene so we can mount it into
    *  `projectId`. Remembers the target project until the snapshot arrives. */
-  mountCollabScene(ownerPeerId: string, sceneId: string, projectId: string): void {
+  mountCollabScene(
+    ownerPeerId: string,
+    sceneId: string,
+    projectId: string
+  ): void {
     this.pendingCollabMount.set(sceneId, projectId);
     this.mesh?.sendEnvelope(ownerPeerId, {
       rtype: COLLAB_SUBSCRIBE_RTYPE,
@@ -678,7 +690,10 @@ class MultiplayerManager {
     from: string,
     env: SyncEnvelope
   ): Promise<void> {
-    const d = (env.data ?? {}) as { sceneId?: string; snapshot?: ObjectSnapshot };
+    const d = (env.data ?? {}) as {
+      sceneId?: string;
+      snapshot?: ObjectSnapshot;
+    };
     const sceneId = d.sceneId ?? env.key;
     const projectId = this.pendingCollabMount.get(sceneId);
     if (!d.snapshot || !projectId) return;
@@ -694,9 +709,7 @@ class MultiplayerManager {
     // snapshot as the baseline, so any tombstones we hold for these ids (we
     // may have deleted a detached copy of this scene after an earlier
     // unshare) are voided — otherwise they out-stamp the author's docs and
-    // our reply snapshot would delete the author's scene. Safe ordering: the
-    // author's subscription to us can't succeed until syncCollabLinks below
-    // issues the grant, so the purge always lands first.
+    // the author's snapshot would lose to them.
     purgeMeshTombstones(
       'scene_node',
       (d.snapshot.nodes ?? []).map((n) => (n as { id: string }).id)
@@ -715,9 +728,9 @@ class MultiplayerManager {
     );
     // Mesh: mirror the mounted (localized) rows into the replica with their
     // row-derived stamps — old stamps, so the mirror can't out-stamp the
-    // author's live state — then grant the owner back + subscribe (live ops
-    // + reconciles ride the mesh; this legacy snapshot path remains for
-    // asset transfer).
+    // author's live state — then subscribe (live ops + reconciles ride the
+    // mesh; this legacy snapshot path remains for asset transfer). Our
+    // writes to the scene go to the author, who granted them.
     for (const n of d.snapshot.nodes ?? [])
       mirrorIntoMesh('scene_node', (n as { id: string }).id);
     for (const c of d.snapshot.clips ?? [])

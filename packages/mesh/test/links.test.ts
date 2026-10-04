@@ -1,18 +1,23 @@
 /**
- * Direct links and link state (principle 8). Tabs A and B of server S also
- * hold a direct link to each other — what a WebRTC link will be; here it is
- * just another loopback transport, since the mesh is transport-agnostic.
+ * Direct links and link state (principle 8).
  *
- * B tells S it reaches A directly, so S stops relaying A's LOSSY traffic to B
- * (B has it first-hand); reliable traffic keeps flowing through S as the path
- * that survives a direct link dropping silently. Duplicates that do arrive
- * over both paths apply once.
+ * Two servers: S1 holds the documents and grants S2 rights on them (a shared
+ * space); tab A belongs to S1, tab B to S2. A and B may also hold a direct
+ * link — what a WebRTC link will be; here it is just another loopback
+ * transport, since the mesh is transport-agnostic.
+ *
+ * Nothing here subscribes to a particular peer. B learns from S2 which grants
+ * concern it (including the one S1 gave S2), so once the direct link is up, A —
+ * a participant of the grantor — is a source for B, and A serves B on S1's
+ * behalf with the grants S1 delegated to it. B tells S2 it gets A's traffic
+ * first-hand, so S2 stops relaying A's LOSSY ops to B; reliable traffic keeps
+ * flowing through the servers as the path that survives a direct link
+ * dropping silently, and duplicates apply once.
  */
 import { describe, expect, it } from 'vitest';
-import { createLoopbackPair } from '../src/loopback.js';
-import { createMeshPeer, type MeshPeer } from '../src/peer.js';
-import type { Collection } from '../src/collection.js';
-import type { MeshMessage } from '../src/wire.js';
+import { createLoopbackPair, type LoopbackPair } from '../src/loopback.js';
+import { createMeshPeer } from '../src/peer.js';
+import type { MeshMessage, OpEnvelope } from '../src/wire.js';
 import type { MeshTransport } from '../src/transport.js';
 
 interface Doc {
@@ -21,14 +26,17 @@ interface Doc {
   [k: string]: unknown;
 }
 
-/** Counts the ops a transport delivers, by origin. */
-function counted(t: MeshTransport, seen: MeshMessage[]): MeshTransport {
+/** Records what a transport delivers, with the link it came over. */
+function recorded(
+  t: MeshTransport,
+  seen: { from: string; msg: MeshMessage }[]
+): MeshTransport {
   return {
     start: (h) =>
       t.start({
         ...h,
         message: (peer, msg) => {
-          seen.push(msg);
+          seen.push({ from: peer, msg });
           h.message(peer, msg);
         },
       }),
@@ -37,6 +45,18 @@ function counted(t: MeshTransport, seen: MeshMessage[]): MeshTransport {
 }
 
 const ALL = { read: true, update: true, create: true, delete: true };
+const grant = (
+  grantee: string,
+  rtype: string,
+  rights: Record<string, boolean> = ALL
+) => ({
+  grantee,
+  entityRtype: rtype,
+  entityId: '*',
+  includeDescendants: false,
+  pathPrefix: '',
+  rights,
+});
 const sub = (rtype: string, channels?: string[]) => ({
   entityRtype: rtype,
   entityId: '*',
@@ -45,161 +65,247 @@ const sub = (rtype: string, channels?: string[]) => ({
   ...(channels ? { channels } : {}),
 });
 
-function triangle({ bGrantsA = true } = {}) {
-  const s = createMeshPeer({ identity: { peerId: 'S' } });
-  const sDocs = s.collection<Doc>('doc', { clients: ALL });
-  const viaServer: MeshMessage[] = [];
-  const peers: Record<string, { peer: MeshPeer; col: Collection<Doc> }> = {};
-  const flushes: (() => Promise<void>)[] = [];
-  for (const name of ['a', 'b']) {
-    const id = `S#${name}`;
-    const lb = createLoopbackPair('S', id);
-    s.addTransport(lb.a);
-    const peer = createMeshPeer({
-      identity: { peerId: id },
-      home: 'S',
-      transports: [name === 'b' ? counted(lb.b, viaServer) : lb.b],
-    });
-    peers[name] = {
-      peer,
-      col: peer.collection<Doc>('doc', { authority: 'S' }),
-    };
-    flushes.push(lb.flush);
-  }
-  const direct = createLoopbackPair('S#a', 'S#b');
-  const linkDirect = () => {
-    peers.a.peer.addTransport(direct.a);
-    peers.b.peer.addTransport(direct.b);
+function square() {
+  const pairs: LoopbackPair[] = [];
+  const link = (x: string, y: string) => {
+    const lb = createLoopbackPair(x, y);
+    pairs.push(lb);
+    return lb;
   };
-  // A serves B directly: A's grants come from S (delivered at link setup in
-  // the app); here A grants B by hand.
-  peers.a.peer.grants.grant({
-    grantee: 'S#b',
-    entityRtype: 'doc',
-    entityId: '*',
-    includeDescendants: false,
-    pathPrefix: '',
-    rights: { read: true },
+  const s1s2 = link('S1', 'S2');
+  const s1a = link('S1', 'S1#a');
+  const s2b = link('S2', 'S2#b');
+  const s1 = createMeshPeer({
+    identity: { peerId: 'S1' },
+    transports: [s1s2.a, s1a.a],
   });
-  // ...and B lets A write previews to it over the direct link.
-  if (bGrantsA)
-    peers.b.peer.grants.grant({
-      grantee: 'S#a',
-      entityRtype: 'doc',
-      entityId: '*',
-      includeDescendants: false,
-      pathPrefix: '',
-      rights: { update: true },
-    });
+  const s2 = createMeshPeer({
+    identity: { peerId: 'S2' },
+    transports: [s1s2.b, s2b.a],
+  });
+  const atB: { from: string; msg: MeshMessage }[] = [];
+  const a = createMeshPeer({
+    identity: { peerId: 'S1#a' },
+    transports: [s1a.b],
+  });
+  const b = createMeshPeer({
+    identity: { peerId: 'S2#b' },
+    transports: [recorded(s2b.b, atB)],
+  });
+  const s1Docs = s1.collection<Doc>('doc');
+  s2.collection<Doc>('doc');
+  const aDocs = a.collection<Doc>('doc');
+  const bDocs = b.collection<Doc>('doc');
+  // Each server's tabs may do everything; S1 shares its docs with S2.
+  const s2Grant = s1.grants.grant(grant('S2', 'doc'));
+  s1.grants.grant(grant('S1', 'doc'));
+  s2.grants.grant(grant('S2', 'doc'));
+
+  let direct: LoopbackPair | undefined;
+  const linkDirect = () => {
+    direct = link('S1#a', 'S2#b');
+    a.addTransport(direct.a);
+    b.addTransport(recorded(direct.b, atB));
+  };
   const flush = async () => {
-    for (let i = 0; i < 4; i++) {
-      for (const f of flushes) await f();
-      await direct.flush();
-    }
+    for (let i = 0; i < 6; i++) for (const p of pairs) await p.flush();
   };
   return {
-    s,
-    sDocs,
-    a: peers.a,
-    b: peers.b,
-    viaServer,
+    s1,
+    s2,
+    a,
+    b,
+    s1Docs,
+    aDocs,
+    bDocs,
+    s2Grant,
+    atB,
     linkDirect,
-    direct,
+    direct: () => direct!,
+    link,
     flush,
   };
 }
 
-const previewsFrom = (msgs: MeshMessage[], origin: string) =>
-  msgs.filter((m) => m.t === 'op' && m.origin === origin && m.ch === 'preview')
-    .length;
+/** How many ops of `origin` reached B over the link to `from`. */
+const arrived = (
+  seen: { from: string; msg: MeshMessage }[],
+  from: string,
+  origin: string,
+  ch?: string
+) =>
+  seen.filter(
+    ({ from: f, msg: m }) =>
+      f === from &&
+      m.t === 'op' &&
+      m.origin === origin &&
+      (ch === undefined || m.ch === ch)
+  ).length;
+
+async function shared() {
+  const t = square();
+  t.s1Docs.create({ id: 'd1', x: 0 });
+  await t.flush();
+  await t.s2.subscribe(sub('doc'));
+  await t.a.subscribe(sub('doc'));
+  const subB = await t.b.subscribe(sub('doc'));
+  await t.flush();
+  return { ...t, subB };
+}
+
+describe('sources follow grants', () => {
+  it('a subscription is served by whoever granted it, without naming them', async () => {
+    const t = await shared();
+    expect(t.bDocs.get('d1')?.x).toBe(0); // S1 → S2 → B
+    t.aDocs.set('d1', 'x', 3);
+    await t.flush();
+    expect(t.bDocs.get('d1')?.x).toBe(3);
+  });
+
+  it("a direct link makes the grantor's participant a source too", async () => {
+    const t = await shared();
+    expect(t.subB.sources()).toEqual(['S2']);
+    t.linkDirect();
+    await t.flush();
+    expect(t.subB.sources().sort()).toEqual(['S1#a', 'S2']);
+  });
+
+  it('tabs of one server do not subscribe to each other', async () => {
+    const t = await shared();
+    const lbZ = t.link('S1', 'S1#z');
+    const az = t.link('S1#a', 'S1#z');
+    const z = createMeshPeer({
+      identity: { peerId: 'S1#z' },
+      transports: [lbZ.b, az.b],
+    });
+    t.s1.addTransport(lbZ.a);
+    t.a.addTransport(az.a);
+    z.collection<Doc>('doc');
+    await t.flush();
+    const s = await z.subscribe(sub('doc'));
+    await t.flush();
+    expect(s.sources()).toEqual(['S1']);
+  });
+});
 
 describe('link state', () => {
   it('the server stops relaying lossy traffic a tab gets directly', async () => {
-    const t = triangle();
-    t.sDocs.create({ id: 'd1', x: 0 });
-    await t.b.peer.subscribe('S', sub('doc', ['preview']));
-    await t.a.peer.subscribe('S', sub('doc', ['preview']));
-
-    // Without a direct link, A's previews reach B through S.
-    t.a.col.set('d1', 'x', 1, { channel: 'preview' });
+    const t = await shared();
+    // Without a direct link, A's previews reach B through S2.
+    t.aDocs.set('d1', 'x', 1, { channel: 'preview' });
     await t.flush();
-    expect(previewsFrom(t.viaServer, 'S#a')).toBe(1);
-    expect(t.b.col.get('d1')?.x).toBe(1);
+    expect(arrived(t.atB, 'S2', 'S1#a', 'preview')).toBe(1);
+    expect(t.bDocs.get('d1')?.x).toBe(1);
 
-    // Link A and B directly; B subscribes to A for the lossy channel.
     t.linkDirect();
     await t.flush();
-    await t.b.peer.subscribe('S#a', sub('doc', ['preview']));
-    t.viaServer.length = 0;
-
-    t.a.col.set('d1', 'x', 2, { channel: 'preview' });
+    t.atB.length = 0;
+    t.aDocs.set('d1', 'x', 2, { channel: 'preview' });
     await t.flush();
-    expect(previewsFrom(t.viaServer, 'S#a')).toBe(0); // not relayed
-    expect(t.b.col.get('d1')?.x).toBe(2); // arrived directly
+    expect(arrived(t.atB, 'S2', 'S1#a', 'preview')).toBe(0); // not relayed
+    expect(arrived(t.atB, 'S1#a', 'S1#a', 'preview')).toBe(1); // first-hand
+    expect(t.bDocs.get('d1')?.x).toBe(2);
   });
 
-  it('reliable traffic still flows through the server', async () => {
-    const t = triangle();
-    t.sDocs.create({ id: 'd1', x: 0 });
-    await t.b.peer.subscribe('S', sub('doc'));
-    await t.a.peer.subscribe('S', sub('doc'));
+  it('reliable traffic still flows through the servers', async () => {
+    const t = await shared();
     t.linkDirect();
     await t.flush();
-    t.viaServer.length = 0;
-    expect((await t.a.col.set('d1', 'x', 5).ack).status).toBe('acked');
+    t.atB.length = 0;
+    expect((await t.aDocs.set('d1', 'x', 5).ack).status).toBe('acked');
     await t.flush();
-    expect(
-      t.viaServer.filter((m) => m.t === 'op' && m.origin === 'S#a').length
-    ).toBe(1);
-    expect(t.b.col.get('d1')?.x).toBe(5);
+    expect(arrived(t.atB, 'S2', 'S1#a')).toBe(1);
+    expect(t.bDocs.get('d1')?.x).toBe(5);
   });
 
   it('relaying resumes when the direct link drops', async () => {
-    const t = triangle();
-    t.sDocs.create({ id: 'd1', x: 0 });
-    await t.b.peer.subscribe('S', sub('doc', ['preview']));
+    const t = await shared();
     t.linkDirect();
     await t.flush();
-    t.direct.disconnect();
+    t.direct().disconnect();
     await t.flush();
-    t.viaServer.length = 0;
-    t.a.col.set('d1', 'x', 9, { channel: 'preview' });
+    t.atB.length = 0;
+    t.aDocs.set('d1', 'x', 9, { channel: 'preview' });
     await t.flush();
-    expect(previewsFrom(t.viaServer, 'S#a')).toBe(1);
-    expect(t.b.col.get('d1')?.x).toBe(9);
+    expect(arrived(t.atB, 'S2', 'S1#a', 'preview')).toBe(1);
+    expect(t.bDocs.get('d1')?.x).toBe(9);
   });
 
   it('an addressed message takes the direct link when there is one', async () => {
-    const t = triangle();
+    const t = await shared();
+    const aCmds = t.a.collection<Doc>('cmd', { channels: ['control'] });
+    const bCmds = t.b.collection<Doc>('cmd', { channels: ['control'] });
+    t.s1.collection<Doc>('cmd', { channels: ['control'] });
+    t.s2.collection<Doc>('cmd', { channels: ['control'] });
+    t.s1.grants.grant(grant('S2', 'cmd', { read: true }));
     t.linkDirect();
     await t.flush();
-    await t.b.peer.subscribe('S', sub('doc'));
-    const cmds = t.b.peer.collection<Doc>('cmd', { channels: ['control'] });
-    const aCmds = t.a.peer.collection<Doc>('cmd', { channels: ['control'] });
-    t.b.peer.grants.grant({
-      grantee: 'S#a',
-      entityRtype: 'cmd',
-      entityId: '*',
-      includeDescendants: false,
-      pathPrefix: '',
-      rights: { read: true, update: true, create: true },
-    });
-    // The sender projects what it sends through the recipient's grants too.
-    t.a.peer.grants.grant({
-      grantee: 'S#b',
-      entityRtype: 'cmd',
-      entityId: '*',
-      includeDescendants: false,
-      pathPrefix: '',
-      rights: { read: true },
-    });
     const got: unknown[] = [];
-    cmds.observe('**', (c) => got.push(c.doc));
-    t.viaServer.length = 0;
-    aCmds.set('go', '', { id: 'go' }, { channel: 'control', to: 'S#b' });
+    bCmds.observe('**', (c) => got.push(c.doc));
+    t.atB.length = 0;
+    aCmds.set('go', '', { id: 'go' }, { channel: 'control', to: 'S2#b' });
     await t.flush();
     expect(got).toHaveLength(1);
-    expect(t.viaServer.filter((m) => m.t === 'op').length).toBe(0);
+    expect(arrived(t.atB, 'S1#a', 'S1#a', 'control')).toBe(1);
+    expect(arrived(t.atB, 'S2', 'S1#a', 'control')).toBe(0);
+  });
+});
+
+describe('direct links and grants', () => {
+  it('a tab does not relay what it receives to its own direct subscribers', async () => {
+    const t = await shared();
+    t.linkDirect();
+    await t.flush();
+    t.atB.length = 0;
+    t.s1Docs.set('d1', 'x', 1, { channel: 'preview' });
+    await t.flush();
+    expect(t.aDocs.get('d1')?.x).toBe(1);
+    expect(arrived(t.atB, 'S1#a', 'S1')).toBe(0); // A forwards nothing
+    expect(t.bDocs.get('d1')?.x).toBe(1); // B got it through S2
+  });
+
+  it('a peer whose server granted us nothing cannot write into our replica', async () => {
+    const t = await shared();
+    const lb = t.link('S3#c', 'S2#b');
+    t.b.addTransport(lb.b);
+    const forged: OpEnvelope = {
+      t: 'op',
+      rtype: 'doc',
+      op: 'patch',
+      id: 'd1',
+      path: 'x',
+      data: 666,
+      origin: 'S3#c',
+      ch: 'preview',
+      qe: 1,
+      q: 1,
+    };
+    lb.a.start({
+      peerConnected: (_id, link) => link.send(forged),
+      peerDisconnected: () => {},
+      message: () => {},
+    });
+    await t.flush();
+    expect(t.bDocs.get('d1')?.x).toBe(0);
+  });
+
+  it('a direct subscriber is served under the grants its server delegated, and loses them with the grant', async () => {
+    const t = await shared();
+    t.linkDirect();
+    await t.flush();
+    t.atB.length = 0;
+    t.aDocs.set('d1', 'x', 4, { channel: 'preview' });
+    await t.flush();
+    expect(arrived(t.atB, 'S1#a', 'S1#a', 'preview')).toBe(1);
+
+    t.s1.grants.revoke(t.s2Grant); // S1 no longer shares with S2
+    await t.flush();
+    t.atB.length = 0;
+    t.aDocs.set('d1', 'x', 7, { channel: 'preview' });
+    await t.flush();
+    expect(arrived(t.atB, 'S1#a', 'S1#a')).toBe(0);
+    expect(arrived(t.atB, 'S2', 'S1#a')).toBe(0);
+    expect(t.bDocs.get('d1')?.x).not.toBe(7);
   });
 });
 
@@ -209,121 +315,24 @@ describe('subscriptions survive reconnects', () => {
     const s = createMeshPeer({ identity: { peerId: 'S' }, transports: [lb.a] });
     const t = createMeshPeer({
       identity: { peerId: 'S#t' },
-      home: 'S',
       transports: [lb.b],
     });
-    const sd = s.collection<Doc>('doc', { clients: ALL });
-    const td = t.collection<Doc>('doc', { authority: 'S' });
+    const sd = s.collection<Doc>('doc');
+    s.grants.grant(grant('S', 'doc'));
+    const td = t.collection<Doc>('doc');
     sd.create({ id: 'd1', x: 1 });
-    await t.subscribe('S', sub('doc'));
+    await t.subscribe(sub('doc'));
     expect(td.get('d1')?.x).toBe(1);
 
     lb.disconnect();
     sd.set('d1', 'x', 2); // missed while offline
     lb.connect();
     await lb.flush();
+    await lb.flush();
     expect(td.get('d1')?.x).toBe(2); // snapshot of the renewed subscription
 
     sd.set('d1', 'x', 3); // and live again
     await lb.flush();
     expect(td.get('d1')?.x).toBe(3);
-  });
-});
-
-describe('direct-link subscriptions', () => {
-  it('an exact preview subscription gets previews only: no snapshot, no committed ops', async () => {
-    const lb = createLoopbackPair('A', 'B');
-    const a = createMeshPeer({ identity: { peerId: 'A' }, transports: [lb.a] });
-    const b = createMeshPeer({ identity: { peerId: 'B' }, transports: [lb.b] });
-    const da = a.collection<Doc>('doc');
-    const db = b.collection<Doc>('doc');
-    a.grants.grant({
-      grantee: 'B',
-      entityRtype: 'doc',
-      entityId: '*',
-      includeDescendants: false,
-      pathPrefix: '',
-      rights: { read: true },
-    });
-    da.create({ id: 'd1', x: 1 });
-    await b.subscribe('A', { ...sub('doc', ['preview']), exact: true });
-    expect(db.get('d1')).toBeUndefined(); // no snapshot over this link
-
-    // B holds the committed doc through its own home, as a real tab does.
-    db.put({ id: 'd1', x: 1 }, { v: { t: 1, c: 0, n: 'home' } });
-    da.set('d1', 'x', 2); // committed: not on this subscription
-    da.set('d1', 'x', 3, { channel: 'preview' });
-    await lb.flush();
-    expect(db.replica.raw('d1')?.x).toBe(1); // committed value untouched
-    expect(db.get('d1')?.x).toBe(3); // the preview, over it
-  });
-
-  it('a tab does not relay what it receives to its own direct subscribers', async () => {
-    const t = triangle();
-    for (const p of [t.a.peer, t.b.peer])
-      (p as unknown as { cfg: { relay?: boolean } }).cfg.relay = false;
-    t.sDocs.create({ id: 'd1', x: 0 });
-    await t.a.peer.subscribe('S', sub('doc', ['preview']));
-    t.linkDirect();
-    await t.flush();
-    // B subscribes to A directly; S writes a preview. A gets it from S but
-    // must not forward it to B (B isn't subscribed to S here).
-    await t.b.peer.subscribe('S#a', {
-      ...sub('doc', ['preview']),
-      exact: true,
-    });
-    const atB: unknown[] = [];
-    t.b.col.observe('**', (c) => atB.push(c));
-    t.sDocs.set('d1', 'x', 1, { channel: 'preview' });
-    await t.flush();
-    expect(t.a.col.get('d1')?.x).toBe(1);
-    expect(atB).toHaveLength(0);
-    // What A itself authors does reach B directly.
-    t.a.col.set('d1', 'x', 2, { channel: 'preview' });
-    await t.flush();
-    expect(atB).toHaveLength(1);
-  });
-
-  it("a write over a direct link must pass the sending tab's write grants", async () => {
-    const t = triangle({ bGrantsA: false });
-    t.sDocs.create({ id: 'd1', x: 0 });
-    await t.b.peer.subscribe('S', sub('doc'));
-    t.linkDirect();
-    await t.flush();
-    await t.b.peer.subscribe('S#a', {
-      ...sub('doc', ['preview']),
-      exact: true,
-    });
-    // Subscribed to A, but B holds no write grant for A: A's preview is dropped.
-    t.a.col.set('d1', 'x', 5, { channel: 'preview' });
-    await t.direct.flush();
-    expect(t.b.col.get('d1')?.x).toBe(0);
-    // A grant to A's server covers A's tabs.
-    t.b.peer.grants.grant({
-      grantee: 'S',
-      entityRtype: 'doc',
-      entityId: '*',
-      includeDescendants: false,
-      pathPrefix: '',
-      rights: { update: true },
-    });
-    t.a.col.set('d1', 'x', 6, { channel: 'preview' });
-    await t.direct.flush();
-    expect(t.b.col.get('d1')?.x).toBe(6);
-  });
-});
-
-describe('link state needs an active subscription', () => {
-  it('a link with no subscription over it does not stop the relay', async () => {
-    const t = triangle();
-    t.sDocs.create({ id: 'd1', x: 0 });
-    await t.b.peer.subscribe('S', sub('doc', ['preview']));
-    t.linkDirect(); // linked, but B never subscribes to A (e.g. refused)
-    await t.flush();
-    t.viaServer.length = 0;
-    t.a.col.set('d1', 'x', 7, { channel: 'preview' });
-    await t.flush();
-    expect(previewsFrom(t.viaServer, 'S#a')).toBe(1);
-    expect(t.b.col.get('d1')?.x).toBe(7);
   });
 });

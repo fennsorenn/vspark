@@ -63,7 +63,7 @@ async function pair(opts?: {
     rights: RUCD,
   });
   await lb.flush();
-  await b.subscribe('A', {
+  await b.subscribe({
     entityRtype: 'inst',
     entityId: '*',
     includeDescendants: false,
@@ -145,7 +145,7 @@ describe('one validator, every write shape', () => {
       rights: RUCD,
     });
     await lb.flush();
-    await b.subscribe('A', {
+    await b.subscribe({
       entityRtype: 'inst',
       entityId: '*',
       includeDescendants: false,

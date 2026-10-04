@@ -173,18 +173,22 @@ export function initMeshRuntime(peer: MeshPeer): void {
   if (_overrides) return;
   // `runtime` and `control` are built-in mesh channels. Tabs display these
   // documents; only this server writes them.
-  _overrides = peer.collection<RuntimeOverrideDoc>(RUNTIME_OVERRIDE_RTYPE, {
-    authority: 'self',
-    clients: { read: true },
-  });
-  _dataFields = peer.collection<DataFieldDoc>(DATA_FIELD_RTYPE, {
-    authority: 'self',
-    clients: { read: true },
-  });
-  _media = peer.collection<MediaControlDoc>(MEDIA_CONTROL_RTYPE, {
-    authority: 'self',
-    clients: { read: true },
-  });
+  _overrides = peer.collection<RuntimeOverrideDoc>(RUNTIME_OVERRIDE_RTYPE);
+  _dataFields = peer.collection<DataFieldDoc>(DATA_FIELD_RTYPE);
+  _media = peer.collection<MediaControlDoc>(MEDIA_CONTROL_RTYPE);
+  for (const rtype of [
+    RUNTIME_OVERRIDE_RTYPE,
+    DATA_FIELD_RTYPE,
+    MEDIA_CONTROL_RTYPE,
+  ])
+    peer.grants.grant({
+      grantee: peer.id, // our tabs: they display these, only we write them
+      entityRtype: rtype,
+      entityId: '*',
+      includeDescendants: false,
+      pathPrefix: '',
+      rights: { read: true },
+    });
 }
 
 /** The override collection, or null before the mesh is up (tests that skip it,

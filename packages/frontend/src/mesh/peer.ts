@@ -14,16 +14,11 @@
 import {
   createMeshPeer,
   type Collection,
-  type Grant,
   type MeshPeer,
   type UndoStatus,
 } from '@vspark/mesh';
 import { WsBackendTransport } from '@vspark/mesh-transports/wsClient';
-import {
-  isClientParticipant,
-  makeClientParticipantId,
-  randomUUID,
-} from '@vspark/shared/sync';
+import { makeClientParticipantId, randomUUID } from '@vspark/shared/sync';
 import { DirectTransport } from './directTransport';
 import { MODELS, TAB_MODELS } from '@vspark/shared/models';
 
@@ -214,13 +209,11 @@ async function doInit(): Promise<MeshHandles> {
   const { serverPeerId } = (await res.json()) as { serverPeerId: string };
   const participantId = makeClientParticipantId(serverPeerId, tabUuid());
   const wsProto = window.location.protocol === 'https:' ? 'wss' : 'ws';
+  // A tab's own server decides its writes and delivers its grants; the mesh
+  // derives that from the participant id, so nothing here configures it.
   const peer = createMeshPeer({
     identity: { peerId: participantId },
     models: MODELS,
-    // Our server is the source of our grants, not a recipient they gate.
-    home: serverPeerId,
-    // A tab is an endpoint: a direct subscriber gets only what it authors.
-    relay: false,
     transports: [
       new WsBackendTransport({
         url: `${wsProto}://${window.location.host}/mesh`,
@@ -235,66 +228,13 @@ async function doInit(): Promise<MeshHandles> {
           await enroll();
         },
       }),
+      // Direct links (principle 8) to tabs of other servers over WebRTC.
+      new DirectTransport(serverPeerId),
     ],
   });
 
   const collections: Record<string, Collection<Dto>> = {};
-  for (const rtype of RTYPES)
-    collections[rtype] = peer.collection<Dto>(rtype, {
-      authority: serverPeerId,
-    });
-
-  // Grants for participants of other servers, delivered by our server — the
-  // grant source of truth (backend mesh/peerGrants.ts). When one of them links
-  // to this tab directly, it gets exactly what those grants allow.
-  const mirrored = new Map<string, string>();
-  collections.peer_grant.observe('**', (c) => {
-    const old = mirrored.get(c.id);
-    if (old) {
-      peer.grants.revoke(old);
-      mirrored.delete(c.id);
-    }
-    const grant = (c.doc as { grant?: Grant } | undefined)?.grant;
-    if (c.op !== 'remove' && grant)
-      mirrored.set(c.id, peer.grants.grant(grant));
-  });
-
-  // Direct links (principle 8): tabs of other servers reached over WebRTC.
-  // Each gets a preview-only subscription — committed state keeps arriving
-  // through our server, which validates it (plan F6). The other tab may not
-  // hold the grants for us yet (its server delivers them a moment later), so
-  // a refused subscription is retried with backoff while the link is up.
-  peer.addTransport(new DirectTransport(serverPeerId));
-  const direct = new Set<string>();
-  const subscribeDirect = (id: string, attempt = 0): void => {
-    void peer
-      .subscribe(id, {
-        entityRtype: '*',
-        entityId: '*',
-        includeDescendants: false,
-        pathPrefix: '',
-        channels: ['preview'],
-        exact: true,
-      })
-      .catch(() => {
-        const delay = Math.min(30_000, 1000 * 2 ** attempt);
-        setTimeout(() => {
-          if (peer.status().peers.some((p) => p.id === id))
-            subscribeDirect(id, attempt + 1);
-          else direct.delete(id);
-        }, delay);
-      });
-  };
-  peer.onStatus((s) => {
-    const linked = new Set(s.peers.map((p) => p.id));
-    for (const id of [...direct]) if (!linked.has(id)) direct.delete(id);
-    for (const id of linked) {
-      if (id === serverPeerId || direct.has(id) || !isClientParticipant(id))
-        continue;
-      direct.add(id);
-      subscribeDirect(id);
-    }
-  });
+  for (const rtype of RTYPES) collections[rtype] = peer.collection<Dto>(rtype);
 
   // Bridge the peer's undo/redo availability to the module-level observers the
   // TopBar/keybindings subscribe to.
@@ -304,34 +244,20 @@ async function doInit(): Promise<MeshHandles> {
     for (const cb of _undoObservers) cb(s);
   });
 
-  // Subscribe to every rtype once. The peer renews them itself after a
-  // reconnect; this only retries the ones that never got through.
-  const subscribed = new Set<string>();
-  let arming = false;
-  const armSubscriptions = async () => {
-    const connected = peer.status().peers.some((p) => p.id === serverPeerId);
-    if (!connected || arming) return;
-    arming = true;
-    try {
-      for (const rtype of RTYPES) {
-        if (subscribed.has(rtype)) continue;
-        await peer.subscribe(serverPeerId, {
-          entityRtype: rtype,
-          entityId: '*',
-          includeDescendants: false,
-          pathPrefix: '',
-        });
-        subscribed.add(rtype);
+  // One subscription per document type. The mesh serves each from whoever
+  // granted it — our server, and over a direct link the tabs of a server that
+  // shared with ours — and renews it after a reconnect.
+  for (const rtype of RTYPES)
+    void peer
+      .subscribe({
+        entityRtype: rtype,
+        entityId: '*',
+        includeDescendants: false,
+        pathPrefix: '',
+      })
+      .then(() => {
         for (const cb of _snapshotObservers) cb(rtype);
-      }
-    } catch (e) {
-      console.warn('[mesh] subscribe failed (will retry on reconnect):', e);
-    } finally {
-      arming = false;
-    }
-  };
-  peer.onStatus(() => void armSubscriptions());
-  void armSubscriptions();
+      });
 
   _handles = { peer, serverPeerId, collections };
   // The peer arrives asynchronously, so anything holding a reference to a
