@@ -65,7 +65,6 @@ export function ViewerPage() {
     setScenes,
     setActiveScene,
     setNodes,
-    setBehaviors,
     setComposeLayers,
     setComposeScenes,
     selectComposeScene,
@@ -111,44 +110,35 @@ export function ViewerPage() {
 
     api
       .getScenes(projectId)
-      .then(
-        ({
-          scenes,
-          nodes: sceneNodes,
-          behaviors,
-          composeLayers,
-          trackClips,
-        }) => {
-          setScenes(scenes);
-          setBehaviors(behaviors);
-          // Split compose_scene containers from regular layers (mirrors Editor).
-          setComposeScenes(
-            composeLayers.filter((l) => l.kind === 'compose_scene')
-          );
-          setComposeLayers(
-            composeLayers.filter((l) => l.kind !== 'compose_scene')
-          );
-          setTrackClips(trackClips);
-          // Load every scene's nodes so cross-scene camera_views resolve.
-          setNodes(sceneNodes);
-          // Activate the scene this link actually targets — for a single-camera
-          // link that's the camera's own scene, not blindly the first one (which
-          // left the active scene wrong whenever the camera lived in any scene
-          // but the first). Compose links select a compose scene instead; their
-          // 3D content is keyed per camera_view, so any 3D scene works as the
-          // base — fall back to the first.
-          if (composeSceneId) {
-            selectComposeScene(composeSceneId);
-            if (scenes.length > 0) setActiveScene(scenes[0].id);
-          } else if (nodeId) {
-            const cam = sceneNodes.find((n) => n.id === nodeId);
-            const sid = cam?.rootSceneNodeId ?? scenes[0]?.id;
-            if (sid) setActiveScene(sid);
-          } else if (scenes.length > 0) {
-            setActiveScene(scenes[0].id);
-          }
+      .then(({ scenes, nodes: sceneNodes, composeLayers, trackClips }) => {
+        setScenes(scenes);
+        // Split compose_scene containers from regular layers (mirrors Editor).
+        setComposeScenes(
+          composeLayers.filter((l) => l.kind === 'compose_scene')
+        );
+        setComposeLayers(
+          composeLayers.filter((l) => l.kind !== 'compose_scene')
+        );
+        setTrackClips(trackClips);
+        // Load every scene's nodes so cross-scene camera_views resolve.
+        setNodes(sceneNodes);
+        // Activate the scene this link actually targets — for a single-camera
+        // link that's the camera's own scene, not blindly the first one (which
+        // left the active scene wrong whenever the camera lived in any scene
+        // but the first). Compose links select a compose scene instead; their
+        // 3D content is keyed per camera_view, so any 3D scene works as the
+        // base — fall back to the first.
+        if (composeSceneId) {
+          selectComposeScene(composeSceneId);
+          if (scenes.length > 0) setActiveScene(scenes[0].id);
+        } else if (nodeId) {
+          const cam = sceneNodes.find((n) => n.id === nodeId);
+          const sid = cam?.rootSceneNodeId ?? scenes[0]?.id;
+          if (sid) setActiveScene(sid);
+        } else if (scenes.length > 0) {
+          setActiveScene(scenes[0].id);
         }
-      )
+      })
       .catch(() => {});
     api
       .getAssets(projectId)
@@ -162,7 +152,6 @@ export function ViewerPage() {
     setScenes,
     setActiveScene,
     setNodes,
-    setBehaviors,
     setComposeLayers,
     setComposeScenes,
     selectComposeScene,

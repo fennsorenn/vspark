@@ -11,11 +11,7 @@
 
 import { beforeEach, describe, expect, test } from 'vitest';
 import { useEditorStore } from '../src/store/editorStore';
-import type {
-  StageObject,
-  SceneItem,
-  Behavior,
-} from '../src/store/editorStore';
+import type { StageObject, SceneItem } from '../src/store/editorStore';
 import type { CameraEffectRecord, TrackClipRecord } from '../src/api/client';
 
 // ── helpers ───────────────────────────────────────────────────────────────────
@@ -31,9 +27,6 @@ const INITIAL_STATE = {
   sceneSelected: false,
   selectedBehaviorId: null,
   assets: [],
-  behaviors: [],
-  vmcStatus: {},
-  vmcTracking: {},
   scheduledAnimations: {},
   animationClips: {},
   vrmBonesByNode: {},
@@ -94,17 +87,6 @@ function makeScene(overrides: Partial<SceneItem> = {}): SceneItem {
     id: 'scene-1',
     name: 'Scene 1',
     runtimeSettings: {},
-    ...overrides,
-  };
-}
-
-function makeBehavior(overrides: Partial<Behavior> = {}): Behavior {
-  return {
-    id: 'beh-1',
-    nodeId: 'node-1',
-    kind: 'vmc_receiver',
-    enabled: true,
-    config: {},
     ...overrides,
   };
 }
@@ -267,13 +249,6 @@ describe('addNode / updateNode / deleteNode / selectNode', () => {
     expect(st.selectedNodeId).toBeNull();
   });
 
-  test('deleteNode also removes behaviors attached to that node', () => {
-    useEditorStore.getState().addNode(makeNode());
-    useEditorStore.getState().addBehavior(makeBehavior({ nodeId: 'node-1' }));
-    useEditorStore.getState().deleteNode('node-1');
-    expect(useEditorStore.getState().behaviors).toHaveLength(0);
-  });
-
   test('selectNode sets selectedNodeId and clears sceneSelected', () => {
     useEditorStore.getState().setSceneSelected(true);
     useEditorStore.getState().selectNode('node-1');
@@ -326,93 +301,6 @@ describe('activeSceneNodes()', () => {
 });
 
 // ── Behaviors ─────────────────────────────────────────────────────────────────
-
-describe('behaviors CRUD + behaviorsFor()', () => {
-  test('addBehavior appends', () => {
-    useEditorStore.getState().addBehavior(makeBehavior());
-    expect(useEditorStore.getState().behaviors).toHaveLength(1);
-  });
-
-  test('updateBehavior patches the matching behavior', () => {
-    useEditorStore.getState().addBehavior(makeBehavior());
-    useEditorStore.getState().updateBehavior('beh-1', { enabled: false });
-    expect(useEditorStore.getState().behaviors[0].enabled).toBe(false);
-  });
-
-  test('removeBehavior removes and clears selectedBehaviorId', () => {
-    useEditorStore.getState().addBehavior(makeBehavior());
-    useEditorStore.getState().selectBehavior('beh-1');
-    useEditorStore.getState().removeBehavior('beh-1');
-    const st = useEditorStore.getState();
-    expect(st.behaviors).toHaveLength(0);
-    expect(st.selectedBehaviorId).toBeNull();
-  });
-
-  test('behaviorsFor() filters by nodeId', () => {
-    useEditorStore
-      .getState()
-      .setBehaviors([
-        makeBehavior({ id: 'b1', nodeId: 'node-1' }),
-        makeBehavior({ id: 'b2', nodeId: 'node-2' }),
-        makeBehavior({ id: 'b3', nodeId: 'node-1' }),
-      ]);
-    const result = useEditorStore.getState().behaviorsFor('node-1');
-    expect(result.map((b) => b.id)).toEqual(['b1', 'b3']);
-  });
-});
-
-// ── VMC status / tracking ─────────────────────────────────────────────────────
-
-describe('setVmcStatus / setVmcTracking', () => {
-  test('setVmcStatus stores connected state per behaviorId', () => {
-    useEditorStore.getState().setVmcStatus('beh-1', true);
-    useEditorStore.getState().setVmcStatus('beh-2', false);
-    const { vmcStatus } = useEditorStore.getState();
-    expect(vmcStatus['beh-1']).toBe(true);
-    expect(vmcStatus['beh-2']).toBe(false);
-  });
-
-  test('setVmcTracking stores tracking state per behaviorId', () => {
-    useEditorStore.getState().setVmcTracking('beh-1', true);
-    expect(useEditorStore.getState().vmcTracking['beh-1']).toBe(true);
-    useEditorStore.getState().setVmcTracking('beh-1', false);
-    expect(useEditorStore.getState().vmcTracking['beh-1']).toBe(false);
-  });
-
-  // A stale `tracking: true` outliving its behavior keeps consumers believing a
-  // tracking source is live — avatars pin to their base animation and can never
-  // fall back to idle. The flags must not outlive the behavior that set them.
-  test('removeBehavior drops its vmcTracking / vmcStatus entries', () => {
-    const st = useEditorStore.getState();
-    st.addBehavior(makeBehavior());
-    st.setVmcTracking('beh-1', true);
-    st.setVmcStatus('beh-1', true);
-
-    useEditorStore.getState().removeBehavior('beh-1');
-
-    const after = useEditorStore.getState();
-    expect(after.vmcTracking).not.toHaveProperty('beh-1');
-    expect(after.vmcStatus).not.toHaveProperty('beh-1');
-  });
-
-  test('setBehaviors prunes flags for behaviors that no longer exist', () => {
-    const st = useEditorStore.getState();
-    st.setBehaviors([makeBehavior({ id: 'b1' }), makeBehavior({ id: 'b2' })]);
-    st.setVmcTracking('b1', true);
-    st.setVmcTracking('b2', true);
-    st.setVmcStatus('b2', true);
-
-    // Wholesale replace (scene load / preset apply / WS resync) drops b2.
-    useEditorStore.getState().setBehaviors([makeBehavior({ id: 'b1' })]);
-
-    const after = useEditorStore.getState();
-    expect(after.vmcTracking['b1']).toBe(true); // survivor keeps its flag
-    expect(after.vmcTracking).not.toHaveProperty('b2');
-    expect(after.vmcStatus).not.toHaveProperty('b2');
-  });
-});
-
-// ── VRM skeleton registration ─────────────────────────────────────────────────
 
 describe('VRM bones / expressions / morph targets', () => {
   test('setVrmBonesForNode registers bones; clear removes them', () => {

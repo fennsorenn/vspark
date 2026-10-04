@@ -6109,7 +6109,6 @@ export function PropertiesPanel() {
     selectedNodeId,
     assets,
     selectedBehaviorId,
-    behaviors,
     fbxDebugVisible,
     setFbxDebugVisible,
     vrmExpressionsByNode,
@@ -6127,13 +6126,16 @@ export function PropertiesPanel() {
     leftTab,
     activeLogicId,
   } = useEditorStore();
+  const selectedBehaviorDoc = useMeshDoc(
+    useCollection<Behavior>('behavior'),
+    selectedBehaviorId ?? ''
+  );
   const activeScene = scenes.find((s) => s.id === activeSceneId) ?? null;
   const animAssets: AssetFile[] = assets.filter((a) => a.kind === 'animation');
   const modelAssets: AssetFile[] = assets.filter((a) => a.kind === 'model');
   const node = nodes.find((n) => n.id === selectedNodeId) ?? null;
   const animationClips = useEditorStore((s) => s.animationClips);
-  const selectedBehavior =
-    behaviors.find((c) => c.id === selectedBehaviorId) ?? null;
+  const selectedBehavior = selectedBehaviorDoc ?? null;
   const selectedCompType = selectedBehavior
     ? behaviorKinds.find((ct) => ct.kind === selectedBehavior.kind)
     : null;

@@ -39,7 +39,6 @@ import {
 import { applyNodePreview, transformFieldsOf } from './nodePreview';
 import {
   useEditorStore,
-  type Behavior,
   type SceneItem,
   type StageObject,
   type ScheduledAnimation,
@@ -114,9 +113,7 @@ function applyStatus(d: RawStatus): void {
   const s = useEditorStore.getState();
   switch (d.kind) {
     case 'tracking':
-      if (typeof d.connected === 'boolean') s.setVmcStatus(d.key, d.connected);
-      if (typeof d.tracking === 'boolean') s.setVmcTracking(d.key, d.tracking);
-      return;
+      return; // read straight from the replica (useTrackingStatuses)
     case 'obs_connection':
       s.patchObsConnectionStatus({
         connectionId: d.key,
@@ -181,9 +178,6 @@ function pruneStale(h: Handles, rtype: string): void {
       for (const n of [...useEditorStore.getState().nodes])
         if (!n.remote && !held(n.id))
           useEditorStore.getState().deleteNode(n.id);
-      return;
-    case 'behavior':
-      for (const b of [...s.behaviors]) if (!held(b.id)) s.removeBehavior(b.id);
       return;
     case 'compose_layer':
       for (const l of [...s.composeLayers])
@@ -308,18 +302,6 @@ export function startMeshStoreFeeder(): void {
           s.scenes.some((sc) => sc.id === node.rootSceneNodeId);
         if (!ours) return;
         s.addNode(node);
-      });
-      h.collections.behavior.observe('**', (c) => {
-        if (c.op === 'ephemeral') return;
-        const s = useEditorStore.getState();
-        if (c.op === 'remove') {
-          s.removeBehavior(c.id);
-          return;
-        }
-        const b = c.doc as unknown as Behavior | undefined;
-        if (!b || parentIsRemote(b.nodeId)) return;
-        if (s.behaviors.some((x) => x.id === b.id)) s.updateBehavior(b.id, b);
-        else s.addBehavior(b);
       });
       h.collections.compose_layer.observe('**', (c) => {
         const s = useEditorStore.getState();

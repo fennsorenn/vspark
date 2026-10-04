@@ -77,7 +77,6 @@ export function Editor() {
     setActiveScene,
     setNodes,
     setAssets,
-    setBehaviors,
     setBehaviorKinds,
     setComposeLayers,
     setComposeScenes,
@@ -233,11 +232,10 @@ export function Editor() {
 
     api
       .getScenes(projectId)
-      .then(({ scenes, nodes, behaviors, composeLayers, trackClips }) => {
+      .then(({ scenes, nodes, composeLayers, trackClips }) => {
         // Rows another tab removed while this load was in flight stay
         // removed (see withoutRemoved).
         setScenes(withoutRemoved('scene_node', scenes));
-        setBehaviors(withoutRemoved('behavior', behaviors));
         // Separate compose_scene layers from regular layers
         const liveLayers = withoutRemoved('compose_layer', composeLayers);
         const composeSceneItems = liveLayers.filter(
@@ -275,7 +273,6 @@ export function Editor() {
     setActiveScene,
     setNodes,
     setAssets,
-    setBehaviors,
     setComposeLayers,
     setTrackClips,
     setOverliveAccounts,

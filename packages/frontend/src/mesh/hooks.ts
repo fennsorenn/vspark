@@ -33,12 +33,17 @@ import { useEffect, useState } from 'react';
 import {
   useCanWrite,
   useCollection,
+  useMeshAll,
   useMeshChildren,
   useMeshDoc,
 } from '@vspark/mesh-react';
 import type { Collection, MeshPeer } from '@vspark/mesh';
 import { getMeshHandles, onMeshReady, type MeshHandles } from './peer';
-import { useEditorStore, type StageObject } from '../store/editorStore';
+import {
+  useEditorStore,
+  type Behavior,
+  type StageObject,
+} from '../store/editorStore';
 import type { CameraEffectRecord, ComposeLayerRecord } from '../api/client';
 
 type Dto = Record<string, unknown>;
@@ -173,4 +178,37 @@ export function useCameraEffects(
 ): CameraEffectRecord[] {
   const col = useCollection<CameraEffectRecord>('camera_effect');
   return useMeshChildren(col, nodeId ?? '');
+}
+
+/** The behaviors on a node, live from the replica. */
+export function useNodeBehaviors(
+  nodeId: string | null | undefined
+): Behavior[] {
+  const col = useCollection<Behavior>('behavior');
+  return useMeshChildren(col, nodeId ?? '');
+}
+
+/** Every behavior this tab holds, live (filter by node where it matters: the
+ *  tab's subscription spans the server). */
+export function useAllBehaviors(): Behavior[] {
+  return useMeshAll(useCollection<Behavior>('behavior'));
+}
+
+/** A mocap receiver behavior's live status (backend mesh/status.ts, kind
+ *  'tracking'). It goes when the behavior does, so it cannot outlive it. */
+export interface TrackingStatus {
+  connected?: boolean;
+  tracking?: boolean;
+}
+
+/** Every receiver's status this tab holds, by behavior id. */
+export function useTrackingStatuses(): Record<string, TrackingStatus> {
+  const all = useMeshAll(
+    useCollection<{ id: string; kind: string; key: string } & TrackingStatus>(
+      'server_status'
+    )
+  );
+  const out: Record<string, TrackingStatus> = {};
+  for (const d of all) if (d.kind === 'tracking') out[d.key] = d;
+  return out;
 }

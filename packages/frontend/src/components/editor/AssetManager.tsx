@@ -29,7 +29,7 @@ import {
   createNodeFromLive2dAsset,
 } from './createKinds';
 import { HelpButton } from '../../help/HelpButton';
-import { useCameraEffects } from '../../mesh/hooks';
+import { useCameraEffects, useNodeBehaviors } from '../../mesh/hooks';
 
 /** Per-tab contextual help target — one consistent `?` follows the active tab. */
 const tabHelp: Partial<
@@ -61,11 +61,11 @@ export function AssetManager() {
     projectId,
     selectedNodeId,
     nodes,
-    behaviors,
     behaviorKinds,
   } = useEditorStore();
   const selectedNode = nodes.find((n) => n.id === selectedNodeId) ?? null;
   const selectedEffects = useCameraEffects(selectedNode?.id);
+  const selectedBehaviors = useNodeBehaviors(selectedNode?.id);
   const canApplyAnim =
     selectedNode?.kind === 'avatar' || selectedNode?.kind === 'model';
   const canApplyModel =
@@ -678,9 +678,7 @@ export function AssetManager() {
     ct: (typeof behaviorKinds)[number],
     dimmed: boolean
   ) => {
-    const alreadyAdded = behaviors.some(
-      (c) => c.nodeId === selectedNode!.id && c.kind === ct.kind
-    );
+    const alreadyAdded = selectedBehaviors.some((c) => c.kind === ct.kind);
     return (
       <div
         key={ct.kind}

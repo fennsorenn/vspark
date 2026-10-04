@@ -692,20 +692,6 @@ describe('meshStoreFeeder — server_status routing', () => {
     await startFeeder();
   });
 
-  it('routes a receiver status into the tracking slices', () => {
-    status({ id: 'tracking:b1', kind: 'tracking', key: 'b1', connected: true });
-    status({
-      id: 'tracking:b1',
-      kind: 'tracking',
-      key: 'b1',
-      connected: true,
-      tracking: true,
-    });
-    const s = useEditorStore.getState();
-    expect(s.vmcStatus['b1']).toBe(true);
-    expect(s.vmcTracking['b1']).toBe(true);
-  });
-
   it('patches an OBS connection with its live status', () => {
     useEditorStore.setState({
       obsConnections: [

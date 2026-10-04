@@ -153,7 +153,8 @@ import {
 } from '../../particleUtils';
 import type { ParticlePool } from '../../particleUtils';
 import { resolveParticleTextureUrl } from '../../particleTextures';
-import { useCameraEffects } from '../../mesh/hooks';
+import { useCameraEffects, useNodeBehaviors } from '../../mesh/hooks';
+import { collectionOf } from '../../mesh/docs';
 
 type GizmoMode = 'translate' | 'rotate' | 'scale';
 
@@ -2151,32 +2152,24 @@ function AvatarNode({
   }, [showFbxDebug]);
 
   // Track active pose-driving component without causing useFrame re-subscription
-  const vmcComp = useEditorStore(
-    (s) =>
-      s
-        .behaviorsFor(node.id)
-        .find(
-          (c) =>
-            (c.kind === 'vmc_receiver' || c.kind === 'mediapipe_tracker') &&
-            c.enabled
-        ) ?? null
-  );
+  const nodeBehaviors = useNodeBehaviors(node.id);
+  const vmcComp =
+    nodeBehaviors.find(
+      (c) =>
+        (c.kind === 'vmc_receiver' || c.kind === 'mediapipe_tracker') &&
+        c.enabled
+    ) ?? null;
   useEffect(() => {
     vmcCompRef.current = vmcComp;
   }, [vmcComp]);
 
   // Track active blendshape-driving component (lipsync, face tracking)
-  const lipsyncComp = useEditorStore(
-    (s) =>
-      s
-        .behaviorsFor(node.id)
-        .find(
-          (c) =>
-            (c.kind === 'lipsync_processor' ||
-              c.kind === 'mediapipe_tracker') &&
-            c.enabled
-        ) ?? null
-  );
+  const lipsyncComp =
+    nodeBehaviors.find(
+      (c) =>
+        (c.kind === 'lipsync_processor' || c.kind === 'mediapipe_tracker') &&
+        c.enabled
+    ) ?? null;
   useEffect(() => {
     lipsyncCompRef.current = lipsyncComp;
   }, [lipsyncComp]);
@@ -3002,10 +2995,10 @@ function AvatarNode({
     // avatar to the base loop and never fall back to idle. Tracking sources
     // publish a `tracking` status (→ store.vmcTracking); ambient ones don't, so
     // they can't mask a loss.
-    const store = useEditorStore.getState();
-    const trackingLive = store.behaviors.some(
-      (b) => b.nodeId === node.id && store.vmcTracking[b.id] === true
-    );
+    const statuses = collectionOf<{ tracking?: boolean }>('server_status');
+    const trackingLive = collectionOf<{ id: string }>('behavior')
+      .children(node.id)
+      .some((b) => statuses.get(`tracking:${b.id}`)?.tracking === true);
 
     // Transition detection: reset filters + clear the applied pose when the
     // composition leaves the tracked path. Keyed on `trackingLive`, matching the

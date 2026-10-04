@@ -16,7 +16,7 @@ export function MediaInputPage() {
   const { projectId } = useParams<{ projectId: string }>();
   const [ready, setReady] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const { setNodes, setActiveScene, setBehaviors } = useEditorStore();
+  const { setNodes, setActiveScene } = useEditorStore();
 
   // Fetch the project/scene/nodes so MediaInputWindow can resolve component IDs
   useEffect(() => {
@@ -24,14 +24,11 @@ export function MediaInputPage() {
     let cancelled = false;
     async function load() {
       try {
-        const { scenes, nodes, behaviors } = await api.getScenes(
-          projectId!
-        );
+        const { scenes, nodes } = await api.getScenes(projectId!);
         if (cancelled) return;
         const firstScene = scenes[0];
         if (firstScene) setActiveScene(firstScene.id);
         setNodes(nodes);
-        setBehaviors(behaviors);
         setReady(true);
       } catch (e) {
         if (!cancelled) setError((e as Error).message);
@@ -41,7 +38,7 @@ export function MediaInputPage() {
     return () => {
       cancelled = true;
     };
-  }, [projectId, setNodes, setActiveScene, setBehaviors]);
+  }, [projectId, setNodes, setActiveScene]);
 
   const style: React.CSSProperties = {
     background: '#111',
@@ -85,7 +82,11 @@ export function MediaInputPage() {
         }}
       >
         {t('page.pageLabel')}
-        <HelpButton topic="behaviors" anchor="devices" tip={t('help.devices')} />
+        <HelpButton
+          topic="behaviors"
+          anchor="devices"
+          tip={t('help.devices')}
+        />
       </div>
       {/* Window rendered in place (alwaysExpanded, no position dragging needed on this page) */}
       <MediaInputWindow alwaysExpanded={true} />

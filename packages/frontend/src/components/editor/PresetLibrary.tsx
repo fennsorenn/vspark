@@ -127,7 +127,6 @@ export function PresetLibrary() {
     const data = await apiClient.getScenes(projectId);
     const store = useEditorStore.getState();
     store.setNodes(data.nodes);
-    store.setBehaviors(data.behaviors);
     store.setTrackClips(data.trackClips);
     return result;
   };

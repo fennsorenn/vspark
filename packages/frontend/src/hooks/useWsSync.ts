@@ -77,8 +77,6 @@ export function sendAssistantReset() {
 }
 
 export function useWsSync() {
-  const setVmcStatus = useEditorStore((s) => s.setVmcStatus);
-  const setVmcTracking = useEditorStore((s) => s.setVmcTracking);
   const wsRef = useRef<WebSocket | null>(null);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pendingReloadRef = useRef<boolean>(false);
@@ -225,7 +223,6 @@ export function useWsSync() {
                   const s = useEditorStore.getState();
                   s.setScenes(data.scenes);
                   s.setNodes(data.nodes);
-                  s.setBehaviors(data.behaviors);
                   s.setActiveScene(p.sceneId);
                 })
                 .catch(() => {});
@@ -431,5 +428,5 @@ export function useWsSync() {
       if (timerRef.current) clearTimeout(timerRef.current);
       wsRef.current?.close();
     };
-  }, [setVmcStatus, setVmcTracking]);
+  }, []);
 }

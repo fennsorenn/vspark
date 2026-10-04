@@ -8,6 +8,7 @@
  */
 import { createMeshPeer, type Collection, type MeshPeer } from '@vspark/mesh';
 import { MODELS, TAB_MODELS } from '@vspark/shared/models';
+import { useEditorStore } from '../../src/store/editorStore';
 
 let current: MeshPeer | null = null;
 
@@ -33,4 +34,39 @@ export function testHandles() {
 export function resetTestPeer(): void {
   current?.close();
   current = null;
+}
+
+/** Editor-state keys that are mesh documents now, by the collection holding
+ *  them. Grows as store slices move onto the replica. */
+const MESH_SLICES: Record<string, string> = {
+  behaviors: 'behavior',
+  cameraEffects: 'camera_effect',
+};
+
+/**
+ * Seed editor state the way the app holds it: the keys that are mesh documents
+ * (MESH_SLICES) go into the test peer — hydrated, so they are not on the undo
+ * stack — and everything else into the zustand store.
+ */
+/** Each seed is newer than the last, so re-seeding a document replaces it. */
+let seedClock = 0;
+
+export function seedEditor(state: Record<string, unknown>): void {
+  const rest: Record<string, unknown> = { ...state };
+  for (const [key, rtype] of Object.entries(MESH_SLICES)) {
+    if (!(key in rest)) continue;
+    const docs = rest[key] as { id: string }[];
+    delete rest[key];
+    const col = testPeer().collection<{ id: string }>(rtype);
+    for (const d of docs)
+      col.put(d, { v: { t: ++seedClock, c: 0, n: 'seed' } });
+  }
+  useEditorStore.setState(rest as never);
+}
+
+/** One collection's documents, in the test peer. */
+export function docsOf<T extends object = Record<string, unknown>>(
+  rtype: string
+): T[] {
+  return testPeer().collection<T>(rtype).all();
 }

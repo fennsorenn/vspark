@@ -277,9 +277,6 @@ export interface EditorState {
   sceneSelected: boolean;
   selectedBehaviorId: string | null;
   assets: AssetFile[];
-  behaviors: Behavior[];
-  vmcStatus: Record<string, boolean>; // behaviorId → connected
-  vmcTracking: Record<string, boolean>; // behaviorId → tracking active
   /** Avatar animation timeline (scheduled_animation docs), keyed by entry id.
    *  Fed from the mesh replica; the avatar's animation effect reads the entries
    *  for its node, ordered by startEpoch. */
@@ -405,16 +402,6 @@ export interface EditorState {
   addAsset: (asset: AssetFile) => void;
   deleteAsset: (id: string) => void;
   activeSceneNodes: () => StageObject[];
-  setBehaviors: (comps: Behavior[]) => void;
-  addBehavior: (comp: Behavior) => void;
-  updateBehavior: (
-    id: string,
-    updates: Partial<Omit<Behavior, 'id' | 'nodeId'>>
-  ) => void;
-  removeBehavior: (id: string) => void;
-  behaviorsFor: (nodeId: string) => Behavior[];
-  setVmcStatus: (behaviorId: string, connected: boolean) => void;
-  setVmcTracking: (behaviorId: string, tracking: boolean) => void;
   upsertScheduledAnimation: (entry: ScheduledAnimation) => void;
   removeScheduledAnimation: (id: string) => void;
   upsertClipPlayback: (entry: ClipPlayback) => void;
@@ -586,9 +573,6 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   sceneSelected: false,
   selectedBehaviorId: null,
   assets: [],
-  behaviors: [],
-  vmcStatus: {},
-  vmcTracking: {},
   scheduledAnimations: {},
   clipPlayback: {},
   logic: {},
@@ -655,7 +639,6 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       return {
         scenes: remainingScenes,
         nodes: s.nodes.filter((n) => n.rootSceneNodeId !== sceneId),
-        behaviors: s.behaviors.filter((c) => !removedNodeIds.has(c.nodeId)),
         trackClips: s.trackClips.filter(
           (t) => !(t.ownerNodeId != null && removedNodeIds.has(t.ownerNodeId))
         ),
@@ -683,19 +666,12 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       nodes: s.nodes.map((n) => (n.id === id ? { ...n, ...updates } : n)),
     })),
   deleteNode: (id) =>
-    set((s) => {
-      const removedComps = new Set(
-        s.behaviors.filter((c) => c.nodeId === id).map((c) => c.id)
-      );
-      return {
-        nodes: s.nodes.filter((n) => n.id !== id),
-        selectedNodeId: s.selectedNodeId === id ? null : s.selectedNodeId,
-        selectedBehaviorId: removedComps.has(s.selectedBehaviorId ?? '')
-          ? null
-          : s.selectedBehaviorId,
-        behaviors: s.behaviors.filter((c) => c.nodeId !== id),
-      };
-    }),
+    set((s) => ({
+      nodes: s.nodes.filter((n) => n.id !== id),
+      selectedNodeId: s.selectedNodeId === id ? null : s.selectedNodeId,
+      // A behavior selected on the deleted node goes with it.
+      selectedBehaviorId: s.selectedNodeId === id ? null : s.selectedBehaviorId,
+    })),
   selectNode: (id) =>
     set((s) => ({
       selectedNodeId: id,
@@ -713,50 +689,6 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     const { nodes, activeSceneId } = get();
     return nodes.filter((n) => n.rootSceneNodeId === activeSceneId);
   },
-  setBehaviors: (comps) =>
-    set((s) => {
-      // Wholesale replace (scene load, preset apply, WS resync): prune tracking/
-      // connection flags for behaviors that no longer exist, so a stale
-      // `tracking: true` can't outlive the behavior that set it.
-      const live = new Set(comps.map((c) => c.id));
-      const prune = <T>(rec: Record<string, T>): Record<string, T> =>
-        Object.fromEntries(Object.entries(rec).filter(([id]) => live.has(id)));
-      return {
-        behaviors: comps,
-        vmcTracking: prune(s.vmcTracking),
-        vmcStatus: prune(s.vmcStatus),
-      };
-    }),
-  addBehavior: (comp) => set((s) => ({ behaviors: [...s.behaviors, comp] })),
-  updateBehavior: (id, updates) =>
-    set((s) => ({
-      behaviors: s.behaviors.map((c) =>
-        c.id === id ? { ...c, ...updates } : c
-      ),
-    })),
-  removeBehavior: (id) =>
-    set((s) => {
-      // Drop the per-behavior tracking/connection flags with the behavior. Left
-      // behind, a stale `vmcTracking[id] === true` keeps every consumer thinking
-      // a tracking source is live (avatars pin to their base animation and can
-      // never fall back to idle), and the id is never reused to clear it.
-      const { [id]: _t, ...vmcTracking } = s.vmcTracking;
-      const { [id]: _c, ...vmcStatus } = s.vmcStatus;
-      return {
-        behaviors: s.behaviors.filter((c) => c.id !== id),
-        selectedBehaviorId:
-          s.selectedBehaviorId === id ? null : s.selectedBehaviorId,
-        vmcTracking,
-        vmcStatus,
-      };
-    }),
-  behaviorsFor: (nodeId) => get().behaviors.filter((c) => c.nodeId === nodeId),
-  setVmcStatus: (behaviorId, connected) =>
-    set((s) => ({ vmcStatus: { ...s.vmcStatus, [behaviorId]: connected } })),
-  setVmcTracking: (behaviorId, tracking) =>
-    set((s) => ({
-      vmcTracking: { ...s.vmcTracking, [behaviorId]: tracking },
-    })),
   upsertScheduledAnimation: (entry) =>
     set((s) => ({
       scheduledAnimations: { ...s.scheduledAnimations, [entry.id]: entry },

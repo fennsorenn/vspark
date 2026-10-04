@@ -121,7 +121,7 @@ function MergedSections({
   include: { behaviors: boolean; effects: boolean };
 }) {
   const { t } = useTranslation('sceneGraph');
-  const behaviorsFor = useEditorStore((s) => s.behaviorsFor);
+  const nodeBehaviors = useNodeBehaviors(nodeId);
   const nodeEffects = useCameraEffects(nodeId);
   const trackClips = useEditorStore((s) => s.trackClips);
   const behaviorKinds = useEditorStore((s) => s.behaviorKinds);
@@ -136,7 +136,7 @@ function MergedSections({
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
 
   const behaviors = include.behaviors
-    ? behaviorsFor(nodeId).filter(
+    ? nodeBehaviors.filter(
         (c) => !CAMERA_EFFECT_KINDS.some((k) => k.kind === c.kind)
       )
     : [];
@@ -980,19 +980,18 @@ function BehaviorsSection({
     y: number;
     comp: Behavior;
   } | null>(null);
-  const behaviorsFor = useEditorStore((s) => s.behaviorsFor);
+  const nodeBehaviors = useNodeBehaviors(nodeId);
   const nodeKind = useEditorStore(
     (s) => s.nodes.find((n) => n.id === nodeId)?.kind ?? ''
   );
   const selectedBehaviorId = useEditorStore((s) => s.selectedBehaviorId);
   const selectBehavior = useEditorStore((s) => s.selectBehavior);
-  const vmcStatus = useEditorStore((s) => s.vmcStatus);
-  const vmcTracking = useEditorStore((s) => s.vmcTracking);
+  const receiverStatus = useTrackingStatuses();
   const behaviorKinds = useEditorStore((s) => s.behaviorKinds);
   const clipboardPayload = useEditorStore((s) => s.clipboardPayload);
   const setClipboard = useEditorStore((s) => s.setClipboard);
   const canPasteBehavior = clipboardPayload?.kind === 'node-component';
-  const components = behaviorsFor(nodeId).filter(
+  const components = nodeBehaviors.filter(
     (c) => !CAMERA_EFFECT_KINDS.some((k) => k.kind === c.kind)
   );
 
@@ -1095,8 +1094,10 @@ function BehaviorsSection({
           comp.kind === 'vmc_receiver_2d' ||
           comp.kind === 'ifacialmocap_receiver';
         const hasTracking = hasConnection || comp.kind === 'mediapipe_tracker';
-        const isConnected = hasConnection && vmcStatus[comp.id] === true;
-        const isTracking = hasTracking && vmcTracking[comp.id] === true;
+        const isConnected =
+          hasConnection && receiverStatus[comp.id]?.connected === true;
+        const isTracking =
+          hasTracking && receiverStatus[comp.id]?.tracking === true;
         return (
           <div
             key={comp.id}
@@ -1722,7 +1723,12 @@ const formatBoneName = (name: string) =>
 // ---------- Graph list panel ----------
 import type { GraphDescriptor } from '@vspark/shared/signal';
 import type { LogicRecord, ScopedLogicRecord } from '../../api/client';
-import { useCameraEffects } from '../../mesh/hooks';
+import {
+  useAllBehaviors,
+  useCameraEffects,
+  useNodeBehaviors,
+  useTrackingStatuses,
+} from '../../mesh/hooks';
 
 function LogicListPanel() {
   const { t } = useTranslation('sceneGraph');
@@ -1746,7 +1752,7 @@ function LogicListPanel() {
   // three lists every 3 seconds, which is why another tab's rename showed up
   // late and two people editing one graph overwrote each other silently.
   const storeLogic = useEditorStore((s) => s.logic);
-  const storeBehaviors = useEditorStore((s) => s.behaviors);
+  const storeBehaviors = useAllBehaviors();
 
   const projectLogic = useMemo(
     () =>
@@ -2250,6 +2256,7 @@ export function SceneGraph() {
       .then(setCollabScenes)
       .catch(() => {});
   }, [setCollabScenes]);
+  const behaviors = useAllBehaviors();
   const {
     activeSceneId,
     scenes,
@@ -2257,7 +2264,6 @@ export function SceneGraph() {
     selectedNodeId,
     selectNode,
     deleteNode: storeDeleteNode,
-    behaviors,
     vrmBonesByNode,
     assets,
     setHoveredBone,
