@@ -204,9 +204,9 @@ export interface NodeProperties {
    *  sleeve/cuff geometry (twist kept only on mesh reachable from the hand
    *  through connected twist-weighted vertices). */
   excludeSleeves?: boolean;
-  /** VRM avatar: per-body-section animation/tracking influence ("partial
-   *  tracking"). Absent sections default to { anim: 1, track: 1 }. */
-  poseSource?: import('@vspark/shared').PoseSource;
+  /** VRM avatar: per-source tracking influence (Tracking Mix). Absent
+   *  weights are 1. Replaced `poseSource` (migration 044). */
+  trackingMix?: import('@vspark/shared').TrackingMix;
 }
 
 export interface StageObject {

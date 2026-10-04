@@ -49,6 +49,10 @@ export default defineConfig({
         find: '@vspark/shared/blendshapeLimits',
         replacement: shared('blendshapeLimits.ts'),
       },
+      {
+        find: '@vspark/shared/trackingMix',
+        replacement: shared('trackingMix.ts'),
+      },
       { find: '@vspark/shared/sync', replacement: shared('sync.ts') },
       { find: '@vspark/shared/models', replacement: shared('models.ts') },
       { find: '@vspark/shared', replacement: shared('types.ts') },

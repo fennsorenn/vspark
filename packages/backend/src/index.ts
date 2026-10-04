@@ -82,6 +82,7 @@ import type {
   TrackingInputMessage,
   AvatarExpressionsReportMessage,
   ClientHelloMessage,
+  TrackingMix,
 } from '@vspark/shared';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -232,6 +233,16 @@ async function start() {
   // Forward shared avatars' live pose/blendshapes/IK to subscriber peers.
   broadcastBus.setStreamForwarder((kind, nodeId, payload) =>
     multiplayerManager.forwardStream(kind, nodeId, payload)
+  );
+  // Tracking Mix weights come from the avatar node's mesh doc — overlay-aware,
+  // so a mixer slider drag (preview channel) reweights live tracking at once.
+  broadcastBus.setTrackingMixReader(
+    (nodeId) =>
+      (
+        getMeshCollection('scene_node')?.get(nodeId)?.properties as
+          | { trackingMix?: TrackingMix }
+          | undefined
+      )?.trackingMix
   );
   setIkStreamForwarder((kind, nodeId, payload) =>
     multiplayerManager.forwardStream(kind, nodeId, payload)

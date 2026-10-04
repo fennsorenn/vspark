@@ -257,19 +257,41 @@
     "animSpeed": "Geschwindigkeit",
     "twistHeader": "Unterarm-Drehung",
     "twistForce": "Drehknochen erzwingen",
-    "twistExcludeSleeves": "Ärmel ausschließen",
-    "poseSourceHeader": "Teilweises Tracking",
-    "poseSourceHint": "Tracking wird pro Körperbereich auf die Basis-Animation gestapelt, jeweils unabhängig skaliert. „Anim“ skaliert die Basis-Animation (Ruhe→Clip), „Track“ skaliert das darübergelegte Live-Tracking (VMC/Kamera). Beide auf 0 = Ruhepose. Beine per Tracking brauchen eine Ganzkörperquelle.",
-    "poseSourceAnim": "Anim",
-    "poseSourceTrack": "Track",
-    "poseSourceReset": "Alle Bereiche zurücksetzen",
-    "poseSection": {
+    "twistExcludeSleeves": "Ärmel ausschließen"
+  },
+  "trackingMix": {
+    "header": "Tracking-Mix",
+    "hint": "Wie stark jede Quelle den Avatar steuert. Tracking-Quellen werden auf die Animation gestapelt; Gewichte über 1 verstärken. Im Mixer lassen sich Bereiche, einzelne Knochen und die Mimik einstellen.",
+    "animation": "Animation",
+    "animationBase": "Animation (Basis)",
+    "open": "Mixer öffnen…",
+    "title": "Tracking-Mix",
+    "close": "Schließen",
+    "custom": "Individuell",
+    "resetTo": "Alle auf {{value}} setzen",
+    "tab": { "body": "Körper", "face": "Gesicht" },
+    "order": "Reihenfolge — von links nach rechts angewendet, auf der Animation",
+    "moveEarlier": "Früher anwenden",
+    "moveLater": "Später anwenden",
+    "noBodySources": "Dieser Avatar hat keine Animation und keine Körper-Tracking-Quelle.",
+    "noFaceSources": "Keine Gesichtsquelle an diesem Avatar. Füge ein Tracking-, Lippensync- oder API-Verhalten hinzu, um Mimik zu mischen.",
+    "noShapes": "Die Mimiken des Modells erscheinen hier, sobald es geladen ist.",
+    "bodyHint": "Klappe einen Bereich auf, um einzelne Knochen einzustellen. Ein Bereichsregler setzt alle seine Knochen; weichen sie voneinander ab, zeigt der Bereich „Individuell“ — Zurücksetzen setzt alle auf den häufigsten Wert.",
+    "faceHint": "Gewichte multiplizieren den Wert jeder Quelle, bevor die Quellen addiert werden. Eine Form, die jede Quelle mit 0 gewichtet, fällt auf die Standard-Mimik zurück.",
+    "region": {
       "head": "Kopf",
       "gaze": "Blick",
       "body": "Körper",
       "arms": "Arme",
       "hands": "Hände",
       "legs": "Beine"
+    },
+    "faceGroup": {
+      "mouth": "Mund",
+      "eyes": "Augen",
+      "brows": "Brauen",
+      "emotions": "Emotionen",
+      "other": "Sonstige"
     }
   },
   "file": {
@@ -726,7 +748,8 @@
     "audioType": "Einfach spielt überall mit gleicher Lautstärke; Direktional nimmt mit dem Abstand ab und kann als 3D-Kegel geformt werden",
     "audioSpatial": "Abstands- und Kegelparameter für direktionales Audio — Referenzabstand, Abklingrate, maximaler Abstand und Kegelwinkel",
     "twist": "Unterarm-Drehung entlang des Arms verteilen statt am Ellbogen zu knicken",
-    "poseSource": "Jeden Körperbereich per Animation, Live-Tracking oder einer Mischung steuern",
+    "trackingMix": "Steuern, wie stark jede Tracking-Quelle und die Animation jeden Körperteil und jede Mimik bewegen",
+    "trackingMixOrder": "Warum die Reihenfolge der Tracking-Quellen zählt",
     "baseAnimation": "Die Animation, auf die Live-Tracking gestapelt wird, solange eine Quelle verbunden ist; bei Tracking-Verlust fällt der Avatar auf die Leerlauf-Animation zurück",
     "stylizedTracking": "Erfahre, wie stilisiertes Tracking deine Bewegung umformt",
     "ifacialmocap": "Erfahre, wie du die iFacialMocap-App (iOS) verbindest",

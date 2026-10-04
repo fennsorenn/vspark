@@ -16,6 +16,7 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { runMigrations, closeDb, getDb } from '../src/db/index.js';
 import migrate035 from '../src/db/migrations/035_tracking_grace_period_to_node.js';
+import migrate044 from '../src/db/migrations/044_pose_source_to_tracking_mix.js';
 import migrate037 from '../src/db/migrations/037_compose_layer_order_key.js';
 
 // ── Reset between tests so each suite gets a clean :memory: DB ───────────────
@@ -208,14 +209,14 @@ describe('Migration runner — idempotency', () => {
     expect(countAfter).toBe(countBefore);
   });
 
-  it('all 43 migrations are recorded in _migrations after a full run', () => {
+  it('all 44 migrations are recorded in _migrations after a full run', () => {
     const count = (
       getDb()
         .prepare('SELECT COUNT(*) AS cnt FROM _migrations')
         .all() as { cnt: number }[]
     )[0].cnt;
-    // There are 43 migrations (001 – 043).
-    expect(count).toBe(43);
+    // There are 44 migrations (001 – 044).
+    expect(count).toBe(44);
   });
 
   it('each migration name appears exactly once in _migrations', () => {
@@ -394,6 +395,104 @@ describe('035_tracking_grace_period_to_node', () => {
     migrate035(db as never);
 
     expect(nodeProps(db).trackingGracePeriod).toBe(5);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 044_pose_source_to_tracking_mix — poseSource sections → per-source bone weights
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('044_pose_source_to_tracking_mix', () => {
+  function seedAndMigrate(
+    nodeProperties: Record<string, unknown>,
+    behaviors: Array<{ id: string; kind: string }> = []
+  ) {
+    const db = getDb();
+    db.prepare("INSERT INTO projects (id, name) VALUES ('pm', 'P')").run();
+    db.prepare(
+      `INSERT INTO scene_nodes (id, project_id, root_scene_node_id, name, kind, components, properties)
+       VALUES ('nm', 'pm', 'nm', 'Avatar', 'avatar', '{}', ?)`
+    ).run(JSON.stringify(nodeProperties));
+    for (const b of behaviors) {
+      db.prepare(
+        "INSERT INTO behaviors (id, node_id, kind, enabled, config) VALUES (?, 'nm', ?, 1, '{}')"
+      ).run(b.id, b.kind);
+    }
+    migrate044(db as never);
+    return db;
+  }
+
+  const nodeProps = (db: ReturnType<typeof getDb>) =>
+    JSON.parse(
+      (
+        db
+          .prepare('SELECT properties FROM scene_nodes WHERE id = ?')
+          .get('nm') as {
+          properties: string;
+        }
+      ).properties
+    ) as Record<string, any>;
+
+  it('moves anim onto the animation source and track onto every bone source', () => {
+    const db = seedAndMigrate(
+      {
+        poseSource: {
+          legs: { anim: 1, track: 0 },
+          head: { anim: 0.5, track: 1 },
+        },
+      },
+      [
+        { id: 'vmc', kind: 'vmc_receiver' },
+        { id: 'br', kind: 'breathing' },
+        { id: 'lip', kind: 'lipsync' }, // blendshapes only — not a bone source
+      ]
+    );
+    const p = nodeProps(db);
+    expect(p.poseSource).toBeUndefined();
+    const s = p.trackingMix.sources;
+    expect(s.animation.bones).toEqual({ neck: 0.5, head: 0.5, jaw: 0.5 });
+    expect(s.vmc.bones.hips).toBe(0);
+    expect(s.vmc.bones.leftToes).toBe(0);
+    expect(s.br.bones.rightUpperLeg).toBe(0);
+    expect(s.vmc.bones.head).toBeUndefined();
+    expect(s.lip).toBeUndefined();
+  });
+
+  it('maps the hands section onto the finger bones', () => {
+    const db = seedAndMigrate({
+      poseSource: { hands: { anim: 0.25, track: 1 } },
+    });
+    const bones = nodeProps(db).trackingMix.sources.animation.bones;
+    expect(Object.keys(bones)).toHaveLength(30);
+    expect(bones.leftThumbMetacarpal).toBe(0.25);
+    expect(bones.rightLittleDistal).toBe(0.25);
+  });
+
+  it('drops a default-only poseSource without writing a mix', () => {
+    const db = seedAndMigrate({
+      poseSource: { arms: { anim: 1, track: 1 } },
+      blendTransitionTime: 0.8,
+    });
+    const p = nodeProps(db);
+    expect(p.poseSource).toBeUndefined();
+    expect(p.trackingMix).toBeUndefined();
+    expect(p.blendTransitionTime).toBe(0.8);
+  });
+
+  it('keeps an existing trackingMix', () => {
+    const existing = { order: ['x'] };
+    const db = seedAndMigrate({
+      poseSource: { arms: { anim: 0, track: 0 } },
+      trackingMix: existing,
+    });
+    expect(nodeProps(db).trackingMix).toEqual(existing);
+    expect(nodeProps(db).poseSource).toBeUndefined();
+  });
+
+  it('is idempotent', () => {
+    const db = seedAndMigrate({ poseSource: { body: { anim: 0, track: 1 } } });
+    migrate044(db as never);
+    expect(nodeProps(db).trackingMix.sources.animation.bones.spine).toBe(0);
   });
 });
 

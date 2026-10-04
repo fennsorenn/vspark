@@ -257,19 +257,41 @@
     "animSpeed": "Speed",
     "twistHeader": "Forearm twist",
     "twistForce": "Force twist bone",
-    "twistExcludeSleeves": "Exclude sleeves",
-    "poseSourceHeader": "Partial Tracking",
-    "poseSourceHint": "Tracking stacks on top of the base animation per body section, each scaled independently. Anim scales the base animation (rest→clip), Track scales the live tracking (VMC/camera) added on top. Both at 0 = rest pose. Legs from tracking need a full-body source.",
-    "poseSourceAnim": "Anim",
-    "poseSourceTrack": "Track",
-    "poseSourceReset": "Reset all sections",
-    "poseSection": {
+    "twistExcludeSleeves": "Exclude sleeves"
+  },
+  "trackingMix": {
+    "header": "Tracking Mix",
+    "hint": "How strongly each source drives the avatar. Tracking sources stack on the animation; weights above 1 amplify. Open the mixer for per-region, per-bone and face control.",
+    "animation": "Animation",
+    "animationBase": "Animation (base)",
+    "open": "Open mixer…",
+    "title": "Tracking Mix",
+    "close": "Close",
+    "custom": "Custom",
+    "resetTo": "Set all to {{value}}",
+    "tab": { "body": "Body", "face": "Face" },
+    "order": "Order — applied left to right, on top of the animation",
+    "moveEarlier": "Apply earlier",
+    "moveLater": "Apply later",
+    "noBodySources": "This avatar has no animation or body tracking sources.",
+    "noFaceSources": "No face source on this avatar. Add a tracking, lipsync or API behavior to mix expressions.",
+    "noShapes": "The model's expressions appear here once it has loaded.",
+    "bodyHint": "Expand a region to set single bones. Changing a region sets all its bones; a region whose bones differ shows Custom — reset sets them all to the most common value.",
+    "faceHint": "Weights multiply each source's value before the sources are added up. A shape every source weighs 0 falls back to the default expression.",
+    "region": {
       "head": "Head",
       "gaze": "Gaze",
       "body": "Body",
       "arms": "Arms",
       "hands": "Hands",
       "legs": "Legs"
+    },
+    "faceGroup": {
+      "mouth": "Mouth",
+      "eyes": "Eyes",
+      "brows": "Brows",
+      "emotions": "Emotions",
+      "other": "Other"
     }
   },
   "file": {
@@ -726,7 +748,8 @@
     "audioType": "Simple plays at the same volume everywhere; Directional falls off with distance and can be shaped into a 3D cone",
     "audioSpatial": "Distance and cone parameters for directional audio — reference distance, rolloff, max distance, and the cone angles",
     "twist": "Spread forearm roll along the arm instead of pinching at the elbow",
-    "poseSource": "Drive each body section from animation, live tracking, or a blend of both",
+    "trackingMix": "Control how strongly each tracking source and the animation drive each body part and expression",
+    "trackingMixOrder": "Why the order of tracking sources matters",
     "baseAnimation": "The animation live tracking stacks onto while a source is connected; the avatar falls back to the idle when tracking drops",
     "stylizedTracking": "Learn how stylized tracking reshapes your motion",
     "ifacialmocap": "Learn how to connect the iFacialMocap iOS app",
