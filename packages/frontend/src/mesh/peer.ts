@@ -385,3 +385,18 @@ async function doInit(): Promise<MeshHandles> {
   for (const cb of _readyObservers) cb(_handles);
   return _handles;
 }
+
+/** Drop rows the mesh has already seen removed.
+ *
+ *  The editor still loads from the REST scene bundle (W6 of
+ *  plans/mesh-sole-channel.md replaces that with the subscription snapshot).
+ *  A bundle fetched before another tab's delete can arrive AFTER the delete
+ *  reached this tab through the mesh — and would put the deleted document back
+ *  into the store. The replica's tombstone is the newer truth. */
+export function withoutRemoved<T extends { id: string }>(
+  rtype: string,
+  rows: T[]
+): T[] {
+  const col = _handles?.collections[rtype];
+  return col ? rows.filter((r) => !col.replica.isTombstoned(r.id)) : rows;
+}

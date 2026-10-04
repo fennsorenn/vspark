@@ -327,6 +327,11 @@ export class Replica<T extends object> {
 
   // --- snapshots / tombstones ----------------------------------------------------
 
+  /** Was `id` removed (and not re-created since)? */
+  isTombstoned(id: string): boolean {
+    return this.tombs.has(id);
+  }
+
   tombstones(): { id: string; v: HLC }[] {
     return [...this.tombs].map(([id, t]) => ({ id, v: t.v }));
   }
