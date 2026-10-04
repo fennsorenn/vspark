@@ -22,27 +22,95 @@ import { applyNodePreview, transformFieldsOf } from './sync/nodePreview';
  * the cost of ~100ms of latency. Rotation interpolates as a quaternion (slerp,
  * shortest arc) to avoid gimbal flips.
  *
- * Compose layers keep the per-sample tween: they retarget a linear tween from
- * the displayed value at each sample.
+ * Compose layers play back the same way (x/y/width/height linear, rotation in
+ * degrees along the shortest arc).
  */
 
-const SMOOTH_MS = 80; // layer tween window per sample (~2.5 intervals at 30 Hz)
-
-type Scope = 'node' | 'layer';
-
-interface ScalarTween {
-  scope: Scope;
-  id: string;
-  field: string;
-  from: number;
-  to: number;
-  startedAt: number;
-}
-
-const scalarTweens = new Map<string, ScalarTween>();
 let rafHandle: number | null = null;
 
-// --- node playback buffer ------------------------------------------------------
+// --- playback buffers -----------------------------------------------------------
+
+/** Field ops of one gesture sample arrive back to back (one per field). */
+const SAME_SAMPLE_MS = 6;
+
+interface Timed {
+  /** When to show it, on this tab's clock (arrival, evened out). */
+  t: number;
+}
+
+interface Track<S extends Timed> {
+  samples: S[];
+  /** Arrival of the newest sample, unadjusted. */
+  lastArrival: number;
+  /** Running estimate of the time between samples. */
+  interval: number;
+}
+
+function newTrack<S extends Timed>(first: S): Track<S> {
+  return { samples: [first], lastArrival: first.t, interval: 33 };
+}
+
+/** How far behind the newest samples a track is shown: enough to bridge an
+ *  occasional late sample, not much more. */
+function playbackDelay(track: Track<Timed>): number {
+  return Math.min(160, Math.max(60, track.interval * 2.5));
+}
+
+/** The sample a field op arriving `now` writes into: the newest one if the op
+ *  belongs to the same gesture sample, else a copy of it, timed and appended. */
+function nextSample<S extends Timed>(
+  track: Track<S>,
+  now: number,
+  copy: (s: S) => S
+): S {
+  const prev = track.samples[track.samples.length - 1];
+  if (track.samples.length > 1 && now - track.lastArrival < SAME_SAMPLE_MS)
+    return prev;
+  const gap = now - track.lastArrival;
+  if (track.samples.length > 1)
+    track.interval =
+      track.interval * 0.8 + Math.min(200, Math.max(8, gap)) * 0.2;
+  const next = copy(prev);
+  // Even out arrival times: show a sample between half an interval and one
+  // and a half after the previous one, as close to its arrival as that
+  // allows. A bunched sample is spread out, a late one is pulled in; the
+  // playback delay leaves room for both, and the timeline catches up with
+  // the arrivals within a few samples.
+  next.t = Math.max(
+    prev.t + track.interval * 0.5,
+    Math.min(now, prev.t + track.interval * 1.5)
+  );
+  track.samples.push(next);
+  track.lastArrival = now;
+  return next;
+}
+
+/** The two samples around `time` and how far between them it is. */
+function bracket<S extends Timed>(
+  track: Track<S>,
+  time: number
+): { a: S; b: S | undefined; k: number } {
+  const s = track.samples;
+  let i = 0;
+  while (i < s.length - 1 && s[i + 1].t <= time) i++;
+  const a = s[i];
+  const b = s[i + 1];
+  return { a, b, k: b && time > a.t ? (time - a.t) / (b.t - a.t) : 0 };
+}
+
+/** Forget samples played past (one at or before `time` stays, to interpolate
+ *  from); true once the newest one has played. */
+function trim(track: Track<Timed>, time: number): boolean {
+  while (track.samples.length > 2 && track.samples[1].t <= time)
+    track.samples.shift();
+  return time >= track.samples[track.samples.length - 1].t;
+}
+
+function lerp(a: number, b: number, k: number): number {
+  return a + (b - a) * k;
+}
+
+// --- nodes -----------------------------------------------------------------------
 
 const POS_FIELDS = ['x', 'y', 'z', 'sx', 'sy', 'sz'] as const;
 const POS_DEFAULT: Record<string, number> = {
@@ -53,50 +121,25 @@ const POS_DEFAULT: Record<string, number> = {
   sy: 1,
   sz: 1,
 };
-/** Field ops of one gesture sample arrive back to back (one per field). */
-const SAME_SAMPLE_MS = 6;
-
-interface NodeSample {
-  /** When to show it, on this tab's clock (arrival, evened out). */
-  t: number;
+interface NodeSample extends Timed {
   pos: Record<string, number>;
   q: THREE.Quaternion;
 }
 
-interface NodeTrack {
-  samples: NodeSample[];
-  /** Arrival of the newest sample, unadjusted. */
-  lastArrival: number;
-  /** Running estimate of the time between samples. */
-  interval: number;
-}
-
-const nodeTracks = new Map<string, NodeTrack>();
-
-/** How far behind the newest samples a node is shown: enough to bridge an
- *  occasional late sample, not much more. */
-function playbackDelay(track: NodeTrack): number {
-  return Math.min(160, Math.max(60, track.interval * 2.5));
-}
-
-function lerp(a: number, b: number, k: number): number {
-  return a + (b - a) * k;
-}
+const nodeTracks = new Map<string, Track<NodeSample>>();
 
 /** The node's transform at `time` on its track. */
-function sampleAt(track: NodeTrack, time: number): Record<string, number> {
-  const s = track.samples;
-  let i = 0;
-  while (i < s.length - 1 && s[i + 1].t <= time) i++;
-  const a = s[i];
-  const b = s[i + 1];
+function nodeAt(
+  track: Track<NodeSample>,
+  time: number
+): Record<string, number> {
+  const { a, b, k } = bracket(track, time);
   const out: Record<string, number> = {};
   const q = new THREE.Quaternion();
-  if (!b || time <= a.t) {
+  if (!b) {
     Object.assign(out, a.pos);
     q.copy(a.q);
   } else {
-    const k = (time - a.t) / (b.t - a.t);
     for (const f of POS_FIELDS) out[f] = lerp(a.pos[f], b.pos[f], k);
     q.copy(a.q).slerp(b.q, k);
   }
@@ -113,18 +156,41 @@ function playNodeTracks(now: number): Map<string, Record<string, number>> {
   const out = new Map<string, Record<string, number>>();
   for (const [id, track] of nodeTracks) {
     const time = now - playbackDelay(track);
-    out.set(id, sampleAt(track, time));
-    // Keep one sample at or before `time` to interpolate from.
-    while (track.samples.length > 2 && track.samples[1].t <= time)
-      track.samples.shift();
-    const last = track.samples[track.samples.length - 1];
-    if (time >= last.t) nodeTracks.delete(id);
+    out.set(id, nodeAt(track, time));
+    if (trim(track, time)) nodeTracks.delete(id);
   }
   return out;
 }
 
-function scalarKey(scope: Scope, id: string, field: string): string {
-  return `${scope}:${id}:${field}`;
+// --- compose layers ----------------------------------------------------------------
+
+const LAYER_FIELDS = ['x', 'y', 'width', 'height', 'rotation'] as const;
+
+interface LayerSample extends Timed {
+  v: Record<string, number>;
+}
+
+const layerTracks = new Map<string, Track<LayerSample>>();
+
+/** Advance every layer track to `now`: what each shows, or null for a layer
+ *  whose playback ended (its document holds the last preview). */
+function playLayerTracks(
+  now: number
+): Map<string, Record<string, number> | null> {
+  const out = new Map<string, Record<string, number> | null>();
+  for (const [id, track] of layerTracks) {
+    const time = now - playbackDelay(track);
+    const { a, b, k } = bracket(track, time);
+    const v: Record<string, number> = { ...a.v };
+    if (b)
+      for (const f of Object.keys(v))
+        if (typeof b.v[f] === 'number') v[f] = lerp(a.v[f], b.v[f], k);
+    if (trim(track, time)) {
+      layerTracks.delete(id);
+      out.set(id, null);
+    } else out.set(id, v);
+  }
+  return out;
 }
 
 function eulerFromTransform(
@@ -138,23 +204,10 @@ function ensureLoop() {
   const tick = () => {
     rafHandle = null;
     const now = performance.now();
-    if (scalarTweens.size === 0 && nodeTracks.size === 0) return;
+    if (layerTracks.size === 0 && nodeTracks.size === 0) return;
 
     const nodePatches = playNodeTracks(now);
-    const layerPatches = new Map<string, Record<string, number>>();
-
-    // Layer tweens.
-    for (const [k, t] of scalarTweens) {
-      const p = Math.min(1, (now - t.startedAt) / SMOOTH_MS);
-      const v = t.from + (t.to - t.from) * p;
-      let m = layerPatches.get(t.id);
-      if (!m) {
-        m = {};
-        layerPatches.set(t.id, m);
-      }
-      m[t.field] = v;
-      if (p >= 1) scalarTweens.delete(k);
-    }
+    const layerPatches = playLayerTracks(now);
 
     const store = useEditorStore.getState();
     // A node's tween shows through `liveNodes`, and its last values stay there
@@ -163,33 +216,26 @@ function ensureLoop() {
     // holds the last committed position, not the preview's.
     for (const [nodeId, fields] of nodePatches)
       store.setLiveNode(nodeId, fields);
-    // A layer's tween shows through `liveLayers` until it ends; then the
-    // document — which already holds the target — shows on its own.
-    const tweening = new Set<string>();
-    for (const t of scalarTweens.values())
-      if (t.scope === 'layer') tweening.add(t.id);
+    // A layer's playback shows through `liveLayers` until it ends; then the
+    // document — which already holds the last preview — shows on its own.
     for (const [layerId, fields] of layerPatches)
-      store.setLiveLayer(
-        layerId,
-        tweening.has(layerId) ? (fields as Partial<ComposeLayerRecord>) : null
-      );
+      store.setLiveLayer(layerId, fields as Partial<ComposeLayerRecord> | null);
 
-    if (scalarTweens.size > 0 || nodeTracks.size > 0)
+    if (layerTracks.size > 0 || nodeTracks.size > 0)
       rafHandle = requestAnimationFrame(tick);
   };
   rafHandle = requestAnimationFrame(tick);
 }
 
-/** Whether a tween is currently animating this layer.
+/** Whether this layer is playing back another tab's gesture.
  *
- *  The commit observer below uses this to decide how a COMMITTED value lands: mid
- *  gesture it retargets the running tween so the layer glides into its final
- *  position, but a value arriving cold (page load, a remote panel edit) applies
- *  immediately rather than animating in from wherever the live slice happened to be. */
+ *  The commit observer below uses this to decide how a COMMITTED value lands:
+ *  mid gesture it joins the playback as its last sample, so the layer glides
+ *  into its final position, but a value arriving cold (page load, a remote
+ *  panel edit) applies immediately rather than animating in from wherever the
+ *  live slice happened to be. */
 export function hasLayerTween(id: string): boolean {
-  for (const t of scalarTweens.values())
-    if (t.scope === 'layer' && t.id === id) return true;
-  return false;
+  return layerTracks.has(id);
 }
 
 /** Whether this node is playing back another tab's gesture (any field,
@@ -198,58 +244,6 @@ export function hasLayerTween(id: string): boolean {
  *  into its final pose instead of snapping. */
 export function hasNodeTween(id: string): boolean {
   return nodeTracks.has(id);
-}
-
-/** Retarget a scalar tween, re-baselining from the current displayed value. */
-function retargetScalar(
-  scope: Scope,
-  id: string,
-  field: string,
-  to: number,
-  currentValue: number,
-  isAngleRad = false
-) {
-  let from = currentValue;
-  if (isAngleRad) {
-    // Shortest-arc on a per-axis basis. Only meaningful when we're NOT using
-    // a quaternion tween (e.g. layer rotation in degrees has no quaternion path).
-    let d = to - from;
-    while (d > Math.PI) d -= 2 * Math.PI;
-    while (d <= -Math.PI) d += 2 * Math.PI;
-    to = from + d;
-  }
-  scalarTweens.set(scalarKey(scope, id, field), {
-    scope,
-    id,
-    field,
-    from,
-    to,
-    startedAt: performance.now(),
-  });
-  ensureLoop();
-}
-
-function retargetScalarDeg(
-  scope: Scope,
-  id: string,
-  field: string,
-  to: number,
-  currentValue: number
-) {
-  let from = currentValue;
-  let d = to - from;
-  while (d > 180) d -= 360;
-  while (d <= -180) d += 360;
-  to = from + d;
-  scalarTweens.set(scalarKey(scope, id, field), {
-    scope,
-    id,
-    field,
-    from,
-    to,
-    startedAt: performance.now(),
-  });
-  ensureLoop();
 }
 
 // ── Public API ───────────────────────────────────────────────────────────────
@@ -284,25 +278,18 @@ export function smoothNodeTransform(
     // Start from what this tab shows now, so playback begins without a jump.
     const pos: Record<string, number> = {};
     for (const f of POS_FIELDS) pos[f] = cur[f] ?? POS_DEFAULT[f];
-    track = {
-      samples: [
-        {
-          t: now,
-          pos,
-          q: new THREE.Quaternion().setFromEuler(eulerFromTransform(cur)),
-        },
-      ],
-      lastArrival: now,
-      interval: 33,
-    };
+    track = newTrack<NodeSample>({
+      t: now,
+      pos,
+      q: new THREE.Quaternion().setFromEuler(eulerFromTransform(cur)),
+    });
     nodeTracks.set(nodeId, track);
   }
-  const prev = track.samples[track.samples.length - 1];
-  const sameSample =
-    track.samples.length > 1 && now - track.lastArrival < SAME_SAMPLE_MS;
-  const next: NodeSample = sameSample
-    ? prev
-    : { t: 0, pos: { ...prev.pos }, q: prev.q.clone() };
+  const next = nextSample(track, now, (p) => ({
+    t: 0,
+    pos: { ...p.pos },
+    q: p.q.clone(),
+  }));
   for (const f of POS_FIELDS)
     if (typeof transform[f] === 'number') next.pos[f] = transform[f];
   if ('rx' in transform || 'ry' in transform || 'rz' in transform) {
@@ -316,49 +303,49 @@ export function smoothNodeTransform(
       )
     );
   }
-  if (!sameSample) {
-    const gap = now - track.lastArrival;
-    if (track.samples.length > 1)
-      track.interval =
-        track.interval * 0.8 + Math.min(200, Math.max(8, gap)) * 0.2;
-    // Even out arrival times: show a sample between half an interval and one
-    // and a half after the previous one, as close to its arrival as that
-    // allows. A bunched sample is spread out, a late one is pulled in; the
-    // playback delay leaves room for both, and the timeline catches up with
-    // the arrivals within a few samples.
-    next.t = Math.max(
-      prev.t + track.interval * 0.5,
-      Math.min(now, prev.t + track.interval * 1.5)
-    );
-    track.samples.push(next);
-    track.lastArrival = now;
-  }
   ensureLoop();
 }
 
-/** Smooth an incoming compose-layer preview patch (x/y/width/height/rotation).
- *  Other fields show as they arrive (the document already carries them). Layer
- *  rotation is 2D (degrees, single axis) so a scalar shortest-arc tween is
- *  enough. The tween starts from what this tab currently shows: a running
- *  tween's value, else the committed one (the overlay already holds the
- *  target). */
+/** Feed an incoming compose-layer preview patch (any of x/y/width/height/
+ *  rotation) into the layer's playback buffer. Other fields show as they
+ *  arrive (the document already carries them). Rotation is 2D, in degrees: each
+ *  sample is unwrapped to the shortest arc from the previous one, so
+ *  interpolating it never spins the long way round. */
 export function smoothComposeLayer(id: string, patch: Record<string, unknown>) {
-  const shown = useEditorStore.getState().liveLayers[id] as
-    | Record<string, number>
-    | undefined;
-  const committed =
-    collectionOf<Record<string, number>>('compose_layer').replica.raw(id);
-  if (!committed) return;
-  const from = (field: string, to: number) =>
-    shown?.[field] ?? committed[field] ?? to;
-  const linearFields = new Set(['x', 'y', 'width', 'height']);
-  for (const [field, to] of Object.entries(patch)) {
-    if (typeof to !== 'number') continue;
-    if (linearFields.has(field))
-      retargetScalar('layer', id, field, to, from(field, to));
-    else if (field === 'rotation')
-      retargetScalarDeg('layer', id, field, to, from(field, to));
+  const fields = LAYER_FIELDS.filter((f) => typeof patch[f] === 'number');
+  if (!fields.length) return;
+  const now = performance.now();
+  let track = layerTracks.get(id);
+  if (!track) {
+    const committed =
+      collectionOf<Record<string, number>>('compose_layer').replica.raw(id);
+    if (!committed) return;
+    // Start from what this tab shows now: a live value, else the committed one
+    // (the overlay already holds the target).
+    const shown = useEditorStore.getState().liveLayers[id] as
+      | Record<string, number>
+      | undefined;
+    const v: Record<string, number> = {};
+    for (const f of LAYER_FIELDS) {
+      const x = shown?.[f] ?? committed[f];
+      if (typeof x === 'number') v[f] = x;
+    }
+    track = newTrack<LayerSample>({ t: now, v });
+    layerTracks.set(id, track);
   }
+  const next = nextSample(track, now, (p) => ({ t: 0, v: { ...p.v } }));
+  for (const f of fields) {
+    let to = patch[f] as number;
+    const from = next.v[f];
+    if (f === 'rotation' && typeof from === 'number') {
+      let d = to - from;
+      while (d > 180) d -= 360;
+      while (d <= -180) d += 360;
+      to = from + d;
+    }
+    next.v[f] = to;
+  }
+  ensureLoop();
 }
 
 /** Does a committed write at `path` (undefined = whole document) set the
@@ -371,9 +358,9 @@ function touchesTransform(path: string | undefined): boolean {
   );
 }
 
-/** Tween compose layers that another tab is dragging (the lossy `preview`
- *  channel), so they glide between samples. Mid-gesture, a committed value
- *  retargets the running tween so the layer glides into its final position
+/** Play back what another tab is dragging (the lossy `preview` channel), so it
+ *  glides between samples. Mid-gesture, a committed value joins the playback
+ *  as its last sample, so the node or layer glides into its final position
  *  instead of snapping (the last preview may never have landed). */
 export function startPreviewSmoothing(peer: MeshPeer): () => void {
   const offLayers = peer
