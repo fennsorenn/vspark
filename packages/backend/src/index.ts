@@ -3,6 +3,7 @@ import { existsSync } from 'fs';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import { createApp } from './app.js';
+import { upgradeAllowed } from './localAccess.js';
 import { runMigrations, getDb, closeDb } from './db/index.js';
 import {
   setVmcManager,
@@ -108,6 +109,7 @@ const PUBLIC_DIR = join(__dirname, 'public');
 let outputWindows: OutputWindowManager | null = null;
 
 server.on('upgrade', (req, socket, head) => {
+  if (!upgradeAllowed(req, socket)) return;
   if (req.url?.startsWith('/ws')) {
     wsSync.upgrade(req, socket, head);
   } else if (req.url?.startsWith('/mesh')) {

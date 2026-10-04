@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { readFile, writeFile } from 'fs/promises';
+import { chmod, readFile, writeFile } from 'fs/promises';
 import { join } from 'path';
 import type {
   AppConfig,
@@ -32,7 +32,13 @@ async function readConfig(): Promise<AppConfig> {
 }
 
 async function writeConfig(cfg: AppConfig): Promise<void> {
-  await writeFile(configPath(), JSON.stringify(cfg, null, 2), 'utf-8');
+  // config.json can hold the assistant apiKey: owner read/write only. `mode`
+  // applies on creation; chmod covers a file that already existed.
+  await writeFile(configPath(), JSON.stringify(cfg, null, 2), {
+    encoding: 'utf-8',
+    mode: 0o600,
+  });
+  await chmod(configPath(), 0o600).catch(() => {});
 }
 
 /**
@@ -142,7 +148,11 @@ configRoutes.patch('/config', async (req, res) => {
   // Only re-check when the channel actually moved; this used to fire on every
   // config write regardless of what changed.
   if (body.channel !== undefined) void checkForUpdates();
-  res.json({ ok: true, data: updated });
+  // Same redacted view as GET: the stored config can hold the assistant apiKey.
+  res.json({
+    ok: true,
+    data: { ...updated, assistant: toPublic(await resolveAssistantConfig()) },
+  });
 });
 
 /**
@@ -164,6 +174,21 @@ configRoutes.put('/assistant-config', async (req, res) => {
         ? body.apiKey
         : base.apiKey,
   };
-  await writeConfig({ ...current, assistant: next });
+  // A key belongs to the endpoint it was entered for. Pointing the assistant at
+  // a different host without supplying a new key drops the old one — otherwise
+  // the next request would send it to whatever host was just configured.
+  const newKey = typeof body.apiKey === 'string' && body.apiKey.length > 0;
+  if (!newKey && next.baseUrl !== base.baseUrl) next.apiKey = '';
+  // Persist only a key that was actually entered (or already stored). A key
+  // that lives in the environment stays there instead of being copied to disk.
+  const persistedKey = newKey
+    ? body.apiKey
+    : next.apiKey === ''
+      ? ''
+      : current.assistant?.apiKey;
+  await writeConfig({
+    ...current,
+    assistant: { ...next, apiKey: persistedKey as string },
+  });
   res.json({ ok: true, data: toPublic(next) });
 });

@@ -1138,8 +1138,21 @@ export function buildToolSpecs(): ToolSpec[] {
         '(OAuth is user-only) — if none are connected, open the Accounts dialog (ui_open_window ' +
         'window:"accounts") and ask the user to connect.',
       inputShape: { projectId: z.string() },
-      handler: (c, a) =>
-        c.get(`/api/projects/${a.projectId}/overlive-accounts`),
+      // Exactly the fields the description promises. Tool results land in the
+      // LLM prompt, so nothing credential-shaped may pass through here even if
+      // the REST view grows a field.
+      handler: async (c, a) => {
+        const rows = (await c.get(
+          `/api/projects/${a.projectId}/overlive-accounts`
+        )) as Record<string, unknown>[];
+        return rows.map(({ id, platform, label, status, isDefault }) => ({
+          id,
+          platform,
+          label,
+          status,
+          isDefault,
+        }));
+      },
     },
 
     // ---- UI control (drive the user's editor; needs a sessionId) ----
