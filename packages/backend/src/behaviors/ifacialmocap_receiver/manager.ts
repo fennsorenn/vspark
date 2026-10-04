@@ -62,7 +62,7 @@ interface Receiver {
  *
  * Deliberately kept parallel to `behaviors/vmc_receiver/manager.ts`: same graph
  * lifecycle, same `_nodeState` persistence, same interceptor registration, same
- * `vmc_status` / `vmc_tracking_state` WebSocket surface, same broadcast-bus
+ * `tracking` status document (mesh/status.ts), same broadcast-bus
  * slot semantics. The protocol-level differences are documented in
  * `protocol.ts` and in dev-notes/modules/component-managers.md.
  */

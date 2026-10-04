@@ -1,6 +1,6 @@
 # Plan: The mesh as the sole client↔server channel
 
-> **Status:** in progress
+> **Status:** in progress — foundation largely done on `feature/mesh-foundation`
 > **Follows:** [`mesh-frontend-writes.md`](./mesh-frontend-writes.md) (shipped, in `dev`
 > at 77bfdb4). **Supersedes** the Phase-6 recommendation in
 > [`mesh-sync-refactor.md`](./mesh-sync-refactor.md) §12 ("keep Phase-6 on the legacy
@@ -149,20 +149,63 @@ Four channels, plus a blob store beside them:
 In this order, each with core tests in `packages/mesh/test/` before any consumer uses
 it:
 
-1. **Grants module.** Extract grant logic into its own module; whitelist-only; egress
-   projection; union-of-paths admission; per-leaf write checks for merge-patches;
-   partial-view upserts become merge-patches; the nack and tombstone fixes. A test
-   matrix of grant × path × channel × message type.
-2. **Collection-declared default grants.** Replace the server's `'*'/'*'` tab grant.
-3. **`control` channel.** Dedup in core (per-origin sequence window), `to` addressing,
-   `re` replies with timeout/unreachable.
-4. **Routing seam.** A per-participant routing table with the current star as its only
-   path type; behaviour unchanged. Send once per next hop.
-5. **Participant authentication.** Enrolled tab identities, handshake refusal.
-6. **Direct links.** A browser WebRTC transport inside `@vspark/mesh-transports`,
-   signaling over the mesh, grants delivered at link setup, failover to relay.
+1. **Grants module.** ✅ Done (4a333bf). Whitelist-only `GrantStore`, one egress
+   filter (`MeshPeer.transmit`), overlap admission with union-of-paths delivery,
+   per-leaf write checks, partial-view upserts applied as merge-patches, nack and
+   tombstone leaks fixed (tombstone ancestry persisted, migration 042).
+2. **Collection-declared default grants.** ✅ Done (4a333bf). `CollectionConfig.clients`;
+   the `'*'/'*'` tab grant is gone.
+3. **`control` channel.** ✅ Done (3f4d10e). Per-origin (epoch, seq) dedup, `to`
+   addressing through `nextHop`, `Collection.request` / `reply`.
+4. **Routing seam.** ✅ Partly done. `nextHop` resolves a destination to a link
+   (direct link → the participant's server → our home); link state (feef226): a peer
+   announces its direct links to its home, which stops relaying *lossy* ops those
+   participants get first-hand. Not done: a general per-subscription path choice
+   (today a subscriber picks the peer it subscribes to).
+5. **Participant authentication.** ✅ Done for tabs (07e3f0c): token hello →
+   welcome / 4401, browsers enroll once (automatic on the vspark machine, device code
+   elsewhere), token hashes in `client_credentials` (migration 043). Servers already
+   authenticate through the rendezvous (Ed25519).
+6. **Direct links.** ⏳ Not started; design below. Blocked on a two-backend test
+   harness (the e2e suite runs one backend with multiplayer disabled, so a real
+   browser↔browser or browser↔remote-server link can't be verified yet).
+
+Also done on this branch, outside the numbered list:
+- **`removeTree`** (20ccf98): deleting a document removes its cross-type containment
+  subtree as one undo action. Fixed live ghost documents: a node deleted through the
+  mesh left its behaviors/effects/clips/graphs alive in every replica.
+- **W0** (604b776) and **W2** (550b9c9), see their sections.
+
+#### F6 design (for review)
+
+- **Transports.** The pieces exist outside the mesh: browser↔browser WebRTC
+  (`frontend/src/mesh/clientMesh.ts`, signaling via `clientMeshRelay`) and
+  backend↔remote-browser WebRTC (`multiplayer/browserMesh.ts`). Wrap both as
+  `MeshTransport`s (as `ServerMeshTransport` already wraps the server↔server mesh)
+  so their links appear in `MeshPeer.links`. Signaling moves onto addressed
+  `control` messages.
+- **Grants at link setup.** A tab serving a direct subscriber needs that
+  participant's grants. The brokering server writes them into a runtime collection
+  only its own tabs can read, scoped to the participants they link with; the tab
+  mirrors them into its `GrantStore`. Revocation is a removal there.
+- **Admission on direct links.** Today an op is accepted without a grant check when
+  it matches one of our subscriptions to the sender. That shortcut is right for a
+  home or authority link and wrong for a direct link from another tab, which must
+  pass the write grants.
+- **Open problem: committed writes over a direct link.** Validation, corrections and
+  peer-relative fields (clock-anchored `startEpoch`) are handled by the authority
+  server. A committed op that arrives tab-to-tab skips all of it; if the authority
+  then rejects or corrects it, the receiving tab never hears about it and diverges.
+  Proposal: treat a committed op from a non-authority direct link as a provisional
+  overlay (latency win, rendered immediately) that the authoritative write
+  replaces, with an expiry for one that never gets confirmed. Needs the user's call;
+  until then direct links carry `preview` and `control` only.
 
 ### W0: Missed writes and leftovers (no new mesh features)
+
+✅ Mostly done (604b776). Remaining: scene create (template seeding still inserts SQL
+rows and mirrors them), `Home.tsx` scene seeding, cross-scene move via preset, compose
+scene create, and the unused tables (awaiting the go-ahead).
 
 - Frontend writes still on REST for rtypes that have a collection:
   `ComposeLayerProperties.tsx` config fields; `ComposeTree.tsx` layer config and
@@ -182,6 +225,10 @@ accounts, app config, and the multiplayer control plane (grants, known peers, se
 grants, collab scenes). Secrets follow the grant pattern above.
 
 ### W2: Server-authored live status on `runtime`
+
+✅ Partly done (550b9c9): receiver tracking/connected, OBS connection, streaming
+account and output-window status are `server_status` documents. Remaining: the
+multiplayer `mp_*` status, static catalogs, and `server_update` (a command → W4).
 
 `obs_connection_status`, `overlive_account_status`, `output_window_status`,
 `vmc_status`, `vmc_tracking_state`, `server_update`, `mp_status` / `mp_peer` /

@@ -1,6 +1,6 @@
 # Mesh — Replicated Store (@vspark/mesh, @vspark/mesh-react, @vspark/mesh-transports)
 
-**Status:** Core package implemented with 29 vitest tests; three packages (mesh / mesh-react / mesh-transports WS pair) shipped; backend hydration + persistence complete; reads fully mesh-fed (`sync/meshStoreFeeder.ts`); writes mesh-authored for every document rtype (see the per-rtype table under [Undo / redo](#undo--redo-per-peer)). See [Remaining](#remaining) for the rest.
+**Status:** Core package implemented (119 vitest tests across `packages/mesh/test/`); three packages (mesh / mesh-react / mesh-transports WS pair) shipped; backend hydration + persistence complete; reads fully mesh-fed (`sync/meshStoreFeeder.ts`); writes mesh-authored for every document rtype (see the per-rtype table under [Undo / redo](#undo--redo-per-peer)); whitelist grants with one egress filter ([Grants](#grants)); every tab authenticates before joining ([Tab authentication](#tab-authentication)). See [Remaining](#remaining) for the rest.
 
 A **schema-agnostic in-memory replicated store** with symmetric read/write API on both frontend and backend, HLC last-write-wins convergence, grant-gated access control, and authority-driven ack lifecycle. No durability in the package itself; durable peers hydrate from persistent store and persist incoming mutations via observe taps. Designed to replace both the legacy sync layer and the entity-aware collab-scene sharing model.
 
@@ -260,7 +260,8 @@ while the direct path is unavailable.
 - `MeshPeer` — peer identity + transport registry + subscription management.
 - `Collection<T>` — typed id-keyed store with parent-child hierarchy (containment index), channel-tagged writes, read + write API, observe taps for durability.
 - `Replica` — per-path HLC LWW storage (atomic history per key), tombstones, ephemeral overlays with composed-read cache, snapshot + apply mechanics.
-- `ChannelRegistry` — named delivery channels with declared semantics (reliable/lossy, stamped/ephemeral, acking).
+- `ChannelRegistry` — named delivery channels with declared semantics (reliable/lossy, stamped/ephemeral, acking); four built in (`channels.ts`).
+- `GrantStore` + pure projection functions (`grants.ts`) — the whitelist access model; see [Grants](#grants).
 - Transport SPI + loopback implementation for testing.
 
 **`@vspark/mesh-react`** — React hooks (useSyncExternalStore):
@@ -276,8 +277,8 @@ while the direct path is unavailable.
 All subscribe to the replica via `useSyncExternalStore` and auto-unsubscribe on unmount.
 
 **`@vspark/mesh-transports`** — Transport implementations:
-- `WsServerTransport` — `/mesh` route (hello handshake, participant id composition `${serverPeerId}#${tabUuid}`).
-- `WsBackendTransport` — Browser client with auto-reconnect and offline write gating.
+- `WsServerTransport` — `/mesh` route (authenticated hello handshake, participant id composition `${serverPeerId}#${tabUuid}`); see [Tab authentication](#tab-authentication).
+- `WsBackendTransport` — Browser client with auto-reconnect and offline write gating; sends the token in each hello and calls `onUnauthorized` on close code 4401.
 - WebRTC adapters (ServerMesh, BrowserPeerMesh wrapping) — planned.
 
 ### Core invariants
@@ -317,21 +318,45 @@ collection.create(doc: T): WriteHandle       // new id, apply, broadcast
 collection.update(id, partial: Partial<T>): WriteHandle  // path merge
 collection.set(id, path: string, value): WriteHandle     // single cell
 collection.remove(id): WriteHandle           // tombstone + broadcast
+collection.removeTree(id): WriteHandle[]     // id + its cross-type containment subtree, one undo action
 ```
+
+`WriteOpts` (last argument of every write): `channel`, `undo: false` (see
+[Undo / redo](#undo--redo-per-peer)), and `to` — addressed delivery, see
+[Addressing and request/reply](#addressing-and-requestreply). `to` is
+only allowed on unstamped channels: a write with `to` on a stamped channel
+throws (`Collection.writeChannel` → `requireUnstamped`; covered in
+`control.test.ts`), because shared state is never per-recipient.
 
 All writes are subject to:
 - Authority reachability gating (if authority is known down, guarded writes reject synchronously, and UIs consult `canWrite()`).
-- Remote grant validation on receive.
+- Write-grant checks on receive, per leaf (see [Grants](#grants)).
 - Ack lifecycle: authority applies, persists, and acks; timeout triggers recency-gated revert.
+
+**`removeTree(id)`** (`MeshPeer.removeTree`, also on `Collection`) walks the
+peer's containment index from `id` — across rtypes, so a node's behaviors,
+effects, clips, graphs and animation clips are included — and removes every
+document it holds, children first, inside one `batch` (one undo action). Only
+document collections take part (retained channel with `ack: 'authority'`);
+runtime-channel state is left to its author. Ids the peer no longer holds are
+skipped, which is what lets the backend persistence tap call it on a doc that
+was just removed to sweep its dependents. See
+[Structural writes](#structural-writes--a-subtree-delete-must-remove-descendants-explicitly).
 
 ### Hydration (durable peers, boot)
 
 ```ts
 collection.put(doc: T, { v: HLC }): void   // apply with HLC stamp; LWW vs live replicas
-collection.putTombstone(id, v: HLC): void  // mark deleted
+collection.putTombstone(id, v: HLC, ancestors?: string[]): void  // mark deleted
 ```
 
 These apply without broadcasting and never trigger acks (the source of truth for the stamps — the persistent store — is already responsible for ordering).
+
+`ancestors` (nearest first) is the chain persisted from the remove's
+`AppliedChange.ancestors`; it restores where the deleted entity sat, so
+subtree-scoped grants can still decide who may receive the tombstone (see
+[Tombstone ancestry](#tombstone-ancestry)). The backend stores it in
+`mesh_tombstones.ancestors` (migration 042).
 
 ### Observation
 
@@ -350,6 +375,15 @@ collection.onCommitted(callback): Unsubscribe
 ```ts
 collection.canWrite(): boolean  // false while ack authority is known down
 ```
+
+### Config
+
+`CollectionConfig` (`packages/mesh/src/collection.ts`): `parent`, `validate`,
+`channels`, `authority`, and `clients` — the rights (`read` / `update` /
+`create` / `delete`) this peer's own tabs hold on every document of the
+collection. Declaring `clients` adds one grant to the peer's own id, which
+covers its client participants and no one else. A collection without it is
+unreachable from tabs. See [Grants](#grants).
 
 ## Undo / redo (per peer)
 
@@ -459,19 +493,72 @@ const nodes = mesh.collection<Node>('scene_node', {
   validate?: (data: unknown, originId?: string) => Node,  // originId = origin peer (peer-clock localization)
   channels?: string[],  // default ['committed', 'preview']
   authority?: 'self' | PeerId,
+  clients?: { read?, update?, create?, delete? },  // tab rights, see Grants
 });
-
-// Built-in channels:
-//   'committed' → reliable, stamped (HLC), retained (snapshot), ack:'authority'
-//   'preview'   → lossy, unstamped, ephemeral (drag previews, IK targets)
-//
-// App-defined channels (declared in packages/backend/src/mesh/streams.ts):
-//   'control'   → reliable, unstamped, unretained — for event traffic (playback
-//                 controls, runtime relay) where ordering matters but there is no
-//                 state to snapshot or persist
 ```
 
+Four channels are built in (`BUILTIN_CHANNELS` in `packages/mesh/src/channels.ts`),
+so every peer shares them without declaring anything:
+
+| channel | transport | stamped | retained | ack | used for |
+|---|---|---|---|---|---|
+| `committed` | reliable | yes | yes | `authority` | document state: persisted by durable peers, acked, undoable |
+| `preview` | lossy | no | no | — | high-frequency latest-wins data (gestures, sensor streams) |
+| `runtime` | reliable | yes | yes | — | retained state that lives only while its author runs (server status, runtime overrides, data fields) — see [Runtime state](#runtime-state-the-runtime-channel) |
+| `control` | reliable | no | no | — | commands: delivered once, never retained (media commands, collab runtime events) |
+
+`ChannelRegistry.define` still accepts app channels; nothing in the app defines
+one today.
+
 A write targets a channel via `set(id, path, value, { channel: 'preview' })`. Writes to the retained channel flow through ack authority; ephemeral writes always flow (no authority gating).
+
+### Unstamped ops are applied once
+
+Unstamped ops (`preview`, `control`) carry no HLC, so LWW cannot discard a
+duplicate. Each one carries an `(epoch, seq)` identity instead (`qe` / `q` on
+the envelope): `epoch` is fixed per `MeshPeer` instance, `seq` counts up. A
+receiver keeps, per origin, the current epoch and a window of seen sequence
+numbers (`alreadySeen` in `peer.ts`; window 1024, at most 4096 origins tracked)
+and drops an op it has already applied or one from an older epoch of that
+origin. This is what lets the same op arrive over more than one path.
+
+### Addressing and request/reply
+
+`WriteOpts.to` addresses an unstamped write to one participant. The author does
+not apply it; it sends it to `nextHop(to)` and resolves `unguarded` (or
+`rejected: 'unreachable'` when there is no hop). A peer that receives an op
+addressed to someone else forwards it to its own next hop and applies nothing;
+only the addressee applies it.
+
+`nextHop` is the **routing seam**: today it picks the first linked candidate of
+the participant itself, its server (`participantServer`), then this peer's
+`home`. Direct links (principle 8) are meant to plug in here without changing
+callers.
+
+On top of addressing:
+
+```ts
+collection.request(id, data, { to, channel?: 'control', timeoutMs?: 5000 }): Promise<RequestOutcome>
+collection.reply(change, data): void   // change.request is set on the receiver
+// RequestOutcome: { status: 'replied', data } | 'timeout' | 'unreachable' | { status: 'error', reason }
+```
+
+`request` throws on a stamped channel. The receiver sees an applied change with
+`change.request = { mid, from }` and answers with `reply`. A hop that cannot
+forward a request answers `unreachable` on the addressee's behalf; any other
+reply is accepted only from the addressee. Delivery is at most once, so a lost
+request or reply ends in `timeout`. Tests: `packages/mesh/test/control.test.ts`.
+
+### Link state
+
+A peer with a `home` tells it which participants it reaches directly: a `links`
+message (`LinksMsg` in `wire.ts`) on every link change. The home records it per
+sender (`directLinks`) and, when relaying a **lossy** op, skips recipients that
+reach the op's origin directly — they already have it first-hand. Reliable ops
+are still relayed, as the path that survives a direct link dropping silently;
+the receiver's dedup (or LWW, for a stamped op) absorbs the second copy. Today no transport produces direct
+links, so this is groundwork for principle 8. Tests:
+`packages/mesh/test/links.test.ts`.
 
 ### Snapshot & apply
 
@@ -480,7 +567,7 @@ On subscription with an unmet grant, the subscriber receives:
 2. A watermark (HLC timestamp) bounding the snapshot's consistency.
 3. Live ops after the watermark.
 
-Applying a remote op validates the source has write permission (via the grant store) and runs the resource's `validate` function before touching the replica.
+Applying a remote op checks the origin's write grants ([Grants](#grants)) and runs the resource's `validate` function before touching the replica. The snapshot and every later op are projected through the subscriber's read grants on the way out.
 
 ### Peer-clock localization (validate origin id)
 
@@ -493,6 +580,108 @@ validate?: (data: unknown, originId?: string) => T   // packages/mesh/src/collec
 `Collection.validateDoc(data, originId?)` forwards it. `MeshPeer` (`packages/mesh/src/peer.ts`) threads the origin through every apply path: `this.id` for local writes, `env.origin` for remote ops, and `senderId` for snapshots. The peer also exposes a peer-clock API `toLocalTime(originId, t)` that maps a timestamp authored on `originId`'s clock onto the local clock (identity when `originId` is this peer, since local writes are already local).
 
 First use: the `scheduled_animation` collection's `validate` rewrites `startEpoch` via `peer.toLocalTime(originId, startEpoch)` so a timeline authored on one peer activates at the same wall-clock instant everywhere (see [animation.md](animation.md)). The clock is a synchronized-clocks stub today, so the translation is numerically a no-op, but the mechanism and call sites are final.
+
+## Grants
+
+Implements principle 9's whitelist (`packages/mesh/src/grants.ts`, wired in
+`peer.ts`). Tests: `packages/mesh/test/grants.test.ts` (core) and
+`packages/backend/test/mesh.grants.test.ts` (backend bindings).
+
+**Shape.** A `Grant` (from `@vspark/shared/sync`) gives one `grantee` rights
+(`read` / `update` / `create` / `delete`) on `entityRtype × entityId` (optionally
+`includeDescendants` through the containment index) `× pathPrefix`. A
+participant's access is the union of every grant that names it, its server
+(`participantServer`) or `'*'` (`granteeCandidates`). There are no deny rules,
+and nothing is reachable without a grant. API: `peer.grants.grant(g) → gid`,
+`revoke(gid)` (re-checks admitted subscriptions and drops those no grant
+overlaps any more), `list()`, `observe(cb)`.
+
+**Where grants come from today.**
+- `CollectionConfig.clients` — the tab rights a collection declares (one grant
+  to the peer's own id, which `granteeCandidates` matches for its tabs only).
+  The backend sets them per binding in `packages/backend/src/mesh/index.ts`:
+  `TAB_AUTHORED` (all four rights) for the rtypes tabs author (`scene_node`,
+  `behavior`, `camera_effect`, `compose_layer`, `track_clip`, `logic`,
+  `clip_playback`), `TAB_READ_DELETE` for `animation_clip` and
+  `scheduled_animation` (servers write them; a tab removes them only as part of
+  deleting their node via `removeTree`). The runtime collections
+  (`runtime_override`, `data_field`, `media_control`, `server_status`) are
+  `{ read: true }`. `node_stream` and `runtime_control` declare none — they are
+  server-to-server only. The former blanket `'*'/'*'` grant to tabs is gone.
+- Collab-scene grants (`mesh/collab.ts`) and object-share grants
+  (`mesh/shares.ts`) for server peers, as before.
+
+**Reads are projected at one egress point.** Every message a peer sends goes
+through `MeshPeer.transmit` → `egress`, which cuts it down to what the recipient
+may read: `readScope` computes `all` / `none` / a set of readable path prefixes
+for one entity; `projectValue` trims a document (or the subtree at a path) to
+that scope; `projectOp` returns the op the recipient may see, or null. Ops,
+subscription snapshots (`sub_ok` docs and tombstones) and ack values all pass
+through it. Removes go out whole to anyone who can read some part of the entity.
+A nack's `value` is projected too, so a rejected writer does not learn a value
+it cannot read. Field-level read grants depend on nothing bypassing `transmit`.
+
+**Exempt recipients.** Two recipients are not projected: the peer's `home`
+(`MeshPeerConfig.home` — a tab's own server, which is the source of its grants
+rather than a recipient they gate), and, for ops, a collection's `authority`
+(writes flow to it to be decided). Tabs set `home: serverPeerId`; the backend
+peer has no home.
+
+**Subscription admission.** A subscription is admitted when any read grant
+*overlaps* it (entity and path, either direction — `grantOverlapsSubscription`),
+not only when one covers it. What it then receives is the union of the paths
+its grants allow, by projection per message.
+
+**Writes are checked per leaf.** `admitOp` accepts an op that matches one of
+this peer's own active subscriptions to the sender without a grant check (data
+we asked for). Otherwise: a remove needs `delete`; an upsert of an unknown id
+needs `create`; a patch needs `update` on its path, a merge-patch on every leaf.
+An upsert of an existing doc from an origin without whole-document `update` is
+applied as a **merge-patch of the leaves it may write** — a peer with a partial
+view never overwrites what it cannot see. A refused guarded write is nacked
+with `reason: 'denied'`.
+
+<a id="tombstone-ancestry"></a>
+**Tombstone ancestry.** Whether a subtree-scoped grant covers a deleted entity
+depends on where it sat, which the containment index forgets on removal. The
+peer keeps each removed id's chain (`tombChains`, consulted by
+`isDescendantOrWas`), `AppliedChange.ancestors` carries it to observers, the
+backend persists it with the tombstone (`mesh_tombstones.ancestors`, migration
+042) and rehydrates it via `putTombstone(id, v, ancestors)`. Snapshot tombstones
+are filtered by subscription scope with it, then by egress. Tombstones written
+before migration 042 have no chain and reach only rtype-wide grants.
+
+**Not done yet** (see [plans/mesh-sole-channel.md](../plans/mesh-sole-channel.md)
+F6): delivering grants for direct links at link setup, and blob grants derived
+from referencing documents.
+
+## Tab authentication
+
+Every tab authenticates before it joins its server's mesh (principle 9).
+
+- **Handshake** (`mesh-transports`): the tab sends
+  `{ t: 'hello', participantId, token }`; the server answers `{ t: 'welcome' }`
+  or closes with code **4401**. No mesh message is handled before the welcome,
+  and the client announces the backend as a peer only after it. The backend's
+  `authenticate` callback is `verifyClientToken` (`initBackendMesh`).
+- **Credentials** (`packages/backend/src/auth/clients.ts`): a browser enrolls
+  once and keeps a random bearer token; the server stores only its SHA-256 in
+  `client_credentials` (migration 043, with `last_seen` / `revoked_at`;
+  `revokeClient` locks a browser out at its next connection).
+- **Enrollment** (`packages/backend/src/auth/routes.ts`):
+  `POST /api/mesh/enroll { label?, code? }` issues a token directly to a
+  loopback caller; any other caller must send the current pairing code or gets
+  403 `PAIRING_REQUIRED`. `GET /api/mesh/pairing-code` answers loopback callers
+  only. The code is six digits, single-use, rotates after five wrong guesses,
+  and is printed to the server log at start and on every rotation. `browserAddress` reads
+  `X-Forwarded-For` only when the socket itself is loopback (the Vite proxy,
+  which `vite.config.ts` sets to `xfwd`) and then only its last entry.
+- **Frontend** (`packages/frontend/src/mesh/peer.ts`): the token lives in
+  `localStorage` (`vspark.mesh.token`); a missing or refused token triggers
+  `enroll()`, which asks for the pairing code through the prompt registered with
+  `setPairingPrompt` (`Editor.tsx`). `ConnectionsWindow` shows the code to a
+  local user; help: `multiplayer.md#device-code`.
+- Servers authenticate to each other through the rendezvous (Ed25519) as before.
 
 ## Committed vs preview — the channel is the discriminator
 
@@ -551,17 +740,22 @@ the last).
 
 ## Structural writes — a subtree delete must remove descendants explicitly
 
-Deleting a document that has children is **not** one write. The helpers in
-`frontend/src/mesh/writes.ts` walk the containment index and issue a remove for
-every descendant, each before its own parent, inside one `meshBatch`:
+Deleting a document that has children is **not** one write. `commitDocDelete`
+in `frontend/src/mesh/writes.ts` calls `col.removeTree(id)` (see
+[Collection API](#writes-apply-local--fan-out--ack-lifecycle)), which removes
+every document in the cross-type containment subtree — child docs and the
+behaviors, effects, clips, graphs and animation clips hanging off them — each
+before its own parent, as one undo action:
 
 ```ts
-const acks = meshBatch(() => [
-  ...descendantsBottomUp(adapter, id).map((d) => col.remove(d.id).ack),
-  col.remove(id).ack,
-]);
-await Promise.all(acks);
+const outcomes = await Promise.all(col.removeTree(id).map((h) => h.ack));
 ```
+
+The server side follows the same rule: the backend persistence tap calls
+`peer.removeTree(c.id)` on every committed remove before deleting the row, so a
+delete from REST, a tab, an undo or a collab peer sweeps dependents through
+their collections (each with a tombstone). The node and scene DELETE routes
+call `removeTree` too.
 
 Leaving the children to the server's SQL foreign-key cascade **looks** correct —
 the rows do disappear — but only the root gets a `col.remove`, so only the root
@@ -655,7 +849,10 @@ since both render live state). It registers a collection per rtype in `RTYPES`
 containment schema from `PARENTS` in the same file.
 
 **Participant ID:** `${serverPeerId}#${tabUuid}` (stable across reloads via
-sessionStorage), so HLC origins and grants stay consistent per tab.
+sessionStorage), so HLC origins and grants stay consistent per tab. The peer is
+created with `home: serverPeerId` (exempt from egress projection, receives the
+`links` announcements) and connects with a stored token — see
+[Tab authentication](#tab-authentication).
 
 **Auto-subscription re-arming:** the peer marks outgoing subscriptions stale on
 disconnect and they do not auto-renew, so `armSubscriptions()` re-subscribes every
@@ -667,9 +864,12 @@ rtype (`entityId: '*'`) on each `onStatus` transition back to connected.
 the replica into Zustand `editorStore` and components read the store. Moving
 components onto `@vspark/mesh-react` hooks is still open.
 
-**Writes** go through `mesh/writes.ts` / `mesh/layerWrites.ts` for `scene_node`
-and `compose_layer`; everything else is still REST. See the Undo/redo table for
-what that costs.
+**Writes** are tab-authored for every document rtype (`mesh/writes.ts`,
+`mesh/layerWrites.ts` and the sibling `*Writes.ts` files); see the Undo/redo
+table. Bound controls go through `hooks/useMeshField.ts`: `useMeshField` for
+node fields, `useLayerField` for compose-layer fields, with a `livePreview`
+option (default on) that fields which must not apply half-typed — browser URL,
+feed template/CSS — turn off so they commit only on blur.
 
 ## Extending: adding a new synced rtype
 
@@ -701,9 +901,11 @@ Two failures worth knowing in advance, because neither announces itself:
    tombstone rehydration are all driven from it; `bindCollection` returns early
    without one, leaving a replicate-only collection.
 4. **Binding** — a row in `BINDINGS` in `packages/backend/src/mesh/index.ts`:
-   `rtype`, `table`, `parent`, optional `validate` / `guard`, and `persists`
-   (which gates SQLite only — a doc that fails it still fans out to every
-   replica).
+   `rtype`, `table`, `parent`, `clients` (the tab rights — `TAB_AUTHORED`,
+   `TAB_READ_DELETE`, or narrower; required by the type, and without a read
+   right the tab's subscription is denied), optional `validate` / `guard`, and
+   `persists` (which gates SQLite only — a doc that fails it still fans out to
+   every replica).
 
    `validate` vs `guard`, which is easy to get wrong: **`validate` only runs on
    whole-doc writes.** A dotted-path write is a `patch` op, and patches pass
@@ -760,7 +962,7 @@ three catch every wiring break above; behaviour tests do not.
 ## Integration roadmap
 
 **Completed (through collab live-ops migration):**
-- Core package (@vspark/mesh) — 29 tests, all APIs. New: snapshot relay topology + one-way place isolation tests + pure-stream containment routing test. `handleSubOk` now relays snapshot-applied docs/tombstones onward to the peer's own subscribers (tabs subscribed before a reconcile were previously blind to snapshot state).
+- Core package (@vspark/mesh) — 29 tests at the time (118 now), all APIs. New: snapshot relay topology + one-way place isolation tests + pure-stream containment routing test. `handleSubOk` now relays snapshot-applied docs/tombstones onward to the peer's own subscribers (tabs subscribed before a reconcile were previously blind to snapshot state).
 - React hooks (@vspark/mesh-react) — all hooks.
 - Transports (@vspark/mesh-transports) — WS pair shipped; WebRTC pending.
 - Backend hydration + persistence (five collections, generic onCommitted taps).
@@ -779,7 +981,7 @@ three catch every wiring break above; behaviour tests do not.
 - **Collab live streams (b4d55c5, 2530c3f) — DONE, verified 5/5 two-backend live:**
   - `packages/backend/src/mesh/streams.ts` (new) — `node_stream` pure-stream collection (no retained channel; lossy `preview` channel keyed by node id) for pose/blendshape/IK/drag-preview frames on collab-scene nodes. Existing collab `'*'`-subtree subscriptions route frames via cross-type containment (`collabSceneForNode()` gates sender + bridge). Receiving backends bridge remote frames onto `/ws` under the original kind. `_collab_stream` + `forwardCollabStream` deleted. Object-share streams stay on legacy `_share_stream` (direct browser edges).
 - **Collab clip playback (b4d55c5, 2530c3f) — DONE, verified 5/5 two-backend live:**
-  - `clip_control` collection (also in `streams.ts`) on a new `control` channel (reliable, unstamped, unretained — events not state), keyed by clip id (containment: clip → owning node → scene). Receiver applies on its local `TrackClipPlaybackManager` via an injected applier. `_collab_playback` + `forwardClipPlayback` deleted.
+  - `clip_control` collection (also in `streams.ts`) on a new `control` channel (reliable, unstamped, unretained — events not state), keyed by clip id (containment: clip → owning node → scene). Receiver applies on its local `TrackClipPlaybackManager` via an injected applier. `_collab_playback` + `forwardClipPlayback` deleted. *(Superseded: clip playback is now the `clip_playback` document, and the `clip_control` collection was removed in 604b776.)*
 - **Collab runtime events (e181d9d) — DONE, verified 4/4 two-backend live:**
   - `runtime_control` collection (also in `streams.ts`) on the `control` channel, one publish per shared collab scene id (no containment anchor for global/spawn scopes), deduped per receiver by `eventId`. Set Data / runtime overrides / media control / spawn broadcasts now ride this path. `_collab_runtime` + `forwardCollabRuntime` + `allCollabPeers` deleted. `COLLAB_RELAY_KINDS` stays as sender whitelist. Legacy collab protocol is now only `_collab_subscribe`/`_collab_snapshot` (mount + asset transfer).
 - **Werift stale-slot reconnect wedge — FIXED, verified 4/4.** `ServerMesh.onSignal` tears down a connected slot when that peer sends a fresh offer (a live peer never re-dials), then answers. See [plans/mesh-sync-refactor.md §9](../plans/mesh-sync-refactor.md).
@@ -823,9 +1025,10 @@ three catch every wiring break above; behaviour tests do not.
 
 ### Runtime state: the `runtime` channel
 
-Graph-driven param overrides and published data fields are **state**, not
-events, and they never touch SQLite. They live on a channel of their own
-(`packages/backend/src/mesh/runtime.ts`):
+Graph-driven param overrides, published data fields and server status are
+**state**, not events, and they never touch SQLite. They live on the built-in
+`runtime` channel (collections registered in
+`packages/backend/src/mesh/runtime.ts` and `mesh/status.ts`):
 
 ```
 runtime : reliable, stamped, retained, NO ack
@@ -836,7 +1039,7 @@ Both halves are load-bearing:
 - **retained** — a tab that connects an hour later must see the current
   override, so the subscription snapshot carries it. This is what replaced the
   hand-rolled `runtime_override_snapshot` / `data_channel_snapshot` messages
-  that were replayed per WS connect. The existing `control` channel is
+  that were replayed per WS connect. The `control` channel is
   `retained: false` and would have dropped that guarantee silently.
 - **no `ack`** — only `ch.ack === 'authority'` writes are logged for undo, so an
   unacked channel keeps a graph firing overrides at frame rate off the authoring
@@ -849,6 +1052,25 @@ scene-subtree grants route them cross-type:
 |---|---|---|
 | `runtime_override` | `${targetKind}:${targetId}:${paramPath}` | one document per overridden path, so two graphs overriding different params of one node cannot clobber each other; a clear is a `remove` |
 | `data_field` | `${scope}:${field}` | one document per published field, which is what makes `set`'s merge structural; carries `scopeKind` so both peers derive the same parent without a DB lookup. Scope `''` is global and has no parent |
+| `server_status` | `${kind}:${key}` | server-authored status (`mesh/status.ts`), see below |
+
+All three declare `clients: { read: true }`: tabs read them, only the server
+writes them.
+
+**Server status** (`packages/backend/src/mesh/status.ts`) replaces the
+`vmc_status`, `vmc_tracking_state`, `obs_connection_status`,
+`output_window_status` and `overlive_account_status` WS messages and their
+per-producer "send current state to each new client" handlers. Kinds:
+`tracking` (mocap receivers — VMC, iFacialMocap, MediaPipe — keyed by behavior
+id), `obs_connection`, `overlive_account`, `output_window` (key `main`).
+Producers call `publishStatus(kind, key, fields, of?)` (merges into the existing
+doc) or `publishTracking({ behaviorId, ... })`, and `clearStatus(kind, key)` to
+drop one. A status about a document names it in `of`, which becomes its
+containment parent: it is visible wherever that document is, and
+`clearStatusOf(id)` — called from the persistence tap on every remove — drops it
+with the document. All of these no-op before the mesh is up. The frontend feeder
+maps the docs into the existing store slices (`applyStatus` in
+`sync/meshStoreFeeder.ts`).
 
 **Media commands are the counter-example.** They are events, so they stay on the
 unretained `control` channel (`media_control`, keyed by target). Retaining them
@@ -913,15 +1135,22 @@ wholesale before then would trade a working editor for a flashing one.
 
 **Remaining:**
 
-The list below was rewritten after the write migration finished; most of what
-used to be here is done, and saying so wrongly is worse than saying nothing.
+The open work — making the mesh the only client↔server channel (principles
+7–9) — is inventoried and ordered in
+[plans/mesh-sole-channel.md](../plans/mesh-sole-channel.md); that plan is the
+source of truth for what is left, so it is not copied here. In short: a general
+per-subscription path choice and direct links (foundation items F4/F6),
+unmigrated resources (W1), high-rate streams on `preview` (W3), commands on
+`control` (W4, incl. `server_update`), blobs (W5), the snapshot as the load path
+(W6) and the multiplayer legacy protocol (W7, incl. Phase-6 guarded writes and
+the advertise/offer flow).
+
+Outside that plan:
 
 - Component reads → mesh-react hooks, **partially done**. The bridge exists
   (`frontend/src/mesh/hooks.ts`) and the first read is converted; the rest is
   case-by-case, not a sweep — see "Reading a document directly" above for when
   it is worth it and what still gates a wholesale conversion.
-- Phase-6 guarded writes (`_share_write`/NAK) onto guarded mesh writes (per-doc authority).
-- Advertise/offer flow: still legacy.
 
 **Closed, not done:** principle 3's share container for mounted scenes. It was
 on this list; it is now a decision instead — see principle 3 above. Collab
@@ -938,6 +1167,17 @@ scene deletion cascades through the collection; list-shaped document fields
 instantiation commits its documents rather than inserting rows; runtime
 overrides, published data fields and media commands are collections rather than
 WS kinds; the document WS kinds that duplicated a collection write are deleted.
+On `feature/mesh-foundation`: whitelist grants with one egress filter, the
+`control` channel's dedup / addressing / request-reply, `removeTree`, tab
+authentication, link state, server status as `server_status` documents, and the
+last editor document writes (compose layer fields and toggles, scene-tree hide,
+`PUT /scenes/:id`) moved onto the mesh — with `scene_updated` / `scene_removed`
+and the dead `camera_effect_added` / `camera_effect_removed` handlers removed
+from the frontend. Also: a collection with no retained channel delivers its ops
+to observers without keeping them (commands and stream frames are not stored);
+a peer renews its stale subscriptions when a link returns; and snapshots carry
+per-field stamps, so a field edit a subscriber missed while offline is no longer
+lost to its own copy of the document.
 
 ## Key files
 
@@ -945,8 +1185,12 @@ WS kinds; the document WS kinds that duplicated a collection write are deleted.
 - `packages/mesh-react/src/` — hooks.
 - `packages/mesh-transports/src/` — WsServerTransport, WsBackendTransport.
 - `packages/backend/src/mesh/index.ts` — backend bindings, hydration, persistence.
-- `packages/backend/src/mesh/streams.ts` — `node_stream`, `clip_control`, `runtime_control` collections; collab live-ops bridging helpers.
-- `packages/backend/src/mesh/runtime.ts` — the `runtime` and `control` channels, and the `runtime_override`, `data_field` and `media_control` collections. Registered from `initBackendMesh` so a mesh peer cannot exist without them.
+- `packages/mesh/src/grants.ts` — `GrantStore`, `readScope` / `projectValue` / `projectOp`, `grantOverlapsSubscription`.
+- `packages/mesh/src/channels.ts` — the four built-in channels.
+- `packages/backend/src/mesh/streams.ts` — `node_stream` and `runtime_control` collections (server-to-server only); collab live-ops bridging helpers.
+- `packages/backend/src/mesh/runtime.ts` — the `runtime_override`, `data_field` and `media_control` collections. Registered from `initBackendMesh` so a mesh peer cannot exist without them.
+- `packages/backend/src/mesh/status.ts` — the `server_status` collection and its `publishStatus` / `publishTracking` / `clearStatus` / `clearStatusOf` helpers.
+- `packages/backend/src/auth/clients.ts`, `auth/routes.ts` — tab credentials, pairing code, enrollment routes.
 - `packages/backend/src/mesh/assets.ts` — `initMeshAssets()`: mid-session asset fetch for mesh docs with unresolvable file paths (COLLAB + PLACE paths; inert without multiplayer).
 - `packages/frontend/src/mesh/peer.ts` — frontend peer creation + wiring, the containment schema (`PARENTS`) and the subscribed rtype list (`RTYPES`), plus `meshUndo` / `meshRedo` / `meshBatch`.
 - `packages/frontend/src/mesh/writes.ts` — generic UI write helpers (`MeshDocAdapter`, fallback ladder, batched bottom-up subtree delete) + the `scene_node` wrappers.

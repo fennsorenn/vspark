@@ -2999,7 +2999,7 @@ function AvatarNode({
     // producers like breathing keep publishing a pose forever, so `poseActive`
     // stays true even after real tracking drops — using it here would pin the
     // avatar to the base loop and never fall back to idle. Tracking sources
-    // emit `vmc_tracking_state` (→ store.vmcTracking); ambient ones don't, so
+    // publish a `tracking` status (→ store.vmcTracking); ambient ones don't, so
     // they can't mask a loss.
     const store = useEditorStore.getState();
     const trackingLive = store.behaviors.some(

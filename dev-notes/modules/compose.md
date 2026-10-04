@@ -327,8 +327,9 @@ measurements: [plans/obs-output-window.md](../plans/obs-output-window.md).
   extracts it via staging → rename into `<install>/runtime/` (override:
   `VSPARK_RUNTIME_DIR`) and writes a `.vspark-verified` marker; a cached runtime is reused.
   The release zip ships `output-window/main.cjs`; in-place updates leave `runtime/` alone.
-  Status (`idle` / `downloading` + progress / `ready` / `error` / `unavailable`) is broadcast
-  as `output_window_status` (snapshot on connect) and shown under the checkbox. A failed
+  Status (`idle` / `downloading` + progress / `ready` / `error` / `unavailable`) is a
+  `server_status` document (`output_window:main`, retained, so a tab that opens later
+  gets it) and shown under the checkbox. A failed
   preparation is retried on a later scene change, at most every 30 s.
 
 ## Known Limitations / Future Work

@@ -303,9 +303,10 @@ export interface EditorState {
    *  consumed by signal-graph Account port dropdowns. */
   overliveAccounts: import('../api/client').OverliveAccountRecord[];
   /** OBS (obs-websocket) connections for the current project. Populated lazily
-   *  by the OBS Connections modal; status kept live via obs_connection_status. */
+   *  by the OBS Connections modal; status kept live by `server_status` docs. */
   obsConnections: import('../api/client').ObsConnectionRecord[];
-  /** Backend Electron runtime state for OBS window capture (output_window_status). */
+  /** Backend Electron runtime state for OBS window capture (`server_status`
+   *  document `output_window:main`). */
   outputWindowStatus: OutputWindowStatus | null;
   activeLogicId: string | null;
   /** True when the active graph is a writable standalone project graph;
