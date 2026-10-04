@@ -19,8 +19,8 @@ import {
   type UndoStatus,
 } from '@vspark/mesh';
 import { WsBackendTransport } from '@vspark/mesh-transports/wsClient';
+import { WebRtcTransport } from '@vspark/mesh-transports/webrtc';
 import { makeClientParticipantId, randomUUID } from '@vspark/shared/sync';
-import { DirectTransport } from './directTransport';
 import { MODELS, TAB_MODELS } from '@vspark/shared/models';
 
 type Dto = Record<string, unknown>;
@@ -223,8 +223,9 @@ async function doInit(): Promise<MeshHandles> {
           await enroll();
         },
       }),
-      // Direct links (principle 8) to tabs of other servers over WebRTC.
-      new DirectTransport(serverPeerId),
+      // Direct links (principle 8) to the tabs of servers ours shares with,
+      // as our server reports them; set up through the mesh itself.
+      new WebRtcTransport(),
     ],
   });
 

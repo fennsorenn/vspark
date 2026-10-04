@@ -33,6 +33,7 @@ export type { AppliedChange, ApplyMeta, DocState } from './replica.js';
 export { HlcClock } from './clock.js';
 export type {
   MeshTransport,
+  PeerDirectory,
   PeerLink,
   TransportHandlers,
 } from './transport.js';
@@ -42,18 +43,15 @@ export type {
   DocOp,
   MeshMessage,
   OpEnvelope,
+  RosterMsg,
+  SignalMsg,
   SubscribeMsg,
   SubOkMsg,
   SubscriptionRequest,
 } from './wire.js';
 export { createLoopbackPair } from './loopback.js';
 export type { LoopbackPair } from './loopback.js';
-export {
-  deepEqual,
-  flattenToLeaves,
-  getPath,
-  setPath,
-} from './paths.js';
+export { deepEqual, flattenToLeaves, getPath, setPath } from './paths.js';
 // Re-exported for convenience — the grant/subscription model is shared.
 export {
   compareHLC,

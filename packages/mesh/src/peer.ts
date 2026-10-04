@@ -44,7 +44,7 @@ import {
 } from './collection.js';
 import { deepEqual, flattenToLeaves, getPath, setPath } from './paths.js';
 import type { DocState } from './replica.js';
-import type { MeshTransport, PeerLink } from './transport.js';
+import type { MeshTransport, PeerDirectory, PeerLink } from './transport.js';
 import type {
   AckMsg,
   DeliveredGrant,
@@ -52,6 +52,7 @@ import type {
   MeshMessage,
   OpEnvelope,
   PongMsg,
+  SignalMsg,
   SnapshotDoc,
   SnapshotTombstone,
   SubOkMsg,
@@ -119,6 +120,10 @@ interface UndoGroup {
 export interface MeshStatus {
   peers: { id: string }[];
   pendingAcks: number;
+  /** Each subscription and the peers serving it right now: its path. */
+  subscriptions: { sub: SubscriptionRequest; sources: string[] }[];
+  /** Per participant whose server we are: who it gets data from directly. */
+  direct: Record<string, string[]>;
 }
 
 export interface MeshSubscription {
@@ -259,6 +264,14 @@ export class MeshPeer implements PeerCore {
   >();
   /** Per participant whose home we are: who it reaches directly. */
   private readonly directLinks = new Map<string, Set<string>>();
+  /** Rosters delivered to us, by sender (see RosterMsg). */
+  private readonly rosters = new Map<string, string[]>();
+  /** What we last told each peer, so an unchanged roster isn't resent. */
+  private readonly rosterSent = new Map<string, string>();
+  private readonly wantedObservers = new Set<(peers: string[]) => void>();
+  private readonly signalObservers = new Set<
+    (from: string, data: unknown) => void
+  >();
   /** Requests awaiting a reply, by request id. */
   private readonly pendingRequests = new Map<
     string,
@@ -303,7 +316,26 @@ export class MeshPeer implements PeerCore {
       peerConnected: (peerId, link) => this.onPeerConnected(peerId, link),
       peerDisconnected: (peerId) => this.onPeerDisconnected(peerId),
       message: (peerId, msg) => this.onMessage(peerId, msg),
+      directory: this.directory,
     });
+  }
+
+  /** What a dialing transport needs from us (see PeerDirectory). */
+  private get directory(): PeerDirectory {
+    return {
+      self: this.id,
+      wanted: () => this.wanted(),
+      onWanted: (cb) => {
+        this.wantedObservers.add(cb);
+        return () => this.wantedObservers.delete(cb);
+      },
+      signal: (to, data) =>
+        this.routeSignal({ t: 'signal', to, from: this.id, data }),
+      onSignal: (cb) => {
+        this.signalObservers.add(cb);
+        return () => this.signalObservers.delete(cb);
+      },
+    };
   }
 
   // --- public API ----------------------------------------------------------------
@@ -455,7 +487,89 @@ export class MeshPeer implements PeerCore {
     return {
       peers: [...this.links.keys()].map((id) => ({ id })),
       pendingAcks: this.pendingAcks.size,
+      subscriptions: [...this.interests.values()].map((i) => ({
+        sub: i.sub,
+        sources: i.handle.sources(),
+      })),
+      direct: Object.fromEntries(
+        [...this.directLinks].map(([p, peers]) => [p, [...peers]])
+      ),
     };
+  }
+
+  // --- direct links: who may dial whom ----------------------------------------
+  //
+  // A participant links directly to the participants of servers its server
+  // shares with (principle 8). Servers know their own participants (their
+  // links); they tell each other, and their own participants, in RosterMsg.
+
+  /** Does a grant connect us with server `peer`, either way? */
+  private sharesWith(peer: string): boolean {
+    if (this.grantStore.for(peer).length) return true;
+    return (this.received.get(peer) ?? []).some((g) => !g.delegated);
+  }
+
+  /** The roster `peer` gets from us: our own participants if it is a server
+   *  we share with; everyone the servers we share with reported if it is one
+   *  of our participants; nothing otherwise. */
+  private rosterFor(peer: string): string[] {
+    if (peer === this.id || this.upstream) return [];
+    if (participantServer(peer) === this.id) {
+      const out = new Set<string>();
+      for (const [server, list] of this.rosters)
+        if (this.links.has(server) && this.sharesWith(server))
+          for (const p of list) if (participantServer(p) === server) out.add(p);
+      return [...out].sort();
+    }
+    if (participantServer(peer) !== peer || !this.sharesWith(peer)) return [];
+    return [...this.links.keys()]
+      .filter((p) => p !== this.id && participantServer(p) === this.id)
+      .sort();
+  }
+
+  private sendRosters(): void {
+    for (const peer of this.links.keys()) {
+      const peers = this.rosterFor(peer);
+      const key = peers.join('\n');
+      if (this.rosterSent.get(peer) === key) continue;
+      this.rosterSent.set(peer, key);
+      this.transmit(peer, { t: 'roster', peers });
+    }
+  }
+
+  private handleRoster(senderId: string, peers: string[]): void {
+    this.rosters.set(senderId, peers);
+    if (senderId === this.upstream) this.notifyWanted();
+    else this.sendRosters();
+  }
+
+  /** Who we may link to directly: what our server reported. */
+  private wanted(): string[] {
+    const up = this.upstream;
+    return up ? (this.rosters.get(up) ?? []) : [];
+  }
+
+  private notifyWanted(): void {
+    const peers = this.wanted();
+    for (const cb of [...this.wantedObservers]) cb(peers);
+  }
+
+  /** Pass link-setup data toward `msg.to`. Only the participant itself or its
+   *  own server vouches for `from`; our own server is trusted to have checked. */
+  private routeSignal(msg: SignalMsg, senderId?: string): void {
+    if (senderId !== undefined) {
+      const vouched =
+        senderId === msg.from ||
+        senderId === participantServer(msg.from) ||
+        senderId === this.upstream;
+      if (!vouched) return;
+    }
+    if (msg.to === this.id) {
+      for (const cb of [...this.signalObservers]) cb(msg.from, msg.data);
+      return;
+    }
+    const hop = this.nextHop(msg.to, senderId);
+    if (hop) this.transmit(hop, msg);
   }
 
   // --- undo / redo ------------------------------------------------------------
@@ -1055,6 +1169,7 @@ export class MeshPeer implements PeerCore {
    *  drop what no longer is. */
   private grantsChanged(): void {
     for (const peer of this.links.keys()) this.deliverGrants(peer);
+    this.sendRosters();
     this.admitPending();
     this.revalidateInSubs();
   }
@@ -1065,6 +1180,7 @@ export class MeshPeer implements PeerCore {
     for (const peer of this.links.keys())
       if (participantServer(peer) === this.id && peer !== this.id)
         this.deliverGrants(peer);
+    this.sendRosters();
     if (senderId === this.upstream) {
       this.admitPending();
       this.revalidateInSubs();
@@ -1245,6 +1361,8 @@ export class MeshPeer implements PeerCore {
     this.links.set(peerId, link);
     this.startClockSync(peerId);
     this.deliverGrants(peerId);
+    this.rosterSent.delete(peerId);
+    this.sendRosters();
     this.announceLinks();
     this.reconcileInterests();
     this.notifyStatus();
@@ -1270,6 +1388,10 @@ export class MeshPeer implements PeerCore {
     this.inSubs.delete(peerId);
     this.pendingIn.delete(peerId);
     this.directLinks.delete(peerId);
+    this.rosterSent.delete(peerId);
+    if (this.rosters.delete(peerId) && peerId === this.upstream)
+      this.notifyWanted();
+    this.sendRosters();
     this.stopClockSync(peerId);
     for (const leg of [...this.outSubs.values()])
       if (leg.peer === peerId) this.dropLeg(leg, false);
@@ -1288,6 +1410,10 @@ export class MeshPeer implements PeerCore {
         return;
       case 'grants':
         return this.handleGrants(senderId, msg.grants);
+      case 'roster':
+        return this.handleRoster(senderId, msg.peers);
+      case 'signal':
+        return this.routeSignal(msg, senderId);
       case 'sub_wait': {
         const leg = this.outSubs.get(msg.subId);
         if (leg?.peer === senderId && leg.status === 'pending') {

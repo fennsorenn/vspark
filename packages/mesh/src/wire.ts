@@ -158,7 +158,28 @@ export interface LinksMsg {
   peers: string[];
 }
 
+/** Who the recipient may open a direct link to (principle 8). A server tells
+ *  each server it shares with (a grant either way) which of its own
+ *  participants are connected; it tells its own participants everyone the
+ *  servers it shares with told it. Replaces what the sender said before. */
+export interface RosterMsg {
+  t: 'roster';
+  peers: string[];
+}
+
+/** Link-setup data (e.g. WebRTC offer/answer/ICE) for a participant we have
+ *  no link to yet, routed through the servers in between. `from` is checked
+ *  hop by hop: only the participant itself or its own server may vouch. */
+export interface SignalMsg {
+  t: 'signal';
+  to: string;
+  from: string;
+  data: unknown;
+}
+
 export type MeshMessage =
+  | RosterMsg
+  | SignalMsg
   | LinksMsg
   | GrantsMsg
   | SubWaitMsg

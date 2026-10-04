@@ -284,3 +284,42 @@ test("a drag in A's editor previews live in B's editor before it commits", async
   await ctxA.close();
   await ctxB.close();
 });
+
+test("B's tab gets A's tab's traffic over a direct link", async ({
+  browser,
+}) => {
+  const { projA, projB } = await sharedScene('Beacon');
+  const ctxA = await browser.newContext({
+    baseURL: `http://localhost:${SERVERS.a.frontend}`,
+  });
+  const ctxB = await browser.newContext({
+    baseURL: `http://localhost:${SERVERS.b.frontend}`,
+  });
+  const tabA = await ctxA.newPage();
+  const tabB = await ctxB.newPage();
+  await tabA.goto(`/editor/${projA}`);
+  await tabB.goto(`/editor/${projB}`);
+  for (const tab of [tabA, tabB])
+    await expect(tab.getByText('Beacon', { exact: true })).toBeVisible({
+      timeout: 30_000,
+    });
+
+  // Server B reports, per tab of its own, whom that tab gets data from
+  // first-hand. A's tab is among them once the WebRTC link is up and serving.
+  await expect
+    .poll(
+      async () => {
+        const { direct } = (await (await B.get('/api/mesh/status')).json()) as {
+          direct: Record<string, string[]>;
+        };
+        return Object.values(direct)
+          .flat()
+          .some((p) => p.startsWith(`${idA}#`));
+      },
+      { timeout: 30_000 }
+    )
+    .toBe(true);
+
+  await ctxA.close();
+  await ctxB.close();
+});

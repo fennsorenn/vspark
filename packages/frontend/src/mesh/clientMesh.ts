@@ -5,8 +5,9 @@
  * direct data channel to every other participant in the roster. Signaling is
  * relayed through the backend (WS `mesh_signal`); the bytes flow peer-to-peer.
  *
- * This slice only establishes channels + a per-peer clock offset (ping/pong);
- * routing live `stream`/`field` envelopes over the mesh is the next slice.
+ * Legacy: it now carries only object-share and blob envelopes. The mesh
+ * peer's direct links are its own (WebRtcTransport, set up through the mesh);
+ * this goes with mesh-sole-channel W7.
  *
  * Glare is avoided by a deterministic rule: the lexicographically smaller
  * participant id initiates; the larger only ever answers. See
@@ -44,40 +45,9 @@ class ClientMesh {
   private onEnvelope: (from: string, env: SyncEnvelope) => void = () => {};
   private iceServers: RTCIceServer[] = [];
   private readonly peers = new Map<string, MeshPeer>();
-  private readonly linkListeners = new Set<(ids: string[]) => void>();
-  private readonly meshListeners = new Set<
-    (from: string, msg: unknown) => void
-  >();
-
-  /** Be told whenever the set of open links changes (the @vspark/mesh direct
-   *  transport rides these links; see mesh/directTransport.ts). */
-  onLinks(cb: (ids: string[]) => void): () => void {
-    this.linkListeners.add(cb);
-    return () => this.linkListeners.delete(cb);
-  }
-
-  /** Receive mesh frames (`{ _mesh: message }`) arriving over a link. */
-  onMeshFrame(cb: (from: string, msg: unknown) => void): () => void {
-    this.meshListeners.add(cb);
-    return () => this.meshListeners.delete(cb);
-  }
-
-  /** Send an already-encoded mesh frame over a link. */
-  sendMesh(id: string, frame: string): boolean {
-    const dc = this.peers.get(id)?.dc;
-    if (!dc || dc.readyState !== 'open') return false;
-    try {
-      dc.send(frame);
-      return true;
-    } catch {
-      return false;
-    }
-  }
-
   private changed(): void {
     const ids = this.connectedIds();
     this.onChange(ids);
-    for (const cb of this.linkListeners) cb(ids);
   }
 
   configure(opts: {
@@ -251,7 +221,6 @@ class ClientMesh {
       t0?: number;
       tr?: number;
       rtype?: string;
-      _mesh?: unknown;
     };
     try {
       msg = JSON.parse(raw);
@@ -260,10 +229,6 @@ class ClientMesh {
     }
     const peer = this.peers.get(id);
     if (!peer) return;
-    if (msg._mesh !== undefined) {
-      for (const cb of this.meshListeners) cb(id, msg._mesh);
-      return;
-    }
     if (msg.kind === '__ping') {
       peer.dc?.send(
         JSON.stringify({ kind: '__pong', t0: msg.t0, tr: Date.now() })
