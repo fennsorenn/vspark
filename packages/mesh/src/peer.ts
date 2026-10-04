@@ -10,6 +10,7 @@
 import {
   ContainmentIndex,
   makeKey,
+  participantServer,
   subscriptionMatches,
   compareHLC,
   randomUUID,
@@ -34,6 +35,7 @@ import {
   type CollectionConfig,
   type LocalWrite,
   type PeerCore,
+  type RequestOutcome,
   type WriteHandle,
   type WriteOutcome,
 } from './collection.js';
@@ -197,6 +199,24 @@ export class MeshPeer implements PeerCore {
   /** Per-link clock-sync state (offset/rtt estimates + sampler timers). */
   private readonly clocks = new Map<string, ClockState>();
   private readonly now: () => number;
+
+  /** Unstamped-op identity: this instance's epoch + a running sequence. */
+  private readonly epoch = Date.now() * 1000 + Math.floor(Math.random() * 1000);
+  private seq = 0;
+  /** Per origin: the (epoch, seq) window already applied (see alreadySeen). */
+  private readonly seen = new Map<
+    string,
+    { qe: number; max: number; ids: Set<number> }
+  >();
+  /** Requests awaiting a reply, by request id. */
+  private readonly pendingRequests = new Map<
+    string,
+    {
+      to: string;
+      resolve: (o: RequestOutcome) => void;
+      timer: ReturnType<typeof setTimeout>;
+    }
+  >();
 
   /** Per-peer undo/redo log (committed writes only), one entry per action. */
   private readonly undoStack: UndoGroup[] = [];
@@ -599,6 +619,8 @@ export class MeshPeer implements PeerCore {
     for (const t of this.transports) t.stop();
     for (const p of this.pendingAcks.values()) clearTimeout(p.timer);
     this.pendingAcks.clear();
+    for (const r of this.pendingRequests.values()) clearTimeout(r.timer);
+    this.pendingRequests.clear();
     for (const peerId of [...this.clocks.keys()]) this.stopClockSync(peerId);
   }
 
@@ -714,16 +736,22 @@ export class MeshPeer implements PeerCore {
     if (!ch) throw new Error(`unknown channel '${w.channel}'`);
     const meta = { origin: this.id, channel: w.channel, hydrate: !!w.hydrateV };
 
-    // Ephemeral: overlay locally, fan out lossily, never guarded.
+    // Unstamped (preview / control): never guarded. Every op gets an
+    // (epoch, seq) identity so a receiver applies it once however many paths
+    // it arrives over.
     if (!ch.stamped) {
+      const env = this.envelope(col, w, undefined);
+      env.qe = this.epoch;
+      env.q = ++this.seq;
+      // Addressed: routed toward its one recipient, applied only there.
+      if (w.to !== undefined && w.to !== this.id) {
+        const hop = this.nextHop(w.to);
+        if (!hop) return done({ status: 'rejected', reason: 'unreachable' });
+        this.transmit(hop, env, ch.transport === 'lossy');
+        return done({ status: 'unguarded' });
+      }
       const change = col.applyOp(w.op, w.id, w.path, w.data, undefined, meta);
-      if (change)
-        this.fanout(
-          col,
-          this.envelope(col, w, undefined),
-          undefined,
-          undefined
-        );
+      if (change) this.fanout(col, env, undefined, undefined);
       return done({ status: 'unguarded' });
     }
 
@@ -900,6 +928,7 @@ export class MeshPeer implements PeerCore {
     const ch = this.channels.get(env.ch);
     if (!col || !ch) return;
     if (env.origin === this.id) return; // loop suppression
+    if (!ch.stamped && this.alreadySeen(env)) return; // arrived over another path
 
     // Creates of unknown ids aren't in the containment index yet, so subtree
     // grants/subscriptions can't match them. Provisionally index the node from
@@ -940,7 +969,25 @@ export class MeshPeer implements PeerCore {
     // A partial-view writer's upsert arrives as the merge-patch it may make.
     env = admitted;
 
-    // Ephemeral: overlay + relay, nothing else.
+    // Addressed to someone else: pass it on toward them, apply nothing here.
+    if (env.to !== undefined && env.to !== this.id) {
+      const hop = this.nextHop(env.to, senderId);
+      if (hop) this.transmit(hop, env, ch.transport === 'lossy');
+      else if (env.mid !== undefined)
+        this.transmit(
+          senderId,
+          this.replyEnvelope(env, undefined, 'unreachable')
+        );
+      return;
+    }
+    // A reply to one of our requests: resolves it, never touches the replica.
+    if (env.re !== undefined) {
+      this.handleReply(env);
+      return;
+    }
+
+    // Ephemeral: overlay + relay, nothing else. A request is surfaced to
+    // observers with what they need to answer it.
     if (!ch.stamped || !env.v) {
       const change = col.applyOp(
         env.op,
@@ -951,8 +998,14 @@ export class MeshPeer implements PeerCore {
         {
           origin: env.origin,
           channel: env.ch,
+          request:
+            env.mid !== undefined
+              ? { mid: env.mid, from: env.origin }
+              : undefined,
         }
       );
+      // Delivered to us specifically: nobody else is meant to see it.
+      if (env.to === this.id) return;
       if (change) this.relay(col, env, senderId, undefined, undefined);
       return;
     }
@@ -1529,6 +1582,100 @@ export class MeshPeer implements PeerCore {
       origin: this.id,
       ch: w.channel,
       ack: opId,
+      to: w.to,
+      mid: w.mid,
+      re: w.re,
+    };
+  }
+
+  // --- addressed delivery + request/reply ------------------------------------------------
+  //
+  // The routing seam: `nextHop` is where a destination participant becomes a
+  // link. Today that is the participant itself, else its server, else our
+  // home; direct links (principle 8) slot in here without changing callers.
+
+  private nextHop(to: string, exclude?: string): string | undefined {
+    for (const c of [to, participantServer(to), this.cfg.home])
+      if (c && c !== exclude && c !== this.id && this.links.has(c)) return c;
+    return undefined;
+  }
+
+  /** Has this unstamped op already been applied (it came over another path)?
+   *  Tracks, per origin, its current instance epoch and a window of sequence
+   *  numbers. Ops from an older instance of the origin are dropped too. */
+  private alreadySeen(env: OpEnvelope): boolean {
+    if (env.q === undefined || env.qe === undefined) return false;
+    let s = this.seen.get(env.origin);
+    if (!s || s.qe !== env.qe) {
+      if (s && env.qe < s.qe) return true;
+      s = { qe: env.qe, max: 0, ids: new Set() };
+      this.seen.delete(env.origin); // re-insert: Map order = recency
+      this.seen.set(env.origin, s);
+      if (this.seen.size > SEEN_ORIGINS) {
+        const oldest = this.seen.keys().next().value;
+        if (oldest !== undefined) this.seen.delete(oldest);
+      }
+    }
+    if (env.q <= s.max - SEEN_WINDOW || s.ids.has(env.q)) return true;
+    s.ids.add(env.q);
+    if (env.q > s.max) s.max = env.q;
+    if (s.ids.size > SEEN_WINDOW)
+      for (const q of s.ids) if (q <= s.max - SEEN_WINDOW) s.ids.delete(q);
+    return false;
+  }
+
+  /** PeerCore: send `w` to `w.to` and await its reply. */
+  request<T extends object>(
+    c: Collection<T>,
+    w: LocalWrite,
+    timeoutMs: number
+  ): Promise<RequestOutcome> {
+    const to = w.to!;
+    if (!this.nextHop(to)) return Promise.resolve({ status: 'unreachable' });
+    const mid = uuid();
+    return new Promise<RequestOutcome>((resolve) => {
+      const timer = setTimeout(() => {
+        this.pendingRequests.delete(mid);
+        resolve({ status: 'timeout' });
+      }, timeoutMs);
+      this.pendingRequests.set(mid, { to, resolve, timer });
+      this.localWrite(c, { ...w, mid });
+    });
+  }
+
+  private handleReply(env: OpEnvelope): void {
+    const p = this.pendingRequests.get(env.re!);
+    // Only the addressee answers; a hop on the way may only report failure.
+    if (!p || (env.origin !== p.to && env.err === undefined)) return;
+    this.pendingRequests.delete(env.re!);
+    clearTimeout(p.timer);
+    p.resolve(
+      env.err === 'unreachable'
+        ? { status: 'unreachable' }
+        : env.err !== undefined
+          ? { status: 'error', reason: env.err }
+          : { status: 'replied', data: env.data }
+    );
+  }
+
+  private replyEnvelope(
+    req: OpEnvelope,
+    data: unknown,
+    err?: string
+  ): OpEnvelope {
+    return {
+      t: 'op',
+      rtype: req.rtype,
+      op: 'upsert',
+      id: req.id,
+      data,
+      origin: this.id,
+      ch: req.ch,
+      to: req.origin,
+      re: req.mid,
+      err,
+      qe: this.epoch,
+      q: ++this.seq,
     };
   }
 
@@ -1590,6 +1737,10 @@ export class MeshValue<V> {
 export function createMeshPeer(cfg: MeshPeerConfig): MeshPeer {
   return new MeshPeer(cfg);
 }
+
+/** Dedup window per origin, and how many origins are tracked. */
+const SEEN_WINDOW = 1024;
+const SEEN_ORIGINS = 4096;
 
 function done(o: WriteOutcome): WriteHandle {
   return { ack: Promise.resolve(o) };

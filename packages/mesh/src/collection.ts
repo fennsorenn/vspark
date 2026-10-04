@@ -25,6 +25,14 @@ export interface WriteHandle {
   ack: Promise<WriteOutcome>;
 }
 
+/** How a {@link Collection.request} ended. Delivery is at most once, so a
+ *  request that is lost or never answered ends in `timeout`. */
+export type RequestOutcome =
+  | { status: 'replied'; data: unknown }
+  | { status: 'timeout' }
+  | { status: 'unreachable' }
+  | { status: 'error'; reason: string };
+
 export interface WriteOpts {
   channel?: string;
   /** Set `false` to keep a committed write OFF the authoring peer's undo stack.
@@ -36,6 +44,9 @@ export interface WriteOpts {
    *  edit. Such a write still replicates, persists and acks exactly as normal —
    *  the only thing it skips is the undo entry. */
   undo?: boolean;
+  /** Deliver to this one participant only (unstamped channels: commands are
+   *  addressed, state is shared). Routed toward it and applied only there. */
+  to?: string;
 }
 
 export interface CollectionConfig<T extends object> {
@@ -78,6 +89,12 @@ export interface LocalWrite {
   undo?: boolean;
   /** hydration: apply with this restored stamp; never acked; taps skip it. */
   hydrateV?: HLC;
+  /** addressed delivery (see WriteOpts.to). */
+  to?: string;
+  /** request id (set by the peer for Collection.request). */
+  mid?: string;
+  /** reply to request `re` (Collection.reply). */
+  re?: string;
 }
 
 /** The slice of the peer a collection needs (implemented by MeshPeer). */
@@ -86,6 +103,11 @@ export interface PeerCore {
   readonly clock: HlcClock;
   readonly channels: ChannelRegistry;
   localWrite<T extends object>(col: Collection<T>, w: LocalWrite): WriteHandle;
+  request<T extends object>(
+    col: Collection<T>,
+    w: LocalWrite,
+    timeoutMs: number
+  ): Promise<RequestOutcome>;
   connected(peerId: string): boolean;
   childrenIds(id: string, rtype: string): string[];
   subtreeIds(rootId: string): string[];
@@ -159,6 +181,7 @@ export class Collection<T extends object> {
       data: doc,
       channel: this.writeChannel(opts),
       undo: opts?.undo,
+      to: opts?.to,
     });
   }
 
@@ -170,6 +193,7 @@ export class Collection<T extends object> {
       data: partial,
       channel: this.writeChannel(opts),
       undo: opts?.undo,
+      to: opts?.to,
     });
   }
 
@@ -182,6 +206,38 @@ export class Collection<T extends object> {
       data: value,
       channel: this.writeChannel(opts),
       undo: opts?.undo,
+      to: opts?.to,
+    });
+  }
+
+  /** Send `data` to one participant on an unstamped channel (default
+   *  `control`) and await its answer. The receiver sees the op with
+   *  `change.request` set and answers with {@link reply}. */
+  request(
+    id: string,
+    data: unknown,
+    opts: { to: string; channel?: string; timeoutMs?: number }
+  ): Promise<RequestOutcome> {
+    const channel = opts.channel ?? 'control';
+    this.requireUnstamped(channel, 'request');
+    return this.peer.request(
+      this,
+      { op: 'upsert', id, data, channel, to: opts.to },
+      opts.timeoutMs ?? 5000
+    );
+  }
+
+  /** Answer a request (a change carrying `request`) with `data`. */
+  reply(change: AppliedChange<T>, data: unknown): void {
+    if (!change.request)
+      throw new Error(`${this.rtype}: change is not a request`);
+    this.peer.localWrite(this, {
+      op: 'upsert',
+      id: change.id,
+      data,
+      channel: change.channel,
+      to: change.request.from,
+      re: change.request.mid,
     });
   }
 
@@ -191,6 +247,7 @@ export class Collection<T extends object> {
       id,
       channel: this.writeChannel(opts),
       undo: opts?.undo,
+      to: opts?.to,
     });
   }
 
@@ -384,7 +441,18 @@ export class Collection<T extends object> {
       );
     if (!this.allowedChannels.includes(ch))
       throw new Error(`${this.rtype}: channel '${ch}' not allowed`);
+    if (opts?.to !== undefined) this.requireUnstamped(ch, 'an addressed write');
     return ch;
+  }
+
+  /** Addressing belongs to commands: shared state is never per-recipient. */
+  private requireUnstamped(ch: string, what: string): void {
+    if (!this.allowedChannels.includes(ch))
+      throw new Error(`${this.rtype}: channel '${ch}' not allowed`);
+    if (this.peer.channels.get(ch)?.stamped)
+      throw new Error(
+        `${this.rtype}: ${what} needs an unstamped channel; '${ch}' carries state`
+      );
   }
 
   private requireRetained(what: string): string {

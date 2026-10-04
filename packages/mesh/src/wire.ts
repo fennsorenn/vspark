@@ -24,6 +24,21 @@ export interface OpEnvelope {
   ch: string;
   /** opId — present when the writer wants the authority's ack. */
   ack?: string;
+  /** Unstamped ops only: the origin's instance epoch and a per-instance
+   *  sequence number. Receivers drop an (origin, epoch, seq) they have already
+   *  seen, so a message that reaches them over two paths applies once. */
+  qe?: number;
+  q?: number;
+  /** Addressed delivery: the one participant this op is for. Routed toward it
+   *  hop by hop and applied only there (unstamped channels only). */
+  to?: string;
+  /** Request id: the sender awaits a reply carrying it as `re`. */
+  mid?: string;
+  /** Reply to request `re`. Resolves the requester's pending request and is
+   *  never applied to a replica. */
+  re?: string;
+  /** Reply only: why the request could not be answered (e.g. 'unreachable'). */
+  err?: string;
 }
 
 /** Subscription interest + optional channel selection. Selecting an ephemeral

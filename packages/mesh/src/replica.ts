@@ -28,6 +28,8 @@ export interface ApplyMeta {
   hydrate?: boolean;
   /** local rollback of an unacked optimistic write — taps skip it too. */
   restored?: boolean;
+  /** this op is a request: answer it with `Collection.reply(change, data)`. */
+  request?: { mid: string; from: string };
 }
 
 export interface AppliedChange<T> {
@@ -45,6 +47,8 @@ export interface AppliedChange<T> {
   /** remove only: the removed doc's ancestor ids, nearest first, as they were
    *  before the removal (a durable peer persists them with the tombstone). */
   ancestors?: string[];
+  /** this op is a request: answer it with `Collection.reply(change, data)`. */
+  request?: { mid: string; from: string };
 }
 
 interface ParkedPatch {
@@ -387,11 +391,13 @@ function metaFields(meta: ApplyMeta): {
   channel: string;
   hydrate?: boolean;
   restored?: boolean;
+  request?: { mid: string; from: string };
 } {
   return {
     origin: meta.origin,
     channel: meta.channel,
     hydrate: meta.hydrate,
     restored: meta.restored,
+    ...(meta.request ? { request: meta.request } : {}),
   };
 }
