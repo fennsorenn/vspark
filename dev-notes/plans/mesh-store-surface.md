@@ -199,6 +199,32 @@ scene without its server is the job of "Create local copy" (follow-up below).
 
 ### Step 3: The replica is the store
 
+✅ Done (bf98fb8 … 468834f, one commit per rtype). The peer is created before
+the first render (`main.tsx` awaits `initMeshPeer()` behind `<MeshProvider>`), so
+there is no load race left to guard. Calls made beyond the text below, recorded
+for review:
+- **Two view slices stay in the store**: `liveLayers` and `liveNodes` hold what a
+  gesture or a remote preview tween shows on top of the committed document. They
+  are display state, never written back; hooks merge them over the replica.
+- **`projectedNodes` stays** for placed remote objects (Phase-6 projection,
+  `sync/sharedProjection.ts` + `meshProjection.ts`): their edits still go through
+  `api.updateNode`/`deleteNode`. Kept until mesh-sole-channel W7 rather than
+  folded in here.
+- **Mounted collab scenes are found by the collab link's `projectId`**: their
+  documents keep the author's project id, so the project filter in
+  `mesh/nodes.ts` also admits scenes the connections store lists as mounted.
+  That list still comes from REST/`/ws`.
+- **`previewNodePath` now fans out** to other tabs (throttled, 33ms) like every
+  other preview write; before, it only moved the local view.
+- **Placed objects' global data fields are no longer delivered** to the tab
+  (the `DATACHANNEL` direct handler went with the feeder); data fields are read
+  from the replica only.
+- Reads are per-type hook modules (`mesh/hooks.ts`, `compose.ts`, `nodes.ts`,
+  `runtime.ts`); `compose.ts` and `nodes.ts` also export `*Now()` twins for
+  non-React callers. Writes are the
+  `mesh/*Writes.ts` modules, mesh-only; a write while offline or without a grant
+  fails (no REST fallback).
+
 The editor opens a project by subscribing to it and renders from the replica. The
 REST scene bundle stops being the load path for synced rtypes. Components read
 through `@vspark/mesh-react` hooks, and forms bind with `useMeshField` (generic

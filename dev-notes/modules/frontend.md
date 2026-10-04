@@ -13,7 +13,16 @@ React + React Three Fiber application. Entry: `packages/frontend/src/`.
 
 ## State — `store/editorStore.ts`
 
-Single Zustand store for the entire editor session. Key slices:
+Zustand store for the editor session's **view and UI state**. Synced documents
+are not in it: since step 3 of [plans/mesh-store-surface.md](../plans/mesh-store-surface.md)
+the tab's mesh replica is the document store, read through the hooks in
+`src/mesh/` (`hooks.ts`, `compose.ts`, `nodes.ts`, `runtime.ts`) and written
+through `src/mesh/*Writes.ts` — see [mesh.md](mesh.md#the-replica-is-the-store).
+The slices that were removed are nodes, scenes, behaviors, camera effects,
+compose layers/scenes, track clips, logic, clip playback, schedules, animation
+clips, statuses, runtime overrides and data channels. View-only slices layered
+over the replica: `liveNodes` / `liveLayers` (gesture + preview tween overlay)
+and `projectedNodes` (placed remote objects, until W7). Key slices:
 
 **Update state**
 - `updateAvailable: boolean`
@@ -23,18 +32,15 @@ Single Zustand store for the entire editor session. Key slices:
 Actions: `setUpdateAvailable(info)`, `setPendingReload(value)`.
 
 **Scene state**
-- `projectId`, `projectName`
-- `scenes: SceneItem[]`, `activeSceneId`
-- `nodes: NodeRecord[]`, `selectedNodeId`
+- `projectId`, `projectName`, `activeSceneId`, `selectedNodeId`
+- scenes and nodes: replica (`useScenes` / `useSceneNodes` / `useSceneNode` in `mesh/nodes.ts`)
 
 **Behavior state**
-- `behaviors: Behavior[]`, `selectedBehaviorId`
-- `vmcStatus: Record<behaviorId, boolean>` — receiver connected
-- `vmcTracking: Record<behaviorId, boolean>` — motion detected
+- `selectedBehaviorId`
+- behaviors: replica (`useNodeBehaviors` / `useAllBehaviors` in `mesh/hooks.ts`); receiver connected/tracking: `useTrackingStatuses` (`server_status` documents)
 
 **Avatar animation** (synced clip playback; see [animation.md](animation.md))
-- `scheduledAnimations` — per-avatar `scheduled_animation` timeline entries (fed by the mesh feeder)
-- `animationClips` — registered `animation_clip` rows used to resolve a `clipId` → localized source URL + duration
+- schedules (`scheduled_animation`) and registered `animation_clip` rows: replica (`useNodeSchedule`, `useAnimationClips` in `mesh/hooks.ts`)
 - Idle is content-addressed on the node itself: `node.properties.animation.idle = { clipId, speed }`
 
 **VRM skeleton**
@@ -53,10 +59,10 @@ Default per-avatar expression weights are stored on the scene node itself, not i
 - `clipboardPayload: ClipboardPayload | null` — sync mirror of the OS clipboard for context-menu gating; see [clipboard.md](clipboard.md).
 
 **Camera effects**
-- `cameraEffects: CameraEffect[]`, `selectedEffect`
+- `selectedEffect`; the effects themselves: replica (`useCameraEffects` in `mesh/hooks.ts`)
 - 16 effect kinds: ToneMapping, Bloom, Vignette, DOF, ChromaticAberration, SSAO, Outline, Noise, Scanline, Pixelation, ASCII, DotScreen, Glitch, SMAA, TiltShift, Water
 
-Actions are standard Zustand setters; all CRUD actions also call the relevant REST endpoint.
+Actions are standard Zustand setters. Document edits are not store actions; they are mesh writes (`src/mesh/*Writes.ts`).
 
 ## WebSocket sync — `hooks/useWsSync.ts`
 
@@ -67,14 +73,14 @@ Incoming message handlers:
 |------|--------|
 | `vmc_pose` | Writes pose data into store for Viewport to consume |
 | `vmc_blendshapes` | Writes blendshape weights into store |
-| `sync` (envelope) | Routed through `applyRemote` — currently only `scene_node` (node_added/updated/removed). Behaviors, camera_effects, compose_layers, and track_clips have migrated to the mesh feeder (see below). |
+| `sync` (envelope) | Routed through `applyRemote` — currently only `scene_node` (node_added/updated/removed). Document rtypes are read from the mesh replica (see [mesh.md](mesh.md#the-replica-is-the-store)). |
 | `server_update` | Sets `updateAvailable` + `updateInfo` in store |
 
-Receiver connected/tracking state is no longer a WS message: it arrives as `server_status` mesh documents, applied by `applyStatus` in `sync/meshStoreFeeder.ts`.
+Receiver connected/tracking state is no longer a WS message: it arrives as `server_status` mesh documents, read with `useTrackingStatuses` (`mesh/hooks.ts`) / `useServerStatus(es)` (`mesh/runtime.ts`).
 
 **pendingReload-on-reconnect**: a `pendingReloadRef` (not store state — avoids re-render) is set when a `server_update` message carries `reloadOnReconnect: true`. On the next `ws.onopen`, if the ref is set, the page is reloaded. Normal reconnects are unaffected.
 
-**Mesh store feeder — `sync/meshStoreFeeder.ts`** (commits 0d21329, c4e4f04): four of five synced rtypes now feed the store via the tab's mesh replica rather than WS envelopes. The feeder calls `collection.observe('**')` on each collection and writes upserts/removes directly into the Zustand store slices. Migrated: `behavior`, `camera_effect`, `compose_layer` (incl. `compose_scene` kind branch), `track_clip`, and `scheduled_animation` (the avatar clip timeline → `scheduledAnimations` slice; see [animation.md](animation.md)). The remaining rtype (`scene_node`) stays on the legacy envelope until step 4 of the §11 plan. Foreign docs (placed-object subscriptions) are filtered by the parent node's `remote` flag. The feeder is started from both Editor.tsx and ViewerPage. See [sync.md](sync.md) and [mesh.md](mesh.md).
+*Historical — deleted in mesh-store-surface step 3 (the replica is now the store):* **Mesh store feeder — `sync/meshStoreFeeder.ts`** (commits 0d21329, c4e4f04): four of five synced rtypes now feed the store via the tab's mesh replica rather than WS envelopes. The feeder calls `collection.observe('**')` on each collection and writes upserts/removes directly into the Zustand store slices. Migrated: `behavior`, `camera_effect`, `compose_layer` (incl. `compose_scene` kind branch), `track_clip`, and `scheduled_animation` (the avatar clip timeline → `scheduledAnimations` slice; see [animation.md](animation.md)). The remaining rtype (`scene_node`) stays on the legacy envelope until step 4 of the §11 plan. Foreign docs (placed-object subscriptions) are filtered by the parent node's `remote` flag. The feeder is started from both Editor.tsx and ViewerPage. See [sync.md](sync.md) and [mesh.md](mesh.md).
 
 ## Browser uplinks
 
