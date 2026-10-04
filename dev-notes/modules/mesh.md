@@ -2,8 +2,6 @@
 
 **Status:** Core package implemented with 29 vitest tests; three packages (mesh / mesh-react / mesh-transports WS pair) shipped; backend hydration + persistence complete; reads fully mesh-fed (`sync/meshStoreFeeder.ts`); writes mesh-authored for every document rtype (see the per-rtype table under [Undo / redo](#undo--redo-per-peer)). See [Remaining](#remaining) for the rest.
 
-> **WIP:** Integration into dev in progress on `feature/mesh-integration` (2026-10-01).
-
 A **schema-agnostic in-memory replicated store** with symmetric read/write API on both frontend and backend, HLC last-write-wins convergence, grant-gated access control, and authority-driven ack lifecycle. No durability in the package itself; durable peers hydrate from persistent store and persist incoming mutations via observe taps. Designed to replace both the legacy sync layer and the entity-aware collab-scene sharing model.
 
 ### Which plan is which
@@ -192,6 +190,67 @@ created**, where there is no gap.
 
 If a field must be backfilled onto documents created before it existed, that is
 an ordinary update, and it gets a **single owning writer** so there is no race.
+
+### 7. The mesh is the only client↔server channel
+
+**Decided by the user, 2026-10-04.**
+
+The mesh carries all communication between vspark clients and servers. Its
+point is to abstract away shared-state handling entirely, so every other data
+stream (an app WS kind, a frontend REST call, a legacy `_share_*` / `_collab_*`
+/ `_blob_*` message) is a failure to use it properly. **A reason not to use the
+mesh is evidence of a missing mesh feature.** Build the feature, don't route
+around it.
+
+- Only traffic with **outside services** stays off the mesh: VMC/iFacialMocap
+  UDP, obs-websocket, Twitch/StreamElements, the assistant's LLM endpoint,
+  GitHub Releases. What they produce becomes mesh documents.
+- **Files are a mesh matter.** A document that needs a file needs it on local
+  and remote peers alike, so asset bytes travel through the mesh too.
+- **New channel types are allowed** when genuinely needed, but the lossy
+  `preview` channel already exists for high-frequency data. If it is too heavy,
+  optimize it; don't bypass it.
+- Principle 5 still holds: REST stays for outside callers and writes through
+  the mesh. Only the editor stops using it.
+
+The gap inventory and the migration order are in
+[plans/mesh-sole-channel.md](../plans/mesh-sole-channel.md).
+
+### 8. Every subscription takes the most direct path
+
+**Decided by the user** (an instruction from the start, first recorded in
+[plans/permissioned-sync-mesh.md](../plans/permissioned-sync-mesh.md) §1;
+restated 2026-10-04 after the implementation was found to have dropped it).
+
+A subscription is served over a direct WebRTC link between the two
+participants when one can be established: browser↔browser, browser↔remote
+server, server↔server. One or two server hops are a **fallback only**, used
+while the direct path is unavailable.
+
+- Relays are limited to the two endpoints' own servers. Each client already
+  trusts its own server as its grant source of truth, so relayed traffic is not
+  end-to-end encrypted. A third server is never a relay.
+- A co-located server counts as direct (tabs on one machine meet through it).
+- Persisting servers subscribe to what they persist like any other participant;
+  guarded writes keep one authority per document.
+- When several subscribers sit behind one next hop, the op is sent once.
+
+### 9. Authenticated participants, whitelist grants
+
+**Decided by the user, 2026-10-04.**
+
+- Every participant authenticates; an unauthenticated connection is refused at
+  the handshake.
+- Grants are a whitelist with no deny rules, granular to grantee (down to one
+  tab) × rtype × entity × path prefix × right. Read grants may be field-level;
+  every outgoing message is projected through the recipient's grants at one
+  egress point, and a peer with a partial view never overwrites what it cannot
+  see.
+- Collections declare their default grants; nothing is reachable by default.
+- Grants for a direct link are delivered by the brokering server at link setup.
+- Blob grants are derived from the documents that reference the blob.
+- Secrets are a grant pattern (own rtype, write-only, never granted to remote
+  peers, encrypted at rest), not a separate channel.
 
 ## Architecture overview
 

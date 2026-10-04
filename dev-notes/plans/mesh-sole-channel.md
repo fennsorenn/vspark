@@ -1,0 +1,234 @@
+# Plan: The mesh as the sole client↔server channel
+
+> **Status:** in progress
+> **Follows:** [`mesh-frontend-writes.md`](./mesh-frontend-writes.md) (shipped, in `dev`
+> at 77bfdb4). **Supersedes** the Phase-6 recommendation in
+> [`mesh-sync-refactor.md`](./mesh-sync-refactor.md) §12 ("keep Phase-6 on the legacy
+> path"). That was an agent's recommendation, not a user decision, and principles 7–9
+> below reverse it.
+> **Catalog:** every entity and stream, with its current transport and target channel,
+> is in the Mesh Entity Catalog artifact. This plan holds the decisions and the order.
+
+> Branch: `feature/mesh-foundation` for the foundation workstream, then one
+> `feature/mesh-<workstream>` branch per later workstream, each merged into `dev`.
+
+## Goal
+
+Every byte that moves between a vspark client and a vspark server goes through
+`@vspark/mesh`, over the most direct path available, between authenticated
+participants, gated by a whitelist of grants. The only traffic outside the mesh is
+traffic with **outside services**. When this is done, the `/ws` socket and the
+frontend's REST client are gone.
+
+## Decisions
+
+All of these were decided by the user on 2026-10-04. They are recorded as principles
+7–9 in [`../modules/mesh.md`](../modules/mesh.md#core-principles); the rest are
+constraints on this plan.
+
+### Principle 7: the mesh is the only client↔server channel
+
+A reason not to use the mesh is evidence of a missing mesh feature. Build the feature,
+don't route around it.
+
+- **Outside services stay outside**: VMC/iFacialMocap UDP, obs-websocket,
+  Twitch/StreamElements, the assistant's LLM endpoint, GitHub Releases, the Cubism
+  CDN. What they produce becomes mesh documents.
+- **The REST API stays** for outside callers and writes through the mesh
+  (principle 5). The editor stops using it.
+- **Files are a mesh matter**: a document that needs a file needs it on local and
+  remote peers alike.
+- **New channel types are allowed** when genuinely needed, but high-frequency data
+  stays on `preview`, and that channel gets optimized if it's too heavy.
+
+### Principle 8: every subscription takes the most direct path
+
+This was the user's instruction from the start (recorded in
+[`permissioned-sync-mesh.md`](./permissioned-sync-mesh.md) §1, promised as
+`browserPeerTransport` in `mesh-sync-refactor.md` §8.9). The executed implementation
+dropped it and built a star (every tab ↔ its own server only).
+
+- A direct WebRTC link between the two participants when one can be established
+  (browser↔browser, browser↔remote server, server↔server).
+- One or two server hops **only as a fallback**, when the direct path fails, with
+  failover back to direct when it recovers.
+- **Relays are limited to the two endpoints' own servers.** Each client trusts its own
+  server (it is the grant source of truth), so endpoint relays are trusted and relayed
+  traffic is **not** end-to-end encrypted. A third, unrelated server is never a relay.
+  This matters if the mesh is ever extracted into its own package.
+- **A co-located server counts as direct**: tabs on the same machine as their server
+  reach each other through it (localhost WS), not through N² WebRTC links.
+- **Committed state is ordinary subscription**: the persisting servers subscribe to the
+  entities they persist, exactly like tabs do. Tabs still take the direct route for
+  latency. Guarded writes keep **one authority per document**, which decides
+  validation and rejection; a per-document authority resolver replaces the
+  per-collection `authority`.
+- **Send once per next hop**: when several subscribers sit behind the same next hop
+  (e.g. server A already subscribes to what tab B wants via A), send one copy.
+
+### Principle 9: authenticated participants, whitelist grants
+
+- **Every participant authenticates**, and a connection that doesn't is refused at the
+  handshake. Servers already have Ed25519 identities; tabs get enrolled identities.
+- **Grants are whitelist-only**, with no deny rules, and granular enough that the
+  whitelist works: grantee (down to a single tab) × rtype × entity × path prefix ×
+  right.
+- **Path-prefix read grants stay** (GraphQL-style field scoping: a permissive prefix
+  grants the whole document, a deep prefix one field). They are made safe by:
+  - **one egress filter**: every outgoing message (op, relayed op, snapshot, nack
+    value, undo emission) is projected through the recipient's grants at a single
+    choke point;
+  - **subscriptions deliver the union of granted paths** instead of being refused when
+    no single grant covers them;
+  - **a peer with a partial view never overwrites what it can't see**: an upsert from
+    an origin without write coverage of the whole document is applied as a merge-patch
+    of the paths it may write.
+- **Collections declare their default grants at registration**, so a new rtype without
+  grants is visibly unreachable, never silently reachable. The `'*'/'*'` grant for a
+  server's own tabs goes away.
+- **Grants for a direct link are delivered while the link is set up**: the brokering
+  server tells its tab which grants the remote participant holds, over their
+  authenticated link. No per-message or per-subscription signatures.
+- **Blobs are grantable entities** (`rtype: 'blob'`, entity = content hash). The server
+  **derives** blob grants from the documents that reference the hash; that is the only
+  way they come into existence.
+- **The nack leak and the tombstone leak are fixed through grants**: a nack carries the
+  current value projected to what the requester may read; a snapshot carries only the
+  tombstones inside the subscriber's granted scope.
+- **Secrets are a grant pattern, not a channel**: their own rtype, write-only for tabs
+  (update without read), never granted to remote peers, encrypted at rest by the
+  persistence layer. A readable `has…` flag is derived next to them.
+
+### Channels
+
+Four channels, plus a blob store beside them:
+
+| Channel | Properties | Carries |
+|---|---|---|
+| `committed` | reliable, stamped, retained, authority-acked, undo | document state |
+| `preview` | lossy, unstamped, unretained | gestures, mocap streams (optimized: coalescing, real lossy delivery on WS, compact encoding) |
+| `runtime` | reliable, stamped, retained, volatile (no persistence) | server status, runtime overrides, data fields, spawned entities |
+| `control` | reliable, unstamped, unretained, deduplicated in core, addressable (`to`), replies (`re`) | commands and request/reply (media control, UI actions, assistant, captures) |
+
+- **`control` and "command" are one channel.** Targeting is an addressing field on the
+  message, authorized by grants; it is not built out of grants. Replies carry the
+  request's id and get a timeout and an `unreachable` outcome, because delivery is at
+  most once.
+- **Anything that must survive while the receiver is offline is state**, a document on
+  `runtime` or `committed`, never a `control` message.
+- **Blobs** are a content-addressed store (fetch by hash, chunked, binary frames,
+  cached) over the same authenticated links and routing; documents reference blobs by
+  hash.
+
+### Out of this plan, flagged for later
+
+- **REST and MCP security.** Both are designed for local use only for now. Securing
+  them (authentication, a grant principal for outside callers) is future work. Two
+  local-only gaps are fixed separately on `bugfix/secrets-quick-fixes`: the server
+  bound every interface, and secrets were returned by REST/MCP.
+
+## Constraints
+
+- **[decided]** Principles 1–9 in `../modules/mesh.md`.
+- **[decided]** MCP descriptors use the list shape (see
+  [`../modules/mcp-assistant.md`](../modules/mcp-assistant.md)).
+- **[observed]** Core facts as of 77bfdb4 (full inventory in the catalog):
+  - channels have exactly four properties (`transport`, `stamped`, `retained`, `ack`);
+  - grants are `{grantee, entityRtype, entityId, includeDescendants, pathPrefix,
+    rights}`, enforced at the serving peer; a grant to a server id covers its tabs;
+  - delivery is at most once, with no core dedup and no addressing;
+  - payloads are JSON only;
+  - topology is tab↔own server (WS) and server↔server (WebRTC); the browser WebRTC
+    mesh in `frontend/src/mesh/clientMesh.ts` is legacy, outside `@vspark/mesh`;
+  - the `/mesh` hello carries a participant id the client chooses itself.
+
+## Workstreams
+
+### F: Foundation (`feature/mesh-foundation`)
+
+In this order, each with core tests in `packages/mesh/test/` before any consumer uses
+it:
+
+1. **Grants module.** Extract grant logic into its own module; whitelist-only; egress
+   projection; union-of-paths admission; per-leaf write checks for merge-patches;
+   partial-view upserts become merge-patches; the nack and tombstone fixes. A test
+   matrix of grant × path × channel × message type.
+2. **Collection-declared default grants.** Replace the server's `'*'/'*'` tab grant.
+3. **`control` channel.** Dedup in core (per-origin sequence window), `to` addressing,
+   `re` replies with timeout/unreachable.
+4. **Routing seam.** A per-participant routing table with the current star as its only
+   path type; behaviour unchanged. Send once per next hop.
+5. **Participant authentication.** Enrolled tab identities, handshake refusal.
+6. **Direct links.** A browser WebRTC transport inside `@vspark/mesh-transports`,
+   signaling over the mesh, grants delivered at link setup, failover to relay.
+
+### W0: Missed writes and leftovers (no new mesh features)
+
+- Frontend writes still on REST for rtypes that have a collection:
+  `ComposeLayerProperties.tsx` config fields; `ComposeTree.tsx` layer config and
+  compose-scene create; `SceneGraph.tsx` hide toggle, scene create/delete, cross-scene
+  move; `Home.tsx` scene seeding.
+- `routes/scenes.ts` writes around the mesh (SQL + `mirrorRow`).
+- `scene_updated` / `scene_removed` WS kinds: feed `scenes[]` from the replica.
+- Dead code: `camera_effect_added/removed` handlers, `clip_control`, the stale
+  `COLLAB_RELAY_KINDS` docstring.
+- Unused tables (`audit_logs`, `avatars`, `players`, `preferences`, `presence`,
+  `sessions`, `triggers`, `collab_tombstones`): drop only with the user's go-ahead.
+
+### W1: Unmigrated resources become collections
+
+projects, asset metadata, presets, OBS connections, Overlive app credentials and
+accounts, app config, and the multiplayer control plane (grants, known peers, session
+grants, collab scenes). Secrets follow the grant pattern above.
+
+### W2: Server-authored live status on `runtime`
+
+`obs_connection_status`, `overlive_account_status`, `output_window_status`,
+`vmc_status`, `vmc_tracking_state`, `server_update`, `mp_status` / `mp_peer` /
+`mp_browser_peer` / `mp_presence` / `mp_shares`, static catalogs (behavior kinds, node
+kinds, param paths, built-in presets).
+
+### W3: High-rate streams on `preview`
+
+`vmc_pose`, `vmc_blendshapes`, `pose_ik_targets` (server → tab), `tracking_input`,
+`lipsync_input` (tab → server). Benchmark `/ws` against `node_stream` first; optimize
+the channel where it falls short.
+
+### W4: Commands on `control`
+
+`ui_action`, the assistant turn loop, feed preview and viewport screenshot round-trips,
+`mp_connect_request`, editor-triggered actions (update check/apply, asset rescan, OBS
+reconnect). `session_hello` / `ui_register` / `client_hello` disappear: the
+participant id and the roster cover them.
+
+### W5: Blobs
+
+Asset upload and download, peer transfer (`_blob_*`), preset thumbnails, screenshots.
+Viewport loaders take a hash → `blob:` URL resolver.
+
+### W6: The snapshot as the load path
+
+Replace the REST scene bundle in `Editor.tsx` with the subscription snapshot
+(`subscribe()` resolving is the ready signal); then reads can move to mesh-react hooks.
+
+### W7: Multiplayer legacy
+
+Placed-object writes (`_share_write`), object-share streams (`_share_*`, `mp_shared_*`),
+advertise/offer, the collab mount handshake, `peer_profile`, spawned temp entities,
+and the `sync.document` envelope with its three backend consumers. With direct links
+(F6), placed-object writes reach the owning server in one hop, so multi-hop acks
+remain only for the fallback path.
+
+## Acceptance
+
+- **No `/ws`.** `packages/backend/src/ws/` and `hooks/useWsSync.ts` are gone; `/mesh` is
+  the only socket.
+- **No frontend REST.** `packages/frontend/src/api/client.ts` is gone or unused by the
+  editor.
+- **No legacy multiplayer messages**: no `_share_*`, `_collab_*`, `_blob_*`.
+- **No `sync.document`.**
+- **REST writes go through the mesh**: no `INSERT`/`UPDATE`/`DELETE` in
+  `packages/backend/src/routes/`.
+- **No unauthenticated connection and no `'*'` grant** in production code.
+- Per workstream: `pnpm lint` + `pnpm test` green, Playwright green (including
+  multi-client and undo specs), new mesh primitives covered in `packages/mesh/test/`.
