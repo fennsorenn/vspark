@@ -52,10 +52,15 @@ import type {
   SnapshotTombstone,
   SubOkMsg,
   SubscribeMsg,
+  SubscriptionRequest,
 } from './wire.js';
 
 export interface MeshPeerConfig {
   identity: { peerId: string; displayName?: string };
+  /** Whether this peer forwards ops it receives to its own subscribers
+   *  (default true). A server relays; a tab doesn't — it is an endpoint, and a
+   *  direct subscriber must get from it only what it authors. */
+  relay?: boolean;
   /** The peer this one derives its authority and grants from (a tab's own
    *  server). Messages to it are not projected through grants: it is the
    *  source of truth for them, not a recipient they gate. Every other
@@ -117,7 +122,7 @@ export interface MeshStatus {
 
 export interface MeshSubscription {
   readonly peer: string;
-  readonly sub: Subscription & { channels?: string[] };
+  readonly sub: SubscriptionRequest;
   unsubscribe(): void;
 }
 
@@ -143,7 +148,7 @@ interface PendingAck {
 interface OutSub {
   subId: string;
   peer: string;
-  sub: Subscription & { channels?: string[] };
+  sub: SubscriptionRequest;
   status: 'pending' | 'active' | 'stale';
   resolve?: (s: MeshSubscription) => void;
   reject?: (e: Error) => void;
@@ -152,7 +157,7 @@ interface OutSub {
 
 interface InSub {
   subId: string;
-  sub: Subscription & { channels?: string[] };
+  sub: SubscriptionRequest;
 }
 
 interface ClockState {
@@ -311,7 +316,7 @@ export class MeshPeer implements PeerCore {
   /** Declare interest at `peerId`; resolves once the snapshot is applied. */
   subscribe(
     peerId: string,
-    sub: Subscription & { channels?: string[] }
+    sub: SubscriptionRequest
   ): Promise<MeshSubscription> {
     const link = this.links.get(peerId);
     if (!link)
@@ -1200,7 +1205,7 @@ export class MeshPeer implements PeerCore {
     const key = makeKey(env.rtype, env.id, env.path || undefined);
     for (const s of this.outSubs.values()) {
       if (s.peer !== senderId || s.status !== 'active') continue;
-      if (!this.channelOk(s.sub.channels, env.ch, col)) continue;
+      if (!this.channelOk(s.sub, env.ch, col)) continue;
       if (subscriptionMatches(s.sub, key, this.isDescendantOrWas)) return env;
     }
     const grants = this.grantStore.for(env.origin);
@@ -1254,6 +1259,8 @@ export class MeshPeer implements PeerCore {
     const tombstones: SnapshotTombstone[] = [];
     for (const [rtype, col] of this.collections) {
       if (!col.retainedChannel) continue;
+      // An exact selection without the retained channel wants no state.
+      if (!this.channelOk(msg.sub, col.retainedChannel, col)) continue;
       if (msg.sub.entityRtype !== '*' && msg.sub.entityRtype !== rtype) {
         // Descendant subscriptions may still cover other rtypes via the tree.
         if (!msg.sub.includeDescendants) continue;
@@ -1497,7 +1504,7 @@ export class MeshPeer implements PeerCore {
     for (const [peerId, subs] of this.inSubs) {
       if (!this.links.has(peerId)) continue;
       for (const s of subs) {
-        if (!this.channelOk(s.sub.channels, channel, col)) continue;
+        if (!this.channelOk(s.sub, channel, col)) continue;
         if (subscriptionMatches(s.sub, key, this.index.isDescendant)) {
           out.push(peerId);
           break;
@@ -1532,6 +1539,7 @@ export class MeshPeer implements PeerCore {
     preRecipients: string[] | undefined,
     _preChain: string[] | undefined
   ): void {
+    if (this.cfg.relay === false) return;
     const targets = new Set(
       preRecipients ?? this.recipients(col, env.id, env.path, env.ch)
     );
@@ -1625,13 +1633,14 @@ export class MeshPeer implements PeerCore {
   /** Ephemeral channel selections implicitly include the retained channel —
    *  opting out of model updates is never what anyone means. */
   private channelOk(
-    selected: string[] | undefined,
+    sub: SubscriptionRequest,
     channel: string,
     col: AnyCollection
   ): boolean {
+    const selected = sub.channels;
     if (!selected || selected.length === 0) return true;
     if (selected.includes(channel)) return true;
-    return channel === col.retainedChannel;
+    return !sub.exact && channel === col.retainedChannel;
   }
 
   // --- helpers ----------------------------------------------------------------------------------

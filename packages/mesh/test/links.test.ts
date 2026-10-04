@@ -219,3 +219,58 @@ describe('subscriptions survive reconnects', () => {
     expect(td.get('d1')?.x).toBe(3);
   });
 });
+
+describe('direct-link subscriptions', () => {
+  it('an exact preview subscription gets previews only: no snapshot, no committed ops', async () => {
+    const lb = createLoopbackPair('A', 'B');
+    const a = createMeshPeer({ identity: { peerId: 'A' }, transports: [lb.a] });
+    const b = createMeshPeer({ identity: { peerId: 'B' }, transports: [lb.b] });
+    const da = a.collection<Doc>('doc');
+    const db = b.collection<Doc>('doc');
+    a.grants.grant({
+      grantee: 'B',
+      entityRtype: 'doc',
+      entityId: '*',
+      includeDescendants: false,
+      pathPrefix: '',
+      rights: { read: true },
+    });
+    da.create({ id: 'd1', x: 1 });
+    await b.subscribe('A', { ...sub('doc', ['preview']), exact: true });
+    expect(db.get('d1')).toBeUndefined(); // no snapshot over this link
+
+    // B holds the committed doc through its own home, as a real tab does.
+    db.put({ id: 'd1', x: 1 }, { v: { t: 1, c: 0, n: 'home' } });
+    da.set('d1', 'x', 2); // committed: not on this subscription
+    da.set('d1', 'x', 3, { channel: 'preview' });
+    await lb.flush();
+    expect(db.replica.raw('d1')?.x).toBe(1); // committed value untouched
+    expect(db.get('d1')?.x).toBe(3); // the preview, over it
+  });
+
+  it('a tab does not relay what it receives to its own direct subscribers', async () => {
+    const t = triangle();
+    for (const p of [t.a.peer, t.b.peer])
+      (p as unknown as { cfg: { relay?: boolean } }).cfg.relay = false;
+    t.sDocs.create({ id: 'd1', x: 0 });
+    await t.a.peer.subscribe('S', sub('doc', ['preview']));
+    t.linkDirect();
+    await t.flush();
+    // B subscribes to A directly; S writes a preview. A gets it from S but
+    // must not forward it to B (B isn't subscribed to S here).
+    await t.b.peer.subscribe('S#a', {
+      ...sub('doc', ['preview']),
+      exact: true,
+    });
+    const atB: unknown[] = [];
+    t.b.col.observe('**', (c) => atB.push(c));
+    t.sDocs.set('d1', 'x', 1, { channel: 'preview' });
+    await t.flush();
+    expect(t.a.col.get('d1')?.x).toBe(1);
+    expect(atB).toHaveLength(0);
+    // What A itself authors does reach B directly.
+    t.a.col.set('d1', 'x', 2, { channel: 'preview' });
+    await t.flush();
+    expect(atB).toHaveLength(1);
+  });
+});

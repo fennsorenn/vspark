@@ -44,6 +44,7 @@ export type {
   OpEnvelope,
   SubscribeMsg,
   SubOkMsg,
+  SubscriptionRequest,
 } from './wire.js';
 export { createLoopbackPair } from './loopback.js';
 export type { LoopbackPair } from './loopback.js';
