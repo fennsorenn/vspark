@@ -203,9 +203,11 @@ Also done on this branch, outside the numbered list:
 
 ### W0: Missed writes and leftovers (no new mesh features)
 
-✅ Mostly done (604b776). Remaining: scene create (template seeding still inserts SQL
-rows and mirrors them), `Home.tsx` scene seeding, cross-scene move via preset, compose
-scene create, and the unused tables (awaiting the go-ahead).
+✅ Mostly done (604b776, cf15699): compose fields and toggles, scene-tree hide,
+scene/compose-scene create and scene delete from tabs, `PUT /scenes/:id`. Remaining:
+the REST scene-create route's template seeding (still inserts SQL rows and mirrors
+them; `Home.tsx` uses it for a new project), the cross-scene move via preset, and the
+unused tables (awaiting the go-ahead).
 
 - Frontend writes still on REST for rtypes that have a collection:
   `ComposeLayerProperties.tsx` config fields; `ComposeTree.tsx` layer config and

@@ -4,18 +4,7 @@ import { getDb } from '../db/index.js';
 import { loadClip } from './track-clips.js';
 import { keyAfter } from '@vspark/shared/fracIndex';
 import { getMeshCollection, getMeshPeer } from '../mesh/index.js';
-import { getResource } from '../sync/registry.js';
 import { multiplayerManager } from '../multiplayer/manager.js';
-
-/** Mirror a freshly-persisted row into the mesh store (§10 write-through): the
- *  onCommitted tap re-persists (idempotent upsert) + emits the canonical
- *  sync.document upsert, and the write fans out to mesh subscribers (tabs,
- *  collab peers) with one HLC stamp. Replaces the old `sync.document.touch`. */
-function mirrorRow(rtype: string, id: string): void {
-  const col = getMeshCollection(rtype);
-  const dto = getResource(rtype)?.load?.(id);
-  if (col && dto) col.set(id, '', dto);
-}
 
 const router: ReturnType<typeof Router> = Router();
 
@@ -175,7 +164,7 @@ router.get('/projects/:projectId/scenes', (req, res) => {
  *       201: { description: Scene created }
  *       400: { description: Missing name, content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
  */
-router.post('/projects/:projectId/scenes', (req, res) => {
+router.post('/projects/:projectId/scenes', async (req, res) => {
   const { name } = req.body;
   if (!name)
     return res.status(400).json({
@@ -189,7 +178,6 @@ router.post('/projects/:projectId/scenes', (req, res) => {
 
   const id = randomUUID();
   const projectId = req.params.projectId;
-  const db = getDb();
   // Scenes are EMPTY by default: creating a scene and furnishing it are separate
   // acts, and seeding surprised callers who then added their own camera/lights on
   // top (the agent duplicating "Key Light" was the visible symptom). Seeding is
@@ -197,142 +185,144 @@ router.post('/projects/:projectId/scenes', (req, res) => {
   // that asks for it.
   const populate = req.body.populate === true;
 
-  // Create a kind='scene' node with root_scene_node_id pointing to itself
-  db.prepare(
-    `INSERT INTO scene_nodes (id, root_scene_node_id, project_id, parent_id, name, kind, properties)
-     VALUES (?, ?, ?, NULL, ?, 'scene', '{}')`
-  ).run(id, id, projectId, name);
+  // Every document is committed through the mesh store (the persistence tap
+  // writes the rows), scene root first so the rest hangs off it in the
+  // containment tree. Same document shapes a tab writes.
+  const nodes = getMeshCollection('scene_node');
+  const layers = getMeshCollection('compose_layer');
+  if (!nodes || !layers)
+    return res
+      .status(500)
+      .json({ ok: false, error: { message: 'store not ready' } });
+  const node = (fields: Record<string, unknown>) => ({
+    rootSceneNodeId: id,
+    projectId,
+    parentId: null,
+    boneAttachment: null,
+    filePath: null,
+    components: {},
+    properties: {},
+    hidden: false,
+    ...fields,
+  });
+  const transform = (x: number, y: number, z: number) => ({
+    type: 'transform',
+    x,
+    y,
+    z,
+    rx: 0,
+    ry: 0,
+    rz: 0,
+    sx: 1,
+    sy: 1,
+    sz: 1,
+  });
+  const layer = (fields: Record<string, unknown>) => ({
+    projectId,
+    rootComposeSceneId: null,
+    cameraNodeId: null,
+    parentId: null,
+    assetId: null,
+    config: {},
+    x: 0,
+    y: 0,
+    width: 1920,
+    height: 1080,
+    rotation: 0,
+    anchorH: 'left',
+    anchorV: 'top',
+    orderKey: keyAfter(null),
+    visible: true,
+    ...fields,
+  });
 
-  const createdNodeIds: string[] = [id];
-  const createdLayerIds: string[] = [];
+  const writes = [
+    nodes.set(id, '', node({ id, rootSceneNodeId: id, name, kind: 'scene' })),
+  ];
   if (populate) {
-    // Default camera
     const camId = randomUUID();
-    createdNodeIds.push(camId);
-    db.prepare(
-      `INSERT INTO scene_nodes (id, root_scene_node_id, project_id, parent_id, name, kind, components, properties)
-       VALUES (?, ?, ?, NULL, 'Camera', 'camera', ?, '{}')`
-    ).run(
-      camId,
-      id,
-      projectId,
-      JSON.stringify({
-        transform: {
-          type: 'transform',
-          x: 0,
-          y: 1.3,
-          z: 2,
-          rx: 0,
-          ry: 0,
-          rz: 0,
-          sx: 1,
-          sy: 1,
-          sz: 1,
-        },
-        // Matches the default for a manually created camera (createKinds.ts):
-        // orthographic, which suits 2D-style avatar framing. Previously this was
-        // omitted entirely, so the seeded camera fell back to perspective and was
-        // the one camera in the app that disagreed with every other.
-        camera: {
-          type: 'camera',
-          projection: 'orthographic',
-          fov: 50,
-          orthoSize: 2,
-          near: 0.1,
-          far: 1000,
-        },
-      })
-    );
-
-    // Default key light
-    const keyLightId = randomUUID();
-    db.prepare(
-      `INSERT INTO scene_nodes (id, root_scene_node_id, project_id, parent_id, name, kind, components, properties)
-       VALUES (?, ?, ?, NULL, 'Key Light', 'light', ?, ?)`
-    ).run(
-      keyLightId,
-      id,
-      projectId,
-      JSON.stringify({
-        transform: {
-          type: 'transform',
-          x: 2,
-          y: 3,
-          z: 1,
-          rx: 0,
-          ry: 0,
-          rz: 0,
-          sx: 1,
-          sy: 1,
-          sz: 1,
-        },
-        light: {
-          type: 'light',
-          lightType: 'directional',
-          color: '#ffffff',
-          intensity: 1,
-        },
-      }),
-      '{}'
-    );
-
-    // Default fill light
-    const fillLightId = randomUUID();
-    db.prepare(
-      `INSERT INTO scene_nodes (id, root_scene_node_id, project_id, parent_id, name, kind, components, properties)
-       VALUES (?, ?, ?, NULL, 'Fill Light', 'light', ?, ?)`
-    ).run(
-      fillLightId,
-      id,
-      projectId,
-      JSON.stringify({
-        transform: {
-          type: 'transform',
-          x: -2,
-          y: 2,
-          z: 1,
-          rx: 0,
-          ry: 0,
-          rz: 0,
-          sx: 1,
-          sy: 1,
-          sz: 1,
-        },
-        light: {
-          type: 'light',
-          lightType: 'directional',
-          color: '#ffffff',
-          intensity: 0.5,
-        },
-      }),
-      '{}'
-    );
-
-    createdNodeIds.push(keyLightId, fillLightId);
-    // Default compose scene
     const composeSceneId = randomUUID();
     const cameraViewId = randomUUID();
-    createdLayerIds.push(composeSceneId, cameraViewId);
-    db.prepare(
-      `INSERT INTO compose_layers (id, project_id, root_compose_scene_id, camera_node_id, parent_id, name, kind, config,
-         x, y, width, height, rotation, anchor_h, anchor_v, order_key, visible)
-       VALUES (?, ?, NULL, NULL, NULL, ?, 'compose_scene', '{}', 0, 0, 1920, 1080, 0, 'left', 'top', ?, 1)`
-    ).run(composeSceneId, projectId, name + ' Output', keyAfter(null));
-
-    // Default camera_view layer inside the compose scene
-    db.prepare(
-      `INSERT INTO compose_layers (id, project_id, root_compose_scene_id, camera_node_id, parent_id, name, kind, config,
-         x, y, width, height, rotation, anchor_h, anchor_v, order_key, visible)
-       VALUES (?, ?, ?, ?, NULL, 'Camera View', 'camera_view', '{}', 0, 0, 1920, 1080, 0, 'left', 'top', ?, 1)`
-    ).run(cameraViewId, projectId, composeSceneId, camId, keyAfter(null));
+    writes.push(
+      nodes.set(
+        camId,
+        '',
+        node({
+          id: camId,
+          name: 'Camera',
+          kind: 'camera',
+          components: {
+            transform: transform(0, 1.3, 2),
+            // Matches a manually created camera (createKinds.ts):
+            // orthographic, which suits 2D-style avatar framing.
+            camera: {
+              type: 'camera',
+              projection: 'orthographic',
+              fov: 50,
+              orthoSize: 2,
+              near: 0.1,
+              far: 1000,
+            },
+          },
+        })
+      )
+    );
+    for (const [lightName, pos, intensity] of [
+      ['Key Light', [2, 3, 1], 1],
+      ['Fill Light', [-2, 2, 1], 0.5],
+    ] as const) {
+      const lightId = randomUUID();
+      writes.push(
+        nodes.set(
+          lightId,
+          '',
+          node({
+            id: lightId,
+            name: lightName,
+            kind: 'light',
+            components: {
+              transform: transform(pos[0], pos[1], pos[2]),
+              light: {
+                type: 'light',
+                lightType: 'directional',
+                color: '#ffffff',
+                intensity,
+              },
+            },
+          })
+        )
+      );
+    }
+    // Default compose scene with the camera's view in it.
+    writes.push(
+      layers.set(
+        composeSceneId,
+        '',
+        layer({
+          id: composeSceneId,
+          name: name + ' Output',
+          kind: 'compose_scene',
+        })
+      ),
+      layers.set(
+        cameraViewId,
+        '',
+        layer({
+          id: cameraViewId,
+          rootComposeSceneId: composeSceneId,
+          cameraNodeId: camId,
+          name: 'Camera View',
+          kind: 'camera_view',
+        })
+      )
+    );
   }
-
-  // Write the created rows through the mesh store so they fan out to tabs +
-  // collab/share subscribers and the containment index/collab routing stay
-  // current. Scene root is first in createdNodeIds, so its containment entry
-  // exists before the camera/lights that hang off it.
-  for (const nid of createdNodeIds) mirrorRow('scene_node', nid);
-  for (const lid of createdLayerIds) mirrorRow('compose_layer', lid);
+  const outcomes = await Promise.all(writes.map((w) => w.ack));
+  const refused = outcomes.find((o) => o.status === 'rejected');
+  if (refused && refused.status === 'rejected')
+    return res
+      .status(500)
+      .json({ ok: false, error: { message: refused.reason } });
 
   res
     .status(201)
