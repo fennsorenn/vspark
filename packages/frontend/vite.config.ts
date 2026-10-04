@@ -69,6 +69,10 @@ export default defineConfig({
     proxy: {
       '/api': {
         target: `http://localhost:${backendPort}`,
+        // Pass the browser's address on: mesh enrollment decides "same
+        // machine or pairing code" by it, and every proxied request would
+        // otherwise look local.
+        xfwd: true,
         configure: resilientProxy,
       },
       '/ws': {

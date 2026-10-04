@@ -26,6 +26,7 @@ import {
   type MeshPeer,
 } from '@vspark/mesh';
 import { WsServerTransport } from '@vspark/mesh-transports/wsServer';
+import { verifyClientToken } from '../auth/clients.js';
 import { getDb } from '../db/index.js';
 import { getIdentity } from '../multiplayer/identity.js';
 import { getResource } from '../sync/registry.js';
@@ -505,7 +506,10 @@ export function initBackendMesh(): MeshPeer {
        WHERE deleted_at < datetime('now', '-${TOMBSTONE_MAX_AGE_DAYS} days')`
     )
     .run();
-  _transport = new WsServerTransport(peerId);
+  _transport = new WsServerTransport(peerId, {
+    // Only enrolled browsers join (principle 9; see auth/clients.ts).
+    authenticate: ({ token }) => verifyClientToken(token) !== null,
+  });
   const peer = createMeshPeer({
     identity: { peerId },
     transports: [_transport],

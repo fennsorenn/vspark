@@ -26,6 +26,22 @@ Code wieder.
 
 In beiden Fällen speichern sich beide Server gegenseitig als **Kontakte**.
 
+## vspark auf einem anderen Gerät öffnen {#device-code}
+
+vspark lässt einen Browser erst herein, nachdem er einmal verbunden wurde. Ein
+Browser auf dem Computer, auf dem vspark läuft, wird automatisch verbunden.
+
+So öffnest du vspark auf einem **anderen Gerät** (Laptop, Tablet):
+
+1. Öffne die Adresse von vspark im Browser dieses Geräts.
+2. Er fragt nach einem **Gerätecode**. Der aktuelle Code steht im Konsolenfenster
+   von vspark und oben unter **Verbindungen** auf dem vspark-Computer.
+3. Gib ihn ein. Der Browser bleibt danach verbunden.
+
+Jeder Code gilt einmal; nach einigen falschen Versuchen wählt vspark einen neuen.
+Das ist nicht der **Kopplungscode** für Multiplayer weiter oben, der zwei
+vspark-Server verbindet.
+
 ## Eingehende Anfragen {#requests}
 
 Wenn sich ein Kontakt zum ersten Mal in einer Sitzung verbindet, wirst du

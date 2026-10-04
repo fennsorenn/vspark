@@ -82,7 +82,8 @@ const PARENTS: Partial<
   compose_layer: (d) =>
     typeof d.parentId === 'string'
       ? { rtype: 'compose_layer', id: d.parentId }
-      : typeof d.rootComposeSceneId === 'string' && d.rootComposeSceneId !== d.id
+      : typeof d.rootComposeSceneId === 'string' &&
+          d.rootComposeSceneId !== d.id
         ? { rtype: 'compose_layer', id: d.rootComposeSceneId }
         : null,
   track_clip: (d) =>
@@ -211,6 +212,92 @@ export function onMeshUndoChange(cb: (s: UndoStatus) => void): () => void {
   return () => _undoObservers.delete(cb);
 }
 
+// --- authentication ---------------------------------------------------------
+//
+// Every participant authenticates (principle 9). This tab presents a token the
+// backend issued when this browser enrolled; a browser on the vspark machine
+// enrolls automatically, any other one with the pairing code vspark shows.
+
+const TOKEN_KEY = 'vspark.mesh.token';
+
+function storedToken(): string | undefined {
+  try {
+    return localStorage.getItem(TOKEN_KEY) ?? undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function storeToken(token: string | undefined): void {
+  try {
+    if (token) localStorage.setItem(TOKEN_KEY, token);
+    else localStorage.removeItem(TOKEN_KEY);
+  } catch {
+    /* storage unavailable: the token lives for this page only */
+  }
+}
+
+/** Asks the user for the pairing code (registered by the editor, which owns
+ *  the dialog). Resolves null when they cancel. */
+type PairingPrompt = () => Promise<string | null>;
+let _askPairing: PairingPrompt | null = null;
+const _pairingWaiters: ((ask: PairingPrompt) => void)[] = [];
+let _pairingDeclined = false;
+
+/** Register the dialog that asks for a pairing code. */
+export function setPairingPrompt(ask: PairingPrompt): void {
+  _askPairing = ask;
+  for (const w of _pairingWaiters.splice(0)) w(ask);
+}
+
+async function askPairingCode(): Promise<string | null> {
+  const ask =
+    _askPairing ??
+    (await new Promise<PairingPrompt>((r) => _pairingWaiters.push(r)));
+  return ask();
+}
+
+let _token: string | undefined = storedToken();
+let _enrolling: Promise<string | undefined> | null = null;
+
+/** Get a token from the backend, asking for the pairing code if this browser
+ *  is not on the vspark machine. Concurrent callers share one attempt. */
+function enroll(): Promise<string | undefined> {
+  _enrolling ??= (async () => {
+    let code: string | undefined;
+    for (;;) {
+      const res = await fetch('/api/mesh/enroll', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          label: navigator.userAgent.slice(0, 120),
+          code,
+        }),
+      });
+      const body = (await res.json().catch(() => null)) as {
+        data?: { token?: string };
+        error?: { code?: string };
+      } | null;
+      if (res.ok && body?.data?.token) return body.data.token;
+      if (body?.error?.code !== 'PAIRING_REQUIRED' || _pairingDeclined)
+        return undefined;
+      const entered = await askPairingCode();
+      if (!entered?.trim()) {
+        _pairingDeclined = true; // don't keep asking after a cancel
+        return undefined;
+      }
+      code = entered.trim();
+    }
+  })().finally(() => {
+    _enrolling = null;
+  });
+  return _enrolling.then((token) => {
+    _token = token;
+    storeToken(token);
+    return token;
+  });
+}
+
 async function doInit(): Promise<MeshHandles> {
   const res = await fetch('/api/mesh/identity');
   const { serverPeerId } = (await res.json()) as { serverPeerId: string };
@@ -225,6 +312,14 @@ async function doInit(): Promise<MeshHandles> {
         url: `${wsProto}://${window.location.host}/mesh`,
         participantId,
         serverPeerId,
+        token: () => _token ?? enroll(),
+        // A token the backend no longer accepts (revoked, or a fresh
+        // database) is dropped and replaced.
+        onUnauthorized: async () => {
+          _token = undefined;
+          storeToken(undefined);
+          await enroll();
+        },
       }),
     ],
   });

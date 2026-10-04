@@ -13,7 +13,13 @@ import { useDeleteElement } from '../hooks/useDeleteElement';
 import { useTrackClipEvaluator } from '../hooks/useTrackClipEvaluator';
 import { useSharedSubscriptions } from '../hooks/useSharedSubscriptions';
 import { useClientMesh } from '../hooks/useClientMesh';
-import { initMeshPeer, meshUndo, meshRedo } from '../mesh/peer';
+import {
+  initMeshPeer,
+  meshUndo,
+  meshRedo,
+  setPairingPrompt,
+} from '../mesh/peer';
+import { usePrompt } from '../components/DialogProvider';
 import { startMeshProjection } from '../sync/meshProjection';
 import { startMeshStoreFeeder } from '../sync/meshStoreFeeder';
 import { TopBar } from '../components/editor/TopBar';
@@ -48,6 +54,19 @@ export function Editor() {
     startMeshProjection();
     startMeshStoreFeeder();
   }, []);
+  // A browser on another machine joins with vspark's pairing code.
+  const prompt = usePrompt();
+  const { t: tConn } = useTranslation('connections');
+  useEffect(() => {
+    setPairingPrompt(() =>
+      prompt({
+        title: tConn('pairing.title'),
+        message: tConn('pairing.message'),
+        placeholder: '000000',
+        confirmLabel: tConn('pairing.confirm'),
+      })
+    );
+  }, [prompt, tConn]);
   const { t } = useTranslation('editor');
   const { deleteSelected } = useDeleteElement();
   const { projectId } = useParams<{ projectId: string }>();

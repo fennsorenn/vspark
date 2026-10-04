@@ -2,6 +2,7 @@ import { createServer } from 'http';
 import { existsSync } from 'fs';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
+import { currentPairingCode, onPairingCode } from './auth/clients.js';
 import { createApp } from './app.js';
 import { runMigrations, getDb, closeDb } from './db/index.js';
 import {
@@ -452,6 +453,9 @@ async function start() {
   const port = PORT;
   server.listen(port, async () => {
     console.log(`vspark listening on http://localhost:${port}`);
+    // Browsers on other machines enroll with this code (auth/clients.ts).
+    console.log(`Pairing code for other devices: ${currentPairingCode()}`);
+    onPairingCode((code) => console.log(`New pairing code: ${code}`));
     if (existsSync(PUBLIC_DIR)) {
       const { default: open } = await import('open');
       open(`http://localhost:${port}`);

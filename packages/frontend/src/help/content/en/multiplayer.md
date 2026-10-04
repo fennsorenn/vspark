@@ -25,6 +25,22 @@ You only pair **once** with each person; after that you reconnect with no code.
 
 Either way, both servers save each other as **contacts**.
 
+## Opening vspark on another device {#device-code}
+
+vspark only lets a browser in after it has been connected once. A browser on the
+computer that runs vspark is connected automatically.
+
+To open vspark from **another device** (a laptop, a tablet):
+
+1. Open vspark's address in that device's browser.
+2. It asks for a **device code**. The current code is printed in vspark's console
+   window, and shown at the top of **Connections** on the vspark computer.
+3. Enter it. The browser stays connected from then on.
+
+Each code works once; after a few wrong tries vspark picks a new one. This is not
+the same as the multiplayer **pairing code** above, which links two vspark
+servers.
+
 ## Incoming requests {#requests}
 
 The first time a contact connects in a session, you get a prompt to **Accept** or
