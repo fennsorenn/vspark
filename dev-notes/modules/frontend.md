@@ -142,6 +142,25 @@ React Three Fiber canvas. Responsible for the entire 3D scene.
 
 **Particle system**: Emission and simulation handled entirely within Viewport via a custom particle buffer.
 
+### Render loop and frame budget — `components/frameBudget.tsx`
+
+Every R3F canvas (editor viewport, compose camera views via `CameraCanvas`,
+the single-camera output in `ViewerPage`) runs `frameloop="never"` and is
+rendered by one page-wide loop through `<FrameBudget active />`. After a frame
+whose rendering took `c` ms, the next waits until `c / share` ms after that
+frame started, so rendering takes at most `share` of the main thread; a scene
+within budget renders every refresh. `share` comes from `FrameBudgetContext`:
+0.75 by default, 0.9 on the output page (`OUTPUT_FRAME_SHARE`, no editor UI).
+**Decided (user, 2026-10-04):** the budget exists so an overloaded scene can
+never starve the main thread's queued tasks (mesh messages, input, timers);
+before it, another tab's drag previews arrived in bursts with stalls up to
+~1.7s. Global R3F effects run once per frame, not once per canvas. Measured
+(headless, a scene burning 40ms per frame): main thread 100% → 73% busy, a 5ms
+timer's median delay 94ms → 0ms.
+
+Hidden nodes skip their per-frame work entirely (`components/editor/nodeActive.tsx`:
+a node is active only while it and every ancestor are visible).
+
 ## TopBar + UpdateDialog — `components/editor/TopBar.tsx` + `components/editor/UpdateDialog.tsx`
 
 TopBar checks update status on mount (`GET /api/update-status`). When an update is available it shows an amber "↑ Update" badge. A "⚙ ver" button is always visible and opens `UpdateDialog`.
