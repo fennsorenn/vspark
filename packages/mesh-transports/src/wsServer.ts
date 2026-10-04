@@ -18,11 +18,12 @@ import { WebSocketServer, type WebSocket } from 'ws';
 import type { IncomingMessage } from 'http';
 import type { Duplex } from 'stream';
 import { isClientParticipant, participantServer } from '@vspark/shared/sync';
-import type {
-  MeshMessage,
-  MeshTransport,
-  PeerLink,
-  TransportHandlers,
+import {
+  encode,
+  type MeshMessage,
+  type MeshTransport,
+  type PeerLink,
+  type TransportHandlers,
 } from '@vspark/mesh';
 
 /** Close code for a refused hello (unknown or missing credentials). */
@@ -84,7 +85,7 @@ export class WsServerTransport implements MeshTransport {
         ws.send(JSON.stringify({ t: 'welcome' }));
         const link: PeerLink = {
           send: (m) => {
-            if (ws.readyState === ws.OPEN) ws.send(JSON.stringify(m));
+            if (ws.readyState === ws.OPEN) ws.send(encode(m));
           },
         };
         this.handlers?.peerConnected(pid, link);

@@ -203,11 +203,11 @@ Also done on this branch, outside the numbered list:
 
 ### W0: Missed writes and leftovers (no new mesh features)
 
-✅ Mostly done (604b776, cf15699): compose fields and toggles, scene-tree hide,
-scene/compose-scene create and scene delete from tabs, `PUT /scenes/:id`. Remaining:
-the REST scene-create route's template seeding (still inserts SQL rows and mirrors
-them; `Home.tsx` uses it for a new project), the cross-scene move via preset, and the
-unused tables (awaiting the go-ahead).
+✅ Mostly done (604b776, cf15699, 688ef67): compose fields and toggles, scene-tree hide,
+scene/compose-scene create and scene delete from tabs, `PUT /scenes/:id`. Scene
+creation (including template seeding) commits documents (688ef67). Remaining: the
+cross-scene move via a preset round-trip, and the unused tables (awaiting the
+go-ahead).
 
 - Frontend writes still on REST for rtypes that have a collection:
   `ComposeLayerProperties.tsx` config fields; `ComposeTree.tsx` layer config and
@@ -242,6 +242,23 @@ kinds, param paths, built-in presets).
 `vmc_pose`, `vmc_blendshapes`, `pose_ik_targets` (server → tab), `tracking_input`,
 `lipsync_input` (tab → server). Benchmark `/ws` against `node_stream` first; optimize
 the channel where it falls short.
+
+**Benchmark (2026-10-04, `packages/mesh/bench/preview.bench.ts`)** — a 55-bone pose
+frame, in-process with real serialization, µs of CPU per frame:
+
+| tabs | `/ws` broadcast | mesh `preview` (before) | mesh `preview` (cached encode) |
+|---|---|---|---|
+| 1 | 41 | 47 | 53 |
+| 4 | 94 | 183 | 130 |
+| 10 | 212 | 425 | 258 |
+
+The mesh path serialized each frame once per recipient; the core now caches a
+message's encoding (`encode`, used by the WS transports), which took 10 tabs from
+2.2× to 1.2× the `/ws` cost. What remains is the receiving peer's work (dedup,
+admission, overlay apply) and a ~2% larger envelope. At 60 Hz and 10 tabs that is
+about 1.5% of one core per avatar — not a reason to keep `/ws`. Next optimizations if
+needed: skip the overlay apply on receivers that only observe, and a compact
+encoding for bone maps.
 
 ### W4: Commands on `control`
 

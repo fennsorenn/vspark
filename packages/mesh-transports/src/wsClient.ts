@@ -13,11 +13,12 @@
  * answered with a welcome. A refused hello (close code 4401) is reported to
  * `onUnauthorized`, which can obtain a new token before the next attempt.
  */
-import type {
-  MeshMessage,
-  MeshTransport,
-  PeerLink,
-  TransportHandlers,
+import {
+  encode,
+  type MeshMessage,
+  type MeshTransport,
+  type PeerLink,
+  type TransportHandlers,
 } from '@vspark/mesh';
 
 /** Close code the backend uses for a refused hello. */
@@ -82,7 +83,7 @@ export class WsBackendTransport implements MeshTransport {
         if (this.announced) return;
         const link: PeerLink = {
           send: (m: MeshMessage) => {
-            if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(m));
+            if (ws.readyState === WebSocket.OPEN) ws.send(encode(m));
           },
         };
         this.announced = true;

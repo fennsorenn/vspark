@@ -138,3 +138,20 @@ export type MeshMessage =
   | AckMsg
   | PingMsg
   | PongMsg;
+
+const encoded = new WeakMap<object, string>();
+
+/** Serialize a message for a transport. Cached per message object: a fan-out
+ *  hands the SAME envelope to every recipient whose grants let it see all of
+ *  it (egress returns the message unchanged), so a frame sent to ten tabs is
+ *  serialized once, not ten times. Transports should use this rather than
+ *  calling JSON.stringify themselves. Messages are never mutated after
+ *  sending, which is what makes the cache safe. */
+export function encode(msg: MeshMessage): string {
+  let s = encoded.get(msg);
+  if (s === undefined) {
+    s = JSON.stringify(msg);
+    encoded.set(msg, s);
+  }
+  return s;
+}

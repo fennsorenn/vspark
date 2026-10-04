@@ -36,6 +36,7 @@ export type {
   PeerLink,
   TransportHandlers,
 } from './transport.js';
+export { encode } from './wire.js';
 export type {
   AckMsg,
   DocOp,
