@@ -53,7 +53,12 @@ export interface SnapshotDoc {
   rtype: string;
   id: string;
   doc: unknown;
+  /** The document's root stamp. */
   v?: HLC;
+  /** Stamps of fields written after the root (per-path LWW). Without them a
+   *  field edit newer than the root — one a subscriber missed while offline —
+   *  would lose to the subscriber's copy of the whole document. */
+  paths?: Record<string, HLC>;
 }
 
 export interface SnapshotTombstone {

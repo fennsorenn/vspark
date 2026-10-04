@@ -192,3 +192,30 @@ describe('link state', () => {
     expect(t.viaServer.filter((m) => m.t === 'op').length).toBe(0);
   });
 });
+
+describe('subscriptions survive reconnects', () => {
+  it('are renewed when the link returns, and catch up on what was missed', async () => {
+    const lb = createLoopbackPair('S', 'S#t');
+    const s = createMeshPeer({ identity: { peerId: 'S' }, transports: [lb.a] });
+    const t = createMeshPeer({
+      identity: { peerId: 'S#t' },
+      home: 'S',
+      transports: [lb.b],
+    });
+    const sd = s.collection<Doc>('doc', { clients: ALL });
+    const td = t.collection<Doc>('doc', { authority: 'S' });
+    sd.create({ id: 'd1', x: 1 });
+    await t.subscribe('S', sub('doc'));
+    expect(td.get('d1')?.x).toBe(1);
+
+    lb.disconnect();
+    sd.set('d1', 'x', 2); // missed while offline
+    lb.connect();
+    await lb.flush();
+    expect(td.get('d1')?.x).toBe(2); // snapshot of the renewed subscription
+
+    sd.set('d1', 'x', 3); // and live again
+    await lb.flush();
+    expect(td.get('d1')?.x).toBe(3);
+  });
+});

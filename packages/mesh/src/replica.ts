@@ -135,6 +135,12 @@ export class Replica<T extends object> {
     return best;
   }
 
+  /** Every per-path stamp on `id` (fields written after the root). */
+  pathStampsOf(id: string): Record<string, HLC> | undefined {
+    const m = this.pathStamps.get(id);
+    return m && m.size ? Object.fromEntries(m) : undefined;
+  }
+
   /** The stamp recorded exactly at `path` ('' = root) — recency gate for reverts. */
   stampAt(id: string, path: string): HLC | undefined {
     if (path === '') return this.rootStamps.get(id);

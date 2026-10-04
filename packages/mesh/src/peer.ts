@@ -26,6 +26,7 @@ import {
   projectOp,
   projectValue,
   readScope,
+  scopeTouches,
   type ReadScope,
 } from './grants.js';
 import { ChannelRegistry, type ChannelProps } from './channels.js';
@@ -39,7 +40,7 @@ import {
   type WriteHandle,
   type WriteOutcome,
 } from './collection.js';
-import { deepEqual, flattenToLeaves, setPath } from './paths.js';
+import { deepEqual, flattenToLeaves, getPath, setPath } from './paths.js';
 import type { DocState } from './replica.js';
 import type { MeshTransport, PeerLink } from './transport.js';
 import type {
@@ -907,7 +908,19 @@ export class MeshPeer implements PeerCore {
     this.links.set(peerId, link);
     this.startClockSync(peerId);
     this.announceLinks();
+    this.renewSubscriptions(peerId);
     this.notifyStatus();
+  }
+
+  /** A link came back: re-send the subscriptions that went stale when it
+   *  dropped. The snapshot that answers each one reconciles whatever changed
+   *  while we were away, so callers subscribe once and keep their handle. */
+  private renewSubscriptions(peerId: string): void {
+    for (const s of this.outSubs.values()) {
+      if (s.peer !== peerId || s.status !== 'stale') continue;
+      s.status = 'pending';
+      this.transmit(peerId, { t: 'sub', subId: s.subId, sub: s.sub });
+    }
   }
 
   /** Tell our home which participants we reach directly (see LinksMsg). */
@@ -1254,6 +1267,7 @@ export class MeshPeer implements PeerCore {
           id,
           doc: col.replica.raw(id),
           v: col.replica.rootStamp(id),
+          paths: col.replica.pathStampsOf(id),
         });
       }
       // Removed entities are placed where they were (tombChains), so only the
@@ -1295,11 +1309,12 @@ export class MeshPeer implements PeerCore {
         continue; // snapshot doc fails validation — skip it
       }
       const v = d.v ?? { t: 0, c: 0, n: senderId };
-      const change = col.applyOp('upsert', d.id, undefined, data, v, {
-        origin: senderId,
-        channel: col.retainedChannel,
-      });
-      if (change) {
+      const meta = { origin: senderId, channel: col.retainedChannel };
+      const applied = (
+        change: ReturnType<AnyCollection['applyOp']>,
+        env: OpEnvelope
+      ): void => {
+        if (!change) return;
         try {
           col.runTaps(change);
         } catch (e) {
@@ -1308,13 +1323,22 @@ export class MeshPeer implements PeerCore {
             e
           );
         }
-        this.relay(
-          col,
-          this.snapshotEnv(col, 'upsert', d.id, data, v, senderId),
-          senderId,
-          undefined,
-          undefined
-        );
+        this.relay(col, env, senderId, undefined, undefined);
+      };
+      applied(
+        col.applyOp('upsert', d.id, undefined, data, v, meta),
+        this.snapshotEnv(col, 'upsert', d.id, data, v, senderId)
+      );
+      // Then each field written after the root, under its own stamp — the
+      // root stamp alone loses to a copy we already hold, which would drop a
+      // field edit made while we were away.
+      for (const [path, pv] of Object.entries(d.paths ?? {})) {
+        const value = getPath(data, path);
+        applied(col.applyOp('patch', d.id, path, value, pv, meta), {
+          ...this.snapshotEnv(col, 'upsert', d.id, value, pv, senderId),
+          op: 'patch',
+          path,
+        });
       }
     }
     for (const t of msg.tombstones) {
@@ -1555,8 +1579,18 @@ export class MeshPeer implements PeerCore {
       case 'sub_ok': {
         const docs: SnapshotDoc[] = [];
         for (const d of msg.docs) {
-          const doc = projectValue(d.doc, this.scopeFor(peerId, d.rtype, d.id));
-          if (doc !== undefined) docs.push(doc === d.doc ? d : { ...d, doc });
+          const scope = this.scopeFor(peerId, d.rtype, d.id);
+          const doc = projectValue(d.doc, scope);
+          if (doc === undefined) continue;
+          // Field stamps go with the fields: none for a path it can't read.
+          const paths =
+            d.paths &&
+            Object.fromEntries(
+              Object.entries(d.paths).filter(([p]) => scopeTouches(scope, p))
+            );
+          docs.push(
+            doc === d.doc && paths === d.paths ? d : { ...d, doc, paths }
+          );
         }
         const tombstones = msg.tombstones.filter(
           (t) => this.scopeFor(peerId, t.rtype, t.id).kind !== 'none'

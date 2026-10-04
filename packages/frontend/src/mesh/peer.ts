@@ -349,32 +349,25 @@ async function doInit(): Promise<MeshHandles> {
     for (const cb of _undoObservers) cb(s);
   });
 
-  // Subscribe to every document rtype; re-arm after each reconnect (the peer
-  // marks outgoing subscriptions stale on disconnect — they don't auto-renew).
-  let armed = false;
+  // Subscribe to every rtype once. The peer renews them itself after a
+  // reconnect; this only retries the ones that never got through.
+  const subscribed = new Set<string>();
   let arming = false;
-  let stale: { unsubscribe(): void }[] = [];
   const armSubscriptions = async () => {
     const connected = peer.status().peers.some((p) => p.id === serverPeerId);
-    if (!connected) {
-      armed = false;
-      return;
-    }
-    if (armed || arming) return;
+    if (!connected || arming) return;
     arming = true;
     try {
-      for (const s of stale) s.unsubscribe();
-      stale = [];
-      for (const rtype of RTYPES)
-        stale.push(
-          await peer.subscribe(serverPeerId, {
-            entityRtype: rtype,
-            entityId: '*',
-            includeDescendants: false,
-            pathPrefix: '',
-          })
-        );
-      armed = true;
+      for (const rtype of RTYPES) {
+        if (subscribed.has(rtype)) continue;
+        await peer.subscribe(serverPeerId, {
+          entityRtype: rtype,
+          entityId: '*',
+          includeDescendants: false,
+          pathPrefix: '',
+        });
+        subscribed.add(rtype);
+      }
     } catch (e) {
       console.warn('[mesh] subscribe failed (will retry on reconnect):', e);
     } finally {
