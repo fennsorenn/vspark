@@ -42,8 +42,8 @@ import {
   type SceneItem,
   type StageObject,
 } from '../store/editorStore';
-import { mapLogic, mapTrackClip } from '../api/client';
-import type { ComposeLayerRecord, RawLogic } from '../api/client';
+import { mapTrackClip } from '../api/client';
+import type { ComposeLayerRecord } from '../api/client';
 
 let started = false;
 
@@ -389,26 +389,6 @@ export function startMeshStoreFeeder(): void {
           s.updateTrackClipLocal(clip);
         else s.addTrackClip(clip);
       });
-      h.collections.logic.observe('**', (c) => {
-        if (c.op === 'ephemeral') return;
-        const s = useEditorStore.getState();
-        if (c.op === 'remove') {
-          s.removeLogicLocal(c.id);
-          return;
-        }
-        // Same boundary as clips: the document keys the descriptor's nodes and
-        // edges by id, the canvas and the engine want lists.
-        const g = c.doc as unknown as RawLogic | undefined;
-        if (g) s.upsertLogic(mapLogic(g));
-      });
-      // Every other slice is hydrated by the Editor page's REST load and only
-      // takes deltas here; `logic` has no such load, so a subscription snapshot
-      // that landed before this observer registered would be lost. Seed from
-      // whatever the replica already holds.
-      for (const g of h.collections.logic.all())
-        useEditorStore
-          .getState()
-          .upsertLogic(mapLogic(g as unknown as RawLogic));
       // Graph-driven param overrides. One document per overridden path, so a
       // remove IS the clear — including the whole-target clear, which arrives
       // as one remove per path rather than a single message with an optional

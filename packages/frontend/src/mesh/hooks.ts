@@ -49,7 +49,13 @@ import {
   type StageObject,
 } from '../store/editorStore';
 import { playbackDocId } from '@vspark/shared/clipPlayback';
-import type { CameraEffectRecord, ComposeLayerRecord } from '../api/client';
+import {
+  mapLogic,
+  type CameraEffectRecord,
+  type ComposeLayerRecord,
+  type LogicRecord,
+  type RawLogic,
+} from '../api/client';
 
 type Dto = Record<string, unknown>;
 
@@ -249,5 +255,31 @@ export function useNodeSchedule(nodeId: string): ScheduledAnimation[] {
   return useMeshChildren(
     useCollection<ScheduledAnimation>('scheduled_animation'),
     nodeId
+  );
+}
+
+/** Document form → runtime form, once per document version: the replica hands
+ *  out the same object until the document changes, so this is cached by it. */
+const logicCache = new WeakMap<object, LogicRecord>();
+export function logicRecordOf(
+  raw: RawLogic | undefined
+): LogicRecord | undefined {
+  if (!raw) return undefined;
+  let rec = logicCache.get(raw);
+  if (!rec) logicCache.set(raw, (rec = mapLogic(raw)));
+  return rec;
+}
+
+/** Every signal graph this tab holds, in runtime form, by id. */
+export function useLogicRecords(): Record<string, LogicRecord> {
+  return useMeshSelector(useCollection<RawLogic>('logic'), '**', (c) =>
+    Object.fromEntries(c.all().map((g) => [g.id, logicRecordOf(g)!]))
+  );
+}
+
+/** One signal graph, in runtime form. */
+export function useLogicRecord(id: string): LogicRecord | undefined {
+  return useMeshSelector(useCollection<RawLogic>('logic'), id, (c) =>
+    logicRecordOf(c.get(id))
   );
 }

@@ -8,7 +8,6 @@ import type {
   TrackClipLaneRecord,
   TrackClipKeyframeRecord,
   TrackClipEventRecord,
-  LogicRecord,
 } from '../api/client';
 import type { UpdateChannel } from '@vspark/shared';
 import type { ClipPlaybackDoc } from '@vspark/shared/clipPlayback';
@@ -277,9 +276,6 @@ export interface EditorState {
   sceneSelected: boolean;
   selectedBehaviorId: string | null;
   assets: AssetFile[];
-  /** logic (signal graph) docs, keyed by id. Fed from the mesh replica; the
-   *  panels used to re-poll REST every 3 seconds for this. */
-  logic: Record<string, LogicRecord>;
   vrmBonesByNode: Record<string, string[]>; // nodeId → VRM humanoid bone names
   vrmExpressionsByNode: Record<string, string[]>; // nodeId → VRM expression names
   vrmMorphTargetsByNode: Record<string, string[]>; // nodeId → mesh morph target names
@@ -393,8 +389,6 @@ export interface EditorState {
   addAsset: (asset: AssetFile) => void;
   deleteAsset: (id: string) => void;
   activeSceneNodes: () => StageObject[];
-  upsertLogic: (entry: LogicRecord) => void;
-  removeLogicLocal: (id: string) => void;
   setVrmBonesForNode: (nodeId: string, bones: string[]) => void;
   clearVrmBonesForNode: (nodeId: string) => void;
   setVrmExpressionsForNode: (nodeId: string, expressions: string[]) => void;
@@ -558,7 +552,6 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   sceneSelected: false,
   selectedBehaviorId: null,
   assets: [],
-  logic: {},
   vrmBonesByNode: {},
   vrmExpressionsByNode: {},
   live2dParamsByNode: {},
@@ -671,15 +664,6 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     const { nodes, activeSceneId } = get();
     return nodes.filter((n) => n.rootSceneNodeId === activeSceneId);
   },
-  upsertLogic: (entry) =>
-    set((s) => ({ logic: { ...s.logic, [entry.id]: entry } })),
-  removeLogicLocal: (id) =>
-    set((s) => {
-      if (!(id in s.logic)) return {};
-      const next = { ...s.logic };
-      delete next[id];
-      return { logic: next };
-    }),
   setVrmBonesForNode: (nodeId, bones) =>
     set((s) => ({ vrmBonesByNode: { ...s.vrmBonesByNode, [nodeId]: bones } })),
   clearVrmBonesForNode: (nodeId) =>

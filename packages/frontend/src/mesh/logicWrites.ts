@@ -13,63 +13,45 @@
  * Ownership is polymorphic (project / scene_node / compose_layer), which the
  * document carries as `ownerKind` + `ownerId`; a create just has to say which.
  */
-import {
-  commitDocCreate,
-  commitDocDelete,
-  commitDocPatch,
-  commitDocPath,
-  type MeshDocAdapter,
-} from './writes';
-import { getMeshHandles, meshBatch } from './peer';
+import { collectionOf, createDoc, patchDoc, removeDoc, setField } from './docs';
+import { meshBatch } from './peer';
+import { logicRecordOf } from './hooks';
 import {
   edgeKey,
   toDescriptorDoc,
   type GraphEdgeDescriptor,
   type GraphNodeDescriptor,
 } from '@vspark/shared/signal';
-import { useEditorStore } from '../store/editorStore';
-import { api, type LogicRecord } from '../api/client';
+import type { LogicRecord, RawLogic } from '../api/client';
 
 export type LogicOwner =
   | { kind: 'project'; id: string }
   | { kind: 'scene_node'; id: string }
   | { kind: 'compose_layer'; id: string };
 
-const graphs: MeshDocAdapter<LogicRecord> = {
-  rtype: 'logic',
-  list: () => Object.values(useEditorStore.getState().logic),
-  applyLocal: (id, patch) => {
-    const cur = useEditorStore.getState().logic[id];
-    if (cur) useEditorStore.getState().upsertLogic({ ...cur, ...patch });
-  },
-  addLocal: (doc) => useEditorStore.getState().upsertLogic(doc),
-  removeLocal: (id) => useEditorStore.getState().removeLogicLocal(id),
-  restUpdate: (id, patch) => api.updateLogic(id, patch),
-  restDelete: (id) => api.deleteLogic(id),
-  // A graph owns nothing: no subtree delete, no reparenting.
-  childrenOf: () => [],
-  parentPatch: () => ({}),
-};
+const RTYPE = 'logic';
 
 /** Graphs owned by one entity, in creation order. */
 export const logicFor = (owner: LogicOwner): LogicRecord[] =>
-  Object.values(useEditorStore.getState().logic)
+  collectionOf<RawLogic>(RTYPE)
+    .all()
     .filter((g) => g.ownerKind === owner.kind && g.ownerId === owner.id)
+    .map((g) => logicRecordOf(g)!)
     .sort((a, b) => (a.createdAt ?? '').localeCompare(b.createdAt ?? ''));
 
 export const commitLogicPath = (
   id: string,
   path: string,
   value: unknown
-): void => commitDocPath(graphs, id, path, value);
+): void => void setField(RTYPE, id, path, value);
 
 export const commitLogicPatch = (
   id: string,
   patch: Partial<LogicRecord>
-): void => commitDocPatch(graphs, id, patch);
+): void => void patchDoc(RTYPE, id, patch);
 
 export const commitLogicDelete = (id: string): Promise<boolean> =>
-  commitDocDelete(graphs, id);
+  removeDoc(RTYPE, id);
 
 // --- the descriptor, element by element --------------------------------------
 //
@@ -91,8 +73,8 @@ export function previewGraphNode(
   logicId: string,
   node: GraphNodeDescriptor
 ): void {
-  const col = getMeshHandles()?.collections.logic;
-  if (!col?.canWrite() || !col.get(logicId)) return;
+  const col = collectionOf(RTYPE);
+  if (!col.get(logicId)) return;
   col.set(logicId, `descriptor.nodes.${node.id}`, node, { channel: 'preview' });
 }
 
@@ -153,8 +135,7 @@ export function commitGraphPaste(
   });
 }
 
-/** Create a graph on any owner. The id is minted here so the create is authored
- *  by this tab and lands on its undo stack; every create route now accepts it. */
+/** Create a graph on any owner. */
 export function commitLogicCreate(
   owner: LogicOwner,
   name: string,
@@ -177,20 +158,8 @@ export function commitLogicCreate(
   };
   // The doc goes over in DOCUMENT form (descriptor children keyed by id); the
   // record returned to the caller keeps the runtime form the UI works in.
-  const wire = {
+  return createDoc(RTYPE, {
     ...doc,
     descriptor: toDescriptorDoc(doc.descriptor),
-  } as unknown as LogicRecord;
-  return commitDocCreate(graphs, wire, async () => {
-    const created =
-      owner.kind === 'project'
-        ? await api.createProjectLogic(owner.id, name)
-        : owner.kind === 'scene_node'
-          ? await api.createNodeLogic(owner.id, name)
-          : await api.createLayerLogic(owner.id, name);
-    // The REST creates take a name only, so a supplied descriptor is a second
-    // call on this path — unlike the mesh write, which carries it in one op.
-    if (descriptor) await api.updateLogic(created.id, { descriptor });
-    return { ...created, ...(descriptor ? { descriptor } : {}) };
   }).then(() => doc);
 }

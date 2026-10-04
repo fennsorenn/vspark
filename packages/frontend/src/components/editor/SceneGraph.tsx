@@ -1726,6 +1726,7 @@ import type { LogicRecord, ScopedLogicRecord } from '../../api/client';
 import {
   useAllBehaviors,
   useCameraEffects,
+  useLogicRecords,
   useNodeBehaviors,
   useTrackingStatuses,
 } from '../../mesh/hooks';
@@ -1751,7 +1752,7 @@ function LogicListPanel() {
   // Graph documents come from the mesh replica. This panel used to re-poll all
   // three lists every 3 seconds, which is why another tab's rename showed up
   // late and two people editing one graph overwrote each other silently.
-  const storeLogic = useEditorStore((s) => s.logic);
+  const storeLogic = useLogicRecords();
   const storeBehaviors = useAllBehaviors();
 
   const projectLogic = useMemo(
