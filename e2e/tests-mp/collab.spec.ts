@@ -241,3 +241,46 @@ test("a rename in B's editor shows up in A's editor", async ({ browser }) => {
   await ctxA.close();
   await ctxB.close();
 });
+
+test("a drag in A's editor previews live in B's editor before it commits", async ({
+  browser,
+}) => {
+  const { projA, projB, sceneId, nodeId } = await sharedScene('Crate');
+  const ctxA = await browser.newContext({
+    baseURL: `http://localhost:${SERVERS.a.frontend}`,
+  });
+  const ctxB = await browser.newContext({
+    baseURL: `http://localhost:${SERVERS.b.frontend}`,
+  });
+  const tabA = await ctxA.newPage();
+  const tabB = await ctxB.newPage();
+  for (const [tab, proj] of [
+    [tabA, projA],
+    [tabB, projB],
+  ] as const) {
+    await tab.goto(`/editor/${proj}`);
+    await tab.getByText('Crate', { exact: true }).click({ timeout: 30_000 });
+    await expect(tab.locator('.vs-node-name')).toHaveValue('Crate');
+  }
+  const x = (tab: typeof tabA) =>
+    tab.locator('.vs-transform-position input').nth(0);
+
+  // In flight: `fill` previews (onChange) without committing (no blur).
+  await x(tabA).fill('4.25');
+  await expect
+    .poll(async () => Number(await x(tabB).inputValue()), { timeout: 20_000 })
+    .toBeCloseTo(4.25, 2);
+  // Nothing persisted on either server yet.
+  for (const c of [A, B]) {
+    const row = await nodeIn(c, sceneId, nodeId);
+    expect(row).toBeDefined();
+    const comps =
+      typeof row!.components === 'string'
+        ? (JSON.parse(row!.components) as { transform?: { x?: number } })
+        : (row!.components as { transform?: { x?: number } } | undefined);
+    expect(comps?.transform?.x ?? 0).toBe(0);
+  }
+
+  await ctxA.close();
+  await ctxB.close();
+});
