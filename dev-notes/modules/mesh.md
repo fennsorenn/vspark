@@ -556,9 +556,29 @@ message (`LinksMsg` in `wire.ts`) on every link change. The home records it per
 sender (`directLinks`) and, when relaying a **lossy** op, skips recipients that
 reach the op's origin directly — they already have it first-hand. Reliable ops
 are still relayed, as the path that survives a direct link dropping silently;
-the receiver's dedup (or LWW, for a stamped op) absorbs the second copy. Today no transport produces direct
-links, so this is groundwork for principle 8. Tests:
-`packages/mesh/test/links.test.ts`.
+the receiver's dedup (or LWW, for a stamped op) absorbs the second copy. A link
+counts only once a subscription over it is active — a link whose subscription
+was refused doesn't stop the relay. Tests: `packages/mesh/test/links.test.ts`.
+
+### Direct links (tabs)
+
+A tab links over WebRTC to tabs of **other** servers (`DirectTransport` in
+`frontend/src/mesh/directTransport.ts`, carried by `clientMesh.ts`) and takes an
+`exact` subscription to each with `channels: ['preview']`: no snapshot and no
+committed ops. Committed state keeps arriving through the tab's own server,
+which validates it. A refused subscription is retried with backoff while the link
+is up, because the other tab may not hold its grants yet. Tabs of the same server
+don't link; they meet through it.
+
+- `relay: false` makes a peer an endpoint: it doesn't forward what it receives,
+  so a direct subscriber gets only what that tab authored.
+- Grants for a direct link: the backend mirrors every grant it issued to someone
+  other than itself into the `peer_grant` runtime collection (tabs read it,
+  `backend/src/mesh/peerGrants.ts`). The tab copies them into its `GrantStore`.
+  A grant to a server covers that server's tabs (`granteeCandidates`).
+- Admission: an op matching our own subscription to a *server* is accepted as is.
+  The same op from a *tab* must pass that tab's write grants, as any write
+  does.
 
 ### Snapshot & apply
 

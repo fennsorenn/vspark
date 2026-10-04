@@ -10,18 +10,18 @@
  * See dev-notes/plans/live-mesh.md.
  */
 import { useEffect, useRef } from 'react';
-import { makeClientParticipantId, isClientParticipant } from '@vspark/shared/sync';
+import {
+  makeClientParticipantId,
+  isClientParticipant,
+} from '@vspark/shared/sync';
 import type { SyncEnvelope } from '@vspark/shared/sync';
 import { getConnectionIdentity } from '../api/client';
 import { clientMesh } from '../mesh/clientMesh';
+import { meshTabUuid } from '../mesh/peer';
 import { handleBlobEnvelope } from '../mesh/blobReceiver';
 import { handleShareEnvelope, onDirectEdgeGone } from '../sync/shareDirect';
 import { editorWsRef } from './useWsSync';
 import { useConnectionsStore } from '../store/connectionsStore';
-
-/** One stable per-tab id for the lifetime of the page. */
-const TAB_UUID =
-  globalThis.crypto?.randomUUID?.() ?? Math.random().toString(36).slice(2);
 
 /** Route a data envelope arriving over a peer's mesh channel: blob transfer to
  *  the blob receiver, object-share protocol to the direct-share consumer. */
@@ -40,7 +40,9 @@ export function useClientMesh(): void {
       .then((id) => {
         if (cancelled || !id?.peerId) return;
         clientMesh.configure({
-          selfId: makeClientParticipantId(id.peerId, TAB_UUID),
+          // Same participant id as the tab's mesh peer: the direct links
+          // this mesh opens are that peer's links too (mesh/directTransport).
+          selfId: makeClientParticipantId(id.peerId, meshTabUuid()),
           getWs: () => editorWsRef.current,
           onChange: (ids) => {
             // A remote *backend* that left the mesh = a dropped direct edge to an

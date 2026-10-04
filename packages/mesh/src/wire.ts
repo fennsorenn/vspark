@@ -42,11 +42,20 @@ export interface OpEnvelope {
 }
 
 /** Subscription interest + optional channel selection. Selecting an ephemeral
- *  channel implicitly includes the collection's retained channel. */
+ *  channel implicitly includes the collection's retained channel — unless
+ *  `exact`: then only the listed channels flow, and no snapshot is sent when
+ *  the retained channel isn't among them. A direct link subscribes that way to
+ *  `preview` alone: committed state keeps reaching it through the authority,
+ *  which validates and corrects it. */
+export type SubscriptionRequest = Subscription & {
+  channels?: string[];
+  exact?: boolean;
+};
+
 export interface SubscribeMsg {
   t: 'sub';
   subId: string;
-  sub: Subscription & { channels?: string[] };
+  sub: SubscriptionRequest;
 }
 
 export interface SnapshotDoc {

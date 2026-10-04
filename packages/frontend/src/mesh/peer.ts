@@ -14,11 +14,17 @@
 import {
   createMeshPeer,
   type Collection,
+  type Grant,
   type MeshPeer,
   type UndoStatus,
 } from '@vspark/mesh';
 import { WsBackendTransport } from '@vspark/mesh-transports/wsClient';
-import { makeClientParticipantId, randomUUID } from '@vspark/shared/sync';
+import {
+  isClientParticipant,
+  makeClientParticipantId,
+  randomUUID,
+} from '@vspark/shared/sync';
+import { DirectTransport } from './directTransport';
 
 type Dto = Record<string, unknown>;
 
@@ -42,6 +48,7 @@ const RTYPES = [
   'data_field',
   'media_control',
   'server_status',
+  'peer_grant',
 ] as const;
 
 /** Built-in mesh channels (packages/mesh/src/channels.ts): `runtime` is
@@ -58,6 +65,7 @@ const CHANNELS: Partial<Record<string, string[]>> = {
   data_field: [RUNTIME_CHANNEL],
   media_control: [CONTROL_CHANNEL],
   server_status: [RUNTIME_CHANNEL],
+  peer_grant: [RUNTIME_CHANNEL],
 };
 
 const childOfNode = (d: Dto) =>
@@ -143,6 +151,11 @@ const PARENTS: Partial<
 };
 
 let _init: Promise<MeshHandles> | null = null;
+
+/** This tab's id, shared by the mesh peer and the client mesh's WebRTC links. */
+export function meshTabUuid(): string {
+  return tabUuid();
+}
 
 function tabUuid(): string {
   const KEY = 'vspark.mesh.tab';
@@ -316,6 +329,8 @@ async function doInit(): Promise<MeshHandles> {
     identity: { peerId: participantId },
     // Our server is the source of our grants, not a recipient they gate.
     home: serverPeerId,
+    // A tab is an endpoint: a direct subscriber gets only what it authors.
+    relay: false,
     transports: [
       new WsBackendTransport({
         url: `${wsProto}://${window.location.host}/mesh`,
@@ -340,6 +355,58 @@ async function doInit(): Promise<MeshHandles> {
       channels: CHANNELS[rtype],
       authority: serverPeerId,
     });
+
+  // Grants for participants of other servers, delivered by our server — the
+  // grant source of truth (backend mesh/peerGrants.ts). When one of them links
+  // to this tab directly, it gets exactly what those grants allow.
+  const mirrored = new Map<string, string>();
+  collections.peer_grant.observe('**', (c) => {
+    const old = mirrored.get(c.id);
+    if (old) {
+      peer.grants.revoke(old);
+      mirrored.delete(c.id);
+    }
+    const grant = (c.doc as { grant?: Grant } | undefined)?.grant;
+    if (c.op !== 'remove' && grant)
+      mirrored.set(c.id, peer.grants.grant(grant));
+  });
+
+  // Direct links (principle 8): tabs of other servers reached over WebRTC.
+  // Each gets a preview-only subscription — committed state keeps arriving
+  // through our server, which validates it (plan F6). The other tab may not
+  // hold the grants for us yet (its server delivers them a moment later), so
+  // a refused subscription is retried with backoff while the link is up.
+  peer.addTransport(new DirectTransport(serverPeerId));
+  const direct = new Set<string>();
+  const subscribeDirect = (id: string, attempt = 0): void => {
+    void peer
+      .subscribe(id, {
+        entityRtype: '*',
+        entityId: '*',
+        includeDescendants: false,
+        pathPrefix: '',
+        channels: ['preview'],
+        exact: true,
+      })
+      .catch(() => {
+        const delay = Math.min(30_000, 1000 * 2 ** attempt);
+        setTimeout(() => {
+          if (peer.status().peers.some((p) => p.id === id))
+            subscribeDirect(id, attempt + 1);
+          else direct.delete(id);
+        }, delay);
+      });
+  };
+  peer.onStatus((s) => {
+    const linked = new Set(s.peers.map((p) => p.id));
+    for (const id of [...direct]) if (!linked.has(id)) direct.delete(id);
+    for (const id of linked) {
+      if (id === serverPeerId || direct.has(id) || !isClientParticipant(id))
+        continue;
+      direct.add(id);
+      subscribeDirect(id);
+    }
+  });
 
   // Bridge the peer's undo/redo availability to the module-level observers the
   // TopBar/keybindings subscribe to.

@@ -45,7 +45,7 @@ const sub = (rtype: string, channels?: string[]) => ({
   ...(channels ? { channels } : {}),
 });
 
-function triangle() {
+function triangle({ bGrantsA = true } = {}) {
   const s = createMeshPeer({ identity: { peerId: 'S' } });
   const sDocs = s.collection<Doc>('doc', { clients: ALL });
   const viaServer: MeshMessage[] = [];
@@ -81,6 +81,16 @@ function triangle() {
     pathPrefix: '',
     rights: { read: true },
   });
+  // ...and B lets A write previews to it over the direct link.
+  if (bGrantsA)
+    peers.b.peer.grants.grant({
+      grantee: 'S#a',
+      entityRtype: 'doc',
+      entityId: '*',
+      includeDescendants: false,
+      pathPrefix: '',
+      rights: { update: true },
+    });
   const flush = async () => {
     for (let i = 0; i < 4; i++) {
       for (const f of flushes) await f();
@@ -217,5 +227,103 @@ describe('subscriptions survive reconnects', () => {
     sd.set('d1', 'x', 3); // and live again
     await lb.flush();
     expect(td.get('d1')?.x).toBe(3);
+  });
+});
+
+describe('direct-link subscriptions', () => {
+  it('an exact preview subscription gets previews only: no snapshot, no committed ops', async () => {
+    const lb = createLoopbackPair('A', 'B');
+    const a = createMeshPeer({ identity: { peerId: 'A' }, transports: [lb.a] });
+    const b = createMeshPeer({ identity: { peerId: 'B' }, transports: [lb.b] });
+    const da = a.collection<Doc>('doc');
+    const db = b.collection<Doc>('doc');
+    a.grants.grant({
+      grantee: 'B',
+      entityRtype: 'doc',
+      entityId: '*',
+      includeDescendants: false,
+      pathPrefix: '',
+      rights: { read: true },
+    });
+    da.create({ id: 'd1', x: 1 });
+    await b.subscribe('A', { ...sub('doc', ['preview']), exact: true });
+    expect(db.get('d1')).toBeUndefined(); // no snapshot over this link
+
+    // B holds the committed doc through its own home, as a real tab does.
+    db.put({ id: 'd1', x: 1 }, { v: { t: 1, c: 0, n: 'home' } });
+    da.set('d1', 'x', 2); // committed: not on this subscription
+    da.set('d1', 'x', 3, { channel: 'preview' });
+    await lb.flush();
+    expect(db.replica.raw('d1')?.x).toBe(1); // committed value untouched
+    expect(db.get('d1')?.x).toBe(3); // the preview, over it
+  });
+
+  it('a tab does not relay what it receives to its own direct subscribers', async () => {
+    const t = triangle();
+    for (const p of [t.a.peer, t.b.peer])
+      (p as unknown as { cfg: { relay?: boolean } }).cfg.relay = false;
+    t.sDocs.create({ id: 'd1', x: 0 });
+    await t.a.peer.subscribe('S', sub('doc', ['preview']));
+    t.linkDirect();
+    await t.flush();
+    // B subscribes to A directly; S writes a preview. A gets it from S but
+    // must not forward it to B (B isn't subscribed to S here).
+    await t.b.peer.subscribe('S#a', {
+      ...sub('doc', ['preview']),
+      exact: true,
+    });
+    const atB: unknown[] = [];
+    t.b.col.observe('**', (c) => atB.push(c));
+    t.sDocs.set('d1', 'x', 1, { channel: 'preview' });
+    await t.flush();
+    expect(t.a.col.get('d1')?.x).toBe(1);
+    expect(atB).toHaveLength(0);
+    // What A itself authors does reach B directly.
+    t.a.col.set('d1', 'x', 2, { channel: 'preview' });
+    await t.flush();
+    expect(atB).toHaveLength(1);
+  });
+
+  it("a write over a direct link must pass the sending tab's write grants", async () => {
+    const t = triangle({ bGrantsA: false });
+    t.sDocs.create({ id: 'd1', x: 0 });
+    await t.b.peer.subscribe('S', sub('doc'));
+    t.linkDirect();
+    await t.flush();
+    await t.b.peer.subscribe('S#a', {
+      ...sub('doc', ['preview']),
+      exact: true,
+    });
+    // Subscribed to A, but B holds no write grant for A: A's preview is dropped.
+    t.a.col.set('d1', 'x', 5, { channel: 'preview' });
+    await t.direct.flush();
+    expect(t.b.col.get('d1')?.x).toBe(0);
+    // A grant to A's server covers A's tabs.
+    t.b.peer.grants.grant({
+      grantee: 'S',
+      entityRtype: 'doc',
+      entityId: '*',
+      includeDescendants: false,
+      pathPrefix: '',
+      rights: { update: true },
+    });
+    t.a.col.set('d1', 'x', 6, { channel: 'preview' });
+    await t.direct.flush();
+    expect(t.b.col.get('d1')?.x).toBe(6);
+  });
+});
+
+describe('link state needs an active subscription', () => {
+  it('a link with no subscription over it does not stop the relay', async () => {
+    const t = triangle();
+    t.sDocs.create({ id: 'd1', x: 0 });
+    await t.b.peer.subscribe('S', sub('doc', ['preview']));
+    t.linkDirect(); // linked, but B never subscribes to A (e.g. refused)
+    await t.flush();
+    t.viaServer.length = 0;
+    t.a.col.set('d1', 'x', 7, { channel: 'preview' });
+    await t.flush();
+    expect(previewsFrom(t.viaServer, 'S#a')).toBe(1);
+    expect(t.b.col.get('d1')?.x).toBe(7);
   });
 });

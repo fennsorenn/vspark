@@ -166,9 +166,21 @@ it:
    welcome / 4401, browsers enroll once (automatic on the vspark machine, device code
    elsewhere), token hashes in `client_credentials` (migration 043). Servers already
    authenticate through the rendezvous (Ed25519).
-6. **Direct links.** ⏳ Not started; design below. Blocked on a two-backend test
-   harness (the e2e suite runs one backend with multiplayer disabled, so a real
-   browser↔browser or browser↔remote-server link can't be verified yet).
+6. **Direct links.** ✅ Tab↔tab across servers, `preview` only (branch
+   `feature/mesh-direct-links`: 6f97358, 50965dc, e3e7edc). The existing
+   browser↔browser WebRTC (`clientMesh.ts`) is wrapped as a `MeshTransport`
+   (`frontend/src/mesh/directTransport.ts`); each linked tab of another server gets
+   an `exact` preview-only subscription, retried with backoff while its grant is
+   still on the way. Tabs are `relay: false`. Grants arrive at link setup through
+   the `peer_grant` runtime collection (`backend/src/mesh/peerGrants.ts`). Ops over
+   a direct link pass the sending tab's write grants (the subscription shortcut
+   in `admitOp` applies to servers only). A link is announced to the home only
+   once a subscription over it is active, so a refused link doesn't stop the
+   relay. Verified in the two-server suite (`e2e:mp`) with temporary logging;
+   no spec asserts the direct path itself. Not done: same-server tabs (they
+   meet through their server, which counts as direct), backend↔remote-browser
+   (`multiplayer/browserMesh.ts`), signaling on addressed `control` messages,
+   committed ops over direct links (open problem below).
 
 Also done on this branch, outside the numbered list:
 - **`removeTree`** (20ccf98): deleting a document removes its cross-type containment
@@ -199,7 +211,8 @@ Also done on this branch, outside the numbered list:
   Proposal: treat a committed op from a non-authority direct link as a provisional
   overlay (latency win, rendered immediately) that the authoritative write
   replaces, with an expiry for one that never gets confirmed. Needs the user's call;
-  until then direct links carry `preview` and `control` only.
+  until then direct links carry `preview` only (addressed `control` messages still
+  route through `nextHop`, which already prefers a direct link).
 
 ### W0: Missed writes and leftovers (no new mesh features)
 
