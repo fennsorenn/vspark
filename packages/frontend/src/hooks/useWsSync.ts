@@ -2,7 +2,7 @@ import { useEffect, useRef } from 'react';
 import { useEditorStore } from '../store/editorStore';
 import { useAssistantStore } from '../store/assistantStore';
 import type { StageObject } from '../store/editorStore';
-import { mapComposeLayer, getScenes, getCollabScenes } from '../api/client';
+import { getScenes, getCollabScenes } from '../api/client';
 import { setVmcPose, setVmcBlendshapes } from '../vmcPoseStore';
 import { captureFeedImage } from '../lib/captureFeed';
 import { captureViewport } from '../lib/viewportCapture';
@@ -144,21 +144,6 @@ export function useWsSync() {
             }
           } else if (msg.kind === 'node_removed') {
             useEditorStore.getState().deleteNode(msg.payload.id as string);
-          } else if (msg.kind === 'compose_layer_added') {
-            const added = mapComposeLayer(msg.payload);
-            if (added.kind === 'compose_scene') {
-              useEditorStore.getState().addComposeScene(added);
-            } else {
-              useEditorStore.getState().addComposeLayer(added);
-            }
-          } else if (msg.kind === 'compose_layer_removed') {
-            const removedId = msg.payload.id as string;
-            const st = useEditorStore.getState();
-            if (st.composeScenes.some((cs) => cs.id === removedId)) {
-              st.removeComposeScene(removedId);
-            } else {
-              st.removeComposeLayer(removedId);
-            }
           } else if (msg.kind === 'mp_status') {
             useConnectionsStore
               .getState()

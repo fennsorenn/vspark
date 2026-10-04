@@ -30,6 +30,7 @@ import {
 } from './createKinds';
 import { HelpButton } from '../../help/HelpButton';
 import { useCameraEffects, useNodeBehaviors } from '../../mesh/hooks';
+import { useComposeLayers } from '../../mesh/compose';
 
 /** Per-tab contextual help target — one consistent `?` follows the active tab. */
 const tabHelp: Partial<
@@ -84,10 +85,7 @@ export function AssetManager() {
   const selectedComposeLayerId = useEditorStore(
     (s) => s.selectedComposeLayerId
   );
-  const composeLayers = useEditorStore((s) => s.composeLayers);
-  const updateComposeLayerLocal = useEditorStore(
-    (s) => s.updateComposeLayerLocal
-  );
+  const composeLayers = useComposeLayers();
   const selectedComposeLayer =
     composeLayers.find((l) => l.id === selectedComposeLayerId) ?? null;
   const canApplyImageLayer = selectedComposeLayer?.kind === 'image';
@@ -492,7 +490,6 @@ export function AssetManager() {
     if (!layer) return;
     try {
       commitLayerPath(layer.id, 'assetId', asset.id);
-      updateComposeLayerLocal(layer.id, { assetId: asset.id });
     } catch (e: unknown) {
       alert(e instanceof Error ? e.message : t('alerts.applyMediaFailed'));
     }

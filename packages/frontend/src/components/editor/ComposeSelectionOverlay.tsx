@@ -16,6 +16,7 @@ import {
 } from './composeLayerInteractions';
 import { layerFrame, layerParentFrame } from './composeHitTest';
 import { getSnapGuides, subscribeSnapGuides } from './composeSnap';
+import { useComposeLayers } from '../../mesh/compose';
 
 interface ComposeSelectionOverlayProps {
   viewportRef: RefObject<HTMLElement>;
@@ -70,13 +71,13 @@ export function ComposeSelectionOverlay({
   layer,
   scale,
 }: ComposeSelectionOverlayProps) {
-  const updateLayer = useEditorStore((s) => s.updateComposeLayerLocal);
+  const setLiveLayer = useEditorStore((s) => s.setLiveLayer);
   // Track this layer's active clip override so the chrome follows the same
   // x/y/rotation the rendered layer uses (ComposeLayerStack applies it too).
   const override = useEditorStore((s) => s.composeLayerOverrides[layer.id]);
   // All layers, so the frame can be composed through this layer's ancestors
   // (nested layers are positioned relative to their parent).
-  const composeLayers = useEditorStore((s) => s.composeLayers);
+  const composeLayers = useComposeLayers();
   const snap = useSyncExternalStore(subscribeSnapGuides, getSnapGuides);
   const [viewportRect, setViewportRect] = useState<DOMRect | null>(null);
 
@@ -136,7 +137,7 @@ export function ComposeSelectionOverlay({
   const rotateOffset = ROTATE_OFFSET / s;
   const strokeW = 1 / s;
   const apply = (patch: Partial<ComposeLayerRecord>) =>
-    updateLayer(layer.id, patch);
+    setLiveLayer(layer.id, patch);
 
   // Snap guide lines. `snap` positions are in the parent box's local px; project
   // them through the parent frame (handles a rotated / nested parent) so the

@@ -19,6 +19,7 @@ import {
 import type { ComposeFrame } from './composeLayerInteractions';
 import { ContextMenu, type ContextMenuItem } from './ContextMenu';
 import { canSendTo3D, sendComposeLayerTo3D } from './composeSendTo3D';
+import { composeLayersNow } from '../../mesh/compose';
 
 const DRAG_THRESHOLD_PX = 3;
 
@@ -60,7 +61,7 @@ export function ComposeEventCapture({ viewportRef }: ComposeEventCaptureProps) {
     const store = useEditorStore.getState();
     const rect = composeViewportRect.current?.();
     if (!rect) return;
-    const layers = store.composeLayers.filter(
+    const layers = composeLayersNow().filter(
       (l) => l.rootComposeSceneId === store.activeComposeSceneId
     );
     const ids = layersAtClientPoint(rect, layers, e.clientX, e.clientY);
@@ -118,7 +119,7 @@ export function ComposeEventCapture({ viewportRef }: ComposeEventCaptureProps) {
       // Don't dolly through a camera_view whose 3D interaction is locked.
       const topId = layerUnderCursor(ev.clientX, ev.clientY);
       const topLayer = topId
-        ? store.composeLayers.find((l) => l.id === topId)
+        ? composeLayersNow().find((l) => l.id === topId)
         : null;
       if (topLayer?.kind === 'camera_view' && topLayer.config.locked3d === true)
         return;
@@ -164,9 +165,9 @@ export function ComposeEventCapture({ viewportRef }: ComposeEventCaptureProps) {
                 kind: 'item',
                 label: t('tree.ctx.sendTo3d'),
                 onClick: () => {
-                  const layer = useEditorStore
-                    .getState()
-                    .composeLayers.find((l) => l.id === ctxMenu.layerId);
+                  const layer = composeLayersNow().find(
+                    (l) => l.id === ctxMenu.layerId
+                  );
                   if (layer) void sendComposeLayerTo3D(layer);
                 },
               },
@@ -188,9 +189,7 @@ function parentFrameFor(layer: ComposeLayerRecord): ComposeFrame | undefined {
   // the parent frame in canonical px, and pass the scale so screen-space drag
   // deltas are converted back to canonical.
   const s = composeStageScale.current?.() ?? 1;
-  const byId = new Map(
-    useEditorStore.getState().composeLayers.map((l) => [l.id, l] as const)
-  );
+  const byId = new Map(composeLayersNow().map((l) => [l.id, l] as const));
   const pf = layerParentFrame(
     { width: rect.width / s, height: rect.height / s },
     layer,
@@ -214,7 +213,7 @@ function startDragOnCurrentTarget(x: number, y: number, pointerId: number) {
   const store = useEditorStore.getState();
   const topId = layerUnderCursor(x, y);
   const topLayer = topId
-    ? store.composeLayers.find((l) => l.id === topId)
+    ? composeLayersNow().find((l) => l.id === topId)
     : null;
   const overCameraView = topLayer?.kind === 'camera_view';
   const cameraView3dLocked =
@@ -227,12 +226,12 @@ function startDragOnCurrentTarget(x: number, y: number, pointerId: number) {
 
   // 2. Move the selected compose layer from anywhere.
   if (store.selectedComposeLayerId) {
-    const layer = store.composeLayers.find(
+    const layer = composeLayersNow().find(
       (l) => l.id === store.selectedComposeLayerId
     );
     if (layer) {
       const apply = (patch: Partial<ComposeLayerRecord>) =>
-        store.updateComposeLayerLocal(layer.id, patch);
+        store.setLiveLayer(layer.id, patch);
       startDrag(
         { clientX: x, clientY: y, pointerId },
         layer,
@@ -252,12 +251,12 @@ function startDragOnCurrentTarget(x: number, y: number, pointerId: number) {
   cyclePickAt(x, y);
   const s2 = useEditorStore.getState();
   if (s2.selectedComposeLayerId) {
-    const layer = s2.composeLayers.find(
+    const layer = composeLayersNow().find(
       (l) => l.id === s2.selectedComposeLayerId
     );
     if (layer) {
       const apply = (patch: Partial<ComposeLayerRecord>) =>
-        s2.updateComposeLayerLocal(layer.id, patch);
+        s2.setLiveLayer(layer.id, patch);
       startDrag(
         { clientX: x, clientY: y, pointerId },
         layer,
@@ -275,7 +274,7 @@ function layerUnderCursor(x: number, y: number): string | null {
   const rect = composeViewportRect.current?.();
   if (!rect) return null;
   const store = useEditorStore.getState();
-  const visible = store.composeLayers.filter(
+  const visible = composeLayersNow().filter(
     (l) => l.rootComposeSceneId === store.activeComposeSceneId
   );
   const ids = layersAtClientPoint(rect, visible, x, y);

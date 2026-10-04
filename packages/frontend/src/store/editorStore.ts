@@ -303,10 +303,12 @@ export interface EditorState {
   previewEffectsCamera: string | null; // nodeId of the camera with Preview Effects active
   selectedEffect: { nodeId: string; kind: string } | null;
 
-  // Compose view
-  composeScenes: ComposeLayerRecord[];
+  // Compose view. The layers themselves are mesh documents (mesh/compose.ts).
   activeComposeSceneId: string | null;
-  composeLayers: ComposeLayerRecord[];
+  /** What this tab shows for a layer while a local gesture or a received
+   *  preview's tween is running, before the documents catch up. View state:
+   *  merged over the documents by the compose hooks, cleared when it ends. */
+  liveLayers: Record<string, Partial<ComposeLayerRecord>>;
   leftTab: LeftDockTab;
   bottomTab: BottomDockTab;
   /** Bumped (to a fresh timestamp) every time something asks the bottom dock to
@@ -423,18 +425,9 @@ export interface EditorState {
   selectEffect: (nodeId: string, kind: string) => void;
   clearSelectedEffect: () => void;
 
-  setComposeScenes: (scenes: ComposeLayerRecord[]) => void;
-  addComposeScene: (scene: ComposeLayerRecord) => void;
-  updateComposeSceneLocal: (scene: ComposeLayerRecord) => void;
   selectComposeScene: (id: string | null) => void;
-  setComposeLayers: (layers: ComposeLayerRecord[]) => void;
-  addComposeLayer: (layer: ComposeLayerRecord) => void;
-  updateComposeLayerLocal: (
-    id: string,
-    patch: Partial<ComposeLayerRecord>
-  ) => void;
-  removeComposeLayer: (id: string) => void;
-  removeComposeScene: (id: string) => void;
+  /** Merge live display fields for a layer; `null` drops them. */
+  setLiveLayer: (id: string, patch: Partial<ComposeLayerRecord> | null) => void;
   setLeftTab: (tab: LeftDockTab) => void;
   setBottomTab: (tab: BottomDockTab) => void;
   /** Switch the bottom dock to `tab` and pulse it as a hint. */
@@ -555,9 +548,8 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   previewEffectsCamera: null,
   selectedEffect: null,
 
-  composeScenes: [],
   activeComposeSceneId: null,
-  composeLayers: [],
+  liveLayers: {},
   leftTab: initialLeftTab(),
   bottomTab: initialBottomTab(),
   bottomTabFlash: 0,
@@ -744,53 +736,13 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     set({ selectedEffect: { nodeId, kind }, selectedBehaviorId: null }),
   clearSelectedEffect: () => set({ selectedEffect: null }),
 
-  setComposeScenes: (scenes) => set({ composeScenes: scenes }),
-  addComposeScene: (scene) =>
-    set((s) =>
-      s.composeScenes.some((cs) => cs.id === scene.id)
-        ? {}
-        : { composeScenes: [...s.composeScenes, scene] }
-    ),
-  updateComposeSceneLocal: (scene) =>
-    set((s) => ({
-      composeScenes: s.composeScenes.map((cs) =>
-        cs.id === scene.id ? scene : cs
-      ),
-    })),
   selectComposeScene: (id) => set({ activeComposeSceneId: id }),
-  setComposeLayers: (layers) => set({ composeLayers: layers }),
-  addComposeLayer: (layer) =>
-    set((s) =>
-      s.composeLayers.some((l) => l.id === layer.id)
-        ? {}
-        : { composeLayers: [...s.composeLayers, layer] }
-    ),
-  updateComposeLayerLocal: (id, patch) =>
-    set((s) => ({
-      composeLayers: s.composeLayers.map((l) =>
-        l.id === id ? { ...l, ...patch } : l
-      ),
-    })),
-  removeComposeLayer: (id) =>
-    set((s) => ({
-      composeLayers: s.composeLayers.filter((l) => l.id !== id),
-      selectedComposeLayerId:
-        s.selectedComposeLayerId === id ? null : s.selectedComposeLayerId,
-    })),
-  removeComposeScene: (id) =>
+  setLiveLayer: (id, patch) =>
     set((s) => {
-      const remaining = s.composeScenes.filter((cs) => cs.id !== id);
-      return {
-        composeScenes: remaining,
-        // Drop layers that belonged to the removed compose scene.
-        composeLayers: s.composeLayers.filter(
-          (l) => l.rootComposeSceneId !== id
-        ),
-        activeComposeSceneId:
-          s.activeComposeSceneId === id
-            ? (remaining[0]?.id ?? null)
-            : s.activeComposeSceneId,
-      };
+      const next = { ...s.liveLayers };
+      if (patch) next[id] = { ...next[id], ...patch };
+      else delete next[id];
+      return { liveLayers: next };
     }),
   setLeftTab: (tab) => {
     lsSet(LS.leftTab, tab);

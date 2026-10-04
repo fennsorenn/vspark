@@ -2,14 +2,12 @@ import { useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useEditorStore } from '../store/editorStore';
 import { useConfirm, useChoose } from '../components/DialogProvider';
-import {
-  commitNodeDelete,
-  commitNodeDeleteKeepChildren,
-} from '../mesh/writes';
+import { commitNodeDelete, commitNodeDeleteKeepChildren } from '../mesh/writes';
 import {
   commitLayerDelete,
   commitLayerDeleteKeepChildren,
 } from '../mesh/layerWrites';
+import { composeLayersNow } from '../mesh/compose';
 
 /**
  * Shared "delete this element" flow used by the scene tree, the compose tree and
@@ -25,11 +23,10 @@ export function useDeleteElement() {
 
   const deleteComposeLayer = useCallback(
     async (id: string) => {
-      const store = useEditorStore.getState();
-      const layer = store.composeLayers.find((l) => l.id === id);
+      const layer = composeLayersNow().find((l) => l.id === id);
       if (!layer) return;
       const childrenOf = (pid: string) =>
-        store.composeLayers.filter((l) => l.parentId === pid);
+        composeLayersNow().filter((l) => l.parentId === pid);
       const directChildren = childrenOf(id);
 
       if (directChildren.length === 0) {

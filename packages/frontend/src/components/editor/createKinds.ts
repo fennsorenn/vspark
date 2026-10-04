@@ -30,6 +30,7 @@ import {
   Volume2,
   type LucideIcon,
 } from 'lucide-react';
+import { composeLayersNow, composeScenesNow } from '../../mesh/compose';
 
 // ---------------------------------------------------------------------------
 // Shared registry of the node + compose-layer kinds the user can create, plus
@@ -450,9 +451,7 @@ export async function createLayer(
   // Scene includes default to the first OTHER compose scene; reassign in
   // properties. They mount that scene's whole layer stack.
   if (kind === 'scene_include') {
-    const others = useEditorStore
-      .getState()
-      .composeScenes.filter((s) => s.id !== composeSceneId);
+    const others = composeScenesNow().filter((s) => s.id !== composeSceneId);
     if (others.length === 0) {
       alert('No other compose scene to include. Create another one first.');
       return;
@@ -472,9 +471,8 @@ export async function createLayer(
   }
 
   const taken = new Set(
-    useEditorStore
-      .getState()
-      .composeLayers.filter((l) => l.rootComposeSceneId === composeSceneId)
+    composeLayersNow()
+      .filter((l) => l.rootComposeSceneId === composeSceneId)
       .map((l) => l.name)
   );
   const name = uniqueName(baseName, taken);

@@ -167,13 +167,13 @@ export function useSceneNode(id: string | null | undefined) {
 /** One compose layer, watched individually. Same contract as
  *  {@link useSceneNode}. */
 export function useComposeLayer(id: string | null | undefined) {
-  const col = useMeshCollection('compose_layer');
-  const fromMesh = useMeshDoc(col ?? EMPTY_COL, id ?? '');
-  const fromStore = useEditorStore((s) =>
-    id ? s.composeLayers.find((l) => l.id === id) : undefined
+  const doc = useMeshDoc(
+    useCollection<ComposeLayerRecord>('compose_layer'),
+    id ?? ''
   );
-  if (!id) return undefined;
-  return (fromMesh as unknown as ComposeLayerRecord | undefined) ?? fromStore;
+  const live = useEditorStore((s) => (id ? s.liveLayers[id] : undefined));
+  if (!id || !doc) return undefined;
+  return live ? { ...doc, ...live } : doc;
 }
 
 /** Stand-in for the window before the peer is up. Hooks must be called

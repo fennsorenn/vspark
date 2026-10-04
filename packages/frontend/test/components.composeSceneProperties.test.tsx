@@ -10,15 +10,22 @@ vi.mock('../src/api/client', async (importOriginal) => ({
     {},
     {
       get: (_t, prop) =>
-        prop === 'updateComposeLayer' ? updateComposeLayer : () => Promise.resolve({}),
+        prop === 'updateComposeLayer'
+          ? updateComposeLayer
+          : () => Promise.resolve({}),
     }
   ),
 }));
 vi.mock('../src/hooks/useTrackClipRecorder', () => ({
-  useTrackClipRecorder: () => ({ canRecord: false, recordKeyframe: vi.fn(), recordKeyframes: vi.fn() }),
+  useTrackClipRecorder: () => ({
+    canRecord: false,
+    recordKeyframe: vi.fn(),
+    recordKeyframes: vi.fn(),
+  }),
 }));
 
 import { ComposeSceneProperties } from '../src/components/editor/ComposeLayerProperties';
+import { seedEditor, testPeer } from './helpers/mesh';
 
 const scene = {
   id: 'cs1',
@@ -47,52 +54,79 @@ const scene = {
 const tc = (key: string, opts?: Record<string, unknown>) =>
   i18n.t(key, { ns: 'compose', ...opts });
 
+/** The scene as the mesh holds it now. */
+const cs1 = () =>
+  testPeer().collection<ComposeLayerRecord>('compose_layer').get('cs1');
+
 describe('ComposeSceneProperties — OBS window capture', () => {
   beforeEach(() => {
     updateComposeLayer.mockClear();
-    useEditorStore.setState({ composeScenes: [scene], assets: [], outputWindowStatus: null });
+    seedEditor({
+      composeScenes: [scene],
+      assets: [],
+      outputWindowStatus: null,
+    });
   });
 
   it('shows runtime download progress and errors instead of the hint', () => {
     const enabled = { ...scene, config: { obsWindowCapture: true } };
-    useEditorStore.setState({ outputWindowStatus: { state: 'downloading', progress: 42 } });
-    const { rerender } = renderWithProviders(<ComposeSceneProperties scene={enabled} />);
-    expect(screen.getByText(tc('sceneProps.obsWindowDownloading', { progress: 42 }))).toBeTruthy();
+    useEditorStore.setState({
+      outputWindowStatus: { state: 'downloading', progress: 42 },
+    });
+    const { rerender } = renderWithProviders(
+      <ComposeSceneProperties scene={enabled} />
+    );
+    expect(
+      screen.getByText(tc('sceneProps.obsWindowDownloading', { progress: 42 }))
+    ).toBeTruthy();
 
-    useEditorStore.setState({ outputWindowStatus: { state: 'error', message: 'offline' } });
+    useEditorStore.setState({
+      outputWindowStatus: { state: 'error', message: 'offline' },
+    });
     rerender(<ComposeSceneProperties scene={enabled} />);
-    expect(screen.getByText(tc('sceneProps.obsWindowError', { message: 'offline' }))).toBeTruthy();
+    expect(
+      screen.getByText(tc('sceneProps.obsWindowError', { message: 'offline' }))
+    ).toBeTruthy();
 
     useEditorStore.setState({ outputWindowStatus: { state: 'ready' } });
     rerender(<ComposeSceneProperties scene={enabled} />);
-    expect(screen.getByText(tc('sceneProps.obsWindowHint', { title: 'vspark – Main Output' }))).toBeTruthy();
+    expect(
+      screen.getByText(
+        tc('sceneProps.obsWindowHint', { title: 'vspark – Main Output' })
+      )
+    ).toBeTruthy();
   });
 
   it('enables window capture: persists config and shows the window title to pick', () => {
-    const { container } = renderWithProviders(<ComposeSceneProperties scene={scene} />);
-    const box = container.querySelector('input.vs-compose-obs-window') as HTMLInputElement;
+    const { container } = renderWithProviders(
+      <ComposeSceneProperties scene={scene} />
+    );
+    const box = container.querySelector(
+      'input.vs-compose-obs-window'
+    ) as HTMLInputElement;
     expect(box.checked).toBe(false);
     expect(screen.queryByText(/vspark – Main Output/)).toBeNull();
 
     fireEvent.click(box);
 
-    expect(updateComposeLayer).toHaveBeenCalledWith('cs1', {
-      config: { obsWindowCapture: true },
-    });
-    expect(useEditorStore.getState().composeScenes[0].config.obsWindowCapture).toBe(true);
+    expect(cs1()?.config.obsWindowCapture).toBe(true);
   });
 
   it('shows the hint with the window title while enabled, and disabling persists false', () => {
     const enabled = { ...scene, config: { obsWindowCapture: true } };
-    const { container } = renderWithProviders(<ComposeSceneProperties scene={enabled} />);
+    const { container } = renderWithProviders(
+      <ComposeSceneProperties scene={enabled} />
+    );
     expect(
-      screen.getByText(tc('sceneProps.obsWindowHint', { title: 'vspark – Main Output' }))
+      screen.getByText(
+        tc('sceneProps.obsWindowHint', { title: 'vspark – Main Output' })
+      )
     ).toBeTruthy();
 
-    fireEvent.click(container.querySelector('input.vs-compose-obs-window') as HTMLInputElement);
+    fireEvent.click(
+      container.querySelector('input.vs-compose-obs-window') as HTMLInputElement
+    );
 
-    expect(updateComposeLayer).toHaveBeenCalledWith('cs1', {
-      config: { obsWindowCapture: false },
-    });
+    expect(cs1()?.config.obsWindowCapture).toBe(false);
   });
 });

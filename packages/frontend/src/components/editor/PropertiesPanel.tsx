@@ -114,6 +114,7 @@ import {
 } from './materialOverrides';
 import { useCollection, useMeshDoc } from '@vspark/mesh-react';
 import { useAnimationClips, useCameraEffects } from '../../mesh/hooks';
+import { useComposeLayers, useComposeScenes } from '../../mesh/compose';
 
 interface Transform {
   x: number;
@@ -6119,13 +6120,13 @@ export function PropertiesPanel() {
     activeSceneId,
     sceneSelected,
     updateSceneItem,
-    composeLayers,
-    composeScenes,
     activeComposeSceneId,
     selectedComposeLayerId,
     leftTab,
     activeLogicId,
   } = useEditorStore();
+  const composeLayers = useComposeLayers();
+  const composeScenes = useComposeScenes();
   const selectedBehaviorDoc = useMeshDoc(
     useCollection<Behavior>('behavior'),
     selectedBehaviorId ?? ''

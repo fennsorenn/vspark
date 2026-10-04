@@ -19,6 +19,7 @@ import { commitStop } from '../mesh/playbackWrites';
 import type { MediaCommand, MediaAction } from '@vspark/shared';
 import { collectionOf } from '../mesh/docs';
 import { trackClipRecordOf } from '../mesh/hooks';
+import { composeLayersNow } from '../mesh/compose';
 
 // Per-clip last evaluated playhead time, kept across rAF ticks (module scope so
 // it survives re-renders). Used to detect when the playhead crosses an event
@@ -210,7 +211,7 @@ function applyLaneResult(
     return;
   }
   if (lane.targetKind === 'compose_layer') {
-    const layer = store.composeLayers.find((l) => l.id === lane.targetId);
+    const layer = composeLayersNow().find((l) => l.id === lane.targetId);
     if (!layer) return;
     const base = readComposeParam(layer, lane.paramPath);
     if (base == null) return;

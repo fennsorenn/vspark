@@ -27,6 +27,7 @@ import {
   composeSceneResolution,
 } from '../components/editor/ComposeView';
 import { useSceneFadeIn } from '../hooks/useSceneFadeIn';
+import { useComposeLayers, useComposeScenes } from '../mesh/compose';
 
 function getT(components: Record<string, unknown> | undefined) {
   const t = components?.transform as
@@ -65,14 +66,12 @@ export function ViewerPage() {
     setScenes,
     setActiveScene,
     setNodes,
-    setComposeLayers,
-    setComposeScenes,
     selectComposeScene,
     nodes,
-    composeLayers,
-    composeScenes,
     assets,
   } = useEditorStore();
+  const composeLayers = useComposeLayers();
+  const composeScenes = useComposeScenes();
 
   useEffect(() => {
     // OBS browser sources composite over a transparent page, so we must keep
@@ -109,15 +108,8 @@ export function ViewerPage() {
 
     api
       .getScenes(projectId)
-      .then(({ scenes, nodes: sceneNodes, composeLayers }) => {
+      .then(({ scenes, nodes: sceneNodes }) => {
         setScenes(scenes);
-        // Split compose_scene containers from regular layers (mirrors Editor).
-        setComposeScenes(
-          composeLayers.filter((l) => l.kind === 'compose_scene')
-        );
-        setComposeLayers(
-          composeLayers.filter((l) => l.kind !== 'compose_scene')
-        );
         // Load every scene's nodes so cross-scene camera_views resolve.
         setNodes(sceneNodes);
         // Activate the scene this link actually targets — for a single-camera
@@ -150,8 +142,6 @@ export function ViewerPage() {
     setScenes,
     setActiveScene,
     setNodes,
-    setComposeLayers,
-    setComposeScenes,
     selectComposeScene,
   ]);
 

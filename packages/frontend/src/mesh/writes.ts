@@ -62,6 +62,7 @@ import {
 } from './writeFeedback';
 import { useEditorStore, type StageObject } from '../store/editorStore';
 import { api } from '../api/client';
+import { composeLayersNow } from './compose';
 
 /** Everything a document type has to supply for the generic write helpers.
  *
@@ -532,11 +533,9 @@ export async function commitSceneDelete(sceneId: string): Promise<boolean> {
         .nodes.filter((n) => n.rootSceneNodeId === sceneId)
         .map((n) => n.id)
     );
-    const views = useEditorStore
-      .getState()
-      .composeLayers.filter(
-        (l) => l.cameraNodeId && inScene.has(l.cameraNodeId)
-      );
+    const views = composeLayersNow().filter(
+      (l) => l.cameraNodeId && inScene.has(l.cameraNodeId)
+    );
     const outcomes = await Promise.all(
       meshBatch(() => [
         ...views

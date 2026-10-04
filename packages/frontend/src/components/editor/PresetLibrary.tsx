@@ -14,6 +14,7 @@ import {
   instantiatePreset,
   type BuiltinPresetSummary,
 } from '../../api/client';
+import { composeLayersNow } from '../../mesh/compose';
 
 export function PresetLibrary() {
   const { t } = useTranslation('presets');
@@ -85,9 +86,7 @@ export function PresetLibrary() {
       // compose scene; otherwise the new layer would get a parent from another
       // scene and never render (orphaned in the tree). Fall back to a root layer.
       const selected = selectedComposeLayerId
-        ? useEditorStore
-            .getState()
-            .composeLayers.find((l) => l.id === selectedComposeLayerId)
+        ? composeLayersNow().find((l) => l.id === selectedComposeLayerId)
         : null;
       const parentId =
         selected && selected.rootComposeSceneId === activeComposeSceneId
@@ -101,17 +100,7 @@ export function PresetLibrary() {
         activeComposeSceneId,
         parentId
       );
-      const { api: apiClient } = await import('../../api/client');
-      const data = await apiClient.getScenes(projectId);
-      const store = useEditorStore.getState();
-      store.setComposeScenes(
-        data.composeLayers.filter((l) => l.kind === 'compose_scene')
-      );
-      store.setComposeLayers(
-        data.composeLayers.filter((l) => l.kind !== 'compose_scene')
-      );
-      // Compose presets can carry track clips owned by their layers; refresh
-      // them too so the pasted clips show up in the layer's Clips section.
+      // The instantiated layers and their clips arrive through the mesh.
       return result;
     }
     if (!activeSceneId) return null;

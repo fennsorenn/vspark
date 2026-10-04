@@ -41,6 +41,7 @@ import {
   hasCreatePayload,
 } from '../components/editor/dnd';
 import type { NodeKindMeta } from '@vspark/shared/signal';
+import { useComposeScenes } from '../mesh/compose';
 
 export function Editor() {
   useWsSync();
@@ -78,8 +79,6 @@ export function Editor() {
     setNodes,
     setAssets,
     setBehaviorKinds,
-    setComposeLayers,
-    setComposeScenes,
     selectComposeScene,
     setOverliveAccounts,
     setPresets,
@@ -88,6 +87,15 @@ export function Editor() {
     activeLogicWritable,
   } = useEditorStore();
   const [kindMeta, setKindMeta] = useState<NodeKindMeta[]>([]);
+
+  // Compose scenes come from the replica; once there are some, keep one open.
+  const composeScenes = useComposeScenes();
+  const activeComposeSceneId = useEditorStore((s) => s.activeComposeSceneId);
+  useEffect(() => {
+    if (composeScenes.length === 0) return;
+    if (composeScenes.some((c) => c.id === activeComposeSceneId)) return;
+    selectComposeScene(composeScenes[0].id);
+  }, [composeScenes, activeComposeSceneId, selectComposeScene]);
 
   useEffect(() => {
     api
@@ -188,11 +196,6 @@ export function Editor() {
           useEditorStore
             .getState()
             .setNodes(withoutRemoved('scene_node', data.nodes));
-          useEditorStore
-            .getState()
-            .setComposeLayers(
-              withoutRemoved('compose_layer', data.composeLayers)
-            );
         } catch {
           /* not a preset on clipboard */
         }
@@ -226,23 +229,10 @@ export function Editor() {
       if (project) setProject(project.id, project.name);
     });
 
-    api.getScenes(projectId).then(({ scenes, nodes, composeLayers }) => {
+    api.getScenes(projectId).then(({ scenes, nodes }) => {
       // Rows another tab removed while this load was in flight stay
       // removed (see withoutRemoved).
       setScenes(withoutRemoved('scene_node', scenes));
-      // Separate compose_scene layers from regular layers
-      const liveLayers = withoutRemoved('compose_layer', composeLayers);
-      const composeSceneItems = liveLayers.filter(
-        (l) => l.kind === 'compose_scene'
-      );
-      const regularLayers = liveLayers.filter(
-        (l) => l.kind !== 'compose_scene'
-      );
-      setComposeScenes(composeSceneItems);
-      setComposeLayers(regularLayers);
-      if (composeSceneItems.length > 0) {
-        selectComposeScene(composeSceneItems[0].id);
-      }
       // Load every scene's nodes so the dock can render all scenes as
       // collapsible roots; the viewport still renders only the active scene.
       setNodes(withoutRemoved('scene_node', nodes));
@@ -266,7 +256,6 @@ export function Editor() {
     setActiveScene,
     setNodes,
     setAssets,
-    setComposeLayers,
     setOverliveAccounts,
   ]);
 

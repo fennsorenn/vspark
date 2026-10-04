@@ -41,6 +41,8 @@ export function resetTestPeer(): void {
 const MESH_SLICES: Record<string, string> = {
   behaviors: 'behavior',
   cameraEffects: 'camera_effect',
+  composeLayers: 'compose_layer',
+  composeScenes: 'compose_layer',
 };
 
 /**

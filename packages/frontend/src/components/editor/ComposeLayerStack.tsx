@@ -29,6 +29,7 @@ import {
   FeedContent,
   FeedErrorBoundary,
 } from '../../lib/feedTemplate';
+import { useComposeLayers } from '../../mesh/compose';
 
 interface ComposeLayerStackProps {
   layers: ComposeLayerRecord[];
@@ -189,11 +190,10 @@ function SceneIncludeLayer({
     typeof layer.config.includeSceneId === 'string'
       ? layer.config.includeSceneId
       : null;
-  const targetLayers = useEditorStore((s) =>
-    targetId
-      ? s.composeLayers.filter((l) => l.rootComposeSceneId === targetId)
-      : null
-  );
+  const projectLayers = useComposeLayers();
+  const targetLayers = targetId
+    ? projectLayers.filter((l) => l.rootComposeSceneId === targetId)
+    : null;
   if (!targetId) return <Placeholder text={t('stack.noScene')} />;
   if (includeChain.includes(targetId)) {
     return <Placeholder text={t('stack.recursiveInclude')} />;
@@ -435,8 +435,7 @@ function LayerContent({
     (layer.config.objectFit as CSSProperties['objectFit']) ?? 'cover';
   if (layer.kind === 'image') {
     const url = resolveAssetUrl(layer, assets);
-    if (!url)
-      return <Placeholder text={t('stack.noImage')} mode={mode} />;
+    if (!url) return <Placeholder text={t('stack.noImage')} mode={mode} />;
     return (
       <img
         src={url}
@@ -454,8 +453,7 @@ function LayerContent({
   }
   if (layer.kind === 'video') {
     const url = resolveAssetUrl(layer, assets);
-    if (!url)
-      return <Placeholder text={t('stack.noVideo')} mode={mode} />;
+    if (!url) return <Placeholder text={t('stack.noVideo')} mode={mode} />;
     return (
       <VideoLayer layer={layer} url={url} objectFit={objectFit} mode={mode} />
     );

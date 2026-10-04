@@ -39,10 +39,10 @@ import { getPath } from '@vspark/mesh';
 import { useEditorStore, type EditorState } from '../store/editorStore';
 import { commitNodePath, previewNodePath, readNodePath } from '../mesh/writes';
 import {
-  commitLayerPath,
-  previewLayerPath,
-  readLayerPath,
-} from '../mesh/layerWrites';
+  useCollection,
+  useMeshField as useDocumentField,
+  type MeshField as DocumentField,
+} from '@vspark/mesh-react';
 
 export interface MeshField<T> {
   /** Current value: the in-flight draft while editing, else the stored value. */
@@ -87,15 +87,6 @@ const NODE_FIELDS: FieldBinding = {
   commit: commitNodePath,
 };
 
-const LAYER_FIELDS: FieldBinding = {
-  select: (s, id) =>
-    s.composeLayers.find((l) => l.id === id) ??
-    s.composeScenes.find((l) => l.id === id),
-  read: readLayerPath,
-  preview: previewLayerPath,
-  commit: commitLayerPath,
-};
-
 /** Bind a control to one field of a scene node. */
 export function useMeshField<T>(
   nodeId: string,
@@ -113,7 +104,13 @@ export function useLayerField<T>(
   fallback: T,
   opts: MeshFieldOptions<T> = {}
 ): MeshField<T> {
-  return useDocField(LAYER_FIELDS, layerId, path, fallback, opts);
+  return useDocumentField(
+    useCollection('compose_layer'),
+    layerId,
+    path,
+    fallback,
+    opts
+  ) as DocumentField<T>;
 }
 
 function useDocField<T>(

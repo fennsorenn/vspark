@@ -84,7 +84,10 @@ describe('PropertiesPanel — selection branches', () => {
     seed({
       leftTab: 'compose',
       selectedComposeLayerId: 'layer-9',
-      composeLayers: [{ id: 'layer-9', name: 'L', kind: 'image' }],
+      projectId: 'proj-1',
+      composeLayers: [
+        { id: 'layer-9', projectId: 'proj-1', name: 'L', kind: 'image' },
+      ],
     });
     renderWithProviders(<PropertiesPanel />);
     expect(screen.getByTestId('compose-layer-props').textContent).toBe(

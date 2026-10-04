@@ -7,6 +7,7 @@ import { SIGNAL_TYPE_COLORS } from '@vspark/shared/signal';
 import type { NodeDisplay, NodePortMeta } from '@vspark/shared/signal';
 import { useEditorStore, type Behavior } from '../../../store/editorStore';
 import { useCollection } from '@vspark/mesh-react';
+import { useComposeLayers } from '../../../mesh/compose';
 
 export interface SignalNodeData extends Record<string, unknown> {
   nodeId: string;
@@ -242,7 +243,7 @@ function SceneEntitySelect({
   onChange: (value: unknown) => void;
 }) {
   const { t } = useTranslation('signalGraph');
-  const layers = useEditorStore((s) => s.composeLayers);
+  const layers = useComposeLayers();
   const nodes = useEditorStore((s) => s.nodes);
   const showLayers = typeTag === 'ComposeLayer' || typeTag === 'SceneEntity';
   const showNodes = typeTag === 'SceneNode' || typeTag === 'SceneEntity';

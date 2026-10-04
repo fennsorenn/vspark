@@ -208,6 +208,10 @@ export interface MeshFieldOptions<V> {
    *  Turn off for values that are expensive or broken half-typed, so only the
    *  draft changes until commit. */
   livePreview?: boolean;
+  /** Minimum ms between previews sent while editing (default 33 — about 30
+   *  per second). The control shows every change at once regardless; the
+   *  commit carries the final value. */
+  previewIntervalMs?: number;
 }
 
 /**
@@ -241,6 +245,8 @@ export function useMeshField<V, T extends object = Record<string, unknown>>(
   // the document, so by commit time the *read* value has caught up with the
   // draft — comparing against it would drop every edit as a no-op.
   const gesture = useRef<{ base: V | undefined } | null>(null);
+  const lastPreviewAt = useRef(0);
+  const interval = opts.previewIntervalMs ?? 33;
 
   // A draft belongs to the field it was typed into.
   useEffect(() => {
@@ -257,9 +263,13 @@ export function useMeshField<V, T extends object = Record<string, unknown>>(
     (v: V) => {
       if (!gesture.current) gesture.current = { base: committed() };
       setDraft({ v });
-      if (live && col.get(id)) col.set(id, path, v, { channel: 'preview' });
+      if (!live || !col.get(id)) return;
+      const now = Date.now();
+      if (now - lastPreviewAt.current < interval) return;
+      lastPreviewAt.current = now;
+      col.set(id, path, v, { channel: 'preview' });
     },
-    [col, id, path, live, committed]
+    [col, id, path, live, committed, interval]
   );
 
   const commit = useCallback(

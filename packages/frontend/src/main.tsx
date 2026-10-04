@@ -4,6 +4,7 @@ import { MeshProvider } from '@vspark/mesh-react';
 import App from './App';
 import i18n from './i18n';
 import { initMeshPeer } from './mesh/peer';
+import { startPreviewSmoothing } from './previewSmoother';
 // Registers the dev-only `dev_facecal()` console command (face heuristic calibration).
 import './components/FaceCalibrationWindow';
 
@@ -17,6 +18,7 @@ async function boot(): Promise<void> {
   for (;;) {
     try {
       const { peer } = await initMeshPeer();
+      startPreviewSmoothing(peer);
       root.render(
         <React.StrictMode>
           <MeshProvider peer={peer}>

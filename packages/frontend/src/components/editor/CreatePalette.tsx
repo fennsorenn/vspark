@@ -12,6 +12,7 @@ import {
 import { DND_CREATE_NODE, DND_CREATE_LAYER } from './dnd';
 import { HelpButton } from '../../help/HelpButton';
 import type { LucideIcon } from 'lucide-react';
+import { useComposeScenes } from '../../mesh/compose';
 
 const grid: React.CSSProperties = {
   display: 'grid',
@@ -88,7 +89,7 @@ export function CreatePalette() {
   const activeSceneId = useEditorStore((s) => s.activeSceneId);
   const activeComposeSceneId = useEditorStore((s) => s.activeComposeSceneId);
   const scenes = useEditorStore((s) => s.scenes);
-  const composeScenes = useEditorStore((s) => s.composeScenes);
+  const composeScenes = useComposeScenes();
   const selectNode = useEditorStore((s) => s.selectNode);
   const setSceneSelected = useEditorStore((s) => s.setSceneSelected);
   const requestFocusName = useEditorStore((s) => s.requestFocusName);
@@ -118,21 +119,23 @@ export function CreatePalette() {
     return (
       <div style={{ flex: 1, overflowY: 'auto', padding: 12 }}>
         {!activeComposeSceneId ? (
-          <div style={hintStyle}>
-            {t('palette.noComposeScene')}
-          </div>
+          <div style={hintStyle}>{t('palette.noComposeScene')}</div>
         ) : (
           <>
             <div style={{ color: '#777', fontSize: 11, marginBottom: 8 }}>
               {t('palette.addLayerTo')}{' '}
-              <span style={{ color: '#aaa' }}>{target?.name ?? t('palette.scene')}</span>
+              <span style={{ color: '#aaa' }}>
+                {target?.name ?? t('palette.scene')}
+              </span>
             </div>
             <div style={grid}>
               {LAYER_KIND_DEFS.map((def) => (
                 <Tile
                   key={def.kind}
                   icon={def.icon}
-                  label={t(`kinds:layer.${def.kind}`, { defaultValue: def.label })}
+                  label={t(`kinds:layer.${def.kind}`, {
+                    defaultValue: def.label,
+                  })}
                   tileTitle={t('palette.tileTitle')}
                   onClick={() => handleAddLayer(def)}
                   onDragStart={(e) => {
@@ -155,35 +158,52 @@ export function CreatePalette() {
   return (
     <div style={{ flex: 1, overflowY: 'auto', padding: 12 }}>
       {!activeSceneId ? (
-        <div style={hintStyle}>
-          {t('palette.noScene')}
-        </div>
+        <div style={hintStyle}>{t('palette.noScene')}</div>
       ) : (
         <>
           <div style={{ color: '#777', fontSize: 11, marginBottom: 8 }}>
             {t('palette.addTo')}{' '}
-            <span style={{ color: '#aaa' }}>{target?.name ?? t('palette.scene')}</span>
+            <span style={{ color: '#aaa' }}>
+              {target?.name ?? t('palette.scene')}
+            </span>
           </div>
           <div style={grid}>
             {NODE_KIND_DEFS.map((def) => {
               const helpProps =
                 def.kind === 'avatar'
-                  ? { helpTopic: 'avatar', helpAnchor: 'loading', helpTip: t('help.avatar') }
+                  ? {
+                      helpTopic: 'avatar',
+                      helpAnchor: 'loading',
+                      helpTip: t('help.avatar'),
+                    }
                   : def.kind === 'camera'
-                    ? { helpTopic: 'scene', helpAnchor: 'cameras', helpTip: t('help.camera') }
+                    ? {
+                        helpTopic: 'scene',
+                        helpAnchor: 'cameras',
+                        helpTip: t('help.camera'),
+                      }
                     : def.kind === 'light'
-                      ? { helpTopic: 'scene', helpAnchor: 'lights', helpTip: t('help.lights') }
+                      ? {
+                          helpTopic: 'scene',
+                          helpAnchor: 'lights',
+                          helpTip: t('help.lights'),
+                        }
                       : null;
               return (
                 <div key={def.i18nKey} style={{ position: 'relative' }}>
                   <Tile
                     icon={def.icon}
-                    label={t(`kinds:node.${def.i18nKey}`, { defaultValue: def.label })}
+                    label={t(`kinds:node.${def.i18nKey}`, {
+                      defaultValue: def.label,
+                    })}
                     tileTitle={t('palette.tileTitle')}
                     onClick={() => handleAddNode(def)}
                     onDragStart={(e) => {
                       e.dataTransfer.effectAllowed = 'copy';
-                      e.dataTransfer.setData(DND_CREATE_NODE, JSON.stringify(def));
+                      e.dataTransfer.setData(
+                        DND_CREATE_NODE,
+                        JSON.stringify(def)
+                      );
                     }}
                   />
                   {helpProps && (

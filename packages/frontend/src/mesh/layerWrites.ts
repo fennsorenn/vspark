@@ -1,9 +1,5 @@
 /**
- * Compose-layer writes on the mesh.
- *
- * The generic half lives in {@link ./writes} — fallback ladder, merge-patch
- * rebuild, batched bottom-up subtree delete. This file supplies only what is
- * specific to compose layers.
+ * Compose-layer writes on the mesh (see ./docs for the primitives).
  *
  * Two things differ from scene nodes:
  *
@@ -11,60 +7,20 @@
  *     `orderKey`, generated strictly between its new neighbours, so concurrent
  *     moves by two peers commute. {@link orderKeyForIndex} is the one place
  *     that computes it.
- *   - **A compose scene is itself a compose_layer row.** Deleting one is a
- *     subtree delete, exactly like deleting a node with children, and the store
- *     keeps scenes and layers in separate slices — hence the `kind` check when
- *     removing locally.
- *
- * Compose layers are never owner-authoritative projections (Phase 6 covers
- * scene nodes only), so there is no `isRemote`.
+ *   - **A compose scene is itself a compose_layer document** — the root of its
+ *     tree. Deleting one is a subtree delete, like deleting a node with
+ *     children.
  */
 import { keyBetween } from '@vspark/shared/fracIndex';
-import { getMeshHandles, meshBatch } from './peer';
+import { meshBatch } from './peer';
 import { actionLabel, reportRejected } from './writeFeedback';
-import {
-  commitDocCreate,
-  commitDocDelete,
-  commitDocDeleteKeepChildren,
-  commitDocPatch,
-  commitDocPath,
-  previewDocFields,
-  previewDocPath,
-  readDocPath,
-  type MeshDocAdapter,
-} from './writes';
+import { collectionOf, createDoc, patchDoc, removeDoc, setField } from './docs';
+import { composeAllNow, composeScenesNow } from './compose';
 import { useEditorStore, type StageObject } from '../store/editorStore';
-import { api, type ComposeLayerRecord } from '../api/client';
+import type { ComposeLayerRecord } from '../api/client';
 
-/** Scenes and layers are one rtype but two store slices. */
-const all = (): ComposeLayerRecord[] => {
-  const s = useEditorStore.getState();
-  return [...s.composeScenes, ...s.composeLayers];
-};
-
-const isScene = (id: string): boolean =>
-  useEditorStore.getState().composeScenes.some((s) => s.id === id);
-
-const layers: MeshDocAdapter<ComposeLayerRecord> = {
-  rtype: 'compose_layer',
-  list: all,
-  applyLocal: (id, patch) =>
-    useEditorStore.getState().updateComposeLayerLocal(id, patch),
-  addLocal: (doc) => {
-    const s = useEditorStore.getState();
-    if (doc.kind === 'compose_scene') s.addComposeScene(doc);
-    else s.addComposeLayer(doc);
-  },
-  removeLocal: (id) => {
-    const s = useEditorStore.getState();
-    if (isScene(id)) s.removeComposeScene(id);
-    else s.removeComposeLayer(id);
-  },
-  restUpdate: (id, patch) => api.updateComposeLayer(id, patch),
-  restDelete: (id) => api.deleteComposeLayer(id),
-  childrenOf: (id) => all().filter((l) => (l.parentId ?? null) === id),
-  parentPatch: (parentId) => ({ parentId }),
-};
+const RTYPE = 'compose_layer';
+const all = composeAllNow;
 
 /** Siblings of a layer in paint order (ascending key = back→front). Two peers
  *  inserting into the same gap can generate the same key, so `id` breaks the
@@ -95,50 +51,58 @@ export function orderKeyForIndex(
   return keyBetween(rest[at - 1]?.orderKey ?? null, rest[at]?.orderKey ?? null);
 }
 
-/** In-flight gesture value, on the mesh's lossy `preview` channel. See
- *  {@link previewDocFields} for the mechanics and the one-overlay-per-path
- *  rule. This replaces the bespoke `compose_layer_preview` WS message, which
- *  did the same job beside the mesh rather than through it. */
-export const previewLayerFields = (
+/** In-flight gesture value, on the mesh's lossy `preview` channel: one
+ *  overlay per path, so other tabs watch the gesture without it becoming model
+ *  state, and the overlay clears when the committed write lands. A pathless
+ *  ephemeral write would be a root overlay that replaces the whole document. */
+export function previewLayerFields(
   id: string,
   patch: Record<string, unknown>
-): void => previewDocFields(layers, id, patch);
-
-export const readLayerPath = (id: string, path: string): unknown =>
-  readDocPath(layers, id, path);
-
-export const previewLayerPath = (
-  id: string,
-  path: string,
-  value: unknown
-): void => previewDocPath(layers, id, path, value);
+): void {
+  const col = collectionOf(RTYPE);
+  if (!col.get(id)) return;
+  for (const [path, value] of Object.entries(patch))
+    col.set(id, path, value, { channel: 'preview' });
+}
 
 export const commitLayerPath = (
   id: string,
   path: string,
   value: unknown
-): void => commitDocPath(layers, id, path, value);
+): void => void setField(RTYPE, id, path, value);
 
 export const commitLayerPatch = (
   id: string,
   patch: Partial<ComposeLayerRecord>
-): void => commitDocPatch(layers, id, patch);
+): void => void patchDoc(RTYPE, id, patch);
 
 /** Delete a layer and everything under it as ONE undo action. A compose scene
  *  is just a layer with children, so this covers deleting a whole scene. */
 export const commitLayerDelete = (id: string): Promise<boolean> =>
-  commitDocDelete(layers, id);
+  removeDoc(RTYPE, id);
 
 /** Detach a layer's direct children onto `newParentId`, then delete it — one
  *  undo action, so the reparents don't unwind separately. */
-export const commitLayerDeleteKeepChildren = (
+export async function commitLayerDeleteKeepChildren(
   id: string,
   newParentId: string | null
-): Promise<boolean> => commitDocDeleteKeepChildren(layers, id, newParentId);
+): Promise<boolean> {
+  const col = collectionOf(RTYPE);
+  if (!col.get(id)) return false;
+  const children = all().filter((l) => (l.parentId ?? null) === id);
+  const acks = meshBatch(() => [
+    ...children.map((c) => col.set(c.id, 'parentId', newParentId).ack),
+    col.remove(id).ack,
+  ]);
+  const outcomes = await Promise.all(acks);
+  const refused = outcomes.find((o) => o.status === 'rejected');
+  if (refused && refused.status === 'rejected')
+    reportRejected(actionLabel(RTYPE), refused.reason);
+  return !refused;
+}
 
-/** Create a layer. The id is minted here so the create is authored by this tab
- *  and lands on its undo stack; the backend re-derives `projectId`. A new layer
- *  goes to the FRONT of its sibling group. */
+/** Create a layer; the backend re-derives `projectId`. A new layer goes to the
+ *  FRONT of its sibling group. */
 export function commitLayerCreate(
   composeSceneId: string,
   spec: Omit<
@@ -173,19 +137,7 @@ export function commitLayerCreate(
     visible: spec.visible !== false,
   } as ComposeLayerRecord;
 
-  return commitDocCreate(
-    layers,
-    doc,
-    // The route accepts a client-supplied id, so the fallback keeps the same
-    // one and the caller's reference stays valid either way.
-    () =>
-      api.createComposeSceneLayer(composeSceneId, {
-        ...spec,
-        id: doc.id,
-        orderKey: doc.orderKey,
-        kind: doc.kind as ComposeLayerRecord['kind'],
-      }) as Promise<ComposeLayerRecord>
-  );
+  return createDoc(RTYPE, doc);
 }
 
 /**
@@ -197,91 +149,59 @@ export function commitLayerCreate(
  * before issuing the delete would put them in separate actions. Without that,
  * undo would bring the 2D layer back while leaving the 3D node behind (or vice
  * versa), which is a state the user never authored.
- *
- * Falls back to sequential REST calls (not undoable) when the peer can't
- * author, matching every other helper here.
  */
 export async function commitPromoteLayerToNode(
   node: StageObject,
   layerId: string
 ): Promise<StageObject> {
-  const h = getMeshHandles();
-  const nodeCol = h?.collections.scene_node;
-  const layerCol = h?.collections.compose_layer;
+  const nodeCol = collectionOf('scene_node');
+  const layerCol = collectionOf(RTYPE);
   const subtree = [
     ...all().filter((l) => (l.parentId ?? null) === layerId),
   ].reverse();
-
-  if (nodeCol?.canWrite() && layerCol?.canWrite() && layerCol.get(layerId)) {
-    const acks = meshBatch(() => [
-      nodeCol.set(node.id, '', node).ack,
-      ...subtree.map((l) => layerCol.remove(l.id).ack),
-      layerCol.remove(layerId).ack,
-    ]);
-    const outcomes = await Promise.all(acks);
-    const bad = outcomes.find((o) => o.status === 'rejected');
-    if (bad) {
-      reportRejected(actionLabel('compose_layer'), bad.reason);
-      throw new Error(bad.reason ?? 'promote refused');
-    }
-    return node;
+  const acks = meshBatch(() => [
+    nodeCol.create(node as unknown as Record<string, unknown>).ack,
+    ...subtree.map((l) => layerCol.remove(l.id).ack),
+    layerCol.remove(layerId).ack,
+  ]);
+  const outcomes = await Promise.all(acks);
+  const bad = outcomes.find((o) => o.status === 'rejected');
+  if (bad && bad.status === 'rejected') {
+    reportRejected(actionLabel(RTYPE), bad.reason);
+    throw new Error(bad.reason ?? 'promote refused');
   }
-
-  const created = (await api.createNode(node.rootSceneNodeId, {
-    name: node.name,
-    kind: node.kind,
-    parentId: node.parentId,
-    filePath: node.filePath,
-    components: node.components,
-    properties: node.properties,
-    hidden: false,
-  })) as StageObject;
-  const s = useEditorStore.getState();
-  if (s.nodes.every((n) => n.id !== created.id)) s.addNode(created);
-  await commitLayerDelete(layerId);
-  return created;
+  return node;
 }
 
 /** Create an empty compose scene (a `kind: 'compose_scene'` root layer) in the
  *  open project, after the last one. Resolves its id. */
 export async function commitComposeSceneCreate(name: string): Promise<string> {
-  const state = useEditorStore.getState();
-  const projectId = state.projectId ?? '';
-  const col = getMeshHandles()?.collections.compose_layer;
-  if (col?.canWrite()) {
-    const keys = state.composeScenes
-      .map((c) => c.orderKey)
-      .filter((k): k is string => typeof k === 'string')
-      .sort();
-    const last = keys[keys.length - 1];
-    const id = crypto.randomUUID();
-    const outcome = await col.set(id, '', {
-      id,
-      projectId,
-      rootComposeSceneId: null,
-      cameraNodeId: null,
-      parentId: null,
-      name,
-      kind: 'compose_scene',
-      assetId: null,
-      config: {},
-      x: 0,
-      y: 0,
-      width: 1920,
-      height: 1080,
-      rotation: 0,
-      anchorH: 'left',
-      anchorV: 'top',
-      orderKey: keyBetween(last ?? null, null),
-      visible: true,
-    }).ack;
-    if (outcome.status === 'rejected') {
-      reportRejected(actionLabel('compose_layer'), outcome.reason);
-      throw new Error(outcome.reason ?? 'compose scene create refused');
-    }
-    return id;
-  }
-  const created = await api.createComposeScene(projectId, { name });
-  useEditorStore.getState().addComposeScene(created);
-  return created.id;
+  const projectId = useEditorStore.getState().projectId ?? '';
+  const keys = composeScenesNow()
+    .map((c) => c.orderKey)
+    .filter((k): k is string => typeof k === 'string')
+    .sort();
+  const last = keys[keys.length - 1];
+  const id = crypto.randomUUID();
+  await createDoc(RTYPE, {
+    id,
+    projectId,
+    rootComposeSceneId: null,
+    cameraNodeId: null,
+    parentId: null,
+    name,
+    kind: 'compose_scene',
+    assetId: null,
+    config: {},
+    x: 0,
+    y: 0,
+    width: 1920,
+    height: 1080,
+    rotation: 0,
+    anchorH: 'left',
+    anchorV: 'top',
+    orderKey: keyBetween(last ?? null, null),
+    visible: true,
+  } as unknown as ComposeLayerRecord);
+  return id;
 }

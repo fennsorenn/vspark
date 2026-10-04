@@ -35,6 +35,7 @@ import {
   useClipPlaybacks,
   useTrackClip,
 } from '../../mesh/hooks';
+import { useComposeLayers } from '../../mesh/compose';
 
 const MEDIA_ACTIONS = [
   'play',
@@ -113,7 +114,7 @@ function TimelineEditor({ clip }: { clip: TrackClipRecord }) {
   const selectedNodeId = useEditorStore((s) => s.selectedNodeId);
   const selectedComposeId = useEditorStore((s) => s.selectedComposeLayerId);
   const nodes = useEditorStore((s) => s.nodes);
-  const composeLayers = useEditorStore((s) => s.composeLayers);
+  const composeLayers = useComposeLayers();
   const playback = useClipPlaybacks();
 
   const [adding, setAdding] = useState(false);

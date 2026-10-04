@@ -26,7 +26,11 @@ import { HelpButton } from '../../help/HelpButton';
 import { usePrompt, useChoose, useConfirm } from '../DialogProvider';
 import { LAYER_KIND_ICON } from '../icons';
 import { canSendTo3D, sendComposeLayerTo3D } from './composeSendTo3D';
-
+import {
+  composeLayersNow,
+  useComposeLayers,
+  useComposeScenes,
+} from '../../mesh/compose';
 
 // Monochrome SVG icons (stroke = currentColor) so the button `color` actually
 // applies — unlike the coloured emoji they replace, which ignore CSS colour.
@@ -162,8 +166,7 @@ function moveComposeLayer(
   newParentId: string | null,
   index: number
 ) {
-  const store = useEditorStore.getState();
-  const dragged = store.composeLayers.find((l) => l.id === draggedId);
+  const dragged = composeLayersNow().find((l) => l.id === draggedId);
   if (!dragged) return;
 
   const rest = orderedSiblings.filter((l) => l.id !== draggedId);
@@ -172,10 +175,7 @@ function moveComposeLayer(
   // BEFORE it in paint order, and vice versa.
   const above = rest[clamped - 1] ?? null; // nearer the front
   const below = rest[clamped] ?? null; // nearer the back
-  const orderKey = keyBetween(
-    below?.orderKey ?? null,
-    above?.orderKey ?? null
-  );
+  const orderKey = keyBetween(below?.orderKey ?? null, above?.orderKey ?? null);
 
   const patch: Partial<ComposeLayerRecord> = { orderKey };
   if ((dragged.parentId ?? null) !== newParentId) patch.parentId = newParentId;
@@ -207,10 +207,8 @@ async function transferComposeLayer(
       parentId
     );
     if (!copy) await commitLayerDelete(draggedId);
-    // deserialize inserts via raw INSERT without a WS broadcast, so re-pull the
-    // project's compose layers from the scenes bundle.
-    const bundle = await api.getScenes(projectId);
-    useEditorStore.setState({ composeLayers: bundle.composeLayers });
+    // The instantiated layers arrive through the mesh (deserialize writes
+    // through it), like any other write.
   } catch (e) {
     onError(e instanceof Error ? e.message : errFallback);
   }
@@ -248,7 +246,7 @@ function LayerRow({
   // Every layer in this compose scene (flattened from the parent buckets) —
   // used for the cycle guard when re-parenting via drag.
   const allSceneLayers = [...layersByParent.values()].flat();
-  const composeScenes = useEditorStore((s) => s.composeScenes);
+  const composeScenes = useComposeScenes();
   const cam =
     layer.kind === 'camera_view' && layer.cameraNodeId
       ? nodes.find((n) => n.id === layer.cameraNodeId)
@@ -341,12 +339,7 @@ function LayerRow({
         targetSceneId,
         layer.id // parent the new layer under the right-clicked one
       );
-      // Refresh the project's compose layers from the scenes bundle —
-      // deserialize.ts inserts compose-layer rows via raw INSERT and
-      // doesn't broadcast compose_layer_added, so the WS sync wouldn't
-      // pick up the paste otherwise.
-      const bundle = await api.getScenes(projectId);
-      useEditorStore.setState({ composeLayers: bundle.composeLayers });
+      // The pasted layers arrive through the mesh (deserialize writes through it).
     } catch (e) {
       alert(e instanceof Error ? e.message : t('tree.errors.pasteFailed'));
     }
@@ -488,9 +481,7 @@ function LayerRow({
           )
             return;
 
-          const dragged = useEditorStore
-            .getState()
-            .composeLayers.find((l) => l.id === draggedId);
+          const dragged = composeLayersNow().find((l) => l.id === draggedId);
           const targetSceneId = layer.rootComposeSceneId ?? layer.id;
           const sameScene = dragged?.rootComposeSceneId === targetSceneId;
 
@@ -515,8 +506,10 @@ function LayerRow({
             const childOrder = (layersByParent.get(layer.id) ?? [])
               .slice()
               .sort(
-      (a, b) => b.orderKey.localeCompare(a.orderKey) || b.id.localeCompare(a.id)
-    );
+                (a, b) =>
+                  b.orderKey.localeCompare(a.orderKey) ||
+                  b.id.localeCompare(a.id)
+              );
             moveComposeLayer(childOrder, draggedId, layer.id, 0);
           } else {
             const newParentId = layer.parentId ?? null;
@@ -675,8 +668,9 @@ function LayerRow({
       {children
         .slice()
         .sort(
-      (a, b) => b.orderKey.localeCompare(a.orderKey) || b.id.localeCompare(a.id)
-    )
+          (a, b) =>
+            b.orderKey.localeCompare(a.orderKey) || b.id.localeCompare(a.id)
+        )
         .map((child) => (
           <LayerRow
             key={child.id}
@@ -711,7 +705,7 @@ function ComposeSceneRoot({
   const selectComposeScene = useEditorStore((s) => s.selectComposeScene);
   const selectComposeLayer = useEditorStore((s) => s.selectComposeLayer);
   const selectNode = useEditorStore((s) => s.selectNode);
-  const composeLayers = useEditorStore((s) => s.composeLayers);
+  const composeLayers = useComposeLayers();
   const clipboardPayload = useEditorStore((s) => s.clipboardPayload);
   const activeSceneId = useEditorStore((s) => s.activeSceneId);
   const [collapsed, setCollapsed] = useState(false);
@@ -780,8 +774,6 @@ function ComposeSceneRoot({
         scene.id,
         null // parentId null → top-level layer of this compose scene
       );
-      const bundle = await api.getScenes(projectId);
-      useEditorStore.setState({ composeLayers: bundle.composeLayers });
     } catch (e) {
       alert(e instanceof Error ? e.message : t('tree.errors.pasteFailed'));
     }
@@ -1033,7 +1025,7 @@ export function ComposeTree() {
   const { t } = useTranslation('compose');
   const prompt = usePrompt();
   const { projectId } = useParams<{ projectId: string }>();
-  const composeScenes = useEditorStore((s) => s.composeScenes);
+  const composeScenes = useComposeScenes();
   const selectComposeScene = useEditorStore((s) => s.selectComposeScene);
 
   const handleNewComposeScene = async () => {

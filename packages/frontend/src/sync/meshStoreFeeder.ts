@@ -30,19 +30,13 @@
 import type { MediaCommand } from '@vspark/shared/types';
 import { initMeshPeer, onSnapshot } from '../mesh/peer';
 import { dispatchMediaCommand } from '../components/editor/mediaRegistry';
-import {
-  hasLayerTween,
-  hasNodeTween,
-  smoothComposeLayer,
-  smoothNodeTransform,
-} from '../previewSmoother';
+import { hasNodeTween, smoothNodeTransform } from '../previewSmoother';
 import { applyNodePreview, transformFieldsOf } from './nodePreview';
 import {
   useEditorStore,
   type SceneItem,
   type StageObject,
 } from '../store/editorStore';
-import type { ComposeLayerRecord } from '../api/client';
 
 let started = false;
 
@@ -167,12 +161,6 @@ function pruneStale(h: Handles, rtype: string): void {
         if (!n.remote && !held(n.id))
           useEditorStore.getState().deleteNode(n.id);
       return;
-    case 'compose_layer':
-      for (const l of [...s.composeLayers])
-        if (!held(l.id)) s.removeComposeLayer(l.id);
-      for (const c of [...s.composeScenes])
-        if (!held(c.id)) s.removeComposeScene(c.id);
-      return;
   }
 }
 
@@ -286,64 +274,6 @@ export function startMeshStoreFeeder(): void {
           s.scenes.some((sc) => sc.id === node.rootSceneNodeId);
         if (!ours) return;
         s.addNode(node);
-      });
-      h.collections.compose_layer.observe('**', (c) => {
-        const s = useEditorStore.getState();
-        if (c.op === 'remove') {
-          if (s.composeScenes.some((cs) => cs.id === c.id))
-            s.removeComposeScene(c.id);
-          else s.removeComposeLayer(c.id);
-          return;
-        }
-        const layer = c.doc as unknown as ComposeLayerRecord | undefined;
-        if (!layer) return;
-        // Adopt only what belongs to the open project. The tab subscribes to
-        // `compose_layer` across the whole server (entityId '*'), so without
-        // this the Compose tree of one project listed the scenes of every
-        // other one — which is what an e2e saw the moment a run created a
-        // second project. Same guard the scene_node observer has, and unknown
-        // projectId means DON'T adopt (the feeder starts before the REST load
-        // sets it).
-        const held =
-          s.composeScenes.some((cs) => cs.id === layer.id) ||
-          s.composeLayers.some((l) => l.id === layer.id);
-        if (!held && (!s.projectId || layer.projectId !== s.projectId)) return;
-
-        // An ephemeral op IS an in-flight gesture, by construction — that's
-        // what the lossy `preview` channel carries. So it tweens, while
-        // retained ops (page-load snapshots, committed edits) are model state.
-        // The channel is the discriminator; no heuristic needed, and a cold
-        // load can't animate every layer in from wherever the store sat.
-        if (c.op === 'ephemeral') {
-          // `c.doc` is the composed doc (retained + overlays), so read just the
-          // field this op touched rather than re-tweening every numeric field
-          // toward a value that didn't change.
-          const rec = layer as unknown as Record<string, unknown>;
-          smoothComposeLayer(
-            layer.id,
-            c.path ? { [c.path]: rec[c.path] } : rec
-          );
-          return;
-        }
-
-        if (layer.kind === 'compose_scene') {
-          if (s.composeScenes.some((cs) => cs.id === layer.id))
-            s.updateComposeSceneLocal(layer);
-          else s.addComposeScene(layer);
-        } else if (s.composeLayers.some((l) => l.id === layer.id)) {
-          // Mid-gesture the committed value retargets the running tween so the
-          // layer glides into its final position instead of snapping (the
-          // preview channel is lossy, so the last frame may never have landed).
-          // Outside a gesture it applies immediately.
-          if (hasLayerTween(layer.id))
-            smoothComposeLayer(
-              layer.id,
-              layer as unknown as Record<string, unknown>
-            );
-          else s.updateComposeLayerLocal(layer.id, layer);
-        } else {
-          s.addComposeLayer(layer);
-        }
       });
       // Graph-driven param overrides. One document per overridden path, so a
       // remove IS the clear — including the whole-target clear, which arrives
