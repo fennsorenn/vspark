@@ -383,3 +383,41 @@ describe('server status documents', () => {
     expect(status.get(`tracking:${beh.id}`)).toBeUndefined();
   });
 });
+
+describe('grants delivered to tabs (peer_grant)', () => {
+  beforeEach(async () => {
+    await makeTestApp({ mesh: true });
+  });
+
+  afterEach(() => resetBackendMesh());
+
+  it('mirrors grants for other servers to our tabs, and follows a revoke', async () => {
+    const server = getMeshPeer()!;
+    const { peer, flush } = attach(makeClientParticipantId(server.id, 'tab1'));
+    const pg = peer.collection<Dto>('peer_grant', {
+      channels: ['runtime'],
+      authority: server.id,
+    });
+    await peer.subscribe(server.id, everything('peer_grant'));
+    // Our own tabs' collection grants are not delivered.
+    expect(pg.all()).toHaveLength(0);
+
+    const gid = server.grants.grant({
+      grantee: 'remote-server',
+      entityRtype: '*',
+      entityId: 'scene-x',
+      includeDescendants: true,
+      pathPrefix: '',
+      rights: { read: true, update: true },
+    });
+    await flush();
+    expect(pg.get(gid)?.grant).toMatchObject({
+      grantee: 'remote-server',
+      entityId: 'scene-x',
+    });
+
+    server.grants.revoke(gid);
+    await flush();
+    expect(pg.get(gid)).toBeUndefined();
+  });
+});

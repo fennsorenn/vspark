@@ -928,11 +928,18 @@ export class MeshPeer implements PeerCore {
   }
 
   /** Tell our home which participants we reach directly (see LinksMsg). */
+  /** Tell our home which participants we get data from directly: a link
+   *  with an ACTIVE subscription over it. A link alone isn't enough — if the
+   *  subscription was refused, nothing flows over it, and our home must keep
+   *  relaying. */
   private announceLinks(): void {
     const home = this.cfg.home;
     if (!home || !this.links.has(home)) return;
-    const peers = [...this.links.keys()].filter((p) => p !== home);
-    this.transmit(home, { t: 'links', peers });
+    const peers = new Set<string>();
+    for (const s of this.outSubs.values())
+      if (s.peer !== home && s.status === 'active' && this.links.has(s.peer))
+        peers.add(s.peer);
+    this.transmit(home, { t: 'links', peers: [...peers] });
   }
 
   private onPeerDisconnected(peerId: string): void {
@@ -1300,6 +1307,7 @@ export class MeshPeer implements PeerCore {
     if (!entry || entry.peer !== senderId || entry.status !== 'pending') return;
     clearTimeout(entry.timer);
     entry.status = 'active';
+    if (senderId !== this.cfg.home) this.announceLinks();
     this.clock.observe(msg.watermark);
 
     // Snapshot state is new state for OUR subscribers too — relay each applied

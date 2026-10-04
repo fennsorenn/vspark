@@ -43,6 +43,7 @@ import {
 } from './docGuards.js';
 import { runtimeOverrideManager } from '../runtime_overrides/manager.js';
 import { initMeshRuntime, resetMeshRuntime } from './runtime.js';
+import { initPeerGrants } from './peerGrants.js';
 import {
   clearStatusOf,
   initServerStatus,
@@ -575,6 +576,7 @@ export function initBackendMesh(): MeshPeer {
   // collection is silent, and the overrides simply stop arriving.
   initMeshRuntime(peer);
   initServerStatus(peer);
+  initPeerGrants(peer);
   // The animation-clip asset follow-up re-points sourceFilePath through the
   // store once a fetched blob lands.
   const animCol = COLLECTIONS.get('animation_clip');

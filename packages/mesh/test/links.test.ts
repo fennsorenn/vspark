@@ -274,3 +274,18 @@ describe('direct-link subscriptions', () => {
     expect(atB).toHaveLength(1);
   });
 });
+
+describe('link state needs an active subscription', () => {
+  it('a link with no subscription over it does not stop the relay', async () => {
+    const t = triangle();
+    t.sDocs.create({ id: 'd1', x: 0 });
+    await t.b.peer.subscribe('S', sub('doc', ['preview']));
+    t.linkDirect(); // linked, but B never subscribes to A (e.g. refused)
+    await t.flush();
+    t.viaServer.length = 0;
+    t.a.col.set('d1', 'x', 7, { channel: 'preview' });
+    await t.flush();
+    expect(previewsFrom(t.viaServer, 'S#a')).toBe(1);
+    expect(t.b.col.get('d1')?.x).toBe(7);
+  });
+});
