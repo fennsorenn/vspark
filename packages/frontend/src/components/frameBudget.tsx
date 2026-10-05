@@ -69,6 +69,18 @@ export function registerFrame(
   };
 }
 
+/**
+ * rAF timestamp (ms) → the time `advance()` expects (seconds). With
+ * `frameloop="never"`, R3F sets `clock.elapsedTime` to the value passed and
+ * hands every `useFrame` `delta = value − previous`, so passing milliseconds
+ * made every per-frame delta 1000× too large (~16.7 instead of ~0.0167): the
+ * pose's One Euro filter stopped smoothing and Motion Snappiness overshot every
+ * frame.
+ */
+export function toR3fTime(timestampMs: number): number {
+  return timestampMs / 1000;
+}
+
 /** Put inside a `<Canvas frameloop="never">`: renders it in the shared,
  *  budgeted loop while `active`. */
 export function FrameBudget({ active = true }: { active?: boolean }) {
@@ -78,7 +90,7 @@ export function FrameBudget({ active = true }: { active?: boolean }) {
     if (!active) return;
     return registerFrame(
       (timestamp, runGlobalEffects) =>
-        advance(timestamp, runGlobalEffects, get()),
+        advance(toR3fTime(timestamp), runGlobalEffects, get()),
       share
     );
   }, [active, get, share]);
