@@ -57,16 +57,16 @@ Design → executed → follow-ups. Each supersedes roughly what came before it.
 
 ## Feature plans
 
-| Plan                                               | Status                                                                                 |
-| -------------------------------------------------- | -------------------------------------------------------------------------------------- |
-| [`asset-vrm-metadata.md`](./asset-vrm-metadata.md) | shipped — migration `034`                                                              |
-| [`avatar-animation.md`](./avatar-animation.md)     | shipped — migration `033`, clock-anchored schedule                                     |
-| [`face-calibration.md`](./face-calibration.md)     | shipped — config-driven ARKit heuristic + dev tuning window                            |
-| [`forearm-twist-bone.md`](./forearm-twist-bone.md) | shipped — see [`../modules/twist-bones.md`](../modules/twist-bones.md)                 |
-| [`material-editor.md`](./material-editor.md)       | shipped — see [`../modules/material-overrides.md`](../modules/material-overrides.md)   |
-| [`phase3-data-feeds.md`](./phase3-data-feeds.md)   | shipped — data channels + template feed layer                                          |
-| [`video-audio-assets.md`](./video-audio-assets.md) | shipped — `video`/`audio` node kinds, media bus, clip event lane                       |
-| [`tracking-mix.md`](./tracking-mix.md)             | in progress — implemented on `feature/tracking-mix`, migration `044`; not yet in `dev` |
+| Plan                                               | Status                                                                               |
+| -------------------------------------------------- | ------------------------------------------------------------------------------------ |
+| [`asset-vrm-metadata.md`](./asset-vrm-metadata.md) | shipped — migration `034`                                                            |
+| [`avatar-animation.md`](./avatar-animation.md)     | shipped — migration `033`, clock-anchored schedule                                   |
+| [`face-calibration.md`](./face-calibration.md)     | shipped — config-driven ARKit heuristic + dev tuning window                          |
+| [`forearm-twist-bone.md`](./forearm-twist-bone.md) | shipped — see [`../modules/twist-bones.md`](../modules/twist-bones.md)               |
+| [`material-editor.md`](./material-editor.md)       | shipped — see [`../modules/material-overrides.md`](../modules/material-overrides.md) |
+| [`phase3-data-feeds.md`](./phase3-data-feeds.md)   | shipped — data channels + template feed layer                                        |
+| [`video-audio-assets.md`](./video-audio-assets.md) | shipped — `video`/`audio` node kinds, media bus, clip event lane                     |
+| [`tracking-mix.md`](./tracking-mix.md)             | shipped — migration `044`, see [`../modules/animation.md`](../modules/animation.md)  |
 
 ## Cross-cutting / process
 

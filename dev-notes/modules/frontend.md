@@ -219,7 +219,7 @@ Inspector for the selected node. Sections:
 **Motion Snappiness section (implemented)**:
 - New **Motion Snappiness** section on VRM avatar nodes — an enable checkbox plus `frequency`/`damping`/`response` `NumInput`s and a `HelpButton`. Persists the per-node `poseDynamics` property (`PoseDynamics` on shared `SceneNodeProperties`; mirrored on store + api-client `NodeProperties`), defaulting to `DEFAULT_POSE_DYNAMICS` (disabled). Drives the per-bone second-order dynamics filter applied in `Viewport.tsx` after the One Euro filter. i18n under `avatar.*` + `help.dynamics`; help `{#snappiness}` in `avatar.md`. See [animation.md](animation.md) (Motion snappiness).
 
-**Tracking Mix section + mixer modal (implemented, `feature/tracking-mix`)**:
+**Tracking Mix section + mixer modal (implemented)**:
 - `components/editor/TrackingMix.tsx` — `TrackingMixSection` on VRM avatar nodes (per-source master sliders, "Custom" + reset, "Open mixer…") and `TrackingMixModal` (Body/Face matrix of regions/bones or face groups/shapes × sources, source-order chips). Persists the per-node `properties.trackingMix` via `previewNodePath` / `commitNodePath`. Replaced the former **Partial Tracking** section (`vs-posesrc-*`, `poseSource`). Handles, i18n keys and help anchors are listed in [animation.md](animation.md) (Tracking Mix).
 
 **Base Animation picker (implemented)**:
