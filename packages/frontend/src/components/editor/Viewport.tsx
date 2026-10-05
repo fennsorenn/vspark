@@ -2084,6 +2084,12 @@ function AvatarNode({
   const vmcRetargetRef = useRef<VmcRetarget | null>(null);
   const boneFiltersRef = useRef(new BoneFilterBank());
   const boneDynamicsRef = useRef(new BoneDynamicsBank());
+  /** Last raw broadcast rotation per bone, so the dynamics can tell a new
+   *  tracking sample from the bus re-sending (or the frame re-reading) the same
+   *  one. */
+  const lastRawRef = useRef(
+    new Map<string, [number, number, number, number]>()
+  );
   const poseWasActiveRef = useRef(false);
   // Mirrors `trackingActive` state for the useFrame loop (avoids a stale closure
   // read); the loop calls setTrackingActive only when this flips.
@@ -3195,8 +3201,21 @@ function AvatarNode({
                 [number, number, number, number],
               ];
             });
+      const lastRaw = lastRawRef.current;
       for (const [boneName, q] of sourceEntries) {
         _q.set(q[0], q[1], q[2], q[3]);
+        // A new tracking sample for this bone, vs. the same values again (the
+        // bus re-emits every tick; the render loop can outpace the bus). Latch
+        // replays are never new.
+        const prevRaw = lastRaw.get(boneName);
+        const newSample =
+          posePopulated &&
+          (!prevRaw ||
+            prevRaw[0] !== q[0] ||
+            prevRaw[1] !== q[1] ||
+            prevRaw[2] !== q[2] ||
+            prevRaw[3] !== q[3]);
+        if (newSample) lastRaw.set(boneName, [q[0], q[1], q[2], q[3]]);
         // Skip the One Euro filter when replaying the latch: it is a held constant,
         // and re-filtering it would drift the pose while the fade runs.
         let s = posePopulated ? filters.filter(boneName, _q, delta) : _q;
@@ -3207,7 +3226,8 @@ function AvatarNode({
             delta,
             dyn.frequency,
             dyn.damping,
-            dyn.response
+            dyn.response,
+            newSample
           );
         }
         normalizedPose[boneName as VRMHumanBoneName] = {
