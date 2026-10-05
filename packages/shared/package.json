@@ -18,6 +18,7 @@
     "./feedValidation": "./src/feedValidation.ts",
     "./style_rig": "./src/style_rig.ts",
     "./blendshapeLimits": "./src/blendshapeLimits.ts",
+    "./trackingMix": "./src/trackingMix.ts",
     "./sync": "./src/sync.ts",
     "./models": "./src/models.ts",
     "./fracIndex": "./src/fracIndex.ts",

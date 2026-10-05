@@ -29,6 +29,7 @@ const SHARED_ALIAS = {
   '@vspark/shared/idMap':           '../shared/src/idMap.ts',
   '@vspark/shared/style_rig':       '../shared/src/style_rig.ts',
   '@vspark/shared/blendshapeLimits': '../shared/src/blendshapeLimits.ts',
+  '@vspark/shared/trackingMix':     '../shared/src/trackingMix.ts',
   '@vspark/shared':                 '../shared/src/types.ts',
 };
 

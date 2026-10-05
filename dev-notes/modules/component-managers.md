@@ -364,6 +364,8 @@ Shared sink that merges per-behavior pose/blendshape outputs into the single `vm
   - `vmc_blendshapes` with empty `{}` record
 - The frontend Viewport sees the empty-bones frame, trips off pose application, and ramps back to pure animation. While *any* producer is still active (e.g. breathing) the fallback does not fire and other producers continue uninterrupted.
 
+**Tracking Mix weighting**: each slot carries its `behaviorId`, and the composers weight slots by the avatar node's `properties.trackingMix` (see [animation.md](animation.md) (Tracking Mix)). `_composeBones` orders slots with `orderSources(mix, …)` (`mix.order` first, the rest by ascending priority as before) and multiplies `scaleRotation(q, w)` per bone; offsets (which sum across slots) are scaled by `w`; a bone with weight 0 in every slot is omitted, leaving it to the frontend's animation. `_composeBlendshapes` sums `w × value` and clamps to `0..1`. Weights are not normalised. The mix comes from an injected reader, `broadcastBus.setTrackingMixReader(fn)`, installed in `index.ts` to read `getMeshCollection('scene_node').get(id).properties.trackingMix` — the mesh view is overlay-aware, so preview-channel slider drags reweight live tracking before commit. A throwing reader falls back to weight 1; with no mix the output is identical to the old priority-ordered stacking.
+
 **Two interceptor chains**: after composing a scene node's slots the bus offers
 the merged frame to a registry before emitting — `poseInterceptorRegistry` for
 bones, `blendshapeInterceptorRegistry` for expression weights. Both follow the

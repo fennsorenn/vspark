@@ -104,3 +104,12 @@ describe('frame budget', () => {
     expect(frames.size).toBeGreaterThanOrEqual(59); // 10ms together: fits
   });
 });
+
+describe('FrameBudget → R3F time', () => {
+  it('hands advance() seconds, so useFrame deltas are seconds', async () => {
+    const { toR3fTime } = await fresh();
+    // R3F's frameloop="never" path: delta = value − previous value.
+    const delta = toR3fTime(1016.7) - toR3fTime(1000);
+    expect(delta).toBeCloseTo(1 / 60, 4);
+  });
+});

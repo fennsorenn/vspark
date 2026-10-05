@@ -59,7 +59,7 @@ See [animation.md](animation.md) for the FBX retargeting pipeline that actually 
 
 ## Blendshape pipeline
 
-`setBlendshapes` / `clearBlendshapes` publish to `broadcastBus.publishBlendshapes(sceneNodeId, behaviorId, blendshapes)`. The broadcast bus additively composes weights across all blendshape sources for a node (lipsync, this behavior, …) and emits a single `vmc_blendshapes` WS frame per node, so api_controller weights coexist with lipsync output without overwriting it.
+`setBlendshapes` / `clearBlendshapes` publish to `broadcastBus.publishBlendshapes(sceneNodeId, behaviorId, blendshapes)`. The broadcast bus additively composes weights across all blendshape sources for a node (lipsync, this behavior, …; each scaled by its Tracking Mix weight, default 1) and emits a single `vmc_blendshapes` WS frame per node, so api_controller weights coexist with lipsync output without overwriting it.
 
 ## Expression cache
 

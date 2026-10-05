@@ -121,28 +121,30 @@ export interface SceneNodeProperties {
    *  hand through connected twist-weighted vertices. Applies to VRM avatar
    *  nodes. Default false. */
   excludeSleeves?: boolean;
-  /** Per-body-section pose source blending ("partial tracking"): each section
-   *  carries an animation influence and a live-tracking influence, letting e.g.
-   *  legs follow an animation clip while the upper body follows tracking. Absent
-   *  sections default to { anim: 1, track: 1 } (tracking replaces animation where
-   *  present, which is the legacy behaviour). Applies to VRM avatar nodes. */
-  poseSource?: PoseSource;
+  /** Tracking Mix: per-source influence weights on each bone / blendshape,
+   *  plus the order tracking sources are composed in. Absent weights are 1
+   *  (legacy stacking). The backend bus applies the tracking-source weights;
+   *  the frontend applies the `animation` weights. Replaced the per-section
+   *  `poseSource` ("partial tracking", migration 044). See
+   *  `@vspark/shared/trackingMix`. Applies to VRM avatar nodes. */
+  trackingMix?: TrackingMix;
 }
 
-/** The body sections that can independently blend animation vs. live tracking. */
-export type PoseSection = 'legs' | 'body' | 'arms' | 'head' | 'gaze' | 'hands';
-
-/** Per-section influence weights. `anim` pulls the section from its rest pose
- *  toward the animation clip; `track` then pulls it toward the live tracking
- *  pose (scaled by the global blend ramp). Both 0..1. anim=1/track=1 = tracking
- *  wins where present (legacy); anim=1/track=0 = animation only; anim=0/track=1
- *  = tracking only; anim=0/track=0 = rest. */
-export interface PoseSectionInfluence {
-  anim: number;
-  track: number;
+/** One source's weights in a Tracking Mix. Key = VRM bone / blendshape name,
+ *  value 0..2. Absent = 1. */
+export interface TrackingMixSource {
+  bones?: Partial<Record<import('./signal.js').VRMBoneName, number>>;
+  blendshapes?: Record<string, number>;
 }
 
-export type PoseSource = Partial<Record<PoseSection, PoseSectionInfluence>>;
+/** Per-avatar tracking composition. `sources` is keyed by behavior id, or the
+ *  reserved key `'animation'` for the frontend animation layer. `order` lists
+ *  tracking-source behavior ids, first applied first; unlisted sources follow
+ *  by their legacy bus priority. */
+export interface TrackingMix {
+  order?: string[];
+  sources?: Record<string, TrackingMixSource>;
+}
 
 /** Per-bone second-order (spring–damper) dynamics that add anticipatory snap /
  *  overshoot to broadcast pose without becoming choppy. See the frontend

@@ -119,11 +119,8 @@ import {
 } from '../../calibration';
 import type { VmcCalibration } from '../../calibration';
 import { VRM_BONE_NAMES } from '@vspark/shared/signal';
-import type {
-  PoseSection,
-  PoseSectionInfluence,
-  PoseSource,
-} from '@vspark/shared';
+import type { TrackingMix } from '@vspark/shared';
+import { ANIMATION_SOURCE, boneWeight } from '@vspark/shared/trackingMix';
 import { registerMedia } from './mediaRegistry';
 import {
   stackBoneRotation,
@@ -572,65 +569,14 @@ const FBX_BONE_TO_VRM: Record<string, VRMHumanBoneName> = {
 // Hips bone names across all supported rigs (used for root position track).
 const HIPS_BONE_NAMES = new Set(['mixamorigHips', 'pelvis']);
 
-// ── Partial tracking: map every VRM humanoid bone to a body section so each
-//    section can independently blend animation vs. live tracking. ────────────
-const POSE_SECTION_BONES: Record<PoseSection, string[]> = {
-  body: ['spine', 'chest', 'upperChest'],
-  head: ['neck', 'head', 'jaw'],
-  gaze: ['leftEye', 'rightEye'],
-  arms: [
-    'leftShoulder',
-    'leftUpperArm',
-    'leftLowerArm',
-    'leftHand',
-    'rightShoulder',
-    'rightUpperArm',
-    'rightLowerArm',
-    'rightHand',
-  ],
-  // The hips lead the lower body, so both its rotation (here) and its root
-  // position (see composeHipsPosition) follow the legs section.
-  legs: [
-    'hips',
-    'leftUpperLeg',
-    'leftLowerLeg',
-    'leftFoot',
-    'leftToes',
-    'rightUpperLeg',
-    'rightLowerLeg',
-    'rightFoot',
-    'rightToes',
-  ],
-  // Every remaining bone (all finger bones) belongs to 'hands'.
-  hands: [],
-};
-
-/** boneName → section. Bones not explicitly listed fall under 'hands' (fingers). */
-const BONE_TO_SECTION: Record<string, PoseSection> = (() => {
-  const m: Record<string, PoseSection> = {};
-  for (const [section, bones] of Object.entries(POSE_SECTION_BONES) as [
-    PoseSection,
-    string[],
-  ][]) {
-    for (const b of bones) m[b] = section;
-  }
-  for (const name of VRM_BONE_NAMES as unknown as string[]) {
-    if (!(name in m)) m[name] = 'hands';
-  }
-  return m;
-})();
-
-const DEFAULT_SECTION_INFLUENCE: PoseSectionInfluence = { anim: 1, track: 1 };
-
-/** Resolve a bone's { anim, track } influence from a node's poseSource map,
- *  defaulting absent sections to { anim: 1, track: 1 } (legacy behaviour). */
-function sectionInfluenceForBone(
+/** A bone's animation-layer weight from the avatar's Tracking Mix (absent → 1).
+ *  Tracking-source weights are applied by the backend bus, so the tracked pose
+ *  that arrives here is already weighted. */
+function animWeightForBone(
   boneName: string,
-  poseSource: PoseSource | undefined
-): PoseSectionInfluence {
-  if (!poseSource) return DEFAULT_SECTION_INFLUENCE;
-  const section = BONE_TO_SECTION[boneName];
-  return poseSource[section] ?? DEFAULT_SECTION_INFLUENCE;
+  mix: TrackingMix | undefined
+): number {
+  return boneWeight(mix, ANIMATION_SOURCE, boneName);
 }
 
 // Hips root-motion scratch (captured pre/post resetNormalizedPose, fed to
@@ -2138,6 +2084,12 @@ function AvatarNode({
   const vmcRetargetRef = useRef<VmcRetarget | null>(null);
   const boneFiltersRef = useRef(new BoneFilterBank());
   const boneDynamicsRef = useRef(new BoneDynamicsBank());
+  /** Last raw broadcast rotation per bone, so the dynamics can tell a new
+   *  tracking sample from the bus re-sending (or the frame re-reading) the same
+   *  one. */
+  const lastRawRef = useRef(
+    new Map<string, [number, number, number, number]>()
+  );
   const poseWasActiveRef = useRef(false);
   // Mirrors `trackingActive` state for the useFrame loop (avoids a stale closure
   // read); the loop calls setTrackingActive only when this flips.
@@ -3249,8 +3201,21 @@ function AvatarNode({
                 [number, number, number, number],
               ];
             });
+      const lastRaw = lastRawRef.current;
       for (const [boneName, q] of sourceEntries) {
         _q.set(q[0], q[1], q[2], q[3]);
+        // A new tracking sample for this bone, vs. the same values again (the
+        // bus re-emits every tick; the render loop can outpace the bus). Latch
+        // replays are never new.
+        const prevRaw = lastRaw.get(boneName);
+        const newSample =
+          posePopulated &&
+          (!prevRaw ||
+            prevRaw[0] !== q[0] ||
+            prevRaw[1] !== q[1] ||
+            prevRaw[2] !== q[2] ||
+            prevRaw[3] !== q[3]);
+        if (newSample) lastRaw.set(boneName, [q[0], q[1], q[2], q[3]]);
         // Skip the One Euro filter when replaying the latch: it is a held constant,
         // and re-filtering it would drift the pose while the fade runs.
         let s = posePopulated ? filters.filter(boneName, _q, delta) : _q;
@@ -3261,7 +3226,8 @@ function AvatarNode({
             delta,
             dyn.frequency,
             dyn.damping,
-            dyn.response
+            dyn.response,
+            newSample
           );
         }
         normalizedPose[boneName as VRMHumanBoneName] = {
@@ -3327,13 +3293,14 @@ function AvatarNode({
         // "Tracking stacks on animation" — the single composition path for BOTH
         // override producers (VMC/camera, which replace) and additive producers
         // (e.g. Breathing, which stacks). For every bone, stackBoneRotation
-        // stacks the (scaled) broadcast delta on top of the (scaled) base
-        // animation, per body section independently. Default sections
-        // ({anim:1,track:1}) → base animation with the broadcast fully stacked
-        // once ramped in; the partial-tracking sliders scale each layer. The
+        // stacks the broadcast delta on top of the (scaled) base animation, per
+        // bone. The Tracking Mix's animation weight scales the base animation
+        // here; the per-source tracking weights were already applied by the
+        // bus, so the broadcast delta arrives weighted. At default weights →
+        // base animation with the broadcast fully stacked once ramped in. The
         // poseMode flag no longer selects a separate composition — an additive
         // producer used to route here into a slider-ignoring branch, which is
-        // exactly why Breathing made the Anim/Track sliders appear inert.
+        // exactly why Breathing once made the influence sliders appear inert.
         const allBones = VRM_BONE_NAMES as unknown as VRMHumanBoneName[];
         // Animation baseline comes from the SHADOW skeleton — a buffer only the
         // clip mixer writes. Reading `bone.quaternion` here would alias the buffer
@@ -3353,11 +3320,11 @@ function AvatarNode({
         const hipsBone = vrm.humanoid.getRawBoneNode('hips');
 
         // Rest raw quats (all bones), then broadcast-posed raw quats. Compose
-        // per section with stackBoneRotation, exactly like the override branch:
-        // the additive delta is stacked (scaled by the section Track weight) on
-        // the base animation (scaled by the section Anim weight). At default
-        // weights ({anim:1,track:1}) this equals the old `animQ · delta`, but
-        // the partial-tracking sliders now bite in additive mode too. This
+        // per bone with stackBoneRotation, exactly like the override branch:
+        // the additive delta (already weighted per source by the bus) is
+        // stacked on the base animation (scaled by the Tracking Mix animation
+        // weight). At default weights this equals the old `animQ · delta`, but
+        // the animation weights bite in additive mode too. This
         // matters because Breathing always publishes *additively* (an always-on
         // producer), which pins poseMode to additive — so the old additive-only
         // composition made the sliders appear to do nothing whenever Breathing
@@ -3381,12 +3348,10 @@ function AvatarNode({
             trackedRaw.set(name, bone.quaternion.clone());
         }
 
-        const poseSourceLive = node.properties?.poseSource as
-          | PoseSource
-          | undefined;
+        const mixLive = node.properties?.trackingMix as TrackingMix | undefined;
         const animActive = !!((animSource || fading) && layer);
         for (const [name, bone] of animQuats) {
-          const inf = sectionInfluenceForBone(name, poseSourceLive);
+          const animInf = animWeightForBone(name, mixLive);
           const restQ = restRaw.get(name)!;
           const animQ = animRotationFor(name, restQ);
           // No source for this bone (clip not loaded / not animated) ⇒ rest.
@@ -3397,14 +3362,17 @@ function AvatarNode({
           // targets/speed/clamp), so multiplying by both faded tracking as
           // modeWeight² — a quadratic that collapses in its final third and reads
           // as a late snap. Linear is what the ramp is meant to be.
-          const tw = tracked ? Math.max(0, Math.min(1, inf.track)) : 0;
-          // modeWeight ramps the levers in (1 → inf.anim) and the tracking term
+          // Per-source tracking weights were applied by the bus; a bone every
+          // source weighs 0 arrives absent (tracked = null) and follows the
+          // animation.
+          const tw = tracked ? 1 : 0;
+          // modeWeight ramps the levers in (1 → animInf) and the tracking term
           // with them, so modeWeight=0 equals the straight-animation path exactly.
           composeBonePose(
             restQ,
             animContribution,
             tracked,
-            inf.anim,
+            animInf,
             tw,
             modeWeight,
             bone.quaternion
@@ -3414,7 +3382,7 @@ function AvatarNode({
           composeHipsPositionBlended(
             _hipsAnimPos,
             _hipsRestPos,
-            sectionInfluenceForBone('leftUpperLeg', poseSourceLive).anim,
+            animWeightForBone('hips', mixLive),
             animActive,
             modeWeight,
             hipsBone.position
@@ -3467,7 +3435,7 @@ function AvatarNode({
         const restQ = restRaw.get(name)!;
         const animQ = animRotationFor(name, restQ);
         const animContribution = animActive && animQ ? animQ : restQ;
-        // animInf = 1: straight idle, unscaled by the partial-tracking sliders.
+        // animInf = 1: straight idle, unscaled by the Tracking Mix weights.
         stackBoneRotation(restQ, animContribution, null, 1, 0, bone.quaternion);
       }
       // Root motion plays at full strength too — same reasoning as the
