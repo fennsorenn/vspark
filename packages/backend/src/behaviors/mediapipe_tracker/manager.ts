@@ -8,6 +8,7 @@ import { trackingGraceMs } from '../tracking_grace.js';
 import {
   makeMediapipeGraphDescriptor,
   HEAD_CALIB_BONES,
+  HEAD_CALIB_PRESERVE,
   FINGER_CALIB_BONES,
   FINGER_MIRROR_PAIRS,
 } from './graph.js';
@@ -125,7 +126,11 @@ export class TrackingManager {
     const nodeId_ = this.nodeIds.get(behaviorId) ?? '';
     if (nodeId === 'scene_entity') return { nodeId: nodeId_ };
     if (nodeId === 'comp_id') return { behaviorId };
-    if (nodeId === 'head_calib') return { boneFilter: HEAD_CALIB_BONES };
+    if (nodeId === 'head_calib')
+      return {
+        boneFilter: HEAD_CALIB_BONES,
+        preserveChildren: HEAD_CALIB_PRESERVE,
+      };
     if (nodeId === 'finger_calib')
       return {
         boneFilter: FINGER_CALIB_BONES,

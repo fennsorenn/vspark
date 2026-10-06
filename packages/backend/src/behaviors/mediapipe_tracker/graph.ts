@@ -23,6 +23,14 @@ export const HEAD_CALIB_BONES = [
   'rightHand',
 ] as const;
 
+// pose_arms_to_bones solves each upper arm relative to the measured shoulder shrug, cancelling the
+// clavicle lift so the arm still points at the elbow. head_calib then removes the shrug's neutral
+// offset from the clavicle; without this the arm would be rotated by that offset too.
+export const HEAD_CALIB_PRESERVE = [
+  { bone: 'leftUpperArm', parents: ['leftShoulder'] },
+  { bone: 'rightUpperArm', parents: ['rightShoulder'] },
+] as const;
+
 // VRM bone names captured by the finger_calib node. Held separate from head calibration
 // because the user-facing capture ritual is different — fingers must be held in the avatar's
 // T-pose finger rest (straight, thumb relaxed-out), not a body-neutral pose.
