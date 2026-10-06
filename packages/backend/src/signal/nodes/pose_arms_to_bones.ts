@@ -2,6 +2,7 @@ import { SignalNode, Quaternion, NormalizedPose } from '@vspark/shared/signal';
 import type { VRMBoneName } from '@vspark/shared/signal';
 import { Node } from '@vspark/shared/node';
 import { valueIn, valueOut } from '@vspark/shared/node_decorators';
+import { frameToQuat, torsoWorldQuat } from '../mocap_torso.js';
 
 type Landmark = { x: number; y: number; z: number; visibility?: number };
 type V3 = [number, number, number];
@@ -111,23 +112,12 @@ function cross(a: V3, b: V3): V3 {
     a[0] * b[1] - a[1] * b[0],
   ];
 }
-function mid(a: Landmark, b: Landmark): Landmark {
-  return { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2, z: (a.z + b.z) / 2 };
-}
 // MediaPipe world landmarks have +Y down (image-space). +Z is also flipped relative to a
 // standard right-handed +Y-up VRM frame where -Z is "forward" (toward the viewer for an
 // avatar facing the camera). Flip both at the boundary so downstream math works in the
 // avatar's natural frame without per-axis ad-hoc corrections.
 function flipYZ(lm: Landmark): Landmark {
   return { x: lm.x, y: -lm.y, z: -lm.z, visibility: lm.visibility };
-}
-
-// Hand landmarks are in image space (not pose-world space): +x = right of the mirrored selfie
-// frame = performer's RIGHT, whereas pose-world +x (after flipYZ) = performer's LEFT. So the hand
-// frame needs X and Y negated (Z kept). Using flipYZ here instead would apply a 180° turn about
-// the vertical axis — the hand comes out rotated 180° and rolling the wrong way.
-function flipHand(lm: Landmark): Landmark {
-  return { x: -lm.x, y: -lm.y, z: lm.z, visibility: lm.visibility };
 }
 
 function qmul(a: Quaternion, b: Quaternion): Quaternion {
@@ -179,48 +169,6 @@ function qFromUnitVectors(from: V3, to: V3): Quaternion {
   return new Quaternion(axis[0] / l, axis[1] / l, axis[2] / l, w / l);
 }
 
-// frameToQuat: maps VRM +X to rightTarget exactly, +Y to upTarget (Gram-Schmidt orthogonalized).
-// Same construction as in pose_torso_head_to_bones — kept inlined to avoid cross-node coupling.
-function frameToQuat(rightTarget: V3, upTarget: V3): Quaternion {
-  const X = norm(rightTarget);
-  const d = dot(upTarget, X);
-  const Y = norm([
-    upTarget[0] - X[0] * d,
-    upTarget[1] - X[1] * d,
-    upTarget[2] - X[2] * d,
-  ]);
-  const col2 = norm(cross(X, Y));
-  const trace = X[0] + Y[1] + col2[2];
-  let qx: number, qy: number, qz: number, qw: number;
-  if (trace > 0) {
-    const s = 0.5 / Math.sqrt(trace + 1);
-    qw = 0.25 / s;
-    qx = (Y[2] - col2[1]) * s;
-    qy = (col2[0] - X[2]) * s;
-    qz = (X[1] - Y[0]) * s;
-  } else if (X[0] > Y[1] && X[0] > col2[2]) {
-    const s = 2 * Math.sqrt(1 + X[0] - Y[1] - col2[2]);
-    qw = (Y[2] - col2[1]) / s;
-    qx = 0.25 * s;
-    qy = (Y[0] + X[1]) / s;
-    qz = (col2[0] + X[2]) / s;
-  } else if (Y[1] > col2[2]) {
-    const s = 2 * Math.sqrt(1 + Y[1] - X[0] - col2[2]);
-    qw = (col2[0] - X[2]) / s;
-    qx = (Y[0] + X[1]) / s;
-    qy = 0.25 * s;
-    qz = (col2[1] + Y[2]) / s;
-  } else {
-    const s = 2 * Math.sqrt(1 + col2[2] - X[0] - Y[1]);
-    qw = (X[1] - Y[0]) / s;
-    qx = (col2[0] + X[2]) / s;
-    qy = (col2[1] + Y[2]) / s;
-    qz = 0.25 * s;
-  }
-  const l = Math.sqrt(qx * qx + qy * qy + qz * qz + qw * qw);
-  return new Quaternion(qx / l, qy / l, qz / l, qw / l);
-}
-
 // ─────────────────────────────────────────────────────────────────────────────
 // VRM normalised T-pose arm rest directions:
 //   leftUpperArm:  points in +X (subject's left, outward).
@@ -244,26 +192,25 @@ function frameToQuat(rightTarget: V3, upTarget: V3): Quaternion {
 // the arm's roll so the elbow/wrist don't candy-wrapper (see solveArm).
 //
 // VRM rest hand frame: fingers extend along +X (left) / -X (right); back-of-hand (dorsal) = +Y.
-// Dorsal sign follows the same per-side convention as hand_landmarks_to_bones' palm normal.
+//
+// Hand landmarks share the pose landmarks' axes (Holistic's hand world landmarks are even in the
+// same hip-centred metric frame), so they take the same flipYZ into the avatar frame as the arm.
+// Back-of-hand normal: cross(wrist→index MCP, wrist→pinky MCP) points out of the back of a left
+// hand and out of the palm of a right hand — the same per-side sign hand_landmarks_to_bones uses
+// for its hand frame. Verified against real Holistic output on hands whose facing is unambiguous
+// (see test/fixtures/mediapipe).
 function handWorldFrame(
   rawHand: Landmark[] | undefined,
   side: 'left' | 'right'
 ): Quaternion | null {
   if (!rawHand || rawHand.length < 21) return null;
-  const w = flipHand(rawHand[HAND.wrist]);
-  const im = flipHand(rawHand[HAND.indexMcp]);
-  const mm = flipHand(rawHand[HAND.middleMcp]);
-  const pm = flipHand(rawHand[HAND.pinkyMcp]);
-  // The forearm comes from pose-world landmarks (flipYZ: depth negated) while these hand landmarks
-  // are image-space (flipHand: depth kept) — opposite depth-sign conventions. Roll and the
-  // sideways axis are depth-agnostic so they're fine, but wrist flex lives on the depth axis and
-  // came out inverted. Flip the pointing axis's depth component to match the forearm's frame.
-  const fa = norm(sub(mm, w)); // wrist → middle MCP
-  const fingerAxis: V3 = [fa[0], fa[1], -fa[2]];
-  // Back-of-hand normal. cross(toIndex, toPinky) negated on the left mirrors the palm-normal
-  // convention in hand_landmarks_to_bones (left flips, right keeps).
+  const w = flipYZ(rawHand[HAND.wrist]);
+  const im = flipYZ(rawHand[HAND.indexMcp]);
+  const mm = flipYZ(rawHand[HAND.middleMcp]);
+  const pm = flipYZ(rawHand[HAND.pinkyMcp]);
+  const fingerAxis = norm(sub(mm, w)); // wrist → middle MCP
   let dorsal = norm(cross(sub(im, w), sub(pm, w)));
-  if (side === 'left') dorsal = neg(dorsal);
+  if (side === 'right') dorsal = neg(dorsal);
   if (Math.abs(dot(fingerAxis, dorsal)) > 0.95) return null; // degenerate
   // VRM rest finger axis: +X (left) / -X (right). frameToQuat maps +X → its first argument.
   const restRight = side === 'left' ? fingerAxis : neg(fingerAxis);
@@ -403,19 +350,9 @@ function convertArms(
 
   // ── Torso quaternion — same computation as pose_torso_head_to_bones ───────
   // We need this to express arm rotations relative to the chest (the torso bone the upper arm hangs from).
-  const shdRight = norm(sub(ls, rs));
-  let spineUp: V3;
-  if (ok(lh) && ok(rh)) {
-    spineUp = norm(sub(mid(ls, rs), mid(lh, rh)));
-  } else {
-    const t = dot([0, 1, 0] as V3, shdRight);
-    spineUp = norm([
-      0 - shdRight[0] * t,
-      1 - shdRight[1] * t,
-      0 - shdRight[2] * t,
-    ]);
-  }
-  const torsoQ = frameToQuat(shdRight, spineUp);
+  // Identical to the chest pose_torso_head_to_bones writes (yaw damping included) — the arms
+  // are expressed relative to it, so any mismatch would rotate both arms by the difference.
+  const torsoQ = torsoWorldQuat(ls, rs, lh, rh);
 
   // ── Shoulder shrug ─────────────────────────────────────────────────────────
   // Per-side clavicle lift, also used below as an extra parent rotation so the arm doesn't ride up

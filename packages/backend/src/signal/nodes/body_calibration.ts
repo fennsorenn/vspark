@@ -24,6 +24,19 @@ export interface BodyCalibConfig {
    * quaternion from the captured side. Both sides captured → both kept as-is.
    */
   mirrorPairs?: readonly (readonly [string, string])[];
+  /**
+   * Bones whose orientation must not follow a correction applied to their parents. For each
+   * entry, the child is re-expressed so that `parents… · child` keeps the rotation it had before
+   * calibration (parents are listed root-first and are bones this node may correct).
+   *
+   * Used where a converter already cancels a parent's measured rotation in the child — e.g. the
+   * MediaPipe upper arm is solved relative to the measured shoulder shrug, so removing the shrug's
+   * neutral offset must not drag the arm with it.
+   */
+  preserveChildren?: readonly {
+    bone: string;
+    parents: readonly string[];
+  }[];
 }
 
 /**
@@ -66,7 +79,7 @@ export class BodyCalibration extends Node {
     const { bodyOffsets } = this.getState<CalibrationState>() ?? EMPTY_STATE;
     if (!bodyOffsets || Object.keys(bodyOffsets).length === 0) return pose;
 
-    return pose.map((q, bone: VRMBoneName) => {
+    const corrected = pose.map((q, bone: VRMBoneName) => {
       const raw = bodyOffsets[bone as string];
       if (!raw) return q;
       const offset = Quaternion.fromArray(
@@ -74,6 +87,28 @@ export class BodyCalibration extends Node {
       );
       return offset.isValid ? offset.invert().multiply(q) : q;
     });
+
+    const { preserveChildren } = this.config as BodyCalibConfig;
+    if (!preserveChildren?.length) return corrected;
+    let out = corrected;
+    for (const { bone, parents } of preserveChildren) {
+      const child = corrected.get(bone as VRMBoneName);
+      if (!child) continue;
+      // child' = (Π parents_out)⁻¹ · (Π parents_in) · child, so Π parents_out · child' is unchanged.
+      let before = Quaternion.IDENTITY;
+      let after = Quaternion.IDENTITY;
+      for (const p of parents) {
+        before = before.multiply(pose.get(p as VRMBoneName) ?? Quaternion.IDENTITY);
+        after = after.multiply(
+          corrected.get(p as VRMBoneName) ?? Quaternion.IDENTITY
+        );
+      }
+      out = out.with(
+        bone as VRMBoneName,
+        after.invert().multiply(before).multiply(child).normalize()
+      );
+    }
+    return out;
   };
 
   @eventIn('capture', 'Trigger')
