@@ -22,7 +22,8 @@ Backend:
 - `packages/backend/src/signal/nodes/hand_landmarks_to_bones.ts`
 - `packages/backend/src/signal/nodes/arkit_vrm_mapper.ts` (ARKit 52-shape → VRM expressions; shared with the VMC pipeline)
 - `packages/backend/src/signal/nodes/face_landmarks_to_blendshapes.ts` (registered but **no longer wired** into the default graph — kept as a manual option / for back-compat of saved graphs)
-- `packages/backend/src/signal/nodes/body_calibration.ts` (extended with mirror support — see [signal-graph.md](signal-graph.md))
+- `packages/backend/src/signal/nodes/body_calibration.ts` (extended with mirror support and `preserveChildren` — see [signal-graph.md](signal-graph.md))
+- `packages/backend/src/signal/mocap_torso.ts` (chest frame shared by the torso and arm converters)
 - `packages/backend/src/signal/nodes/hand_height_compare.ts`
 - `packages/backend/src/signal/nodes/not_bool.ts`
 - `packages/backend/src/signal/nodes/pose_merge.ts`
@@ -111,6 +112,45 @@ The backend graph and manager are **unchanged** by all of this — they already 
 mediapipe graph: it emits a mix of `Fcl`/ARKit names and is superseded by the frontend ARKit
 heuristic. It is kept as a manual node and for saved-graph back-compat.
 
+### Landmark conventions
+
+Checked against real MediaPipe output (HolisticLandmarker / HandLandmarker on MediaPipe's own test
+images, mirrored as `CameraCapture` does); those landmarks are committed as fixtures in
+`packages/backend/test/fixtures/mediapipe/` and pinned by `test/nodes.mocap.landmarks.test.ts`.
+
+- **Mirroring.** The frame is mirrored before inference, so `left*` landmarks are the left of the
+  mirror image — the performer's right hand drives the avatar's left, like a mirror.
+- **One frame for everything.** `poseWorldLandmarks` and the hand landmarks share axis signs
+  (+X toward the `left` side, +Y down, +Z away from the camera). Every converter maps them into
+  the avatar frame with the same `flipYZ` (+X avatar left, +Y up, +Z toward the camera).
+- **Hands are sent as world landmarks.** `CameraCapture` forwards `left/rightHandWorldLandmarks`
+  (falling back to the image-space set). Holistic reports these in the same hip-centred metric
+  frame as the pose. The image-space set scales x and y by the frame's width and height
+  separately, which skewed finger and wrist directions.
+- **Back-of-hand normal.** `cross(wrist→index MCP, wrist→pinky MCP)` points out of the back of a
+  `left` hand and out of the palm of a `right` hand. Both `hand_landmarks_to_bones` (its
+  `palmNormal` is really this dorsal normal) and `pose_arms_to_bones` use that sign.
+- **Hand-local frame** (VRM rest, both sides): fingers ±X, back of hand +Y, thumb side +Z.
+
+### Arm solve (`pose_arms_to_bones`)
+
+- Upper arms are expressed relative to the chest from `torsoWorldQuat` in
+  `signal/mocap_torso.ts`, the same function `pose_torso_head_to_bones` uses to write
+  spine + chest, so the arms always hang off the chest the avatar actually has (yaw damping
+  included).
+- Shoulder shrug is folded into the arm's parent chain; the wrist frame from the hand landmarks
+  sets the hand bone and the arm roll (split across upper arm and forearm).
+
+### Finger solve (`hand_landmarks_to_bones`)
+
+- Knuckles (MCP): flex + spread measured in the hand frame.
+- Middle and tip joints: the size of the bend is the angle between neighbouring segments
+  (Kalidokit-style), so it doesn't depend on the hand frame or on clamped rotations further up the
+  finger; the frame only decides curl vs. hyperextension.
+- Thumb: own rest direction (`THUMB_SPLAY` toward the thumb side) and curl axis (`THUMB_CURL`,
+  toward palm and little finger). Metacarpal = minimal rotation from rest (capped); MCP/IP =
+  hinges sized like the finger joints.
+
 ### Arm mode toggle
 
 The `useIk` behavior config flows through a `not_bool` fan-out wired to:
@@ -123,7 +163,11 @@ Only one branch produces output at a time.
 
 Two `body_calibration` instances on the merged pose:
 
-- **head_calib** — `HEAD_CALIB_BONES`: torso, head, eyes. Plain capture/reset.
+- **head_calib** — `HEAD_CALIB_BONES`: torso, head, eyes, clavicles, wrists. Also gets
+  `preserveChildren: HEAD_CALIB_PRESERVE`, which re-expresses each upper arm so removing the
+  clavicle's neutral offset doesn't rotate the arm (the arm solve already cancels the shrug).
+  Calibration captured before the hand-frame fix (see Landmark conventions) holds wrist offsets
+  for the old frame and should be recaptured.
 - **finger_calib** — `FINGER_CALIB_BONES` with `FINGER_MIRROR_PAIRS`. Uses the
   extended `body_calibration` `mirrorPairs` config + `mirrorSource` input port so
   a one-hand capture is mirrored across L/R fingers. `hand_height_compare` is the
@@ -165,8 +209,8 @@ an active IK target:
   face** is enabled. Both are instances of the same committed IIFE bundle.
 - Built as classic IIFE so it loads as a classic Web Worker (no module worker
   required). Build script: `scripts/build-mediapipe-worker.mjs`.
-- Preview canvas uses CSS `scaleX(-1)` for webcam-mirror UX (display-only;
-  tracking semantics are not mirrored — see open work #4).
+- Frames are mirrored (`CameraCapture._drawMirror`) before they reach MediaPipe, and the preview
+  is shown mirrored too — the avatar mirrors the performer.
 
 ## Adding a new converter
 
@@ -211,15 +255,14 @@ for the full model and the extension point for new tracking sources.
    exposes apply here too. The native HQ-face path exists for users who need accuracy over CPU. A
    face-tracking-specific user-facing config surface (e.g. per-shape gain in
    `MediapipeTrackerProps`) is still not built.
-2. **Finger config tuning** — planned. `hand_landmarks_to_bones` produces
-   residual rest-pose offsets (pinky over-spread, thumb default-out). Mirror
-   calibration helps but a structural fix in the converter is wanted.
+2. **Finger config tuning** — WIP. The hand frame, world landmarks and the thumb model are fixed
+   (see "Finger solve"), but the thumb constants (`THUMB_SPLAY`, `THUMB_CURL`, limits) are
+   first-pass values checked only on still images, not tuned live on a webcam.
 3. **Framerate optimization** — planned (not urgent). Current: 10 FPS @ 320×240
    in a worker. Options: drop camera resolution further, use OffscreenCanvas
    for frame transfer, selectively disable tracks.
-4. **Mirror tracking** — planned. Preview canvas uses CSS `scaleX(-1)` for UX,
-   but a config-driven mirror-tracking semantic (avatar deliberately mirroring
-   user gestures) is not surfaced.
+4. **Mirror tracking toggle** — planned. Tracking is always mirrored (see Worker / camera); a
+   setting for the non-mirrored semantic is not surfaced.
 5. **Lower / full body tracking** — planned. Only upper body
    (torso/head/arms/hands/fingers) is mapped. BlazePose emits legs/feet but
    they are not yet converted to VRM hip/upper-leg/lower-leg/foot bones.
