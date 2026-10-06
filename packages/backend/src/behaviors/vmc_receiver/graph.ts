@@ -1,4 +1,5 @@
 import type { GraphDescriptor } from '@vspark/shared/signal';
+import { withEyeRangeStage } from '../eyeRange.js';
 
 // VRM bone names scoped to the head/spine calibration stage.
 export const HEAD_CALIB_BONES = [
@@ -13,7 +14,7 @@ export const HEAD_CALIB_BONES = [
   'rightEye',
 ] as const;
 
-export const VMC_PIPELINE_TEMPLATE: Omit<GraphDescriptor, 'id'> = {
+const VMC_BASE_TEMPLATE: Omit<GraphDescriptor, 'id'> = {
   label: 'VMC Receiver Pipeline',
   readonly: true,
   nodes: [
@@ -408,6 +409,14 @@ export const VMC_PIPELINE_TEMPLATE: Omit<GraphDescriptor, 'id'> = {
   ],
 };
 
+/** The pipeline above plus the eye range stage at the end of the bone chain —
+ *  off by default: VMC senders (VSeeFace & co.) usually send eye rotations
+ *  already fitted to the model, so this keeps their previous behaviour. */
+export const VMC_PIPELINE_TEMPLATE = withEyeRangeStage(VMC_BASE_TEMPLATE, {
+  fromNodeId: 'arm_ik_calib',
+  defaultEnabled: false,
+});
+
 export function makeVmcGraphDescriptor(behaviorId: string): GraphDescriptor {
   return { ...VMC_PIPELINE_TEMPLATE, id: `vmc-pipeline:${behaviorId}` };
 }
@@ -428,13 +437,13 @@ const ARM_NODE_IDS = new Set([
 ]);
 
 export const VMC_2D_PIPELINE_TEMPLATE: Omit<GraphDescriptor, 'id'> = {
-  ...VMC_PIPELINE_TEMPLATE,
+  ...VMC_BASE_TEMPLATE,
   label: 'VMC Receiver Pipeline (2D)',
-  nodes: VMC_PIPELINE_TEMPLATE.nodes.filter((n) => !ARM_NODE_IDS.has(n.id)),
+  nodes: VMC_BASE_TEMPLATE.nodes.filter((n) => !ARM_NODE_IDS.has(n.id)),
   edges: [
     // Drop every edge touching an arm node (this removes arm_ik_calib → pose_out
     // and head_calib → arm_ik_calib)…
-    ...VMC_PIPELINE_TEMPLATE.edges.filter(
+    ...VMC_BASE_TEMPLATE.edges.filter(
       (e) => !ARM_NODE_IDS.has(e.fromNodeId) && !ARM_NODE_IDS.has(e.toNodeId)
     ),
     // …then reconnect the bone chain end directly to the broadcast.

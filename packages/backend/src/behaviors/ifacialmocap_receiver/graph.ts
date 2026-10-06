@@ -1,4 +1,5 @@
 import type { GraphDescriptor } from '@vspark/shared/signal';
+import { withEyeRangeStage } from '../eyeRange.js';
 
 /**
  * VRM bone names scoped to the head calibration stage.
@@ -23,7 +24,7 @@ export const HEAD_CALIB_BONES = ['head', 'leftEye', 'rightEye'] as const;
  *   - three extra axis-flip config nodes, because the euler convention the
  *     device uses is not pinned down by the published spec
  */
-export const IFACIALMOCAP_PIPELINE_TEMPLATE: Omit<GraphDescriptor, 'id'> = {
+const IFACIALMOCAP_BASE_TEMPLATE: Omit<GraphDescriptor, 'id'> = {
   label: 'iFacialMocap Receiver Pipeline',
   readonly: true,
   nodes: [
@@ -413,6 +414,14 @@ export const IFACIALMOCAP_PIPELINE_TEMPLATE: Omit<GraphDescriptor, 'id'> = {
 };
 
 /** Graph id prefix — mirrors `vmc-pipeline:` so route dispatch can tell them apart. */
+/** The pipeline above plus the eye range stage after head calibration — on by
+ *  default: the phone reports raw physical eye angles, far beyond what VRM eye
+ *  bones are built for. */
+export const IFACIALMOCAP_PIPELINE_TEMPLATE = withEyeRangeStage(
+  IFACIALMOCAP_BASE_TEMPLATE,
+  { fromNodeId: 'head_calib', defaultEnabled: true }
+);
+
 export const IFACIALMOCAP_GRAPH_PREFIX = 'ifacialmocap-pipeline:';
 
 export function makeIFacialMocapGraphDescriptor(
