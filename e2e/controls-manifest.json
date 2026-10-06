@@ -11,6 +11,7 @@
   "components/editor/ComposeView.tsx": "9d3513ea8049",
   "components/editor/ContextMenu.tsx": "0c5708e8b0eb",
   "components/editor/CreatePalette.tsx": "25f4c379e21c",
+  "components/editor/EyeRangeSettings.tsx": "649d652c5d9d",
   "components/editor/LogicSection.tsx": "aec31b4569f9",
   "components/editor/OverliveAccountsModal.tsx": "018b3d6f8d81",
   "components/editor/PresetLibrary.tsx": "5e213dcc738a",

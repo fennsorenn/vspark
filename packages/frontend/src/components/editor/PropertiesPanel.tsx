@@ -96,6 +96,7 @@ function PickButton({ onClick }: { onClick: () => void }) {
 }
 import { NumInput, VecInput, SliderInput } from './numericInputs';
 import { TrackingMixSection } from './TrackingMix';
+import { EyeRangeSettings } from './EyeRangeSettings';
 import { vrmRegistry } from '../../vrmRegistry';
 import {
   BEHAVIOR_ICON,
@@ -2146,6 +2147,10 @@ function VmcReceiverProps({ comp }: { comp: Behavior }) {
           it describes the avatar's transition, not this receiver, and every
           tracking source on the node now shares the one setting. */}
 
+      {comp.kind !== 'vmc_receiver_2d' && (
+        <EyeRangeSettings comp={comp} defaultEnabled={false} />
+      )}
+
       {/* Face mappers */}
       <div
         style={{
@@ -2566,6 +2571,8 @@ function IFacialMocapReceiverProps({ comp }: { comp: Behavior }) {
       <div style={{ fontSize: 10, color: '#555', lineHeight: 1.4 }}>
         {t('ifm.axesHint')}
       </div>
+
+      <EyeRangeSettings comp={comp} defaultEnabled={true} />
 
       {/* Face mappers */}
       <div

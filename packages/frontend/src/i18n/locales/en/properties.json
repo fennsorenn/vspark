@@ -259,6 +259,12 @@
     "twistForce": "Force twist bone",
     "twistExcludeSleeves": "Exclude sleeves"
   },
+  "eyeRange": {
+    "header": "Gaze",
+    "enabled": "Fit eye movement to the model's eye range",
+    "inputMax": "Physical eye range (°)",
+    "hint": "Tracked eye rotation up to this angle is scaled onto how far the model's eyes are built to turn, so the iris doesn't roll under the eyelids."
+  },
   "trackingMix": {
     "header": "Tracking Mix",
     "hint": "How strongly each source drives the avatar. Tracking sources stack on the animation; weights above 1 amplify. Open the mixer for per-region, per-bone and face control.",
@@ -748,6 +754,7 @@
     "audioType": "Simple plays at the same volume everywhere; Directional falls off with distance and can be shaped into a 3D cone",
     "audioSpatial": "Distance and cone parameters for directional audio — reference distance, rolloff, max distance, and the cone angles",
     "twist": "Spread forearm roll along the arm instead of pinching at the elbow",
+    "eyeRange": "Why tracked eyes can look too far and how gaze fitting works",
     "trackingMix": "Control how strongly each tracking source and the animation drive each body part and expression",
     "trackingMixOrder": "Why the order of tracking sources matters",
     "baseAnimation": "The animation live tracking stacks onto while a source is connected; the avatar falls back to the idle when tracking drops",

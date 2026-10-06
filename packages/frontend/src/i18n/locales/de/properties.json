@@ -259,6 +259,12 @@
     "twistForce": "Drehknochen erzwingen",
     "twistExcludeSleeves": "Ärmel ausschließen"
   },
+  "eyeRange": {
+    "header": "Blick",
+    "enabled": "Augenbewegung an den Augenbereich des Modells anpassen",
+    "inputMax": "Physischer Augenbereich (°)",
+    "hint": "Getrackte Augendrehung bis zu diesem Winkel wird auf den Bereich skaliert, den die Augen des Modells drehen dürfen – so rutscht die Iris nicht unter die Lider."
+  },
   "trackingMix": {
     "header": "Tracking-Mix",
     "hint": "Wie stark jede Quelle den Avatar steuert. Tracking-Quellen werden auf die Animation gestapelt; Gewichte über 1 verstärken. Im Mixer lassen sich Bereiche, einzelne Knochen und die Mimik einstellen.",
@@ -748,6 +754,7 @@
     "audioType": "Einfach spielt überall mit gleicher Lautstärke; Direktional nimmt mit dem Abstand ab und kann als 3D-Kegel geformt werden",
     "audioSpatial": "Abstands- und Kegelparameter für direktionales Audio — Referenzabstand, Abklingrate, maximaler Abstand und Kegelwinkel",
     "twist": "Unterarm-Drehung entlang des Arms verteilen statt am Ellbogen zu knicken",
+    "eyeRange": "Warum getrackte Augen zu weit schauen können und wie die Blickanpassung funktioniert",
     "trackingMix": "Steuern, wie stark jede Tracking-Quelle und die Animation jeden Körperteil und jede Mimik bewegen",
     "trackingMixOrder": "Warum die Reihenfolge der Tracking-Quellen zählt",
     "baseAnimation": "Die Animation, auf die Live-Tracking gestapelt wird, solange eine Quelle verbunden ist; bei Tracking-Verlust fällt der Avatar auf die Leerlauf-Animation zurück",
