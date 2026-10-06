@@ -12,7 +12,7 @@ This doc covers only what is *different*; everything else is described in
 | Behavior kind | `ifacialmocap_receiver` (`applicableTo: ['avatar']`) |
 | Source dir | `packages/backend/src/behaviors/ifacialmocap_receiver/` |
 | Graph id prefix | `ifacialmocap-pipeline:` |
-| New signal node | `ifacialmocap_packet_source` (the only new node kind) |
+| New signal node | `ifacialmocap_packet_source` (the only receiver-specific node kind; `eye_range_map` was added later and is shared with VMC) |
 | Default port | 49983 |
 | Frontend panel | `IFacialMocapReceiverProps` in `PropertiesPanel.tsx` |
 | Help | `help/content/{en,de}/behaviors.md` → `{#ifacialmocap}` |
@@ -80,9 +80,13 @@ re-attaches on its own.
 
 ```
 ifacialmocap_packet_source
-  ├── bones → unpack_event → rhylive_bone_mapper → body_calibration → pose_broadcast
+  ├── bones → unpack_event → rhylive_bone_mapper → body_calibration (head_calib)
+  │                        → eye_range_map (eye_range) → pose_broadcast
   └── arkit → unpack_event → arkit_vrm_mapper ×3 → blendshapes_sum → blendshapes_broadcast
 ```
+
+`IFACIALMOCAP_PIPELINE_TEMPLATE` is `withEyeRangeStage(IFACIALMOCAP_BASE_TEMPLATE,
+{ fromNodeId: 'head_calib', defaultEnabled: true })` — see *Gaze / eye range* below.
 
 Every node except the source is shared verbatim with the VMC pipeline. Reuse of
 `rhylive_bone_mapper` is what pins the manager's coordinate contract: it hands
@@ -102,6 +106,7 @@ Differences from `vmc_receiver/graph.ts`:
 - **Three axis-flip config nodes** (`cfg_invert_pitch` / `_yaw` / `_roll`) wired
   into the source node. See below.
 - `cfg_device_host` replaces `cfg_host`.
+- The **eye range stage** defaults to ON here (OFF for VMC).
 
 ## The axis-flip escape hatch
 
@@ -120,6 +125,54 @@ toggling one doesn't read as a motion spike.
 If the Unity-convention assumption turns out to be right on real hardware, the
 toggles stay at their defaults and cost nothing; if it turns out to be wrong,
 users can fix it without a code change.
+
+## Gaze / eye range
+
+iFacialMocap reports physical eye angles (up to ~30°), while VRM eye bones are
+authored for far less (VRoid ~10°), so writing them straight onto the bones
+rolled the iris under the lids. Observed during diagnosis: the device's eye
+angles are head-relative (irises counter-rotate against head turns as
+expected), so the problem was magnitude, not double-counted head rotation.
+
+The fix is a shared `eye_range_map` stage between `head_calib` and `pose_out`,
+inserted by `withEyeRangeStage` in
+[`behaviors/eyeRange.ts`](../../packages/backend/src/behaviors/eyeRange.ts):
+
+- Two `behavior_config` nodes feed it: `cfg_eye_range_en` (`eyeRange.enabled`,
+  default per receiver) and `cfg_eye_range_max` (`eyeRange.inputMaxDeg`,
+  default 30); the avatar id comes from `scene_entity`.
+- The node (`signal/nodes/eye_range_map.ts`, `mapEyeRotation`) splits each
+  `leftEye` / `rightEye` rotation into pitch (X) and yaw (Y) via
+  `Quaternion.toEuler`, drops roll, and maps each linearly: `inputMaxDeg` of
+  tracked rotation → the model's full range in that direction, clamped beyond.
+  Direction → range pairing mirrors three-vrm's `VRMLookAtBoneApplier`
+  (+X ↔ `verticalUp`; left eye +Y ↔ `horizontalOuter`, right eye +Y ↔
+  `horizontalInner`). Other bones pass through.
+- Ranges come from the model file, read on the backend by
+  [`vrm/lookAt.ts`](../../packages/backend/src/vrm/lookAt.ts):
+  `extractEyeRanges(gltf)` reads VRM 1.0 `VRMC_vrm.lookAt.rangeMap*.outputScale`
+  (+ `type`) or VRM 0.x `VRM.firstPerson.lookAt*.yRange` (+ `lookAtTypeName`);
+  `eyeRangesForNode(sceneNodeId)` resolves `filePath` from the mesh
+  `scene_node` doc (DB fallback), joins it with `process.cwd()` like the VMC
+  skeleton load, and caches the parse per file by mtime. No declared ranges →
+  `DEFAULT_EYE_RANGES` (10° each, three-vrm's default). Read on the backend
+  because the mapping runs per tracking source before the bus merge and has to
+  work with no editor tab open.
+- Expression-type look-at models pass through unchanged (no bone range to map
+  into); their gaze is not driven by tracking.
+
+**Decided** (user, 2026-10-06): default physical eye range 30°; the setting
+lives in the receiver config, not the Tracking Mix (UX); on by default only for
+iFacialMocap — VMC and the other receivers keep their previous behaviour (off).
+
+**Known limitation** (inferred): for VRM 0.x models three-vrm conjugates by the
+face-front direction, which may swap which sign means up vs down; the node uses
+the VRM 1.0 pairing. Up/down ranges are usually equal, so the effect is
+normally nil. (For reference, the user's VRM 1.0 model declares outer 12°,
+inner 8°, up/down 10°, `inputMaxValue` 90.)
+
+Tests: `packages/backend/test/nodes.eyeRange.test.ts`,
+`packages/frontend/test/components.eyeRange.test.tsx`.
 
 ## Tracking detection
 
@@ -171,6 +224,10 @@ Avatar section as `trackingGracePeriod` (migration 035). Differences:
 
 - Device IP field instead of a bind Host field.
 - "Head Axes" invert toggles.
+- A "Gaze" section (`EyeRangeSettings.tsx`, shared with `VmcReceiverProps`):
+  enable toggle (`vs-eye-range-enabled`) + physical eye range
+  (`vs-eye-range-max`); i18n `properties.json` `eyeRange.*` / `help.eyeRange`,
+  help section `behaviors.md` `{#eye-range}`.
 - The local-IP list is informational (which address to type into the app) rather
   than click-to-set, since the host field here is the *phone*, not this machine.
 - `CalibrationSection` is shared, and gained `graphPrefix` + `arms` props so the

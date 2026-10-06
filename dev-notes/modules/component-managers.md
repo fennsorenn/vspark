@@ -40,9 +40,10 @@ Manages VMC/RhyLive motion capture receivers. Each behavior owns a `SignalGraph`
 
 **Graph descriptor**: `makeVmcGraphDescriptor(behaviorId)` wires:
 ```
-vmc_packet_source → rhylive_bone_mapper → body_calibration → arm_ik_calibration → pose_broadcast
+vmc_packet_source → rhylive_bone_mapper → body_calibration → arm_ik_calibration → eye_range_map → pose_broadcast
                   → arkit_vrm_mapper (×3) → blendshapes_sum → blendshapes_broadcast
 ```
+`eye_range_map` is inserted after `arm_ik_calib` by `withEyeRangeStage` (`behaviors/eyeRange.ts`), default **off** for VMC (`eyeRange.enabled` / `eyeRange.inputMaxDeg` behavior config; "Gaze" section in `VmcReceiverProps`). The Live2D `VMC_2D_PIPELINE_TEMPLATE` derives from `VMC_BASE_TEMPLATE` and has no eye range stage (the Gaze section is hidden for `vmc_receiver_2d`). See [ifacialmocap.md](ifacialmocap.md#gaze--eye-range).
 
 **Tracking detection** (two loss paths, one grace period): the `/Body` handler sums the frame-to-frame delta over the RhyLive float array against `TRACKING_THRESHOLD` — motion clears `Receiver.quietSince` and re-latches tracking, going still only *stamps* `quietSince`. Packets going away is the second path, detected off `lastSeen`. The 250ms `checkTimeouts()` sweep resolves both from `Math.min(quietSince ?? now, lastSeen)` against the avatar node's grace period, so whichever dropout started first drives the window. Connection status (the grey dot) keeps its own fixed 3s window — reachability is a separate question from tracking. See [animation.md](animation.md) (Tracking-loss grace period).
 
@@ -67,10 +68,10 @@ ARKit face tracking from the iFacialMocap iOS app. Built deliberately parallel t
 
 **Graph descriptor**: `makeIFacialMocapGraphDescriptor(behaviorId)` wires:
 ```
-ifacialmocap_packet_source → rhylive_bone_mapper → body_calibration → pose_broadcast
+ifacialmocap_packet_source → rhylive_bone_mapper → body_calibration → eye_range_map → pose_broadcast
                            → arkit_vrm_mapper (×3) → blendshapes_sum → blendshapes_broadcast
 ```
-Everything except the source node is shared verbatim with the VMC pipeline.
+Everything except the source node is shared verbatim with the VMC pipeline. The eye range stage defaults **on** here.
 
 **Differences from `VmcManager`** (full detail in [ifacialmocap.md](ifacialmocap.md)):
 
