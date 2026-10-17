@@ -266,3 +266,27 @@ for the full model and the extension point for new tracking sources.
 5. **Lower / full body tracking** — planned. Only upper body
    (torso/head/arms/hands/fingers) is mapped. BlazePose emits legs/feet but
    they are not yet converted to VRM hip/upper-leg/lower-leg/foot bones.
+6. **Quaternion-mode arm tracking fix** — WIP (branch `bugfix/mediapipe-arm-solve`; implementation
+   not written yet, so this entry describes the plan, not the code). Motivated by an analysis of
+   ~8400 recorded webcam frames, which showed two artefacts in the current `pose_arms_to_bones`
+   output: (a) a ~180° flip in the 50/50 upper-arm/forearm twist split when the min-arc twist and
+   the hand-derived twist are more than 150° apart (p90 per-frame jumps of 157–167°), and (b)
+   27–57° jumps whenever hand tracking toggles on/off. Planned parts:
+   - **Elbow-hinge arm solve** in `pose_arms_to_bones`: upper-arm twist taken from the
+     shoulder–elbow–wrist plane; forearm = elbow bend plus a clamped twist from the hand, faded
+     in/out by hand-tracking confidence; the previous twist is held when the arm is near straight
+     (where the plane is undefined).
+   - **Backend pose-smoothing node** in the MediaPipe graph, with per-bone confidence derived from
+     landmark visibility; low-confidence bones are smoothed much more slowly. Alongside this, the
+     converters stop dropping low-visibility bones — today the forearm/hand are dropped when
+     wrist visibility is below 0.5, which makes them fall back to the T-pose rest / animation.
+   - **Regression tests** built from the recorded frames.
+
+   **Decided (user, this session):** no bus- or frontend-side re-parenting of the arm chains for
+   now — the parent mismatch is handled via the Tracking Mix weights. **Decided (user, this
+   session):** smoothing lives in a dedicated backend graph node, not in the converter and not in
+   the frontend filter.
+
+   *Planned, not decided:* let `pose_stylizer` take a selectable input source and publish into the
+   Tracking Mix as its own column. Today it is a post-mix interceptor whose `replace`-mode shoulders
+   override MediaPipe's shrug (see [stylized-tracking.md](stylized-tracking.md)).
