@@ -47,6 +47,7 @@ import { MediapipeSource } from './nodes/mediapipe_source.js';
 import { FaceLandmarksToBlendshapes } from './nodes/face_landmarks_to_blendshapes.js';
 import { PoseTorsoHeadToBones } from './nodes/pose_torso_head_to_bones.js';
 import { PoseArmsToBones } from './nodes/pose_arms_to_bones.js';
+import { PoseSmooth } from './nodes/pose_smooth.js';
 import { HandLandmarksToBones } from './nodes/hand_landmarks_to_bones.js';
 import { PoseIkTargets } from './nodes/pose_ik_targets.js';
 import { IkBroadcast } from './nodes/ik_broadcast.js';
@@ -176,6 +177,7 @@ const ALL_NODE_CLASSES: SignalNodeClass[] = [
   FaceLandmarksToBlendshapes,
   PoseTorsoHeadToBones,
   PoseArmsToBones,
+  PoseSmooth,
   HandLandmarksToBones,
   PoseIkTargets,
   IkBroadcast,

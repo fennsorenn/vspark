@@ -195,6 +195,9 @@ export const MEDIAPIPE_PIPELINE_TEMPLATE: Omit<GraphDescriptor, 'id'> = {
       kind: 'pose_arms_to_bones',
       position: { x: 360, y: 80 },
     },
+    // Eases arm bones whose landmarks MediaPipe can only estimate (low visibility, no hand)
+    // instead of letting them jump.
+    { id: 'arm_smooth', kind: 'pose_smooth', position: { x: 580, y: 80 } },
 
     // ── Left hand stream ──────────────────────────────────────────────────────
     { id: 'unpack_lh', kind: 'unpack_event', position: { x: 120, y: 200 } },
@@ -525,6 +528,18 @@ export const MEDIAPIPE_PIPELINE_TEMPLATE: Omit<GraphDescriptor, 'id'> = {
     },
     {
       fromNodeId: 'pose_arms',
+      fromPort: 'pose',
+      toNodeId: 'arm_smooth',
+      toPort: 'pose',
+    },
+    {
+      fromNodeId: 'pose_arms',
+      fromPort: 'confidence',
+      toNodeId: 'arm_smooth',
+      toPort: 'confidence',
+    },
+    {
+      fromNodeId: 'arm_smooth',
       fromPort: 'pose',
       toNodeId: 'pose_merge',
       toPort: 'poses',

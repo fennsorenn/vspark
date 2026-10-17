@@ -1,5 +1,5 @@
 import { SignalNode, Quaternion, NormalizedPose } from '@vspark/shared/signal';
-import type { VRMBoneName } from '@vspark/shared/signal';
+import type { VRMBoneName, BoneConfidence } from '@vspark/shared/signal';
 import { Node } from '@vspark/shared/node';
 import { valueIn, valueOut } from '@vspark/shared/node_decorators';
 import { frameToQuat, torsoWorldQuat } from '../mocap_torso.js';
@@ -68,28 +68,16 @@ function shrugQuat(
 // head-neutral calibration, but a high gain still magnifies pose-dependent residue.
 const WRIST_SWING_GAIN = 1.5;
 
-// Scale a rotation's angle by `gain` about its own axis.
+// Scale a rotation's angle by `gain` about its own axis. q and -q are the same rotation; use the
+// short-way representation (w ≥ 0) or the scaled angle would be the long way round.
 function scaleAngle(q: Quaternion, gain: number): Quaternion {
-  const w = Math.max(-1, Math.min(1, q.w));
+  if (q.w < 0) q = new Quaternion(-q.x, -q.y, -q.z, -q.w);
+  const w = Math.min(1, q.w);
   const s = Math.sqrt(1 - w * w);
   if (s < 1e-6) return new Quaternion(0, 0, 0, 1); // ~identity
   const ang = 2 * Math.acos(w) * gain;
   const ns = Math.sin(ang / 2);
   return new Quaternion((q.x / s) * ns, (q.y / s) * ns, (q.z / s) * ns, Math.cos(ang / 2));
-}
-
-// Swing-twist split about `axis` (unit), scale the swing angle by `gain`, recombine. Twist (roll
-// about the limb) is preserved.
-function scaleSwing(q: Quaternion, axis: V3, gain: number): Quaternion {
-  const d = q.x * axis[0] + q.y * axis[1] + q.z * axis[2];
-  let tw = new Quaternion(axis[0] * d, axis[1] * d, axis[2] * d, q.w);
-  const tl = Math.hypot(tw.x, tw.y, tw.z, tw.w);
-  tw =
-    tl < 1e-6
-      ? new Quaternion(0, 0, 0, 1)
-      : new Quaternion(tw.x / tl, tw.y / tl, tw.z / tl, tw.w / tl);
-  const swing = qmul(q, qinv(tw)); // q = swing · twist
-  return qmul(scaleAngle(swing, gain), tw);
 }
 
 function sub(a: Landmark, b: Landmark): V3 {
@@ -188,8 +176,8 @@ function qFromUnitVectors(from: V3, to: V3): Quaternion {
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Hand-bone world orientation from the dense hand landmarks (finger axis + back-of-hand normal),
-// or null when unavailable/degenerate. Used both to orient the hand and — crucially — to anchor
-// the arm's roll so the elbow/wrist don't candy-wrapper (see solveArm).
+// or null when unavailable/degenerate. Used both to orient the hand and to read the forearm twist
+// (see solveArm).
 //
 // VRM rest hand frame: fingers extend along +X (left) / -X (right); back-of-hand (dorsal) = +Y.
 //
@@ -217,56 +205,70 @@ function handWorldFrame(
   return frameToQuat(restRight, dorsal);
 }
 
-// Shortest-arc spherical interpolation between two quaternions.
-function slerp(a: Quaternion, b: Quaternion, t: number): Quaternion {
-  let d = a.x * b.x + a.y * b.y + a.z * b.z + a.w * b.w;
-  let bx = b.x,
-    by = b.y,
-    bz = b.z,
-    bw = b.w;
-  if (d < 0) {
-    d = -d;
-    bx = -bx;
-    by = -by;
-    bz = -bz;
-    bw = -bw;
-  }
-  if (d > 0.9995) {
-    const x = a.x + (bx - a.x) * t,
-      y = a.y + (by - a.y) * t,
-      z = a.z + (bz - a.z) * t,
-      w = a.w + (bw - a.w) * t;
-    const l = Math.hypot(x, y, z, w) || 1;
-    return new Quaternion(x / l, y / l, z / l, w / l);
-  }
-  const th0 = Math.acos(d);
-  const s0 = Math.sin(th0);
-  const s1 = Math.sin(th0 * (1 - t)) / s0;
-  const s2 = Math.sin(th0 * t) / s0;
-  return new Quaternion(
-    a.x * s1 + bx * s2,
-    a.y * s1 + by * s2,
-    a.z * s1 + bz * s2,
-    a.w * s1 + bw * s2
-  );
+function smoothstep(lo: number, hi: number, x: number): number {
+  const t = Math.max(0, Math.min(1, (x - lo) / (hi - lo)));
+  return t * t * (3 - 2 * t);
 }
 
-// How strongly to move the candy-wrapper wrist twist into an arm roll. A single landmark direction
-// per bone leaves the roll about the bone axis unconstrained; per-bone minimal-arc fills it
-// arbitrarily, so the mismatch with the hand's real roll dumps a sharp twist at the wrist. Instead
-// we roll the arm to match the hand, leaving the wrist as pure swing. 0 = old twist-at-wrist,
-// 1 = full roll redistribution.
-const TWIST_MIN = 1.0;
+// Signed angle from `a` to `b` about `axis` (all unit; a and b perpendicular to axis).
+function signedAngle(a: V3, b: V3, axis: V3): number {
+  return Math.atan2(dot(cross(a, b), axis), dot(a, b));
+}
 
-// The VRM humanoid skeleton has no forearm twist bone, so a forearm roll concentrates at the elbow
-// (skin pinch) and an upper-arm roll at the shoulder. Real arms spread pronation gradually via
-// twist bones we don't have, so the best approximation is to split the roll across both arm bones
-// — each joint then shows only part of the twist. This is the upper arm's share (rest goes to the
-// forearm): 0 = all forearm (elbow), 1 = all shoulder, 0.5 = even split.
-const ARM_ROLL_UPPER_SHARE = 0.5;
+// Twist of `q` about the unit `axis` (swing-twist split, twist applied first), in (-π, π]. The
+// atan2 form is sign-agnostic: q and -q give the same angle.
+function twistAngle(q: Quaternion, axis: V3): number {
+  let a = 2 * Math.atan2(q.x * axis[0] + q.y * axis[1] + q.z * axis[2], q.w);
+  if (a > Math.PI) a -= 2 * Math.PI;
+  if (a <= -Math.PI) a += 2 * Math.PI;
+  return a;
+}
 
-// Solve one arm: upper + lower arm + hand bones, with twist minimisation when the hand frame is
-// known. Bone directions are always preserved exactly; TWIST_MIN only redistributes the roll.
+// ── Arm solve: elbow hinge ───────────────────────────────────────────────────
+// The elbow is a hinge, so the plane through shoulder, elbow and wrist fixes the upper arm's roll
+// whenever the elbow is bent, and the hand only adds forearm twist (pronation/supination) on top.
+// Rolling the whole arm to the hand instead needs some reference roll to split against, and a
+// halfway split between two rolls flips sides once they disagree by more than half a turn.
+//
+// VRM rest (T-pose, palms down): flexing the elbow swings the forearm forward (+Z), so the hinge
+// axis is cross(rest, +Z) — -Y for the left arm, +Y for the right.
+
+// Below BEND_LO the shoulder–elbow–wrist plane is noise (it flips sign as the arm passes straight);
+// above BEND_HI it is trusted fully. In between, the hinge axis blends from a reference to it.
+const BEND_LO = (8 * Math.PI) / 180;
+const BEND_HI = (25 * Math.PI) / 180;
+
+// Forearm twist about its own axis, measured from the hand. 0 is the hinge frame's neutral (back of
+// the hand facing along the hinge axis — a handshake with the elbow bent). Forearms turn roughly
+// ±90° from there; beyond TWIST_SOFT the reading fades out, reaching 0 at TWIST_HARD, so a reading
+// near the impossible ±180° (where the angle wraps) can't flip the forearm.
+const TWIST_SOFT = (100 * Math.PI) / 180;
+const TWIST_HARD = (150 * Math.PI) / 180;
+// Same for the wrist's swing (flex/deviation, before WRIST_SWING_GAIN): a real wrist bends well
+// under 90°.
+const SWING_SOFT = (90 * Math.PI) / 180;
+const SWING_HARD = (140 * Math.PI) / 180;
+
+// Landmark visibility → bone confidence (see the `confidence` output). MediaPipe still estimates
+// landmarks it can't see (out of frame, occluded); they are used, but flagged as unreliable.
+const VIS_LO = 0.2;
+const VIS_HI = 0.8;
+function visConf(...lms: Landmark[]): number {
+  return smoothstep(VIS_LO, VIS_HI, Math.min(...lms.map((l) => l.visibility ?? 1)));
+}
+// Forearm confidence without hand landmarks: its twist falls back to neutral, which is a guess.
+const NO_HAND_CONF = 0.6;
+// The hand frame's roll comes from the across-the-palm direction. With the palm edge-on to the
+// camera that direction runs along the depth axis, MediaPipe's noisiest coordinate, and the twist
+// reading jitters several times more than with the palm facing the camera (measured on recorded
+// webcam frames). Confidence in the forearm twist and the wrist falls to EDGE_ON_CONF there.
+const EDGE_ON_CONF = 0.4;
+const FACING_LO = 0.15; // |back-of-hand normal · camera axis| at and below which the palm is edge-on
+const FACING_HI = 0.6;
+
+type ArmSolve = { pose: NormalizedPose; confidence: BoneConfidence };
+
+// Solve one arm: upper + lower arm (+ hand when the hand frame is known).
 function solveArm(
   side: 'left' | 'right',
   shoulder: Landmark,
@@ -274,65 +276,89 @@ function solveArm(
   wrist: Landmark,
   parentWorld: Quaternion, // chest · shrug
   handW: Quaternion | null,
-  entries: [VRMBoneName, Quaternion][]
+  entries: [VRMBoneName, Quaternion][],
+  confidence: BoneConfidence
 ): void {
-  if (!ok(elbow)) return;
   const L = side === 'left';
   const rest: V3 = L ? [1, 0, 0] : [-1, 0, 0];
+  const hingeRest: V3 = L ? [0, -1, 0] : [0, 1, 0];
   const upperBone: VRMBoneName = L ? 'leftUpperArm' : 'rightUpperArm';
   const lowerBone: VRMBoneName = L ? 'leftLowerArm' : 'rightLowerArm';
   const handBone: VRMBoneName = L ? 'leftHand' : 'rightHand';
   const parentInv = qinv(parentWorld);
 
-  // Baseline per-bone minimal-arc (also the fallback when there's no hand to anchor roll to).
-  const upperDir = norm(sub(elbow, shoulder)); // shoulder → elbow, world
-  const upperLocalCur = qFromUnitVectors(rest, qapply(parentInv, upperDir));
-  const upperWorldCur = qmul(parentWorld, upperLocalCur);
+  const u = norm(sub(elbow, shoulder)); // shoulder → elbow, world
+  const l = norm(sub(wrist, elbow)); // elbow → wrist, world
+  const bend = Math.acos(Math.max(-1, Math.min(1, dot(u, l))));
 
-  if (!ok(wrist)) {
-    entries.push([upperBone, upperLocalCur]);
-    return;
-  }
-  const lowerDir = norm(sub(wrist, elbow)); // elbow → wrist, world
-  const lowerLocalCur = qFromUnitVectors(
-    rest,
-    qapply(qmul(qinv(upperLocalCur), parentInv), lowerDir)
-  );
-  const lowerWorldCur = qmul(upperWorldCur, lowerLocalCur);
-
-  if (!handW) {
-    entries.push([upperBone, upperLocalCur]);
-    entries.push([lowerBone, lowerLocalCur]);
-    return;
+  // Hinge axis. Reference for a (nearly) straight arm: the rest hinge carried along by the minimal
+  // swing from rest to the upper arm's direction in the chest frame. It is perpendicular to u by
+  // construction, as is the measured plane normal, so the blend is a rotation about u.
+  const swing = qFromUnitVectors(rest, qapply(parentInv, u));
+  const nRef = qapply(parentWorld, qapply(swing, hingeRest));
+  // The plane is only as good as the wrist: an estimated (low-visibility) wrist landing on the other
+  // side of the arm line would flip it, and the upper arm's roll with it.
+  let n = nRef;
+  const w = smoothstep(BEND_LO, BEND_HI, bend) * visConf(wrist);
+  if (w > 0) {
+    const nPlane = norm(cross(u, l));
+    n = qapply(axisAngle(u, w * signedAngle(nRef, nPlane, u)), nRef);
   }
 
-  // Roll the arm to match the hand, split across the upper arm and forearm so neither joint shows
-  // the full twist (see ARM_ROLL_UPPER_SHARE — the skeleton has no forearm twist bone to spread it
-  // gradually). The forearm always points along lowerDir with the full hand roll, so the wrist
-  // stays pure swing; the upper arm takes a fraction of the roll, the forearm joint the rest.
-  const handAxis = qapply(handW, rest); // hand's forward (finger) direction, world
-  const forearmMt = qmul(qFromUnitVectors(handAxis, lowerDir), handW);
-  const upperMt = qmul(qFromUnitVectors(lowerDir, upperDir), forearmMt);
+  // Upper arm: rest → u, rest hinge → n. frameToQuat maps +X and +Y to its two arguments.
+  const upperWorld = L ? frameToQuat(u, neg(n)) : frameToQuat(neg(u), n);
 
-  const upperWorld = slerp(upperWorldCur, upperMt, TWIST_MIN * ARM_ROLL_UPPER_SHARE);
-  const forearmWorld = slerp(lowerWorldCur, forearmMt, TWIST_MIN);
-
-  const wristLoc = scaleSwing(
-    qmul(qinv(forearmWorld), handW),
-    [1, 0, 0],
-    WRIST_SWING_GAIN
+  // Forearm: bend about the hinge. Where n leans on the reference it may miss the wrist slightly,
+  // so swing the remainder — the forearm always points exactly along elbow → wrist.
+  let forearmWorld = qmul(axisAngle(n, bend), upperWorld);
+  forearmWorld = qmul(
+    qFromUnitVectors(qapply(forearmWorld, rest), l),
+    forearmWorld
   );
+
+  // Forearm twist from the hand. The wrist can't twist, so the hand bone keeps only the swing
+  // (flex/deviation) — any twist the forearm didn't take (a faded, implausible reading) is dropped
+  // rather than left in the wrist, where it would flip as the reading wraps through ±180°.
+  let wristLocal: Quaternion | null = null;
+  if (handW) {
+    const tw = twistAngle(qmul(qinv(forearmWorld), handW), rest);
+    const fade = 1 - smoothstep(TWIST_SOFT, TWIST_HARD, Math.abs(tw));
+    forearmWorld = qmul(forearmWorld, axisAngle(rest, tw * fade));
+    const rel = qmul(qinv(forearmWorld), handW); // = swing · twist(residual)
+    const swing = qmul(rel, axisAngle(rest, -twistAngle(rel, rest)));
+    // A swing far beyond a wrist's range means the hand and pose landmarks disagree about where
+    // the forearm points; near 180° its axis is undefined and flips. Fade it out like the twist.
+    const swingAngle = 2 * Math.acos(Math.min(1, Math.abs(swing.w)));
+    const swingFade = 1 - smoothstep(SWING_SOFT, SWING_HARD, swingAngle);
+    wristLocal = scaleAngle(swing, WRIST_SWING_GAIN * swingFade);
+  }
+
+  // How well the hand frame's roll is measurable (see EDGE_ON_CONF).
+  const rollConf = handW
+    ? EDGE_ON_CONF +
+      (1 - EDGE_ON_CONF) *
+        smoothstep(FACING_LO, FACING_HI, Math.abs(qapply(handW, [0, 1, 0])[2]))
+    : NO_HAND_CONF;
+
   entries.push([upperBone, qmul(parentInv, upperWorld)]);
   entries.push([lowerBone, qmul(qinv(upperWorld), forearmWorld)]);
-  entries.push([handBone, wristLoc]);
+  // The upper arm's roll comes from the plane, which needs the wrist (see w above).
+  confidence[upperBone] = visConf(shoulder, elbow) * (1 - smoothstep(BEND_LO, BEND_HI, bend) * (1 - visConf(wrist)));
+  confidence[lowerBone] = visConf(elbow, wrist) * rollConf;
+  if (wristLocal) {
+    entries.push([handBone, wristLocal]);
+    confidence[handBone] = visConf(wrist) * rollConf;
+  }
 }
+
+const EMPTY: ArmSolve = { pose: new NormalizedPose(), confidence: {} };
 
 function convertArms(
   rawPts: Landmark[],
   leftHandRaw?: Landmark[],
   rightHandRaw?: Landmark[]
-): NormalizedPose {
-  if (rawPts.length < 33) return new NormalizedPose();
+): ArmSolve {
+  if (rawPts.length < 33) return EMPTY;
   const pts = rawPts.map(flipYZ);
 
   const ls = pts[BP.leftShoulder],
@@ -345,8 +371,9 @@ function convertArms(
     rh = pts[BP.rightHip];
 
   const entries: [VRMBoneName, Quaternion][] = [];
+  const confidence: BoneConfidence = {};
 
-  if (!ok(ls) || !ok(rs)) return new NormalizedPose();
+  if (!ok(ls) || !ok(rs)) return EMPTY;
 
   // ── Torso quaternion — same computation as pose_torso_head_to_bones ───────
   // We need this to express arm rotations relative to the chest (the torso bone the upper arm hangs from).
@@ -382,7 +409,8 @@ function convertArms(
     lw,
     qmul(torsoQ, leftShrug),
     handWorldFrame(leftHandRaw, 'left'),
-    entries
+    entries,
+    confidence
   );
   solveArm(
     'right',
@@ -391,16 +419,17 @@ function convertArms(
     rw,
     qmul(torsoQ, rightShrug),
     handWorldFrame(rightHandRaw, 'right'),
-    entries
+    entries,
+    confidence
   );
 
-  return new NormalizedPose(entries);
+  return { pose: new NormalizedPose(entries), confidence };
 }
 
 @SignalNode({
   label: 'Pose → Arm Bones',
   description:
-    'Converts MediaPipe BlazePose world landmarks to VRM arm local rotations (upper+lower arm, both sides). When hand landmarks are connected, also sets the wrist (hand bone) orientation. Use as an alternative to IK-driven arm tracking.',
+    'Converts MediaPipe BlazePose world landmarks to VRM arm local rotations (upper+lower arm, both sides), solving the elbow as a hinge. When hand landmarks are connected, also sets the forearm twist and the wrist (hand bone) orientation. Emits a per-bone confidence from landmark visibility for pose_smooth. Use as an alternative to IK-driven arm tracking.',
   tags: ["mocap"],
   color: '#4a6a8a',
 })
@@ -408,8 +437,8 @@ export class PoseArmsToBones extends Node {
   static readonly kind = 'pose_arms_to_bones';
 
   @valueIn('pose', 'LandmarkList') poseIn!: () => Landmark[] | undefined;
-  // Optional hand landmarks — when present, the wrist (hand bone) orientation is derived from
-  // them, since pose tracking carries no hand roll/flex.
+  // Optional hand landmarks — when present, the forearm twist and the wrist (hand bone)
+  // orientation are derived from them, since pose tracking carries no hand roll/flex.
   @valueIn('leftHand', 'LandmarkList') leftHandIn!: () =>
     | Landmark[]
     | undefined;
@@ -418,12 +447,27 @@ export class PoseArmsToBones extends Node {
     | undefined;
   @valueIn('enabled', 'Bool') enabledIn!: () => boolean | null | undefined;
 
-  @valueOut('pose', 'NormalizedPose')
-  poseOut = (): NormalizedPose | undefined => {
+  // Both outputs come from one solve; memoized on the input identities so pulling both costs one.
+  private _memoKey: [unknown, unknown, unknown] | null = null;
+  private _memo: ArmSolve | undefined;
+
+  private _solve(): ArmSolve | undefined {
     const enabled = this.enabledIn() ?? true;
-    if (!enabled) return new NormalizedPose();
+    if (!enabled) return EMPTY;
     const pts = this.poseIn();
     if (!pts?.length) return undefined;
-    return convertArms(pts, this.leftHandIn(), this.rightHandIn());
-  };
+    const lh = this.leftHandIn();
+    const rh = this.rightHandIn();
+    const k = this._memoKey;
+    if (k && k[0] === pts && k[1] === lh && k[2] === rh) return this._memo;
+    this._memoKey = [pts, lh, rh];
+    this._memo = convertArms(pts, lh, rh);
+    return this._memo;
+  }
+
+  @valueOut('pose', 'NormalizedPose')
+  poseOut = (): NormalizedPose | undefined => this._solve()?.pose;
+
+  @valueOut('confidence', 'BoneConfidence')
+  confidenceOut = (): BoneConfidence | undefined => this._solve()?.confidence;
 }
