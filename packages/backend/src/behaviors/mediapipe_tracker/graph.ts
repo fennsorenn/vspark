@@ -23,6 +23,14 @@ export const HEAD_CALIB_BONES = [
   'rightHand',
 ] as const;
 
+// pose_arms_to_bones solves each upper arm relative to the measured shoulder shrug, cancelling the
+// clavicle lift so the arm still points at the elbow. head_calib then removes the shrug's neutral
+// offset from the clavicle; without this the arm would be rotated by that offset too.
+export const HEAD_CALIB_PRESERVE = [
+  { bone: 'leftUpperArm', parents: ['leftShoulder'] },
+  { bone: 'rightUpperArm', parents: ['rightShoulder'] },
+] as const;
+
 // VRM bone names captured by the finger_calib node. Held separate from head calibration
 // because the user-facing capture ritual is different — fingers must be held in the avatar's
 // T-pose finger rest (straight, thumb relaxed-out), not a body-neutral pose.
@@ -91,6 +99,29 @@ export const FINGER_MIRROR_PAIRS = [
 // node's `enabled` input. `useIk` defaults to false (quaternion arms).
 
 // Helper to keep the descriptor readable: a behavior_config node that reads one field.
+/**
+ * Arm-solve technique switches: `armSolve.<field>` in the behavior config → a value port on
+ * `pose_arms` (ArmSolveOptions) or `arm_smooth` (pose_smooth). Exposed so each technique's effect
+ * can be compared live; the defaults are the full current solve.
+ */
+export const ARM_SOLVE_SWITCHES: readonly [
+  string,
+  'pose_arms' | 'arm_smooth',
+  unknown,
+][] = [
+  ['mode', 'pose_arms', 'hinge'],
+  ['keepLowVis', 'pose_arms', true],
+  ['planeWristGate', 'pose_arms', true],
+  ['handSwingOnly', 'pose_arms', true],
+  ['swingFade', 'pose_arms', true],
+  ['edgeOnConf', 'pose_arms', true],
+  ['poseDorsalConf', 'pose_arms', true],
+  ['smoothing', 'arm_smooth', true],
+  ['jumpHold', 'arm_smooth', true],
+];
+/** Config fields whose target port is named differently. */
+const ARM_SOLVE_PORT: Record<string, string> = { smoothing: 'enabled' };
+
 function cfgNode(
   id: string,
   field: string,
@@ -187,6 +218,9 @@ export const MEDIAPIPE_PIPELINE_TEMPLATE: Omit<GraphDescriptor, 'id'> = {
       kind: 'pose_arms_to_bones',
       position: { x: 360, y: 80 },
     },
+    // Eases arm bones whose landmarks MediaPipe can only estimate (low visibility, no hand)
+    // instead of letting them jump.
+    { id: 'arm_smooth', kind: 'pose_smooth', position: { x: 580, y: 80 } },
 
     // ── Left hand stream ──────────────────────────────────────────────────────
     { id: 'unpack_lh', kind: 'unpack_event', position: { x: 120, y: 200 } },
@@ -279,6 +313,14 @@ export const MEDIAPIPE_PIPELINE_TEMPLATE: Omit<GraphDescriptor, 'id'> = {
     cfgNode('cfg_invertY', 'ikCalibration.invertY', false, { x: 520, y: 780 }),
     cfgNode('cfg_invertZ', 'ikCalibration.invertZ', false, { x: 520, y: 820 }),
 
+    // ── Config: arm-solve technique switches (A/B comparison) ────────────────
+    // See ArmSolveOptions in pose_arms_to_bones; defaults = the full current solve.
+    ...ARM_SOLVE_SWITCHES.map(([field, , def], i) =>
+      cfgNode(`cfg_arm_${field}`, `armSolve.${field}`, def, {
+        x: 160,
+        y: 680 + i * 40,
+      })
+    ),
     // ── Config: head calibration ─────────────────────────────────────────────
     cfgNode('cfg_head_pitchGain', 'headCalibration.pitchGain', 2.0, {
       x: 160,
@@ -518,6 +560,18 @@ export const MEDIAPIPE_PIPELINE_TEMPLATE: Omit<GraphDescriptor, 'id'> = {
     {
       fromNodeId: 'pose_arms',
       fromPort: 'pose',
+      toNodeId: 'arm_smooth',
+      toPort: 'pose',
+    },
+    {
+      fromNodeId: 'pose_arms',
+      fromPort: 'confidence',
+      toNodeId: 'arm_smooth',
+      toPort: 'confidence',
+    },
+    {
+      fromNodeId: 'arm_smooth',
+      fromPort: 'pose',
       toNodeId: 'pose_merge',
       toPort: 'poses',
       kind: 'list',
@@ -655,6 +709,14 @@ export const MEDIAPIPE_PIPELINE_TEMPLATE: Omit<GraphDescriptor, 'id'> = {
       kind: 'value',
     },
 
+    // ── Arm-solve technique switches ────────────────────────────────────────
+    ...ARM_SOLVE_SWITCHES.map(([field, toNodeId]) => ({
+      fromNodeId: `cfg_arm_${field}`,
+      fromPort: 'value',
+      toNodeId,
+      toPort: ARM_SOLVE_PORT[field] ?? field,
+      kind: 'value' as const,
+    })),
     // ── Enable gates ──────────────────────────────────────────────────────────
     // useIk → ik_targets.enabled, ik_out.enabled
     {

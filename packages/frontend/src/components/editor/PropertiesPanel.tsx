@@ -2910,6 +2910,119 @@ function LipsyncCalibration({
 
 // ── MediaPipe tracker props ────────────────────────────────────────────────────
 
+/** `armSolve.*` in the MediaPipe behavior config — see ARM_SOLVE_SWITCHES in the backend graph. */
+type ArmSolveConfig = {
+  mode?: 'hinge' | 'legacy';
+} & Partial<Record<ArmSolveSwitch, boolean>>;
+
+/** Technique switches, in panel order. All default to on. `hingeOnly` ones do nothing in legacy mode. */
+const ARM_SOLVE_SWITCHES = [
+  { field: 'keepLowVis', hingeOnly: false },
+  { field: 'planeWristGate', hingeOnly: true },
+  { field: 'handSwingOnly', hingeOnly: false },
+  { field: 'swingFade', hingeOnly: false },
+  { field: 'edgeOnConf', hingeOnly: false },
+  { field: 'poseDorsalConf', hingeOnly: false },
+  { field: 'smoothing', hingeOnly: false },
+  { field: 'jumpHold', hingeOnly: false },
+] as const;
+type ArmSolveSwitch = (typeof ARM_SOLVE_SWITCHES)[number]['field'];
+
+/** "Arm solve (experimental)": per-technique switches for comparing their effect live. */
+function ArmSolveSwitches({
+  cfg,
+  save,
+}: {
+  cfg: ArmSolveConfig;
+  save: (patch: Record<string, unknown>) => void;
+}) {
+  const { t } = useTranslation('properties');
+  const mode = cfg.mode ?? 'hinge';
+  return (
+    <div
+      style={{ marginTop: 8, borderTop: '1px solid #2a2a2a', paddingTop: 8 }}
+    >
+      <div
+        style={{
+          fontSize: 11,
+          color: '#666',
+          textTransform: 'uppercase',
+          marginBottom: 4,
+          display: 'flex',
+          alignItems: 'center',
+          gap: 4,
+        }}
+      >
+        {t('mediapipe.armSolve.header')}
+        <HelpButton
+          topic="behaviors"
+          anchor="arm-solve"
+          tip={t('help.mpArmSolve')}
+          size={12}
+        />
+      </div>
+      <div style={{ fontSize: 10, color: '#777', marginBottom: 6 }}>
+        {t('mediapipe.armSolve.hint')}
+      </div>
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: 8,
+          marginBottom: 6,
+        }}
+      >
+        <span style={{ fontSize: 12, color: '#888', flex: 1 }}>
+          {t('mediapipe.armSolve.mode')}
+        </span>
+        <select
+          className="vs-mp-arm-mode"
+          value={mode}
+          onChange={(e) => save({ mode: e.target.value })}
+          style={{
+            background: '#1e1e1e',
+            border: '1px solid #3a3a3a',
+            color: '#ccc',
+            borderRadius: 4,
+            fontSize: 12,
+          }}
+        >
+          <option value="hinge">{t('mediapipe.armSolve.modeHinge')}</option>
+          <option value="legacy">{t('mediapipe.armSolve.modeLegacy')}</option>
+        </select>
+      </div>
+      {ARM_SOLVE_SWITCHES.map(({ field, hingeOnly }) => {
+        const inactive = hingeOnly && mode === 'legacy';
+        return (
+          <label
+            key={field}
+            title={t(`mediapipe.armSolve.${field}Tip`)}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 8,
+              marginBottom: 4,
+              opacity: inactive ? 0.4 : 1,
+            }}
+          >
+            <span style={{ fontSize: 12, color: '#888', flex: 1 }}>
+              {t(`mediapipe.armSolve.${field}`)}
+            </span>
+            <input
+              type="checkbox"
+              className={`vs-mp-arm-${field}`}
+              checked={cfg[field] ?? true}
+              disabled={inactive}
+              onChange={(e) => save({ [field]: e.target.checked })}
+              style={{ cursor: inactive ? 'default' : 'pointer' }}
+            />
+          </label>
+        );
+      })}
+    </div>
+  );
+}
+
 function MediapipeTrackerProps({ comp }: { comp: Behavior }) {
   const { t } = useTranslation('properties');
   const { projectId } = useParams<{ projectId: string }>();
@@ -2935,6 +3048,7 @@ function MediapipeTrackerProps({ comp }: { comp: Behavior }) {
       rollGain?: number;
       restPitch?: number;
     };
+    armSolve?: ArmSolveConfig;
   };
   const headCfg = cfg.headCalibration ?? {};
   const head = {
@@ -2973,6 +3087,10 @@ function MediapipeTrackerProps({ comp }: { comp: Behavior }) {
   };
   const saveHead = (patch: Record<string, unknown>) => {
     save({ headCalibration: { ...headCfg, ...patch } });
+  };
+  const armCfg = cfg.armSolve ?? {};
+  const saveArm = (patch: Record<string, unknown>) => {
+    save({ armSolve: { ...armCfg, ...patch } });
   };
 
   const graphId = `mediapipe_tracker:${comp.id}`;
@@ -3131,6 +3249,7 @@ function MediapipeTrackerProps({ comp }: { comp: Behavior }) {
         <div style={{ fontSize: 10, color: '#555', marginBottom: 6 }}>
           {t('mediapipe.ikHint')}
         </div>
+        {!useIk && <ArmSolveSwitches cfg={armCfg} save={saveArm} />}
         <div
           style={{
             fontSize: 11,

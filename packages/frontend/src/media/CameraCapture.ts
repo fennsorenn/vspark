@@ -333,18 +333,21 @@ export class CameraCapture {
       // The frame fed to MediaPipe is mirrored (selfie) in `_tick`, which is the convention its
       // hand-handedness classifier assumes — so leftHandLandmarks is the performer's true left
       // hand, consistent with the pose/arm landmarks. No swap needed here.
-      if (r.leftHandLandmarks?.[0]?.length)
-        out.leftHand = r.leftHandLandmarks[0].map((p) => ({
-          x: p.x,
-          y: p.y,
-          z: p.z,
-        }));
-      if (r.rightHandLandmarks?.[0]?.length)
-        out.rightHand = r.rightHandLandmarks[0].map((p) => ({
-          x: p.x,
-          y: p.y,
-          z: p.z,
-        }));
+      //
+      // Prefer the world landmarks: metric and isotropic, in the same hip-centred frame as
+      // poseWorldLandmarks. The image-space ones scale x and y by the frame's width and height
+      // separately (4:3 here), which skews every finger and wrist direction. Both share the same
+      // axis signs, so the image-space set remains a drop-in fallback.
+      const left = r.leftHandWorldLandmarks?.[0]?.length
+        ? r.leftHandWorldLandmarks[0]
+        : r.leftHandLandmarks?.[0];
+      const right = r.rightHandWorldLandmarks?.[0]?.length
+        ? r.rightHandWorldLandmarks[0]
+        : r.rightHandLandmarks?.[0];
+      if (left?.length)
+        out.leftHand = left.map((p) => ({ x: p.x, y: p.y, z: p.z }));
+      if (right?.length)
+        out.rightHand = right.map((p) => ({ x: p.x, y: p.y, z: p.z }));
     }
     this.onResult(out);
   }
