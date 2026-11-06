@@ -66,6 +66,8 @@ export class OverliveChatMessage extends Node {
   @valueOut('isAction', 'Bool') isAction = (): boolean => this._out().isAction;
   @valueOut('isHighlighted', 'Bool') isHighlighted = (): boolean => this._out().isHighlighted;
   @valueOut('cheerAmount', 'Float') cheerAmount = (): number => this._out().cheerAmount;
+  /** Every output above as one record — e.g. the payload of a `send_trigger`. */
+  @valueOut('data', 'Any') data = (): ChatMessageOut => ({ ...this._out() });
 
   @eventIn('event', 'Any')
   onEvent(ev: Event<unknown>): void {

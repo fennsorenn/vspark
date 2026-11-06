@@ -4,9 +4,12 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 // is observable and doesn't require a real DB/kit. Path resolves to the same
 // module the node imports (`src/overlive/manager.js`).
 const sendChat = vi.fn(async () => {});
+const getDefaultAccountId = vi.fn((projectId: string) =>
+  projectId === 'p1' ? 'acc-default' : null
+);
 vi.mock('../src/overlive/manager.js', () => ({
-  getOverliveManager: () => ({ sendChat }),
-  initOverliveManager: () => ({ sendChat }),
+  getOverliveManager: () => ({ sendChat, getDefaultAccountId }),
+  initOverliveManager: () => ({ sendChat, getDefaultAccountId }),
 }));
 
 import { loneNode } from './helpers/nodeHarness.js';
@@ -55,6 +58,20 @@ describe('overlive_send_chat', () => {
       fields: ['user'],
     });
     n.deliver('fire', undefined);
+    expect(sendChat).not.toHaveBeenCalled();
+  });
+
+  it('an empty account sends as the project default account', () => {
+    loneNode('overlive_send_chat', { template: 'hi', _projectId: 'p1' }).deliver('fire', undefined);
+    expect(sendChat).toHaveBeenCalledWith('acc-default', undefined, 'hi');
+    // An empty account PORT value counts as empty too.
+    loneNode('overlive_send_chat', { template: 'yo', account: '', _projectId: 'p1' }).deliver(
+      'fire',
+      undefined
+    );
+    expect(sendChat).toHaveBeenLastCalledWith('acc-default', undefined, 'yo');
+    sendChat.mockClear();
+    loneNode('overlive_send_chat', { template: 'hi', _projectId: 'p2' }).deliver('fire', undefined);
     expect(sendChat).not.toHaveBeenCalled();
   });
 
