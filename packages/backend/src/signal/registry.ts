@@ -129,6 +129,13 @@ import { ObsReplayPath } from './nodes/obs/replay_path.js';
 import { ObsConnectionState } from './nodes/obs/connection_state.js';
 // Render-client lifecycle (vspark-native, driven by the browser-source bridge)
 import { ClientLifecycle } from './nodes/client_lifecycle.js';
+// General-purpose logic nodes (Actions plan, phase 1)
+import { Regex } from './nodes/regex.js';
+import { IfElse } from './nodes/if_else.js';
+import { Equals } from './nodes/equals.js';
+import { ChatRankNode } from './nodes/chat_rank.js';
+import { TextFormat } from './nodes/text_format.js';
+import { LogicId } from './nodes/logic_id.js';
 
 // ──────────────────────────────────────────────────────────────────────────────
 // All known node kinds. Import a new class here to auto-register it.
@@ -262,6 +269,14 @@ const ALL_NODE_CLASSES: SignalNodeClass[] = [
   SystemHotkey,
   // Flow control
   Cycle,
+  IfElse,
+  // Text / comparison helpers
+  Regex,
+  TextFormat,
+  Equals,
+  ChatRankNode,
+  // Variables
+  LogicId,
   // Runtime output
   SetExpression,
 ];

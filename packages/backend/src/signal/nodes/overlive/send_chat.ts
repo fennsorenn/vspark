@@ -2,6 +2,7 @@ import { SignalNode } from '@vspark/shared/signal';
 import { Node, type Emitter } from '@vspark/shared/node';
 import { eventIn, valueIn, eventOut } from '@vspark/shared/node_decorators';
 import { getOverliveManager } from '../../../overlive/manager.js';
+import { renderTemplate } from '../../textTemplate.js';
 
 interface SendChatConfig {
   /** User-defined field NAMES (+ order). Each becomes a labeled value-in port
@@ -55,11 +56,9 @@ export class OverliveSendChat extends Node {
     const tpl = this.template() ?? cfg.template ?? '';
     if (typeof tpl !== 'string' || tpl.length === 0) return '';
     const fields = new Set(this._fieldNames());
-    return tpl.replace(/\$\{(\w+)\}/g, (_m, name: string) => {
-      if (!fields.has(name)) return '';
-      const v = this.input(name);
-      return v === null || v === undefined ? '' : String(v);
-    });
+    return renderTemplate(tpl, (name) =>
+      fields.has(name) ? this.input(name) : undefined
+    );
   }
 
   @eventIn('fire', 'Trigger')
