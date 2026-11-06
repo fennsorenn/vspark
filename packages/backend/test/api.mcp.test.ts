@@ -375,6 +375,26 @@ describe('assistant config API', () => {
     expect(res.body.data.model).toBe('m2');
   });
 
+  it('sets, keeps and clears maxTokens', async () => {
+    let res = await request(app)
+      .put('/api/assistant-config')
+      .send({ baseUrl: 'http://x', maxTokens: 4096 })
+      .expect(200);
+    expect(res.body.data.maxTokens).toBe(4096);
+    // Omitted or invalid → unchanged.
+    res = await request(app)
+      .put('/api/assistant-config')
+      .send({ model: 'm2', maxTokens: -5 })
+      .expect(200);
+    expect(res.body.data.maxTokens).toBe(4096);
+    // null → back to the client default (absent).
+    res = await request(app)
+      .put('/api/assistant-config')
+      .send({ maxTokens: null })
+      .expect(200);
+    expect(res.body.data.maxTokens).toBeUndefined();
+  });
+
   it('resolves the endpoint from generic env, with legacy fallback', async () => {
     const { resolveAssistantConfig } = await import('../src/routes/config.js');
     const saved = {

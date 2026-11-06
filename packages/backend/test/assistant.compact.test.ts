@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
+  capToolResult,
   compactToolHistory,
   pruneOldestGroups,
   sanitizeAssistantText,
@@ -182,5 +183,17 @@ describe('stripStaleImages', () => {
     expect(msgs[0].content).toBe(
       'Loaded image asset "border.png".\n[1 attached image omitted from history]'
     );
+  });
+});
+
+describe('capToolResult', () => {
+  it('passes short results through unchanged', () => {
+    expect(capToolResult('abc', 10)).toBe('abc');
+  });
+
+  it('marks a cut result as incomplete with the real length', () => {
+    const out = capToolResult('x'.repeat(25), 10);
+    expect(out.startsWith('x'.repeat(10) + '\n[truncated:')).toBe(true);
+    expect(out).toContain('showing 10 of 25 chars');
   });
 });

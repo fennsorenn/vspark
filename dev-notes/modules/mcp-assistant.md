@@ -287,7 +287,7 @@ thing to update** — see [Adding / changing a tool](#adding--changing-a-tool).
 
 | File | Role |
 |------|------|
-| `llm.ts` | Minimal OpenAI-compatible chat client (`chatCompletion`). Dependency-free (global `fetch`), non-streaming, `temperature: 0`. Works against vLLM / Ollama / OpenAI. Posts to `<baseUrl>/v1/chat/completions` with optional `Authorization: Bearer <apiKey>`. |
+| `llm.ts` | Minimal OpenAI-compatible chat client (`chatCompletion`). Dependency-free (global `fetch`), non-streaming, `temperature: 0`. Works against vLLM / Ollama / OpenAI. Posts to `<baseUrl>/v1/chat/completions` (`apiUrl()` strips a trailing `/v1` from `baseUrl` first, so either convention works and `/v1` is never doubled) with optional `Authorization: Bearer <apiKey>`. |
 | `agent.ts` | `AssistantAgent` — holds conversation state and the tool-calling loop. Also owns the **context-management** layer: lazy tool-loading with a per-turn group reset (`TOOL_GROUPS` + the `enable_tools` meta-tool, `activeTools()`), three-pass history compaction (`compactToolHistory`), and overflow recovery (`completeWithRecovery` → `pruneOldestGroups`). |
 | `manager.ts` | `AssistantManager` — one agent per WS connection; routes inbound `assistant_*` messages and streams events back to that single socket. |
 
@@ -323,8 +323,10 @@ management](#context-management)).
    action tool, `onToolCall`, dispatch through `callTool` (which handles the
    `enable_tools` meta-tool agent-side, **auto-injects this editor's `sessionId`
    for `render_feed_template`**, and routes everything else to the MCP client),
-   `onToolResult`, and push a `role: 'tool'` message (text truncated to 4000
-   chars). If the tool returned image(s) (`view_asset`, `render_feed_template`),
+   `onToolResult`, and push a `role: 'tool'` message (text capped at
+   `TOOL_RESULT_CAP` = 4000 chars by `capToolResult`, which appends a
+   `[truncated: showing N of M chars …]` marker so the model never mistakes a
+   partial list for the whole one). If the tool returned image(s) (`view_asset`, `render_feed_template`),
    they ride along on that tool message as `image_url` content parts (gemma
    accepts images in tool-role messages). `stripStaleImages(messages)` prunes
    images out of older turns before each round so blobs aren't re-transmitted.
@@ -538,7 +540,7 @@ are inlined to cached data URLs first via **`inlineCssAssetUrls`**
 ## Config
 
 `AppConfig` (`packages/shared/src/types.ts`) gains an optional
-`assistant?: AssistantConfig { enabled, baseUrl, apiKey, model }`, plus an
+`assistant?: AssistantConfig { enabled, baseUrl, apiKey, model, maxTokens? }` (`maxTokens` = the per-call `max_tokens` budget, default 1024; env `ASSISTANT_MAX_TOKENS`; `PUT /api/assistant-config` takes a positive integer to set it or `null` to clear it), plus an
 `AssistantConfigPublic` (apiKey replaced by `hasApiKey: boolean`).
 
 `routes/config.ts`:
@@ -559,7 +561,7 @@ There is **no hard-coded default model**. `DEFAULT_ASSISTANT_MODEL` in
 model comes from `config.json` or the `ASSISTANT_MODEL` env var, and when neither
 is set it stays empty. When the manager builds an agent with an empty model it
 **auto-detects** one from the endpoint: `fetchFirstModel(baseUrl, apiKey)`
-(`llm.ts`) does a `GET <baseUrl>/v1/models` and returns the first model id (or
+(`llm.ts`) does a `GET <baseUrl>/v1/models` (same `apiUrl()` normalization) and returns the first model id (or
 `''` if it can't be determined), and `AssistantManager` caches the result per
 `baseUrl` in its `modelCache`. So the assistant works **out of the box against any
 single-model OpenAI-compatible server** (vLLM, llama.cpp, Ollama) without naming a

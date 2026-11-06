@@ -570,6 +570,9 @@ export interface AssistantConfig {
   /** Bearer token for the LLM endpoint. Optional for keyless local servers. */
   apiKey: string;
   model: string;
+  /** Completion budget per LLM call (`max_tokens`). Unset → the client default
+   *  (1024). Raise it for models that think or summarize large reads. */
+  maxTokens?: number;
 }
 
 export interface AppConfig {
@@ -600,6 +603,7 @@ export interface AssistantConfigPublic {
   baseUrl: string;
   hasApiKey: boolean;
   model: string;
+  maxTokens?: number;
 }
 
 export interface WSMessage {

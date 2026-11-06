@@ -24,6 +24,18 @@ const KEEP_LAST_MESSAGES = 12;
 /** Hard cap on total message-content chars (~6k tokens) so a multi-turn
  *  conversation degrades gracefully instead of overflowing a 16k window. */
 const HISTORY_CHAR_BUDGET = 24000;
+/** A fresh tool result is cut to this many chars before the model sees it. */
+export const TOOL_RESULT_CAP = 4000;
+
+/** Cap a fresh tool result for the model. A cut result says so — without the
+ *  marker a partial list reads as the complete one. */
+export function capToolResult(text: string, cap = TOOL_RESULT_CAP): string {
+  if (text.length <= cap) return text;
+  return (
+    text.slice(0, cap) +
+    `\n[truncated: showing ${cap} of ${text.length} chars — this result is incomplete; narrow the request (filter, id, single item) to see the rest]`
+  );
+}
 /** Older results from these tools are still reasoning fuel — keep them (capped).
  *  Everything else is an action whose stale result collapses to its id/ok. */
 const REFERENCE_TOOL = /^(list_|lookup_|get_)/;
@@ -450,7 +462,7 @@ export class AssistantAgent {
             args
           );
           events.onToolResult({ id: call.id, ok, text });
-          const capped = text.slice(0, 4000);
+          const capped = capToolResult(text);
           // A tool that returns image(s) (view_asset, render_feed_template) ships
           // them in the tool message so the (vision) model can see them.
           this.messages.push({
