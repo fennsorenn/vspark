@@ -36,7 +36,7 @@ Decorators live in `packages/shared/src/node_decorators.ts`:
 
 Only `body_calibration` and `arm_ik_calibration` are durable today — user-produced calibration, stored as plain numbers/arrays so the JSON round-trip is lossless. **Everything else must stay scratch.** Per-frame state (`unpack_event` payloads, scaled visemes, interceptor frames) persisted at frame rate cost a DB write per frame, and the round-trip strips class identity: a `Blendshapes` / `NormalizedPose` comes back from SQLite as a plain object and throws in the first consumer that calls a method on it. Stale `_nodeState` written before the split is simply ignored — scratch nodes never read the owner's store.
 
-**Lifecycle hooks**: the constructor runs **before** ports are wired; the `protected onBind()` hook runs **after** bind, so dynamic-port setup goes in `onBind()`, not the constructor.
+**Lifecycle hooks**: the constructor runs **before** ports are wired; the `protected onBind()` hook runs **after** bind, so dynamic-port setup goes in `onBind()`, not the constructor. `protected onUnbind()` runs when the graph is disposed (stop / rebuild): release external resources and pending timers there (`set_data`, `set_expression`, the combo nodes).
 
 **Dynamic ports** (no new decorator machinery — decorations are the static skeleton, `inferPorts` declares the actual current ports, which may have no decorated member):
 - `this.input(name)` — pull a dynamic value-in by name.
@@ -78,7 +78,7 @@ Transport is folded **into** the type. The old `PortKind` / `PortDecl.kind` / `p
 
 - `packages/shared/src/signal_types.ts` — the `ResolvedType` AST: `primitive | record | event | list | unknown`. Transport is derived from a type via `transportOf`. `isAssignable` is structural width subtyping on records, an `unknown` wildcard in **both** directions, and one documented special case: a `List<E>` target accepts a source of `E` or `List<E>`. Both the `Any` and `BehaviorConfig` type tags map to `unknown` (`BehaviorConfig` is the wildcard escape-hatch output of `behavior_config`).
 - `packages/shared/src/inference.ts` — `InferGraph`: `tryAddEdge` (forward propagation + transactional rollback if a downstream port is invalidated), `removeEdge`, `setConfig`, `portsOf`.
-- `packages/shared/src/infer_nodes.ts` — the `INFER_BY_KIND` table mapping kind → `inferPorts`. Imported by **both** the backend engine and the frontend canvas so the two never drift. Dynamic nodes (`pack_event`, `queue_events`, `unpack_event`) live here.
+- `packages/shared/src/infer_nodes.ts` — the `INFER_BY_KIND` table mapping kind → `inferPorts`. Imported by **both** the backend engine and the frontend canvas so the two never drift. Dynamic nodes (`pack_event`, `queue_events`, `unpack_event`, `cycle`, `regex`, `text_format`, and the pass-through gates `if_else` / `cooldown`) live here.
 - `NodeKindMeta` now carries `{ name, resolved, typeTag, transport }` per port plus a `dynamic` flag.
 
 ## Node Registry — `signal/registry.ts`
@@ -176,6 +176,55 @@ first); ties break by registration order. Interceptors receive the frame after T
 | `pose_interceptor_broadcast` (label "Send Intercepted Pose") | Exit for a pose interceptor graph; advances the chain or performs the final broadcast |
 | `on_blendshapes_broadcast` (label "Intercept Blendshapes") | Entry for a blendshape interceptor graph; receives a `BlendshapeInterceptorFrame`. The frame type is deliberately distinct from `InterceptorFrame` so a pose frame can't be wired into a blendshape terminal. |
 | `blendshapes_interceptor_broadcast` (label "Send Intercepted Blendshapes") | Exit for a blendshape interceptor graph; advances the chain or performs the final broadcast |
+
+### Logic helpers — conditions, text, variables, triggers, combos
+
+General-purpose nodes added for the Actions plan (phase 1,
+[plans/actions.md](../plans/actions.md)); each is usable in any Logic graph. Plan
+decisions they implement — **Decided** (user, 2026-11-06): regex is a pure node and
+gating is a separate `if_else`; variables and triggers are project-wide; variables
+take an optional `scope`; a cooldown takes an optional shared `group`; combos are two
+separate kinds, threshold and timeout.
+
+Pull outputs are recomputed on demand; event outputs that "pass through" mirror the
+resolved type of their `in` input (`inferIfElse` / `inferCooldown`, like `cycle`).
+
+| Kind (label) | Inputs → Outputs | Behaviour |
+|---|---|---|
+| `regex` ("Regex Match") | `text`, `pattern`, `flags` → `matched` (Bool), one String per capture group, `groups` (record) | Pure; memoised on its inputs. Group outputs are dynamic (`inferRegex`) and exist only while `pattern` (and `flags`) are inline literals: a named group is exposed under its name, an unnamed one as `group<n>` where *n* is the capture index (`$n` numbering, so `(?<a>x)(y)` gives `a`, `group2`). A group never shadows `matched`/`groups` (it falls back to `group<n>`). `groups` holds the **named** groups only. First match only — `g`/`y` are stripped. Empty pattern → no match. Invalid pattern → `matched` false, groups '', warned once per node+pattern. The group scan lives in `regexGroups` (`shared/infer_nodes.ts`), cross-checked against the engine's group count. |
+| `if_else` ("If / Else") | `in` (event), `condition` (Bool) → `then`, `else` | Only boolean `true` takes `then`. |
+| `equals` | `a`, `b` → `equal` (Bool) | Strict for primitives (`1` ≠ `'1'`, case-sensitive), structural for arrays/plain objects; two unset inputs are equal. |
+| `chat_rank` ("Chat Rank") | `isSub`, `isMod`, `isBroadcaster`, `minRank` → `allowed` (Bool) | Ranks `everyone` < `sub` < `mod` < `broadcaster`; empty `minRank` = everyone, an unknown rank never allows. No VIP rank — the chat triggers expose no VIP flag. |
+| `text_format` ("Format Text") | `template`, labeled field ports (`config.fields`, like `overlive_send_chat`), `values` (record) → `text` | Pure. `${name}` resolves to the declared field port when it yields a value, else to `values[name]`, else ''. Renderer shared with `overlive_send_chat`: `backend/src/signal/textTemplate.ts` (`renderTemplate`). The canvas card has no field-name editor for it yet (`SignalNodeCard`'s `hasFieldsEditor` lists only `pack_event` / `set_data` — `overlive_send_chat` is in the same position). |
+| `logic_id` ("This Logic") | → `id` (String) | The running graph's id, from `config._logicId` (injected by `LogicManager`); '' elsewhere. Use as a variable `scope` for graph-local variables. |
+| `variable` ("Get Variable") | `name`, `scope` → `value` | Pure read; unset → nothing. See [variables.md](variables.md). |
+| `set_variable` | `fire`, `name`, `scope`, `value`, `persistent` (Bool) → `done`, `value` | Stores `value`, then fires `done`; the `value` output reads the variable (so it is the stored value on `done`). |
+| `increment_variable` | `fire`, `name`, `scope`, `by` (Float, default 1), `persistent` → `done`, `value` (Float) | Unset/non-numeric counts as 0. A non-numeric `by` is refused (warned). |
+| `cooldown` | `in` (event), `seconds`, `group` → `out`, `blocked` | Passes at most once per `seconds` (blocked events don't restart it); `seconds` ≤ 0/unset passes everything. Empty `group` → private scratch state; a group name → the "last passed" time is the short-lived variable `__cooldown/<group>` of the project, shared by every cooldown with that group (across graphs). Wall-clock compare, no timers; a clock that moved backwards counts as elapsed. |
+| `combo_threshold` ("Combo Threshold") | `in` (event), `threshold`, `window` (s), `key` → `reached`, `count` (Float) | Each counted event restarts the window; `reached` fires once per combo when `count` hits `ceil(threshold)` (min 1); the combo resets to 0 when the window runs out. A non-empty `key` already counted in this combo neither counts nor extends it (feed a username for unique chatters); empty/unwired counts every event. No positive `window` → inert. |
+| `combo_timeout` ("Combo Timeout") | `in` (event), `timeout` (s), `key` → `ended`, `count` (Float) | Each counted event restarts the timeout; `ended` fires on every expiry (also a combo of 1 — gate with `if_else`). `count` is the running count, and after `ended` the final count, held until the next counted event starts a new combo. Same `key` rule. |
+| `send_trigger` ("Send Trigger") | `fire`, `name`, `payload` (Any) | Sends a named trigger to every running Logic graph of the same project (`_projectId`); empty name / no project → nothing. |
+| `on_trigger` ("On Trigger") | `name` → `event`, `payload` | Fires when a trigger with exactly this name (trimmed) is sent in its project; empty name never fires. Receives externally on an `event` input, like the overlive / hotkey sources. |
+
+**Trigger routing** — `backend/src/triggers/router.ts` walks
+`logicManager.iterateNodes()` (the hotkey/overlive pattern), filters to `on_trigger`
+nodes of the sending project and fires each; the node checks the name against its own
+(possibly wired) `name` input. Delivery is synchronous, inside the sender's `fire`.
+Re-entrancy guard (phase-1 implementation choice, not a user decision): a send whose
+(project, name) is already being delivered further up the stack is dropped as a loop,
+and so is any send nested deeper than `MAX_TRIGGER_DEPTH` (16); each is warned once
+per (project, name, reason). So a trigger cannot synchronously re-send itself, even
+through other triggers. Behavior graphs are not in `iterateNodes()` and receive no
+triggers.
+
+**Timers and teardown** — the combo nodes keep their pending `setTimeout` on the
+instance and clear it in `onUnbind`, which `SignalGraph.dispose()` calls when
+`LogicManager` stops or rebuilds a graph, so a stopped graph never fires late. Behavior
+managers do not call `dispose()` today, so a combo node in a behavior graph would keep
+its timer until it expires (no behavior template uses one).
+
+**Context injected by `LogicManager`** — besides `_projectId`, every node's config
+carries `_logicId` (the graph's id); `logic_id` reads it.
 
 ### Config/context
 | Kind | Description |
