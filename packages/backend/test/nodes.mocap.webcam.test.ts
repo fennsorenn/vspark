@@ -25,6 +25,11 @@ import { fileURLToPath } from 'node:url';
 import { mkEvent, NormalizedPose, Quaternion } from '@vspark/shared/signal';
 import type { VRMBoneName } from '@vspark/shared/signal';
 import { buildGraph } from './helpers/nodeHarness.js';
+import { getAllNodeKindMeta } from '../src/signal/registry.js';
+import {
+  ARM_SOLVE_SWITCHES,
+  MEDIAPIPE_PIPELINE_TEMPLATE,
+} from '../src/behaviors/mediapipe_tracker/graph.js';
 
 type L = { x: number; y: number; z: number; visibility?: number };
 type Clip = {
@@ -71,8 +76,24 @@ afterEach(() => {
 });
 
 /** Run a clip through the real engine, one pull per frame, with Date.now on the clip's clock. */
-function runClip(clip: Clip, smooth: boolean): NormalizedPose[] {
+function runClip(
+  clip: Clip,
+  smooth: boolean,
+  options: Record<string, unknown> = {}
+): NormalizedPose[] {
+  // pose_smooth's own inputs go to the smoother, everything else to pose_arms_to_bones.
+  const SMOOTH_KEYS = [
+    'enabled',
+    'jumpHold',
+    'holdDeg',
+    'holdFrames',
+    'maxLag',
+    'riseTime',
+  ];
   const armsCfg: Record<string, unknown> = {};
+  const smoothCfg: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(options))
+    (SMOOTH_KEYS.includes(k) ? smoothCfg : armsCfg)[k] = v;
   const nodes = [
     { id: 'arms', kind: 'pose_arms_to_bones' },
     { id: 'trg', kind: 'component_trigger' },
@@ -116,7 +137,10 @@ function runClip(clip: Clip, smooth: boolean): NormalizedPose[] {
       toPort: 'inputs',
     });
   }
-  const { graph } = buildGraph(nodes, edges, { arms: armsCfg });
+  const { graph } = buildGraph(nodes, edges, {
+    arms: armsCfg,
+    smooth: smoothCfg,
+  });
   const out: NormalizedPose[] = [];
   for (const f of clip.frames) {
     // The engine reads unconnected value inputs from config on every pull.
@@ -254,8 +278,9 @@ describe('pose_smooth', () => {
   const Q90 = Quaternion.fromEuler(0, Math.PI / 2, 0);
   const I = Quaternion.IDENTITY;
 
-  function smoother() {
-    const cfg: Record<string, unknown> = {};
+  // The confidence-lag tests step by 90° in one frame, which the jump hold would hold back.
+  function smoother(extra: Record<string, unknown> = { jumpHold: false }) {
+    const cfg: Record<string, unknown> = { ...extra };
     const { graph } = buildGraph(
       [
         { id: 's', kind: 'pose_smooth' },
@@ -325,5 +350,89 @@ describe('pose_smooth', () => {
     step(new NormalizedPose(), {}); // bone missing for one frame
     const out = lowerArm(step(pose(Q90), {}));
     expect(angleDeg(out, Q90)).toBeGreaterThan(5); // resumes at confidence 0, eased
+  });
+
+  it('holds back a single-frame jump until it persists (jumpHold)', () => {
+    const step = smoother({}); // defaults: hold > 60° for 3 frames
+    step(pose(I), {});
+    expect(angleDeg(lowerArm(step(pose(Q90), {})), I)).toBeLessThan(1e-6); // held
+    expect(angleDeg(lowerArm(step(pose(Q90), {})), I)).toBeLessThan(1e-6); // held
+    expect(angleDeg(lowerArm(step(pose(Q90), {})), Q90)).toBeLessThan(1e-6); // accepted
+  });
+
+  it('never lets a reading that alternates every frame through (jumpHold)', () => {
+    const step = smoother({});
+    step(pose(I), {});
+    for (let i = 0; i < 6; i++) {
+      const out = lowerArm(step(pose(i % 2 ? I : Q90), {}));
+      expect(angleDeg(out, I)).toBeLessThan(1e-6);
+    }
+  });
+
+  it('passes the pose through untouched when disabled', () => {
+    const step = smoother({ enabled: false });
+    step(pose(I), { leftLowerArm: 1 });
+    const out = lowerArm(step(pose(Q90), { leftLowerArm: 0 }));
+    expect(angleDeg(out, Q90)).toBeLessThan(1e-6);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Technique switches (ArmSolveOptions + pose_smooth), for live A/B comparison
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('arm-solve technique switches', () => {
+  it('wires every armSolve.* config field to an existing input port', () => {
+    const meta = new Map(getAllNodeKindMeta().map((m) => [m.kind, m]));
+    const nodes = new Map(
+      MEDIAPIPE_PIPELINE_TEMPLATE.nodes.map((n) => [n.id, n])
+    );
+    for (const [field, target] of ARM_SOLVE_SWITCHES) {
+      const edge = MEDIAPIPE_PIPELINE_TEMPLATE.edges.find(
+        (e) => e.fromNodeId === `cfg_arm_${field}`
+      );
+      expect(edge, field).toBeDefined();
+      expect(edge!.toNodeId).toBe(target);
+      const kind = nodes.get(target)!.kind;
+      const ports = meta.get(kind)!.inputPorts.map((p) => p.name);
+      expect(ports, `${kind}.${edge!.toPort}`).toContain(edge!.toPort);
+    }
+  });
+
+  it('legacy mode brings back the roll-split flips the hinge removed', () => {
+    const clip = CLIPS.twist_flip_a;
+    const upper = (mode: string) =>
+      Math.max(
+        ...jumps(runClip(clip, false, { mode }), `${clip.side}UpperArm`)
+      );
+    expect(upper('hinge')).toBeLessThan(45);
+    expect(upper('legacy')).toBeGreaterThan(90);
+  });
+
+  it('keepLowVis off drops the forearm when the wrist is not visible', () => {
+    const clip = CLIPS.wrist_low_vis;
+    const lowVisFrames = clip.frames.filter(
+      (f) => (f.pose[16][3] ?? 1) < 0.5
+    ).length;
+    expect(lowVisFrames).toBeGreaterThan(0);
+    const dropped = runClip(clip, false, { keepLowVis: false }).filter(
+      (p) => !p.has(`${clip.side}LowerArm` as VRMBoneName)
+    ).length;
+    expect(dropped).toBe(lowVisFrames);
+  });
+
+  it('jump hold and the pose-palm check each cut the forearm jumps of a flicker clip', () => {
+    const clip = CLIPS.twist_flip_b;
+    const big = (options: Record<string, unknown>) =>
+      jumps(runClip(clip, true, options), `${clip.side}Hand`).filter(
+        (d) => d > 45
+      ).length;
+    const neither = big({ jumpHold: false, poseDorsalConf: false });
+    expect(big({ jumpHold: true, poseDorsalConf: false })).toBeLessThan(
+      neither
+    );
+    expect(big({ jumpHold: false, poseDorsalConf: true })).toBeLessThan(
+      neither
+    );
   });
 });

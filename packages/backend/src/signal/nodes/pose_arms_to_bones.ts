@@ -16,6 +16,10 @@ const BP = {
   rightElbow: 14,
   leftWrist: 15,
   rightWrist: 16,
+  leftPinky: 17,
+  rightPinky: 18,
+  leftIndex: 19,
+  rightIndex: 20,
   leftHip: 23,
   rightHip: 24,
 };
@@ -268,38 +272,101 @@ const FACING_HI = 0.6;
 
 type ArmSolve = { pose: NormalizedPose; confidence: BoneConfidence };
 
-// Solve one arm: upper + lower arm (+ hand when the hand frame is known).
-function solveArm(
-  side: 'left' | 'right',
-  shoulder: Landmark,
-  elbow: Landmark,
-  wrist: Landmark,
-  parentWorld: Quaternion, // chest · shrug
-  handW: Quaternion | null,
-  entries: [VRMBoneName, Quaternion][],
-  confidence: BoneConfidence
-): void {
-  const L = side === 'left';
+/**
+ * Switches for the individual arm-solve techniques, so their effect can be compared live. Each is
+ * a `pose_arms_to_bones` value input (wired from the MediaPipe behavior's `armSolve.*` config);
+ * the defaults are the full current solve.
+ */
+export interface ArmSolveOptions {
+  /** `hinge`: upper-arm roll from the elbow plane, forearm twist from the hand.
+   *  `legacy`: roll the whole arm to the hand, split 50/50 between upper arm and forearm. */
+  mode: 'hinge' | 'legacy';
+  /** Keep solving bones from landmarks MediaPipe can only estimate (flagged by confidence)
+   *  instead of dropping them below visibility 0.5. */
+  keepLowVis: boolean;
+  /** Hinge: trust the elbow plane only as far as the wrist is visible. */
+  planeWristGate: boolean;
+  /** Hinge: the hand bone keeps only swing; leftover twist is dropped rather than left in the wrist. */
+  handSwingOnly: boolean;
+  /** Fade out wrist swings beyond a wrist's range. */
+  swingFade: boolean;
+  /** Lower forearm/hand confidence while the palm is edge-on to the camera. */
+  edgeOnConf: boolean;
+  /** Lower forearm/hand confidence while the pose model disagrees with the hand model about which
+   *  way the back of the hand faces. */
+  poseDorsalConf: boolean;
+}
+
+export const DEFAULT_ARM_SOLVE: ArmSolveOptions = {
+  mode: 'hinge',
+  keepLowVis: true,
+  planeWristGate: true,
+  handSwingOnly: true,
+  swingFade: true,
+  edgeOnConf: true,
+  poseDorsalConf: true,
+};
+
+// Confidence while the two hand models disagree about the back of the hand (see poseDorsalConf).
+// On recorded webcam frames, twist readings beyond ±100° disagreed with the pose model ~75% of the
+// time, plausible ones ~10%; used as confidence (not as a flip, which toggled at its boundary) it
+// cut forearm/hand jumps >45° by about two thirds.
+const POSE_DISAGREE_CONF = 0.3;
+
+type ArmInput = {
+  side: 'left' | 'right';
+  shoulder: Landmark;
+  elbow: Landmark;
+  wrist: Landmark;
+  parentWorld: Quaternion; // chest · shrug
+  handW: Quaternion | null;
+  poseDorsal: V3 | null; // back-of-hand normal from the pose model's own hand points
+};
+
+type ArmBones = { upper: Quaternion; lower?: Quaternion; hand?: Quaternion };
+
+// The wrist's local rotation: forearm⁻¹ · hand, swing amplified by WRIST_SWING_GAIN. With
+// `swingOnly` the twist left over after the forearm's is dropped (the wrist can't twist).
+function wristLocal(
+  rel: Quaternion,
+  rest: V3,
+  swingOnly: boolean,
+  fadeSwing: boolean
+): Quaternion {
+  const residual = twistAngle(rel, rest);
+  const swing = qmul(rel, axisAngle(rest, -residual)); // rel = swing · twist
+  // A swing far beyond a wrist's range means the hand and pose landmarks disagree about where the
+  // forearm points; near 180° its axis is undefined and flips. Fade it out like the twist.
+  const swingAngle = 2 * Math.acos(Math.min(1, Math.abs(swing.w)));
+  const fade = fadeSwing
+    ? 1 - smoothstep(SWING_SOFT, SWING_HARD, swingAngle)
+    : 1;
+  const out = scaleAngle(swing, WRIST_SWING_GAIN * fade);
+  return swingOnly ? out : qmul(out, axisAngle(rest, residual));
+}
+
+// ── Hinge solve ──────────────────────────────────────────────────────────────
+function solveHinge(a: ArmInput, o: ArmSolveOptions, wristOk: boolean): ArmBones {
+  const L = a.side === 'left';
   const rest: V3 = L ? [1, 0, 0] : [-1, 0, 0];
   const hingeRest: V3 = L ? [0, -1, 0] : [0, 1, 0];
-  const upperBone: VRMBoneName = L ? 'leftUpperArm' : 'rightUpperArm';
-  const lowerBone: VRMBoneName = L ? 'leftLowerArm' : 'rightLowerArm';
-  const handBone: VRMBoneName = L ? 'leftHand' : 'rightHand';
-  const parentInv = qinv(parentWorld);
+  const parentInv = qinv(a.parentWorld);
 
-  const u = norm(sub(elbow, shoulder)); // shoulder → elbow, world
-  const l = norm(sub(wrist, elbow)); // elbow → wrist, world
+  const u = norm(sub(a.elbow, a.shoulder)); // shoulder → elbow, world
+  const l = norm(sub(a.wrist, a.elbow)); // elbow → wrist, world
   const bend = Math.acos(Math.max(-1, Math.min(1, dot(u, l))));
 
   // Hinge axis. Reference for a (nearly) straight arm: the rest hinge carried along by the minimal
   // swing from rest to the upper arm's direction in the chest frame. It is perpendicular to u by
   // construction, as is the measured plane normal, so the blend is a rotation about u.
   const swing = qFromUnitVectors(rest, qapply(parentInv, u));
-  const nRef = qapply(parentWorld, qapply(swing, hingeRest));
+  const nRef = qapply(a.parentWorld, qapply(swing, hingeRest));
+  let n = nRef;
   // The plane is only as good as the wrist: an estimated (low-visibility) wrist landing on the other
   // side of the arm line would flip it, and the upper arm's roll with it.
-  let n = nRef;
-  const w = smoothstep(BEND_LO, BEND_HI, bend) * visConf(wrist);
+  const w = wristOk
+    ? smoothstep(BEND_LO, BEND_HI, bend) * (o.planeWristGate ? visConf(a.wrist) : 1)
+    : 0;
   if (w > 0) {
     const nPlane = norm(cross(u, l));
     n = qapply(axisAngle(u, w * signedAngle(nRef, nPlane, u)), nRef);
@@ -307,6 +374,8 @@ function solveArm(
 
   // Upper arm: rest → u, rest hinge → n. frameToQuat maps +X and +Y to its two arguments.
   const upperWorld = L ? frameToQuat(u, neg(n)) : frameToQuat(neg(u), n);
+  const upper = qmul(parentInv, upperWorld);
+  if (!wristOk) return { upper };
 
   // Forearm: bend about the hinge. Where n leans on the reference it may miss the wrist slightly,
   // so swing the remainder — the forearm always points exactly along elbow → wrist.
@@ -315,48 +384,139 @@ function solveArm(
     qFromUnitVectors(qapply(forearmWorld, rest), l),
     forearmWorld
   );
+  if (!a.handW) return { upper, lower: qmul(qinv(upperWorld), forearmWorld) };
 
-  // Forearm twist from the hand. The wrist can't twist, so the hand bone keeps only the swing
-  // (flex/deviation) — any twist the forearm didn't take (a faded, implausible reading) is dropped
-  // rather than left in the wrist, where it would flip as the reading wraps through ±180°.
-  let wristLocal: Quaternion | null = null;
-  if (handW) {
-    const tw = twistAngle(qmul(qinv(forearmWorld), handW), rest);
-    const fade = 1 - smoothstep(TWIST_SOFT, TWIST_HARD, Math.abs(tw));
-    forearmWorld = qmul(forearmWorld, axisAngle(rest, tw * fade));
-    const rel = qmul(qinv(forearmWorld), handW); // = swing · twist(residual)
-    const swing = qmul(rel, axisAngle(rest, -twistAngle(rel, rest)));
-    // A swing far beyond a wrist's range means the hand and pose landmarks disagree about where
-    // the forearm points; near 180° its axis is undefined and flips. Fade it out like the twist.
-    const swingAngle = 2 * Math.acos(Math.min(1, Math.abs(swing.w)));
-    const swingFade = 1 - smoothstep(SWING_SOFT, SWING_HARD, swingAngle);
-    wristLocal = scaleAngle(swing, WRIST_SWING_GAIN * swingFade);
+  // Forearm twist from the hand, faded out beyond a forearm's range.
+  const tw = twistAngle(qmul(qinv(forearmWorld), a.handW), rest);
+  const fade = 1 - smoothstep(TWIST_SOFT, TWIST_HARD, Math.abs(tw));
+  forearmWorld = qmul(forearmWorld, axisAngle(rest, tw * fade));
+  return {
+    upper,
+    lower: qmul(qinv(upperWorld), forearmWorld),
+    hand: wristLocal(
+      qmul(qinv(forearmWorld), a.handW),
+      rest,
+      o.handSwingOnly,
+      o.swingFade
+    ),
+  };
+}
+
+// ── Legacy solve ─────────────────────────────────────────────────────────────
+// The solve before the hinge, kept for comparison: per-bone minimal-arc directions, then the whole
+// arm rolled to the hand with the roll split evenly between upper arm and forearm (the skeleton has
+// no forearm twist bone to spread it). The halfway split flips sides once the minimal-arc and hand
+// rolls disagree by more than half a turn.
+const LEGACY_UPPER_SHARE = 0.5;
+
+function solveLegacy(a: ArmInput, o: ArmSolveOptions, wristOk: boolean): ArmBones {
+  const L = a.side === 'left';
+  const rest: V3 = L ? [1, 0, 0] : [-1, 0, 0];
+  const parentInv = qinv(a.parentWorld);
+
+  const upperDir = norm(sub(a.elbow, a.shoulder));
+  const upperLocalCur = qFromUnitVectors(rest, qapply(parentInv, upperDir));
+  const upperWorldCur = qmul(a.parentWorld, upperLocalCur);
+  if (!wristOk) return { upper: upperLocalCur };
+
+  const lowerDir = norm(sub(a.wrist, a.elbow));
+  const lowerLocalCur = qFromUnitVectors(
+    rest,
+    qapply(qmul(qinv(upperLocalCur), parentInv), lowerDir)
+  );
+  const lowerWorldCur = qmul(upperWorldCur, lowerLocalCur);
+  if (!a.handW) return { upper: upperLocalCur, lower: lowerLocalCur };
+
+  const handAxis = qapply(a.handW, rest); // hand's finger direction, world
+  const forearmWorld = qmul(qFromUnitVectors(handAxis, lowerDir), a.handW);
+  const upperMt = qmul(qFromUnitVectors(lowerDir, upperDir), forearmWorld);
+  const upperWorld = upperWorldCur.slerp(upperMt, LEGACY_UPPER_SHARE);
+  void lowerWorldCur; // the forearm takes the full hand roll
+  return {
+    upper: qmul(parentInv, upperWorld),
+    lower: qmul(qinv(upperWorld), forearmWorld),
+    hand: wristLocal(
+      qmul(qinv(forearmWorld), a.handW),
+      rest,
+      o.handSwingOnly,
+      o.swingFade
+    ),
+  };
+}
+
+// Solve one arm and its per-bone confidence.
+function solveArm(
+  a: ArmInput,
+  o: ArmSolveOptions,
+  entries: [VRMBoneName, Quaternion][],
+  confidence: BoneConfidence
+): void {
+  if (!o.keepLowVis && !ok(a.elbow)) return;
+  const wristOk = o.keepLowVis || ok(a.wrist);
+  const bones =
+    o.mode === 'legacy' ? solveLegacy(a, o, wristOk) : solveHinge(a, o, wristOk);
+
+  const L = a.side === 'left';
+  const upperBone: VRMBoneName = L ? 'leftUpperArm' : 'rightUpperArm';
+  const lowerBone: VRMBoneName = L ? 'leftLowerArm' : 'rightLowerArm';
+  const handBone: VRMBoneName = L ? 'leftHand' : 'rightHand';
+
+  // Upper arm: its landmarks, and — where the hinge takes its roll from the plane — the wrist.
+  let upperConf = visConf(a.shoulder, a.elbow);
+  if (o.mode === 'hinge' && o.planeWristGate) {
+    const u = norm(sub(a.elbow, a.shoulder));
+    const l = norm(sub(a.wrist, a.elbow));
+    const bend = Math.acos(Math.max(-1, Math.min(1, dot(u, l))));
+    upperConf *= 1 - smoothstep(BEND_LO, BEND_HI, bend) * (1 - visConf(a.wrist));
+  }
+  // Forearm twist / wrist: how well the hand frame's roll is measurable.
+  let rollConf = NO_HAND_CONF;
+  if (a.handW) {
+    const dorsal = qapply(a.handW, [0, 1, 0]);
+    rollConf = 1;
+    if (o.edgeOnConf)
+      rollConf *=
+        EDGE_ON_CONF +
+        (1 - EDGE_ON_CONF) * smoothstep(FACING_LO, FACING_HI, Math.abs(dorsal[2]));
+    if (o.poseDorsalConf && a.poseDorsal)
+      rollConf *=
+        POSE_DISAGREE_CONF +
+        (1 - POSE_DISAGREE_CONF) * smoothstep(-0.2, 0.3, dot(dorsal, a.poseDorsal));
   }
 
-  // How well the hand frame's roll is measurable (see EDGE_ON_CONF).
-  const rollConf = handW
-    ? EDGE_ON_CONF +
-      (1 - EDGE_ON_CONF) *
-        smoothstep(FACING_LO, FACING_HI, Math.abs(qapply(handW, [0, 1, 0])[2]))
-    : NO_HAND_CONF;
-
-  entries.push([upperBone, qmul(parentInv, upperWorld)]);
-  entries.push([lowerBone, qmul(qinv(upperWorld), forearmWorld)]);
-  // The upper arm's roll comes from the plane, which needs the wrist (see w above).
-  confidence[upperBone] = visConf(shoulder, elbow) * (1 - smoothstep(BEND_LO, BEND_HI, bend) * (1 - visConf(wrist)));
-  confidence[lowerBone] = visConf(elbow, wrist) * rollConf;
-  if (wristLocal) {
-    entries.push([handBone, wristLocal]);
-    confidence[handBone] = visConf(wrist) * rollConf;
+  entries.push([upperBone, bones.upper]);
+  confidence[upperBone] = upperConf;
+  if (bones.lower) {
+    entries.push([lowerBone, bones.lower]);
+    confidence[lowerBone] = visConf(a.elbow, a.wrist) * rollConf;
   }
+  if (bones.hand) {
+    entries.push([handBone, bones.hand]);
+    confidence[handBone] = visConf(a.wrist) * rollConf;
+  }
+}
+
+// Back-of-hand normal from the pose model's wrist / index / pinky points, with the same per-side
+// sign as handWorldFrame; null when those points aren't visible or are degenerate.
+function poseDorsal(
+  wrist: Landmark,
+  index: Landmark,
+  pinky: Landmark,
+  side: 'left' | 'right'
+): V3 | null {
+  if (!ok(wrist) || !ok(index) || !ok(pinky)) return null;
+  const c = cross(sub(index, wrist), sub(pinky, wrist));
+  if (lenV(c) < 1e-9) return null;
+  return side === 'left' ? norm(c) : neg(norm(c));
 }
 
 const EMPTY: ArmSolve = { pose: new NormalizedPose(), confidence: {} };
 
 function convertArms(
   rawPts: Landmark[],
-  leftHandRaw?: Landmark[],
-  rightHandRaw?: Landmark[]
+  leftHandRaw: Landmark[] | undefined,
+  rightHandRaw: Landmark[] | undefined,
+  o: ArmSolveOptions
 ): ArmSolve {
   if (rawPts.length < 33) return EMPTY;
   const pts = rawPts.map(flipYZ);
@@ -402,26 +562,25 @@ function convertArms(
   // ── Arms ───────────────────────────────────────────────────────────────────
   // Parent of each upper arm is chest · shoulder(shrug); folding the shrug in keeps the arm
   // pointing at the elbow regardless of clavicle lift.
-  solveArm(
-    'left',
-    ls,
-    le,
-    lw,
-    qmul(torsoQ, leftShrug),
-    handWorldFrame(leftHandRaw, 'left'),
-    entries,
-    confidence
-  );
-  solveArm(
-    'right',
-    rs,
-    re,
-    rw,
-    qmul(torsoQ, rightShrug),
-    handWorldFrame(rightHandRaw, 'right'),
-    entries,
-    confidence
-  );
+  for (const [side, shoulder, elbow, wrist, shrug, hand, index, pinky] of [
+    ['left', ls, le, lw, leftShrug, leftHandRaw, BP.leftIndex, BP.leftPinky],
+    ['right', rs, re, rw, rightShrug, rightHandRaw, BP.rightIndex, BP.rightPinky],
+  ] as const) {
+    solveArm(
+      {
+        side,
+        shoulder,
+        elbow,
+        wrist,
+        parentWorld: qmul(torsoQ, shrug),
+        handW: handWorldFrame(hand, side),
+        poseDorsal: poseDorsal(wrist, pts[index], pts[pinky], side),
+      },
+      o,
+      entries,
+      confidence
+    );
+  }
 
   return { pose: new NormalizedPose(entries), confidence };
 }
@@ -446,10 +605,40 @@ export class PoseArmsToBones extends Node {
     | Landmark[]
     | undefined;
   @valueIn('enabled', 'Bool') enabledIn!: () => boolean | null | undefined;
+  // Technique switches — see ArmSolveOptions. Unwired/absent = DEFAULT_ARM_SOLVE.
+  @valueIn('mode', 'String') modeIn!: () => string | null | undefined;
+  @valueIn('keepLowVis', 'Bool') keepLowVisIn!: () => boolean | null | undefined;
+  @valueIn('planeWristGate', 'Bool') planeWristGateIn!: () =>
+    | boolean
+    | null
+    | undefined;
+  @valueIn('handSwingOnly', 'Bool') handSwingOnlyIn!: () =>
+    | boolean
+    | null
+    | undefined;
+  @valueIn('swingFade', 'Bool') swingFadeIn!: () => boolean | null | undefined;
+  @valueIn('edgeOnConf', 'Bool') edgeOnConfIn!: () => boolean | null | undefined;
+  @valueIn('poseDorsalConf', 'Bool') poseDorsalConfIn!: () =>
+    | boolean
+    | null
+    | undefined;
 
-  // Both outputs come from one solve; memoized on the input identities so pulling both costs one.
-  private _memoKey: [unknown, unknown, unknown] | null = null;
+  // Both outputs come from one solve; memoized on the inputs so pulling both costs one.
+  private _memoKey: unknown[] | null = null;
   private _memo: ArmSolve | undefined;
+
+  private _options(): ArmSolveOptions {
+    const d = DEFAULT_ARM_SOLVE;
+    return {
+      mode: this.modeIn() === 'legacy' ? 'legacy' : 'hinge',
+      keepLowVis: this.keepLowVisIn() ?? d.keepLowVis,
+      planeWristGate: this.planeWristGateIn() ?? d.planeWristGate,
+      handSwingOnly: this.handSwingOnlyIn() ?? d.handSwingOnly,
+      swingFade: this.swingFadeIn() ?? d.swingFade,
+      edgeOnConf: this.edgeOnConfIn() ?? d.edgeOnConf,
+      poseDorsalConf: this.poseDorsalConfIn() ?? d.poseDorsalConf,
+    };
+  }
 
   private _solve(): ArmSolve | undefined {
     const enabled = this.enabledIn() ?? true;
@@ -458,10 +647,13 @@ export class PoseArmsToBones extends Node {
     if (!pts?.length) return undefined;
     const lh = this.leftHandIn();
     const rh = this.rightHandIn();
+    const o = this._options();
+    const key = [pts, lh, rh, ...Object.values(o)];
     const k = this._memoKey;
-    if (k && k[0] === pts && k[1] === lh && k[2] === rh) return this._memo;
-    this._memoKey = [pts, lh, rh];
-    this._memo = convertArms(pts, lh, rh);
+    if (k && k.length === key.length && k.every((v, i) => v === key[i]))
+      return this._memo;
+    this._memoKey = key;
+    this._memo = convertArms(pts, lh, rh, o);
     return this._memo;
   }
 

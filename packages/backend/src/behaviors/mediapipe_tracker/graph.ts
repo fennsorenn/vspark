@@ -99,6 +99,29 @@ export const FINGER_MIRROR_PAIRS = [
 // node's `enabled` input. `useIk` defaults to false (quaternion arms).
 
 // Helper to keep the descriptor readable: a behavior_config node that reads one field.
+/**
+ * Arm-solve technique switches: `armSolve.<field>` in the behavior config → a value port on
+ * `pose_arms` (ArmSolveOptions) or `arm_smooth` (pose_smooth). Exposed so each technique's effect
+ * can be compared live; the defaults are the full current solve.
+ */
+export const ARM_SOLVE_SWITCHES: readonly [
+  string,
+  'pose_arms' | 'arm_smooth',
+  unknown,
+][] = [
+  ['mode', 'pose_arms', 'hinge'],
+  ['keepLowVis', 'pose_arms', true],
+  ['planeWristGate', 'pose_arms', true],
+  ['handSwingOnly', 'pose_arms', true],
+  ['swingFade', 'pose_arms', true],
+  ['edgeOnConf', 'pose_arms', true],
+  ['poseDorsalConf', 'pose_arms', true],
+  ['smoothing', 'arm_smooth', true],
+  ['jumpHold', 'arm_smooth', true],
+];
+/** Config fields whose target port is named differently. */
+const ARM_SOLVE_PORT: Record<string, string> = { smoothing: 'enabled' };
+
 function cfgNode(
   id: string,
   field: string,
@@ -290,6 +313,14 @@ export const MEDIAPIPE_PIPELINE_TEMPLATE: Omit<GraphDescriptor, 'id'> = {
     cfgNode('cfg_invertY', 'ikCalibration.invertY', false, { x: 520, y: 780 }),
     cfgNode('cfg_invertZ', 'ikCalibration.invertZ', false, { x: 520, y: 820 }),
 
+    // ── Config: arm-solve technique switches (A/B comparison) ────────────────
+    // See ArmSolveOptions in pose_arms_to_bones; defaults = the full current solve.
+    ...ARM_SOLVE_SWITCHES.map(([field, , def], i) =>
+      cfgNode(`cfg_arm_${field}`, `armSolve.${field}`, def, {
+        x: 160,
+        y: 680 + i * 40,
+      })
+    ),
     // ── Config: head calibration ─────────────────────────────────────────────
     cfgNode('cfg_head_pitchGain', 'headCalibration.pitchGain', 2.0, {
       x: 160,
@@ -678,6 +709,14 @@ export const MEDIAPIPE_PIPELINE_TEMPLATE: Omit<GraphDescriptor, 'id'> = {
       kind: 'value',
     },
 
+    // ── Arm-solve technique switches ────────────────────────────────────────
+    ...ARM_SOLVE_SWITCHES.map(([field, toNodeId]) => ({
+      fromNodeId: `cfg_arm_${field}`,
+      fromPort: 'value',
+      toNodeId,
+      toPort: ARM_SOLVE_PORT[field] ?? field,
+      kind: 'value' as const,
+    })),
     // ── Enable gates ──────────────────────────────────────────────────────────
     // useIk → ik_targets.enabled, ik_out.enabled
     {
