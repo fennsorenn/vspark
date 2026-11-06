@@ -30,6 +30,7 @@ const SHARED_ALIAS = {
   '@vspark/shared/style_rig':       '../shared/src/style_rig.ts',
   '@vspark/shared/blendshapeLimits': '../shared/src/blendshapeLimits.ts',
   '@vspark/shared/trackingMix':     '../shared/src/trackingMix.ts',
+  '@vspark/shared/live2d':          '../shared/src/live2d.ts',
   '@vspark/shared':                 '../shared/src/types.ts',
 };
 
@@ -39,6 +40,11 @@ const COMMON = {
   target: 'node22',
   format: 'cjs',
   tsconfig: 'tsconfig.json',
+  // Optional native-ish dep: ships per-platform key-server binaries it resolves
+  // relative to its own package dir, so it can't be inlined. Kept external and
+  // require()d at runtime from node_modules; the HotkeyManager loads it with a
+  // guarded dynamic import and degrades gracefully if it can't be resolved.
+  external: ['node-global-key-listener'],
   alias: SHARED_ALIAS,
   define: { 'import.meta.url': '__importMetaUrl' },
   banner: {

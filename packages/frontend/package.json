@@ -24,6 +24,7 @@
     "@vspark/mesh-transports": "workspace:*",
     "@xyflow/react": "^12.10.2",
     "dompurify": "^3.4.7",
+    "fflate": "^0.8.2",
     "htm": "^3.1.1",
     "html-to-image": "^1.11.13",
     "html2canvas": "^1.4.1",

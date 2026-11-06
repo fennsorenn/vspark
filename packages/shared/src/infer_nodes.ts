@@ -190,6 +190,38 @@ export const inferUnpackEvent: InferPortsFn = (ctx: InferCtx): InferResult => {
 };
 
 // ──────────────────────────────────────────────────────────────────────────────
+// cycle — one Event<T> in → N Event<T> outs, advancing per fire (N=2 = toggle)
+//
+// The output COUNT comes from config.count (>= 2). Every output mirrors the
+// resolved `in` payload type, so the payload passes through unchanged (cf.
+// queue_events enqueue→popped). Outputs are dynamic (out0..outN-1), emitted by
+// name via this.emitOn in the backend class.
+// ──────────────────────────────────────────────────────────────────────────────
+
+interface CycleConfig {
+  count?: number;
+}
+
+export const inferCycle: InferPortsFn = (ctx: InferCtx): InferResult => {
+  const cfg = (ctx.config ?? {}) as CycleConfig;
+  const rawCount = Math.floor(Number(cfg.count ?? 2));
+  const n = Number.isFinite(rawCount) && rawCount >= 2 ? rawCount : 2;
+
+  const inT = ctx.resolvedInputs['in'];
+  const payload: ResolvedType =
+    inT && inT.kind === 'event' ? inT.payload : RT.unknown();
+
+  const outputPorts: ResolvedPort[] = [];
+  for (let i = 0; i < n; i++) {
+    outputPorts.push({ name: `out${i}`, type: RT.event(payload) });
+  }
+  return {
+    inputPorts: [{ name: 'in', type: RT.event(RT.unknown()) }],
+    outputPorts,
+  };
+};
+
+// ──────────────────────────────────────────────────────────────────────────────
 // Registry — kind → inferPorts. Imported by both engine and editor.
 // ──────────────────────────────────────────────────────────────────────────────
 
@@ -200,6 +232,7 @@ export const INFER_BY_KIND: Record<string, InferPortsFn> = {
   scene_entity: inferSceneEntity,
   queue_events: inferQueueEvents,
   unpack_event: inferUnpackEvent,
+  cycle: inferCycle,
 };
 
 export function inferForKind(kind: string): InferPortsFn | undefined {

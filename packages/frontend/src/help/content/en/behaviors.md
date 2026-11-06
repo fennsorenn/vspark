@@ -89,6 +89,38 @@ derives them cheaply from the face landmarks already being tracked, while on
 runs a dedicated high-quality face model for more accurate expressions at the
 cost of extra CPU — enable it only if your machine keeps a smooth framerate.
 
+### Arm solve options {#arm-solve}
+
+With **Use IK arms** off, the arms are calculated bone by bone from the
+camera's body and hand points. The **Arm solve (experimental)** section lets you
+switch the individual techniques on and off, so you can see what each one does
+while you move. Everything on is the recommended setting.
+
+- **Solve** — *Elbow hinge* treats the elbow as a hinge: the upper arm's
+  rotation comes from the angle your arm makes at the elbow, and only the
+  forearm turns with your hand. *Legacy* is the earlier method, which turns the
+  whole arm to follow the hand; it is kept for comparison and flips easily when
+  your fingers point at the camera.
+- **Keep estimated joints** — keeps the forearm and hand moving when the camera
+  can only guess where your wrist is (for example when it leaves the frame),
+  instead of letting them drop to the rest pose.
+- **Check elbow plane against wrist** — stops a guessed wrist position from
+  flipping your upper arm.
+- **No twist in the wrist** and **Ignore impossible wrist bends** — keep the
+  hand from twisting or bending in ways a real wrist can't.
+- **Distrust edge-on palms** and **Cross-check hand with body tracking** — the
+  camera reads your hand's rotation poorly when the palm faces sideways, and
+  sometimes mistakes the palm for the back of the hand. These make the forearm
+  and hand move more calmly in those moments instead of jumping.
+- **Confidence smoothing** — eases the parts the camera is unsure about toward
+  their new position rather than letting them jump.
+- **Hold single-frame jumps** — ignores a sudden large rotation until it has
+  lasted a few frames. This removes flicker; very fast real movements arrive a
+  moment later.
+
+To compare, hold a pose that gives you trouble (fingers toward the camera works
+well) and toggle one option at a time.
+
 ## Lip sync {#lipsync}
 
 Lip sync listens to your **microphone** and turns speech into mouth shapes, so

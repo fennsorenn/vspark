@@ -232,6 +232,36 @@ const UI_CONTROLS: Record<string, string[]> = {
   ],
 };
 
+/** MCP tool annotations, as the SDK's `registerTool` config takes them. */
+export interface ToolAnnotations {
+  readOnlyHint: boolean;
+  destructiveHint?: boolean;
+  openWorldHint: boolean;
+}
+
+const READ_ONLY_VERBS = ['list', 'get', 'lookup', 'view', 'render', 'screenshot'];
+/** Verbs that only add or play something; nothing existing is overwritten. */
+const ADDITIVE_VERBS = ['create', 'add', 'attach', 'instantiate', 'play', 'control', 'ui'];
+
+/**
+ * Behaviour hints for MCP clients, derived from the tool's leading verb so a new
+ * tool is classified by naming it. The MCP spec treats a tool that is not
+ * read-only as destructive unless it says otherwise, so additive verbs say so;
+ * everything else (delete, clear, update, set — anything that removes or
+ * overwrites) is marked destructive, so clients can ask before running it.
+ * All tools act only on this vspark instance, never the open world.
+ */
+export function toolAnnotations(name: string): ToolAnnotations {
+  const verb = name.split('_')[0];
+  if (READ_ONLY_VERBS.includes(verb))
+    return { readOnlyHint: true, openWorldHint: false };
+  return {
+    readOnlyHint: false,
+    destructiveHint: !ADDITIVE_VERBS.includes(verb),
+    openWorldHint: false,
+  };
+}
+
 export function buildToolSpecs(): ToolSpec[] {
   return [
     // ---- Discovery ----

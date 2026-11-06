@@ -223,6 +223,7 @@ export class SignalGraph {
   private _makeBindContext(rt: RuntimeNode): NodeBindContext {
     const self = this;
     return {
+      selfId: rt.id,
       // Live getter (not a snapshot): node config resolves on every access, so a
       // `behavior_config` node — and any node reading `this.config` — picks up
       // hot-applied edits to the owning behavior's config without a graph rebuild.

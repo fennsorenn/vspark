@@ -11,6 +11,7 @@ import { testPeer } from './helpers/mesh';
 import {
   useDataFields,
   useRuntimeOverrides,
+  useSceneNodeVisibleOverrides,
   useServerStatus,
   withLiveStatus,
 } from '../src/mesh/runtime';
@@ -47,6 +48,57 @@ describe('runtime hooks', () => {
       col.remove('compose_layer:l1:text.content', runtime);
     });
     expect(result.current).toBeUndefined();
+  });
+
+  it('scene-node visible overrides: one map by node id, other paths ignored', () => {
+    const col = testPeer().collection('runtime_override');
+    const { result } = renderHook(() => useSceneNodeVisibleOverrides(), {
+      wrapper,
+    });
+    expect(result.current).toEqual({});
+    act(() => {
+      col.set(
+        'scene_node:n1:visible',
+        '',
+        {
+          id: 'scene_node:n1:visible',
+          targetKind: 'scene_node',
+          targetId: 'n1',
+          paramPath: 'visible',
+          value: false,
+        },
+        runtime
+      );
+      col.set(
+        'scene_node:n1:position.x',
+        '',
+        {
+          id: 'scene_node:n1:position.x',
+          targetKind: 'scene_node',
+          targetId: 'n1',
+          paramPath: 'position.x',
+          value: 2,
+        },
+        runtime
+      );
+      col.set(
+        'compose_layer:l1:visible',
+        '',
+        {
+          id: 'compose_layer:l1:visible',
+          targetKind: 'compose_layer',
+          targetId: 'l1',
+          paramPath: 'visible',
+          value: false,
+        },
+        runtime
+      );
+    });
+    expect(result.current).toEqual({ n1: false });
+    act(() => {
+      col.remove('scene_node:n1:visible', runtime);
+    });
+    expect(result.current).toEqual({});
   });
 
   it('data fields: one scope at a time, global apart', () => {

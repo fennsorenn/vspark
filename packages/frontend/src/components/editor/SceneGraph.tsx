@@ -31,6 +31,7 @@ import {
   commitSceneDelete,
 } from '../../mesh/writes';
 import { ComposeTree } from './ComposeTree';
+import { MacrosPanel } from './macros/MacrosPanel';
 import { ClipsSection } from './ClipsSection';
 import { LogicSection } from './LogicSection';
 import { ContextMenu, type ContextMenuItem } from './ContextMenu';
@@ -3437,9 +3438,17 @@ export function SceneGraph() {
         >
           {t('tabs.logic')}
         </button>
+        <button
+          className="vs-tab-macros"
+          style={tabStyle(dockTab === 'macros')}
+          onClick={() => setDockTab('macros')}
+        >
+          {t('tabs.macros')}
+        </button>
       </div>
 
       {dockTab === 'graphs' && <LogicListPanel />}
+      {dockTab === 'macros' && <MacrosPanel />}
       {dockTab === 'compose' && <ComposeTree />}
 
       {dockTab === 'scene' && (

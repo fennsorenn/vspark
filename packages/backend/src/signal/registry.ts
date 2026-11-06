@@ -47,6 +47,7 @@ import { MediapipeSource } from './nodes/mediapipe_source.js';
 import { FaceLandmarksToBlendshapes } from './nodes/face_landmarks_to_blendshapes.js';
 import { PoseTorsoHeadToBones } from './nodes/pose_torso_head_to_bones.js';
 import { PoseArmsToBones } from './nodes/pose_arms_to_bones.js';
+import { PoseSmooth } from './nodes/pose_smooth.js';
 import { HandLandmarksToBones } from './nodes/hand_landmarks_to_bones.js';
 import { PoseIkTargets } from './nodes/pose_ik_targets.js';
 import { IkBroadcast } from './nodes/ik_broadcast.js';
@@ -78,6 +79,9 @@ import { OverliveBan } from './nodes/overlive/ban.js';
 import { OverliveStreamOnline } from './nodes/overlive/stream_online.js';
 import { OverliveStreamOffline } from './nodes/overlive/stream_offline.js';
 import { OverliveSendChat } from './nodes/overlive/send_chat.js';
+import { SystemHotkey } from './nodes/system_hotkey.js';
+import { Cycle } from './nodes/cycle.js';
+import { SetExpression } from './nodes/set_expression.js';
 // Overlive outbound action nodes
 import { OverliveAnnounce, OverliveShoutout, OverliveChatColor } from './nodes/overlive/actions_chat.js';
 import {
@@ -176,6 +180,7 @@ const ALL_NODE_CLASSES: SignalNodeClass[] = [
   FaceLandmarksToBlendshapes,
   PoseTorsoHeadToBones,
   PoseArmsToBones,
+  PoseSmooth,
   HandLandmarksToBones,
   PoseIkTargets,
   IkBroadcast,
@@ -253,6 +258,12 @@ const ALL_NODE_CLASSES: SignalNodeClass[] = [
   ObsConnectionState,
   // Render-client lifecycle
   ClientLifecycle,
+  // System input
+  SystemHotkey,
+  // Flow control
+  Cycle,
+  // Runtime output
+  SetExpression,
 ];
 
 export const NODE_REGISTRY: ReadonlyMap<string, SignalNodeClass> = new Map(

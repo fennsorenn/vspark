@@ -120,6 +120,16 @@ const FLEX_MAX = 1.9; //  ~ 109°
 // splay a modest amount.
 const SPREAD_MAX = 0.45; // ~ 26°
 
+// Thumb. Its base sits splayed toward the thumb side and it curls across the palm toward the little
+// finger rather than straight down, so it gets its own rest direction and hinge. In the hand-local
+// frame (both sides, checked on real Holistic output) the palm faces -Y and the thumb side is +Z.
+const THUMB_SPLAY = 0.6; // ~35°: rest metacarpal direction, from the finger axis toward the thumb
+const THUMB_CMC_MAX = 1.2; // ~70°: largest metacarpal deviation from that rest
+const THUMB_FLEX_MIN = -0.35; // ~ -20°: thumb joints hyperextend further than fingers
+const THUMB_FLEX_MAX = 1.6; // ~ 92°
+// Thumb curl direction: half toward the palm, mostly toward the little-finger side (-Z).
+const THUMB_CURL: V3 = norm([0, -0.5, -1]);
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Hand coordinate frame
 //
@@ -130,16 +140,16 @@ const SPREAD_MAX = 0.45; // ~ 26°
 //
 // We build a hand-local 3D frame:
 //   fingerAxis  = wrist → middle_mcp (along hand, primary axis)
-//   palmNormal  = cross(index_mcp−wrist, pinky_mcp−wrist)
-//                 (points out of palm — toward viewer for right hand palm-facing-camera)
+//   palmNormal  = cross(index_mcp−wrist, pinky_mcp−wrist), negated for the right hand. Despite
+//                 the name this is the BACK-of-hand (dorsal) normal for both hands — checked on
+//                 real Holistic output for hands whose facing is unambiguous.
 //   thumbAxis   = cross(fingerAxis, palmNormal)
 //
 // In VRM T-pose, for the LEFT hand:
 //   The hand bone's +Y axis points from wrist toward middle fingertip.
-//   The palm normal in T-pose points in +Z (out of the palm, away from body).
-//   The thumb side (+X) points toward the thumb.
+//   The back of the hand faces +Y (palm down) and the thumb side is +Z (forward).
 //
-// For the RIGHT hand it's mirrored: palm normal points -Z, thumb side is -X.
+// For the RIGHT hand the fingers point along -X; back of hand +Y and thumb side +Z as on the left.
 //
 // Strategy:
 //   1. Build the hand frame from landmarks.
@@ -185,8 +195,8 @@ function buildHandFrame(
   const thumbAxis = norm(cross(fingerAxis, palmNormal));
 
   // VRM T-pose hand frame (matches the upper-arm convention):
-  //   Left hand:  fingerAxis (wrist→fingers) = +X,  dorsal (back of hand) ≈ +Y, thumb side = -Z
-  //   Right hand: fingerAxis = -X,                  dorsal ≈ +Y,                thumb side = -Z
+  //   Left hand:  fingerAxis (wrist→fingers) = +X,  dorsal (back of hand) ≈ +Y, thumb side = +Z
+  //   Right hand: fingerAxis = -X,                  dorsal ≈ +Y,                thumb side = +Z
   // We only need two axes to constrain the rotation; we use fingerAxis + dorsal.
   const vrmFingerAxis: V3 = side === 'left' ? [1, 0, 0] : [-1, 0, 0];
   const vrmDorsal: V3 = [0, 1, 0]; // back-of-hand points up at T-pose
@@ -233,12 +243,18 @@ function buildHandFrame(
 // angle in the rest→palm plane and rotate about the fixed hinge axis, clamped to an anatomical
 // range. This avoids the rotFromTo degeneracy that made segments snap between 0° and 180° when
 // MediaPipe's unreliable hand depth pushed the observed direction near anti-parallel to rest.
+//
+// For the middle and tip joints (no spread) the size of the bend comes from the angle between this
+// segment and the previous one (`prevIdx`→`fromIdx`), as Kalidokit does. That angle doesn't depend
+// on the hand frame or on the clamped rotations further up the finger, so errors there no longer
+// compound toward the fingertip; the frame only decides curl vs hyperextension.
 function fingerSegmentLocal(
   pts: Landmark[],
   fromIdx: number,
   toIdx: number,
   parentWorldQ: Quaternion,
   restDir: V3,
+  prevIdx: number,
   allowSpread = false
 ): Quaternion {
   const dir = norm(sub(pts[toIdx], pts[fromIdx]));
@@ -246,7 +262,8 @@ function fingerSegmentLocal(
   const localDir = qvec(qinv(parentWorldQ), dir);
   const palmLocal: V3 = [0, -1, 0]; // palm direction in VRM hand-local rest frame
   // Signed flexion angle: 0 when aligned with rest, positive as it curls toward the palm.
-  const flex = Math.atan2(dot(localDir, palmLocal), dot(localDir, restDir));
+  let flex = Math.atan2(dot(localDir, palmLocal), dot(localDir, restDir));
+  if (!allowSpread) flex = signedBend(pts, prevIdx, fromIdx, toIdx, flex, FLEX_MIN);
   const flexClamped = Math.max(FLEX_MIN, Math.min(FLEX_MAX, flex));
   // Hinge axis = rest × palm; rotating restDir about it by +flex sweeps toward the palm.
   const hinge = norm(cross(restDir, palmLocal));
@@ -265,6 +282,60 @@ function fingerSegmentLocal(
   // +spread rotates restDir toward sideAxis about the palm normal [0,-1,0].
   const qSpread = axisAngle([0, -1, 0], spreadClamped);
   return qmul(qSpread, qFlex);
+}
+
+// Unsigned angle at `b` between segments a→b and b→c, signed by the frame-derived flex estimate.
+// A backward reading is only believed while it stays within the hyperextension limit — anything
+// larger is a curl whose direction the (noisier) frame got wrong.
+function signedBend(
+  pts: Landmark[],
+  a: number,
+  b: number,
+  c: number,
+  frameFlex: number,
+  hyperMin: number
+): number {
+  const u = norm(sub(pts[b], pts[a]));
+  const v = norm(sub(pts[c], pts[b]));
+  const bend = Math.acos(Math.max(-1, Math.min(1, dot(u, v))));
+  return frameFlex < 0 && bend <= -hyperMin ? -bend : bend;
+}
+
+// Thumb metacarpal (saddle joint, two degrees of freedom): the minimal rotation from the thumb's
+// rest direction to the observed CMC→MCP direction, capped at THUMB_CMC_MAX.
+function thumbMetacarpalLocal(
+  pts: Landmark[],
+  handToWorld: Quaternion,
+  thumbRest: V3
+): Quaternion {
+  const localDir = qvec(
+    qinv(handToWorld),
+    norm(sub(pts[H.thumbMcp], pts[H.thumbCmc]))
+  );
+  const angle = Math.acos(Math.max(-1, Math.min(1, dot(thumbRest, localDir))));
+  if (angle < 1e-6) return Quaternion.IDENTITY;
+  const axis = norm(cross(thumbRest, localDir));
+  return axisAngle(axis, Math.min(angle, THUMB_CMC_MAX));
+}
+
+// Thumb MCP / IP: hinges about the thumb's own axis (rest × curl), sized like the finger joints.
+function thumbHingeLocal(
+  pts: Landmark[],
+  prevIdx: number,
+  fromIdx: number,
+  toIdx: number,
+  parentWorldQ: Quaternion,
+  thumbRest: V3
+): Quaternion {
+  const hinge = norm(cross(thumbRest, THUMB_CURL));
+  const curl = cross(hinge, thumbRest); // THUMB_CURL made perpendicular to the rest direction
+  const localDir = qvec(
+    qinv(parentWorldQ),
+    norm(sub(pts[toIdx], pts[fromIdx]))
+  );
+  const frameFlex = Math.atan2(dot(localDir, curl), dot(localDir, thumbRest));
+  const flex = signedBend(pts, prevIdx, fromIdx, toIdx, frameFlex, THUMB_FLEX_MIN);
+  return axisAngle(hinge, Math.max(THUMB_FLEX_MIN, Math.min(THUMB_FLEX_MAX, flex)));
 }
 
 function convertHand(pts: Landmark[], side: 'left' | 'right'): NormalizedPose {
@@ -343,53 +414,67 @@ function convertHand(pts: Landmark[], side: 'left' | 'right'): NormalizedPose {
       f.pip,
       handToWorld,
       restDir,
+      H.wrist,
       true
     );
     entries.push([f.mcpBone, mcpLocal]);
 
     // PIP local (relative to MCP world = handToWorld * mcpLocal)
     const mcpWorld = qmul(handToWorld, mcpLocal);
-    const pipLocal = fingerSegmentLocal(pts, f.pip, f.dip, mcpWorld, restDir);
+    const pipLocal = fingerSegmentLocal(
+      pts,
+      f.pip,
+      f.dip,
+      mcpWorld,
+      restDir,
+      f.mcp
+    );
     entries.push([f.pipBone, pipLocal]);
 
     // DIP local (relative to PIP world = mcpWorld * pipLocal)
     const pipWorld = qmul(mcpWorld, pipLocal);
-    const dipLocal = fingerSegmentLocal(pts, f.dip, f.tip, pipWorld, restDir);
+    const dipLocal = fingerSegmentLocal(
+      pts,
+      f.dip,
+      f.tip,
+      pipWorld,
+      restDir,
+      f.pip
+    );
     entries.push([f.dipBone, dipLocal]);
   }
 
-  // Thumb (CMC→MCP→IP→Tip, slightly different chain). The thumb's base joint moves mostly by
-  // abduction, so it carries the spread DOF too.
-  const thumbCmcLocal = fingerSegmentLocal(
-    pts,
-    H.thumbCmc,
-    H.thumbMcp,
-    handToWorld,
-    restDir,
-    true
-  );
+  // Thumb (CMC→MCP→IP→Tip): own rest direction and hinge — see THUMB_SPLAY / THUMB_CURL.
+  const thumbRest = norm([
+    restDir[0] * Math.cos(THUMB_SPLAY),
+    0,
+    Math.sin(THUMB_SPLAY),
+  ]);
+  const thumbCmcLocal = thumbMetacarpalLocal(pts, handToWorld, thumbRest);
   entries.push([
     L ? 'leftThumbMetacarpal' : 'rightThumbMetacarpal',
     thumbCmcLocal,
   ]);
   const thumbCmcWorld = qmul(handToWorld, thumbCmcLocal);
 
-  const thumbMcpLocal = fingerSegmentLocal(
+  const thumbMcpLocal = thumbHingeLocal(
     pts,
+    H.thumbCmc,
     H.thumbMcp,
     H.thumbIp,
     thumbCmcWorld,
-    restDir
+    thumbRest
   );
   entries.push([L ? 'leftThumbProximal' : 'rightThumbProximal', thumbMcpLocal]);
   const thumbMcpWorld = qmul(thumbCmcWorld, thumbMcpLocal);
 
-  const thumbIpLocal = fingerSegmentLocal(
+  const thumbIpLocal = thumbHingeLocal(
     pts,
+    H.thumbMcp,
     H.thumbIp,
     H.thumbTip,
     thumbMcpWorld,
-    restDir
+    thumbRest
   );
   entries.push([L ? 'leftThumbDistal' : 'rightThumbDistal', thumbIpLocal]);
 

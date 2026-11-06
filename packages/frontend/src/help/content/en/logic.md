@@ -51,3 +51,38 @@ channel when it fires. Its message is a template — write fixed text mixed with
 `${placeholders}`, then wire a value into each named input to fill the blanks
 (for example, greet a new follower by name). Sending requires reconnecting the
 account once so it grants chat-write permission.
+
+## System hotkeys {#hotkeys}
+
+The **System Hotkey** trigger fires when you press a keyboard shortcut anywhere
+on the computer running vspark — even when vspark is in the background and
+another app is focused. It's perfect for hands-free moments while you stream:
+hit a key to play an animation, swap an expression, or show an overlay.
+
+Set the **key** (its name, e.g. `F8`, `A`, or `SPACE`) and tick any of the
+modifier boxes — **ctrl**, **shift**, **alt**, **meta** (the Windows/Command
+key) — to require them. The match is exact: a `Ctrl + S` hotkey won't fire on
+`Ctrl + Shift + S`. Wire the node's event output into an action to react.
+
+Because it watches the keyboard system-wide, this only works when the server
+runs on your own machine. On a headless or remote server, or where the
+operating system blocks global keyboard hooks, the hotkey simply never fires —
+nothing else is affected.
+
+## Macros {#macros}
+
+The **Macros** tab is the easy way to set up a bunch of keyboard shortcuts
+without touching the node canvas. Each macro reads as a sentence: *when I press
+[shortcut] → [do action]*.
+
+- Click **Add macro**, then click the shortcut button and press the keys you
+  want (e.g. `Ctrl + Shift + 1`). Pick an action — play a clip, set an
+  expression, show or hide something, control a video — and fill in its details.
+- The **On** checkbox enables or disables a macro without deleting it.
+
+Macros are just a friendly view of Logic: each one is really a *System Hotkey*
+node wired to an action node behind the scenes. So anything you build on the
+canvas that starts with a hotkey shows up here too, and edits stay in sync both
+ways. When a macro does something the simple view can't show — a toggle, or a
+hand-wired chain — the row says so and offers **Open in graph** to edit it with
+full control.

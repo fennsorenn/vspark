@@ -483,6 +483,13 @@ export function mkEvent<T>(payload: T, timestamp = Date.now()): Event<T> {
 // Signal type system — port types and connection safety
 // ──────────────────────────────────────────────────────────────────────────────
 
+/**
+ * Per-bone tracking confidence in [0, 1], keyed by VRM bone name. A bone absent from the map
+ * counts as fully confident. Produced by converters alongside their pose (e.g. from landmark
+ * visibility) and consumed by `pose_smooth`.
+ */
+export type BoneConfidence = Partial<Record<VRMBoneName, number>>;
+
 export interface SignalTypeMap {
   BoneRotations: BoneRotations;
   NormalizedPose: NormalizedPose;
@@ -526,6 +533,8 @@ export interface SignalTypeMap {
   LandmarkList: Array<{ x: number; y: number; z: number; visibility?: number }>;
   /** IK end-effector targets for a single frame, ready for frontend solve. */
   IkTargets: import('./types.js').IkTargetFrame;
+  /** Per-bone tracking confidence — see `BoneConfidence`. */
+  BoneConfidence: BoneConfidence;
   /**
    * Reference to a configured overlive login account (Twitch / StreamElements).
    * Carried as the account row id string at runtime; the frontend port editor
@@ -638,6 +647,7 @@ export const SIGNAL_TYPE_COLORS: Record<SignalTypeName, string> = {
   StyleDrivers: '#b06a9a',
   LandmarkList: '#7a9a6a',
   IkTargets: '#a06a9a',
+  BoneConfidence: '#8aa05a',
   Account: '#9146ff',
   SpawnRef: '#c97a3a',
   SceneEntity: '#4aa0a0',

@@ -10,7 +10,9 @@ three places that must agree on a contract:
 - **Frontend** — `packages/frontend/src/components/editor/UpdateDialog.tsx` (channel
   selector, release notes, progress bar, Update Now)
 - **Release packaging** — `.github/workflows/release.yml` generates the bundled
-  supervising start script (`start.sh` / `start.bat`) and the release zip.
+  supervising start script (`start.sh` / `start.bat`) and the release zip (which
+  also carries the global key hook in `node_modules/` — see
+  [hotkeys.md](hotkeys.md#bundling)).
 
 Shared types: `UpdateStatus`, `UpdateChannel`, `AppConfig` in
 `packages/shared/src/types.ts`. Channel preference is persisted via `routes/config.ts`

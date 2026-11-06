@@ -43,6 +43,23 @@ describe('MCP server', () => {
     await new Promise<void>((resolve) => httpServer.close(() => resolve()));
   });
 
+  it('annotates every tool: reads read-only, removals/overwrites destructive', async () => {
+    const { tools } = await mcp.listTools();
+    const ann = new Map(tools.map((t) => [t.name, t.annotations]));
+    for (const [name, a] of ann) {
+      expect(a?.openWorldHint, name).toBe(false);
+      if (/^(list|get|lookup)_/.test(name)) expect(a?.readOnlyHint, name).toBe(true);
+      if (/^(delete|clear|update|set)_/.test(name)) {
+        expect(a?.readOnlyHint, name).toBe(false);
+        expect(a?.destructiveHint, name).toBe(true);
+      }
+    }
+    expect(ann.get('create_scene_node')?.destructiveHint).toBe(false);
+    expect(ann.get('ui_open_panel')?.destructiveHint).toBe(false);
+    expect(ann.get('delete_scene_node')?.destructiveHint).toBe(true);
+    expect(ann.get('screenshot_viewport')?.readOnlyHint).toBe(true);
+  });
+
   it('exposes the full tool catalog', async () => {
     const { tools } = await mcp.listTools();
     const names = tools.map((t) => t.name);
@@ -373,6 +390,26 @@ describe('assistant config API', () => {
       .expect(200);
     expect(res.body.data.hasApiKey).toBe(true);
     expect(res.body.data.model).toBe('m2');
+  });
+
+  it('sets, keeps and clears maxTokens', async () => {
+    let res = await request(app)
+      .put('/api/assistant-config')
+      .send({ baseUrl: 'http://x', maxTokens: 4096 })
+      .expect(200);
+    expect(res.body.data.maxTokens).toBe(4096);
+    // Omitted or invalid → unchanged.
+    res = await request(app)
+      .put('/api/assistant-config')
+      .send({ model: 'm2', maxTokens: -5 })
+      .expect(200);
+    expect(res.body.data.maxTokens).toBe(4096);
+    // null → back to the client default (absent).
+    res = await request(app)
+      .put('/api/assistant-config')
+      .send({ maxTokens: null })
+      .expect(200);
+    expect(res.body.data.maxTokens).toBeUndefined();
   });
 
   it('resolves the endpoint from generic env, with legacy fallback', async () => {

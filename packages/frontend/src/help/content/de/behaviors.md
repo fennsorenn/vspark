@@ -93,6 +93,41 @@ während ein eigens hochwertiges Gesichtsmodell für genauere Ausdrücke sorgt �
 Kosten zusätzlicher CPU-Last. Aktiviere es nur, wenn deine Maschine eine flüssige
 Bildrate hält.
 
+### Optionen der Arm-Berechnung {#arm-solve}
+
+Ist **IK-Arme verwenden** aus, werden die Arme Knochen für Knochen aus den
+Körper- und Handpunkten der Kamera berechnet. Im Abschnitt **Arm-Berechnung
+(experimentell)** kannst du die einzelnen Techniken ein- und ausschalten und so
+während der Bewegung sehen, was jede bewirkt. Alles eingeschaltet ist die
+empfohlene Einstellung.
+
+- **Berechnung** — *Ellbogen-Scharnier* behandelt den Ellbogen als Scharnier:
+  Die Drehung des Oberarms ergibt sich aus dem Winkel deines Arms am Ellbogen,
+  und nur der Unterarm dreht sich mit der Hand. *Alt* ist das frühere Verfahren,
+  das den ganzen Arm der Hand folgen lässt; es bleibt zum Vergleich erhalten und
+  kippt leicht, wenn deine Finger auf die Kamera zeigen.
+- **Geschätzte Gelenke behalten** — hält Unterarm und Hand in Bewegung, wenn die
+  Kamera nur raten kann, wo dein Handgelenk ist (etwa außerhalb des Bildes),
+  statt sie in die Ruhepose fallen zu lassen.
+- **Ellbogenebene am Handgelenk prüfen** — verhindert, dass eine geratene
+  Handgelenksposition deinen Oberarm umdreht.
+- **Keine Verdrehung im Handgelenk** und **Unmögliche Handgelenkswinkel
+  ignorieren** — verhindern, dass sich die Hand verdreht oder abknickt, wie es
+  ein echtes Handgelenk nicht kann.
+- **Seitlich gehaltener Handfläche misstrauen** und **Hand mit Körper-Tracking
+  abgleichen** — die Kamera erkennt die Drehung deiner Hand schlecht, wenn die
+  Handfläche seitlich steht, und verwechselt manchmal Handfläche und Handrücken.
+  Diese Optionen lassen Unterarm und Hand in solchen Momenten ruhiger bewegen,
+  statt zu springen.
+- **Vertrauensbasierte Glättung** — führt die Teile, bei denen sich die Kamera
+  unsicher ist, sanft an ihre neue Position heran, statt sie springen zu lassen.
+- **Einzelbild-Sprünge zurückhalten** — ignoriert eine plötzliche große Drehung,
+  bis sie einige Bilder lang anhält. Das entfernt Flackern; sehr schnelle echte
+  Bewegungen kommen einen Moment später an.
+
+Zum Vergleichen halte eine Pose, die Probleme macht (Finger zur Kamera eignet
+sich gut), und schalte jeweils eine Option um.
+
 ## Lippensynchronisation {#lipsync}
 
 Die Lippensynchronisation hört auf dein **Mikrofon** und wandelt Sprache in

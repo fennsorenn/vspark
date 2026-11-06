@@ -24,7 +24,7 @@ those lessons — they are the load-bearing part of this module, not the wiring.
 |------|------|
 | `client.ts` | `VsparkClient` — a thin HTTP wrapper over the vspark REST API. Injectable `baseUrl` + optional `fetchImpl` (tests). Unwraps the `{ ok, data, error }` envelope; throws `VsparkApiError` on `!ok`/non-2xx. The tool layer talks to the backend *exclusively* through this, so the same tool code works for every transport — each just points the client at a base URL. |
 | `tools.ts` | `buildToolSpecs()` — the single source of truth for the tool catalog (63 tools). Each `ToolSpec` is `{ name, description, inputShape (zod raw shape), handler }`. A handler may return a `ToolMediaResult` (`{ __media: true, text, images }`, built via `mediaResult()`) to ship image content — used by `view_asset`, `render_feed_template`, and `screenshot_viewport`; `isToolMediaResult()` detects it. |
-| `server.ts` | `createMcpServer(client)` — builds an `@modelcontextprotocol/sdk` `McpServer` (^1.29) and registers every spec. Handlers run the spec; a `ToolMediaResult` is forwarded as MCP `content` with `type: 'image'` parts (plus the text), everything else is JSON-stringified. Thrown errors map to `{ isError: true, content: [...] }`. |
+| `server.ts` | `createMcpServer(client)` — builds an `@modelcontextprotocol/sdk` `McpServer` (^1.29) and registers every spec. Handlers run the spec; a `ToolMediaResult` is forwarded as MCP `content` with `type: 'image'` parts (plus the text), everything else is JSON-stringified. Thrown errors map to `{ isError: true, content: [...] }`. Every tool is registered with MCP **annotations** from `toolAnnotations(name)` (`tools.ts`), derived from the leading verb: `list/get/lookup/view/render/screenshot` → `readOnlyHint`; `create/add/attach/instantiate/play/control/ui` → `destructiveHint: false`; anything else (`delete/clear/update/set`) → `destructiveHint: true`; all `openWorldHint: false`. External clients (Claude Desktop etc.) use them to decide what to confirm; the in-app agent ignores them. Naming a new tool with the right verb classifies it. |
 | `http.ts` | `createMcpHttpRouter(loopbackBaseUrl)` — mounts the server over the **stateless Streamable-HTTP** transport at `/mcp` (see `index.ts`). Each POST spins up a fresh server+transport pair (no session affinity); `GET`/`DELETE` return 405. |
 | `stdio.ts` | Standalone **stdio** MCP server — the `vspark-mcp` bin. External AI clients (Claude Desktop / Code, Cursor) spawn it; it forwards tool calls to a *running* backend over HTTP, pointed by `VSPARK_BASE_URL` (default `http://localhost:3001`). stderr for logs, stdout is the JSON-RPC channel. |
 
@@ -287,7 +287,7 @@ thing to update** — see [Adding / changing a tool](#adding--changing-a-tool).
 
 | File | Role |
 |------|------|
-| `llm.ts` | Minimal OpenAI-compatible chat client (`chatCompletion`). Dependency-free (global `fetch`), non-streaming, `temperature: 0`. Works against vLLM / Ollama / OpenAI. Posts to `<baseUrl>/v1/chat/completions` with optional `Authorization: Bearer <apiKey>`. |
+| `llm.ts` | Minimal OpenAI-compatible chat client (`chatCompletion`). Dependency-free (global `fetch`), non-streaming, `temperature: 0`. Works against vLLM / Ollama / OpenAI. Posts to `<baseUrl>/v1/chat/completions` (`apiUrl()` strips a trailing `/v1` from `baseUrl` first, so either convention works and `/v1` is never doubled) with optional `Authorization: Bearer <apiKey>`. |
 | `agent.ts` | `AssistantAgent` — holds conversation state and the tool-calling loop. Also owns the **context-management** layer: lazy tool-loading with a per-turn group reset (`TOOL_GROUPS` + the `enable_tools` meta-tool, `activeTools()`), three-pass history compaction (`compactToolHistory`), and overflow recovery (`completeWithRecovery` → `pruneOldestGroups`). |
 | `manager.ts` | `AssistantManager` — one agent per WS connection; routes inbound `assistant_*` messages and streams events back to that single socket. |
 
@@ -323,8 +323,10 @@ management](#context-management)).
    action tool, `onToolCall`, dispatch through `callTool` (which handles the
    `enable_tools` meta-tool agent-side, **auto-injects this editor's `sessionId`
    for `render_feed_template`**, and routes everything else to the MCP client),
-   `onToolResult`, and push a `role: 'tool'` message (text truncated to 4000
-   chars). If the tool returned image(s) (`view_asset`, `render_feed_template`),
+   `onToolResult`, and push a `role: 'tool'` message (text capped at
+   `TOOL_RESULT_CAP` = 4000 chars by `capToolResult`, which appends a
+   `[truncated: showing N of M chars …]` marker so the model never mistakes a
+   partial list for the whole one). If the tool returned image(s) (`view_asset`, `render_feed_template`),
    they ride along on that tool message as `image_url` content parts (gemma
    accepts images in tool-role messages). `stripStaleImages(messages)` prunes
    images out of older turns before each round so blobs aren't re-transmitted.
@@ -538,7 +540,7 @@ are inlined to cached data URLs first via **`inlineCssAssetUrls`**
 ## Config
 
 `AppConfig` (`packages/shared/src/types.ts`) gains an optional
-`assistant?: AssistantConfig { enabled, baseUrl, apiKey, model }`, plus an
+`assistant?: AssistantConfig { enabled, baseUrl, apiKey, model, maxTokens? }` (`maxTokens` = the per-call `max_tokens` budget, default 1024; env `ASSISTANT_MAX_TOKENS`; `PUT /api/assistant-config` takes a positive integer to set it or `null` to clear it), plus an
 `AssistantConfigPublic` (apiKey replaced by `hasApiKey: boolean`).
 
 `routes/config.ts`:
@@ -559,7 +561,7 @@ There is **no hard-coded default model**. `DEFAULT_ASSISTANT_MODEL` in
 model comes from `config.json` or the `ASSISTANT_MODEL` env var, and when neither
 is set it stays empty. When the manager builds an agent with an empty model it
 **auto-detects** one from the endpoint: `fetchFirstModel(baseUrl, apiKey)`
-(`llm.ts`) does a `GET <baseUrl>/v1/models` and returns the first model id (or
+(`llm.ts`) does a `GET <baseUrl>/v1/models` (same `apiUrl()` normalization) and returns the first model id (or
 `''` if it can't be determined), and `AssistantManager` caches the result per
 `baseUrl` in its `modelCache`. So the assistant works **out of the box against any
 single-model OpenAI-compatible server** (vLLM, llama.cpp, Ollama) without naming a
