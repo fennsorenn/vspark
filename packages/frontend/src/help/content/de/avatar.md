@@ -69,44 +69,71 @@ Aktiviere sie pro Avatar und stelle dann drei Regler ein:
 > mehr Schwung. Fängt die Bewegung an zu wackeln oder zu schwingen, erhöhe die
 > **Dämpfung** oder senke die **Frequenz**.
 
-## Teilweises Tracking {#partial-tracking}
+## Tracking-Mix {#tracking-mix}
 
-**Teilweises Tracking** steuert verschiedene Körperbereiche gleichzeitig aus
-verschiedenen Quellen — zum Beispiel eine Tanz-Animation auf den **Beinen**,
-während dein Live-Tracking den **Oberkörper** steuert.
+Der **Tracking-Mix** legt fest, wie stark jede Quelle deinen Avatar bewegt. Eine
+Quelle ist die **Animation** (Basis- oder Leerlauf-Clip) oder eines der
+Tracking-Verhalten des Avatars — VMC, iFacialMocap, Webcam-Tracking, Atmung,
+Lippensynchronisation und so weiter. So kannst du zum Beispiel eine
+Tanz-Animation auf den **Beinen** abspielen, während Live-Tracking den
+**Oberkörper** steuert, oder das Webcam-Tracking den Kopf lenken lassen,
+während ein VMC-Sender die Arme übernimmt.
 
-Der Körper ist in sechs Bereiche unterteilt: **Kopf**, **Blick** (Augen),
-**Körper** (Rumpf), **Arme**, **Hände** (Finger) und **Beine**. Jeder Bereich
-hat zwei Regler:
+In der Seitenleiste hat jede Quelle einen Regler, der ihr Gewicht überall
+setzt. Klicke auf **Mixer öffnen…** für den vollständigen Editor:
 
-- **Anim** — wie stark die **Basis-Animation** diesen Bereich steuert.
-- **Track** — wie stark Live-Tracking (VMC oder Kamera) ihn steuert.
+- **Körper** — ein Raster aus Körperbereichen (**Kopf**, **Blick**,
+  **Körper**, **Arme**, **Hände**, **Beine**) × Quellen. Klicke auf einen
+  Bereich, um ihn aufzuklappen und einzelne Knochen einzustellen.
+- **Gesicht** — die Mimiken des Modells, gruppiert in **Mund**, **Augen**,
+  **Brauen**, **Emotionen** und **Sonstige**, × die Quellen, die Mimik senden.
 
-Tracking wird **auf die Basis-Animation gestapelt**, und jeder Regler skaliert
-seine Ebene unabhängig. Der Bereich startet in der Ruhepose, **Anim** blendet
-die Basis-Animation ein, und **Track** legt das Live-Tracking darüber:
+Jedes Gewicht reicht von **0** bis **2**:
 
-- **Anim 1 / Track 1** — die Basis-Animation mit voll aufgesetztem Tracking.
-- **Anim 1 / Track 0** — nur Animation (z. B. Beine folgen einem Clip).
-- **Anim 0 / Track 1** — nur Tracking.
-- **Anim 0 / Track 0** — der Bereich ruht.
-- Werte dazwischen skalieren jede Ebene, sodass beide Regler stets wirken.
+- **1** — die Quelle in voller Stärke (überall der Standard).
+- **0** — die Quelle hat dort keinen Einfluss.
+- **Zwischen 0 und 1** — die Quelle wird abgeschwächt.
+- **Über 1** — die Quelle wird verstärkt, z. B. um einen zurückhaltenden Sender
+  zu übertreiben.
 
-Bereiche, die du nicht anfasst, bleiben auf dem Standard (**Anim 1 / Track 1**).
+Tracking wird **auf die Animation gestapelt**. Ein Bereich startet in der
+Ruhepose, das Animationsgewicht blendet den Clip ein, und die Rotation jeder
+Tracking-Quelle wird darübergelegt, skaliert mit ihrem Gewicht. Die Gewichte
+müssen sich **nicht** zu 1 addieren: Zwei Quellen mit je 0,5 mitteln sich
+ungefähr, während Atmung mit 1 auf vollem Tracking ihre Bewegung hinzufügt. Ein
+Körperteil, den jede Tracking-Quelle mit 0 gewichtet, folgt allein der
+Animation; eine Mimik, die jede Quelle mit 0 gewichtet, kehrt zur
+Standard-Mimik zurück.
 
-> Diese Regler wirken nur, **solange eine Tracking-Quelle aktiv ist**. Ist das
-> Tracking verloren — oder gar keine Tracking-Quelle aktiviert —, läuft die
-> **Idle-Animation** in voller Stärke und die Regler werden ignoriert; ein
-> niedriger **Anim**-Wert schwächt deine Idle-Animation also nie ab.
+**Bereiche und einzelne Knochen.** Ein Bereichsregler (oder eine
+Gesichtsgruppe, oder der Regler in der Seitenleiste) setzt alle Knochen darin.
+Sobald du einen einzelnen Knochen änderst, zeigt der Bereich **Individuell**
+statt eines Reglers. Sein Zurücksetzen-Knopf setzt alle Knochen des Bereichs auf
+den Wert, den die meisten schon haben (bei Gleichstand den höheren), oder auf 1,
+wenn sich kein Wert wiederholt.
+
+> Die Animationsgewichte wirken nur, **solange eine Tracking-Quelle aktiv ist**.
+> Ist das Tracking verloren — oder gar keine Tracking-Quelle aktiviert —, läuft
+> die **Leerlauf-Animation** in voller Stärke; ein niedriges Animationsgewicht
+> schwächt deine Leerlauf-Animation also nie ab.
 
 > Die Hüfte gehört zum Bereich **Beine** — sowohl ihre Rotation als auch ihre
 > **Position** (die Root-Motion: das Auf-und-Ab-Wippen und die
 > Gewichtsverlagerung, die ein Clip mitbringt), da die Hüfte die untere
-> Körperhälfte führt. **Beine Anim 0** hält die Hüfte also an Ort und Stelle und
-> lässt sie zusammen mit den Beinen ruhen, während der Bereich **Körper**
-> Wirbelsäule und Brust abdeckt.
+> Körperhälfte führt. Ein Animationsgewicht von 0 auf der Hüfte hält sie also an
+> Ort und Stelle, während der Bereich **Körper** Wirbelsäule und Brust abdeckt.
 
-### Basis-Animation
+### Reihenfolge der Quellen {#tracking-mix-order}
+
+Der Reiter **Körper** zeigt die Tracking-Quellen in der Reihenfolge, in der sie
+von links nach rechts auf die Animation angewendet werden. Mit den Pfeilen
+verschiebst du eine Quelle nach vorn oder hinten. Die Reihenfolge zählt nur,
+wenn zwei Quellen **denselben** Knochen in **verschiedene** Richtungen drehen —
+Rotationen verketten sich wie erst Drehen und dann Kippen, was woanders endet
+als erst Kippen. Mimiken werden einfach addiert, ihre Reihenfolge spielt also
+keine Rolle.
+
+### Basis-Animation {#base-animation}
 
 Die **Basis-Animation** (im Animations-Abschnitt einstellbar) ist die Schleife,
 auf die Tracking gestapelt wird, solange eine Tracking-Quelle verbunden ist —
@@ -119,8 +146,9 @@ ausgewähltem Avatar zeigt jeder Animations-Clip die Schaltflächen **Als Idle
 setzen** und **Als Basis setzen**.
 
 > Hinweis: Beine per Tracking brauchen eine Ganzkörperquelle (ein Ganzkörper-
-> VMC-Sender). Webcam-Tracking sendet noch keine Beine — nutze bei einer Webcam
-> also **Anim** für die Beine und **Track** für den Oberkörper.
+> VMC-Sender). Webcam-Tracking sendet noch keine Beine — mit einer Webcam folgen
+> die Beine also der Animation; der **Tracking-Mix** kann keine Beinbewegung
+> hinzufügen, die keine Quelle sendet.
 
 ## Mimik {#expressions}
 

@@ -2,6 +2,15 @@
 
 Post-processing pipeline attached to camera nodes. Each effect is a DB row; the frontend `CameraEffects` component translates enabled rows into a `@react-three/postprocessing` `EffectComposer` pipeline.
 
+> **Catalog moved to shared.** The effect-kind catalog `CAMERA_EFFECT_KINDS`
+> (each entry `{ kind, label, icon, description, defaultConfig }`) is now a single
+> source of truth in `packages/shared/src/cameraEffects.ts`, exported via the
+> `@vspark/shared/cameraEffects` subpath. The frontend re-exports
+> `CAMERA_EFFECT_KINDS` / `CameraEffectKind` from there (no behaviour change), and
+> the backend MCP `list_camera_effect_kinds` tool returns it so an agent can
+> discover the valid config keys. 19 `fx_`-prefixed kinds. See
+> [shared-types.md](shared-types.md) and [mcp-assistant.md](mcp-assistant.md).
+
 ## DB table — `camera_effects` (migration 003)
 
 | Column | Type | Notes |
@@ -24,10 +33,7 @@ PUT    /camera-effects/:id             body: { kind?, enabled?, config? }
 DELETE /camera-effects/:id
 ```
 
-Every mutation broadcasts a WebSocket message:
-- `camera_effect_added` — full effect record
-- `camera_effect_updated` — updated fields
-- `camera_effect_removed` — `{ id }`
+Mutations are writes to the `camera_effect` mesh collection (tabs author them directly; the REST routes write through the mesh). No WebSocket messages are sent; every subscriber gets the document change.
 
 Frontend `useWsSync` applies these to the store in real time.
 
@@ -97,6 +103,7 @@ Camera nodes in the scene tree show:
 | `fx_ascii` | `cellSize`, `color` | |
 | `fx_dot_screen` | `angle`, `scale` | |
 | `fx_glitch` | `delay`, `duration`, `strength` | |
+| `fx_smaa` | _(none)_ | subpixel morphological antialiasing |
 | `fx_tilt_shift` | `offset`, `rotation`, `focusArea`, `feather` | |
 | `fx_water` | `speed`, `amplitude`, `frequency`, `steepness` | |
 
@@ -104,7 +111,7 @@ Config is stored as-is in JSON; there is no server-side schema validation. The f
 
 ## Adding a new effect kind
 
-1. Add the kind string to `CAMERA_EFFECT_KINDS` in the frontend store
+1. Add the kind (with its `defaultConfig`) to `CAMERA_EFFECT_KINDS` in `packages/shared/src/cameraEffects.ts`
 2. Add a rendering branch in `CameraEffects` in `Viewport.tsx`
 3. Add a config UI block in `EffectPanel` in `PropertiesPanel.tsx`
 4. No backend changes needed — the DB stores arbitrary JSON config

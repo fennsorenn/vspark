@@ -43,7 +43,7 @@ router.get('/scene-nodes/:nodeId/effects', (req, res) => {
  *         application/json:
  *           schema: { $ref: '#/components/schemas/CreateCameraEffect' }
  *     responses:
- *       201: { description: Effect created; broadcast as camera_effect_added over WebSocket }
+ *       201: { description: Effect created (committed through the mesh store) }
  *       400: { description: Missing kind, content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
  */
 router.post('/scene-nodes/:nodeId/effects', async (req, res) => {
@@ -95,7 +95,7 @@ router.post('/scene-nodes/:nodeId/effects', async (req, res) => {
  *         application/json:
  *           schema: { $ref: '#/components/schemas/UpdateCameraEffect' }
  *     responses:
- *       200: { description: Updated; broadcast as camera_effect_updated over WebSocket }
+ *       200: { description: Updated; fans out through the camera_effect collection }
  */
 router.put('/camera-effects/:id', async (req, res) => {
   const { enabled, config } = req.body;
@@ -114,12 +114,6 @@ router.put('/camera-effects/:id', async (req, res) => {
     return res
       .status(500)
       .json({ ok: false, error: { message: outcome.reason } });
-  // Local smoothing broadcast (the canonical doc re-sync rides the store tap).
-  _ws?.broadcast('camera_effect_updated', {
-    id: req.params.id,
-    enabled,
-    config,
-  });
   res.json({ ok: true, data: { id: req.params.id } });
 });
 

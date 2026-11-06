@@ -22,6 +22,7 @@
       "@vspark/shared/arkit": ["../shared/src/arkit_tables.ts"],
       "@vspark/shared/paramPaths": ["../shared/src/paramPaths.ts"],
       "@vspark/shared/blendshapeLimits": ["../shared/src/blendshapeLimits.ts"],
+      "@vspark/shared/trackingMix": ["../shared/src/trackingMix.ts"],
       "@vspark/shared/style_rig": ["../shared/src/style_rig.ts"]
     }
   },

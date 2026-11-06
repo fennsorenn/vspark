@@ -17,6 +17,7 @@ import { IFacialMocapPacketSource } from './nodes/ifacialmocap_packet_source.js'
 import { RhyliveBoneMapper } from './nodes/rhylive_bone_mapper.js';
 import { ArkitVrmMapper } from './nodes/arkit_vrm_mapper.js';
 import { BodyCalibration } from './nodes/body_calibration.js';
+import { EyeRangeMap } from './nodes/eye_range_map.js';
 import { PoseManualCalibration } from './nodes/pose_manual_calibration.js';
 import { PoseStyleDrivers } from './nodes/pose_style_drivers.js';
 import { PoseStylize } from './nodes/pose_stylize.js';
@@ -112,6 +113,21 @@ import {
   OverliveRaidCancel,
 } from './nodes/overlive/actions_interactive.js';
 import { OverliveWhisper } from './nodes/overlive/actions_dm.js';
+// OBS browser-source bridge nodes
+import { ObsSceneChanged } from './nodes/obs/scene_changed.js';
+import { ObsOutputState } from './nodes/obs/output_state.js';
+import { ObsSetScene } from './nodes/obs/set_scene.js';
+import { ObsSetTransition } from './nodes/obs/set_transition.js';
+import { ObsControl } from './nodes/obs/control.js';
+// OBS power tier (obs-websocket) nodes
+import { ObsSetVolume } from './nodes/obs/set_volume.js';
+import { ObsMute } from './nodes/obs/mute.js';
+import { ObsVolumeChanged } from './nodes/obs/volume_changed.js';
+import { ObsMuteChanged } from './nodes/obs/mute_changed.js';
+import { ObsReplayPath } from './nodes/obs/replay_path.js';
+import { ObsConnectionState } from './nodes/obs/connection_state.js';
+// Render-client lifecycle (vspark-native, driven by the browser-source bridge)
+import { ClientLifecycle } from './nodes/client_lifecycle.js';
 
 // ──────────────────────────────────────────────────────────────────────────────
 // All known node kinds. Import a new class here to auto-register it.
@@ -130,6 +146,7 @@ const ALL_NODE_CLASSES: SignalNodeClass[] = [
   RhyliveBoneMapper,
   ArkitVrmMapper,
   BodyCalibration,
+  EyeRangeMap,
   PoseManualCalibration,
   PoseStyleDrivers,
   PoseStylize,
@@ -224,6 +241,21 @@ const ALL_NODE_CLASSES: SignalNodeClass[] = [
   OverliveRaidStart,
   OverliveRaidCancel,
   OverliveWhisper,
+  // OBS browser-source bridge — event sources + control actions
+  ObsSceneChanged,
+  ObsOutputState,
+  ObsSetScene,
+  ObsSetTransition,
+  ObsControl,
+  // OBS power tier (obs-websocket) — audio + connection
+  ObsSetVolume,
+  ObsMute,
+  ObsVolumeChanged,
+  ObsMuteChanged,
+  ObsReplayPath,
+  ObsConnectionState,
+  // Render-client lifecycle
+  ClientLifecycle,
   // System input
   SystemHotkey,
   // Flow control

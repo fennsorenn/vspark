@@ -118,7 +118,7 @@ Lifecycle hooks:
 
 State + token persistence:
 
-- `kit.on('adapter.state', snap => ...)` translates `AdapterStateSnapshot.state` (+`reason`) into the column-shaped `status` and writes `status` / `status_reason` / `status_message` back to `overlive_accounts`. Then broadcasts `overlive_account_status` over the WS bus (`{ accountId, status, reason, message }`).
+- `kit.on('adapter.state', snap => ...)` translates `AdapterStateSnapshot.state` (+`reason`) into the column-shaped `status` and writes `status` / `status_reason` / `status_message` back to `overlive_accounts`. Then publishes an `overlive_account` status document (`server_status`, `{ accountId, status, reason, message }`; see [mesh.md](mesh.md#runtime-state-the-runtime-channel)), which the frontend feeder applies to the account list.
 - `onTokenRefreshed` callback on `TwitchAdapter` persists rotated `{ accessToken, refreshToken, expiresAt }` back to `credentials` so refresh survives restarts.
 
 Event routing:

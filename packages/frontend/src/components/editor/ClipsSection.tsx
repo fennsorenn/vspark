@@ -2,10 +2,18 @@ import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Play, Clapperboard } from 'lucide-react';
 import { useEditorStore } from '../../store/editorStore';
-import { api, type TrackClipRecord } from '../../api/client';
+import { type TrackClipRecord } from '../../api/client';
+import {
+  commitClipCreate,
+  commitClipDelete,
+  commitEvent,
+  commitKeyframe,
+  commitLaneCreate,
+} from '../../mesh/clipWrites';
 import { ContextMenu } from './ContextMenu';
 import { copyToClipboard, pasteFromClipboard } from '../../clipboard';
 import { HelpButton } from '../../help/HelpButton';
+import { useClipPlaybacks, useTrackClips } from '../../mesh/hooks';
 
 /** Inline, expandable list of track clips owned by a single scene node or
  *  compose layer — mirrors the components/effects sub-sections in the scene
@@ -21,13 +29,11 @@ export function ClipsSection({
   flat?: boolean;
 }) {
   const { t } = useTranslation('clips');
-  const trackClips = useEditorStore((s) => s.trackClips);
+  const trackClips = useTrackClips();
   const selectedTrackClipId = useEditorStore((s) => s.selectedTrackClipId);
   const selectTrackClip = useEditorStore((s) => s.selectTrackClip);
-  const addTrackClip = useEditorStore((s) => s.addTrackClip);
-  const removeTrackClip = useEditorStore((s) => s.removeTrackClip);
   const setBottomTab = useEditorStore((s) => s.setBottomTab);
-  const playback = useEditorStore((s) => s.trackClipPlayback);
+  const playback = useClipPlaybacks();
   const clipboardPayload = useEditorStore((s) => s.clipboardPayload);
   const setClipboard = useEditorStore((s) => s.setClipboard);
   const canPasteClip = clipboardPayload?.kind === 'track-clip';
@@ -43,14 +49,20 @@ export function ClipsSection({
       : c.ownerLayerId === owner.id
   );
 
+  const ownerRef = () => ({
+    kind:
+      owner.kind === 'node'
+        ? ('scene_node' as const)
+        : ('compose_layer' as const),
+    id: owner.id,
+  });
+
   const handleAdd = async () => {
-    const body = { name: 'Clip', duration: 2 };
     try {
-      const clip =
-        owner.kind === 'node'
-          ? await api.createTrackClipForNode(owner.id, body)
-          : await api.createTrackClipForLayer(owner.id, body);
-      addTrackClip(clip);
+      const clip = await commitClipCreate(ownerRef(), {
+        name: 'Clip',
+        duration: 2,
+      });
       selectTrackClip(clip.id);
       setBottomTab('clips');
     } catch {
@@ -59,8 +71,7 @@ export function ClipsSection({
   };
 
   const handleRemove = async (id: string) => {
-    removeTrackClip(id);
-    await api.deleteTrackClip(id).catch(() => {});
+    await commitClipDelete(id);
   };
 
   const openClip = (id: string) => {
@@ -112,18 +123,13 @@ export function ClipsSection({
     const destOwnerKind: 'scene_node' | 'compose_layer' =
       owner.kind === 'node' ? 'scene_node' : 'compose_layer';
     try {
-      // 1. Create the empty clip row.
-      const body = {
+      // 1. Create the empty clip.
+      const created = await commitClipCreate(ownerRef(), {
         name: payload.clip.name,
         duration: payload.clip.duration,
         loop: payload.clip.loop,
         mode: payload.clip.mode,
-        autoplay: payload.clip.autoplay,
-      };
-      const created =
-        owner.kind === 'node'
-          ? await api.createTrackClipForNode(owner.id, body)
-          : await api.createTrackClipForLayer(owner.id, body);
+      });
       // 2. For each lane: rewrite targets that pointed at the source owner
       //    to point at the new owner (and switch kind to match the new owner
       //    kind). Lanes targeting other entities keep their original target.
@@ -131,54 +137,34 @@ export function ClipsSection({
         const isOwnerLane = lane.targetId === payload.sourceOwnerId;
         const targetKind = isOwnerLane ? destOwnerKind : lane.targetKind;
         const targetId = isOwnerLane ? owner.id : lane.targetId;
-        const newLane = await api.createTrackClipLane(created.id, {
+        const newLane = await commitLaneCreate(created.id, {
           targetKind,
           targetId,
           paramPath: lane.paramPath,
           defaultValue: lane.defaultValue,
         });
-        if (lane.keyframes.length > 0) {
-          await api.replaceTrackClipKeyframes(
-            newLane.id,
-            lane.keyframes.map((kf) => ({
-              t: kf.t,
-              value: kf.value,
-              easing: kf.easing,
-              inHandleTFraction: kf.inHandleTFraction,
-              inHandleVFraction: kf.inHandleVFraction,
-              outHandleTFraction: kf.outHandleTFraction,
-              outHandleVFraction: kf.outHandleVFraction,
-            }))
-          );
-        }
+        // Fresh keyframe ids: the copy carries the source's, and two clips
+        // must not share element ids (the mesh containment index keys by id
+        // alone, and a paste into the same clip would collide with itself).
+        for (const kf of lane.keyframes)
+          commitKeyframe(created.id, newLane.id, {
+            ...kf,
+            id: crypto.randomUUID(),
+          });
       }
       // 2b. Recreate event markers, retargeting owner-pointed markers like lanes.
-      if (payload.clip.events && payload.clip.events.length > 0) {
-        await api.replaceTrackClipEvents(
-          created.id,
-          payload.clip.events.map((e) => {
-            const isOwner = e.targetId === payload.sourceOwnerId;
-            return {
-              t: e.t,
-              action: e.action,
-              targetKind: isOwner ? destOwnerKind : e.targetKind,
-              targetId: isOwner ? owner.id : e.targetId,
-              payload: e.payload,
-            };
-          })
-        );
+      for (const e of payload.clip.events ?? []) {
+        const isOwner = e.targetId === payload.sourceOwnerId;
+        commitEvent(created.id, {
+          ...e,
+          id: crypto.randomUUID(),
+          targetKind: isOwner ? destOwnerKind : e.targetKind,
+          targetId: isOwner ? owner.id : e.targetId,
+        });
       }
-      // 3. Reload the full clip (with its lanes + keyframes) so the local
-      //    store reflects the paste. The lane / keyframe create+replace
-      //    calls don't write through addTrackClip, and the WS broadcasts
-      //    for those individual rows may arrive out of order — fetch a
-      //    consistent snapshot ourselves.
-      const fresh =
-        owner.kind === 'node'
-          ? await api.getTrackClipsForNode(owner.id)
-          : await api.getTrackClipsForLayer(owner.id);
-      const reloaded = fresh.find((c) => c.id === created.id);
-      if (reloaded) addTrackClip(reloaded);
+      // No reload: every write above landed in the replica, which the
+      // timeline reads directly. (The old REST path needed one, because the
+      // lane and keyframe calls did not write through the store at all.)
       selectTrackClip(created.id);
       setBottomTab('clips');
     } catch (e) {
@@ -216,7 +202,7 @@ export function ClipsSection({
       )}
       {clips.map((clip) => {
         const isSelected = selectedTrackClipId === clip.id;
-        const playing = !!playback[clip.id];
+        const playing = playback[clip.id]?.state === 'playing';
         return (
           <div
             key={clip.id}
@@ -255,49 +241,56 @@ export function ClipsSection({
         );
       })}
       {!flat && (
-      <div style={{ padding: '3px 6px', display: 'flex', gap: 6, alignItems: 'center' }}>
-        <button
-          className="vs-clip-add"
-          onClick={handleAdd}
+        <div
           style={{
-            background: 'none',
-            border: '1px dashed #2a2a2a',
-            borderRadius: 4,
-            color: '#888',
-            cursor: 'pointer',
-            fontSize: 11,
-            padding: '3px 8px',
-            flex: 1,
-            textAlign: 'left',
+            padding: '3px 6px',
+            display: 'flex',
+            gap: 6,
+            alignItems: 'center',
           }}
         >
-          {t('section.addClip')}
-        </button>
-        {canPasteClip && (
           <button
-            className="vs-clip-paste"
-            onClick={handlePasteClip}
-            title={t('section.pasteClipTitle')}
+            className="vs-clip-add"
+            onClick={handleAdd}
             style={{
               background: 'none',
-              border: '1px dashed #3a5a4a',
+              border: '1px dashed #2a2a2a',
               borderRadius: 4,
-              color: '#9bc090',
+              color: '#888',
               cursor: 'pointer',
               fontSize: 11,
               padding: '3px 8px',
+              flex: 1,
+              textAlign: 'left',
             }}
           >
-            {t('section.pasteClip')}
+            {t('section.addClip')}
           </button>
-        )}
-        <HelpButton
-          topic="track-clips"
-          anchor="what"
-          tip={t('help.clipsSection')}
-          size={12}
-        />
-      </div>
+          {canPasteClip && (
+            <button
+              className="vs-clip-paste"
+              onClick={handlePasteClip}
+              title={t('section.pasteClipTitle')}
+              style={{
+                background: 'none',
+                border: '1px dashed #3a5a4a',
+                borderRadius: 4,
+                color: '#9bc090',
+                cursor: 'pointer',
+                fontSize: 11,
+                padding: '3px 8px',
+              }}
+            >
+              {t('section.pasteClip')}
+            </button>
+          )}
+          <HelpButton
+            topic="track-clips"
+            anchor="what"
+            tip={t('help.clipsSection')}
+            size={12}
+          />
+        </div>
       )}
       {ctxMenu && (
         <ContextMenu

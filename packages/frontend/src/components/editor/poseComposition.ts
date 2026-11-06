@@ -321,8 +321,8 @@ export function stackBoneRotation(
  * term. Callers use this to *restore* the hips position after the composition
  * step's `resetNormalizedPose()` / `update()` passes, which copy the rest hips
  * position back onto the raw bone and would otherwise pin the hips to rest every
- * frame — silently killing root motion whenever tracking or a partial-tracking
- * slider is active.
+ * frame — silently killing root motion whenever tracking or a Tracking Mix
+ * animation weight is active.
  */
 export function composeHipsPosition(
   animPos: THREE.Vector3,

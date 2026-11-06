@@ -1,14 +1,17 @@
 import i18n from 'i18next';
 import { useEditorStore } from '../../store/editorStore';
 import { api } from '../../api/client';
+import { commitNodePath } from '../../mesh/writes';
 import { isWritableRemoteNode } from '../../sync/remoteEdit';
 import {
   createSceneNode,
   createNodeFromModelAsset,
+  createNodeFromLive2dAsset,
   createBillboardFromImageAsset,
   nextNodeName,
   type NodeKindDef,
 } from './createKinds';
+import { sceneNodesNow } from '../../mesh/nodes';
 
 /** True if the drag carries OS files (an image dropped from the desktop). */
 export function isFileDrag(e: React.DragEvent): boolean {
@@ -131,7 +134,7 @@ export async function handleSceneNodeDrop(
     // parent cleanly instead of creating a local orphan that never reaches the
     // owner. (Plain asset-less node kinds still route via createSceneNode.)
     const dropTarget = parentId
-      ? store.nodes.find((n) => n.id === parentId)
+      ? sceneNodesNow().find((n) => n.id === parentId)
       : null;
     if (dropTarget && isWritableRemoteNode(dropTarget)) {
       alert(i18n.t('sceneGraph:remote.assetBlocked'));
@@ -144,7 +147,7 @@ export async function handleSceneNodeDrop(
     // other node kind.
     if (asset.kind === 'animation') {
       const target = parentId
-        ? store.nodes.find((n) => n.id === parentId)
+        ? sceneNodesNow().find((n) => n.id === parentId)
         : null;
       if (!target || (target.kind !== 'avatar' && target.kind !== 'model')) {
         return true; // consumed, but no node created
@@ -154,8 +157,7 @@ export async function handleSceneNodeDrop(
         animation: { idleUrl: asset.url },
       };
       try {
-        await api.updateNode(target.id, { components });
-        store.updateNode(target.id, { components });
+        commitNodePath(target.id, 'components', components);
         store.selectNode(target.id);
         store.setSceneSelected(false);
       } catch (err) {
@@ -168,7 +170,9 @@ export async function handleSceneNodeDrop(
       const node =
         asset.kind === 'image'
           ? await createBillboardFromImageAsset(asset, sceneId, parentId)
-          : await createNodeFromModelAsset(asset, sceneId, parentId);
+          : asset.kind === 'live2d'
+            ? await createNodeFromLive2dAsset(asset, sceneId, parentId)
+            : await createNodeFromModelAsset(asset, sceneId, parentId);
       store.selectNode(node.id);
       store.setSceneSelected(false);
     } catch (err) {

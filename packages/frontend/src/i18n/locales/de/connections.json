@@ -51,11 +51,9 @@
     "unshare": "Nicht mehr teilen"
   },
   "pairing": {
-    "label": "Kopplung",
-    "create": "Code erstellen",
-    "copyCode": "Kopieren",
-    "codePlaceholder": "Kopplungscode eingeben",
-    "join": "Beitreten"
+    "title": "Diesen Browser verbinden",
+    "message": "Dieser Browser läuft nicht auf dem Computer, auf dem vspark läuft. Gib den 6-stelligen Gerätecode ein, den vspark im Konsolenfenster oder auf diesem Computer unter Verbindungen anzeigt.",
+    "confirm": "Verbinden"
   },
   "contacts": {
     "label": "Kontakte",
@@ -66,5 +64,9 @@
     "confirmRemove": "Entkoppeln?",
     "connected": "Verbunden",
     "disconnected": "Offline"
+  },
+  "deviceCode": {
+    "label": "Gerätecode:",
+    "tip": "Mit diesem Code öffnest du vspark in einem Browser auf einem anderen Gerät"
   }
 }

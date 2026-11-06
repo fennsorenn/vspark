@@ -25,9 +25,23 @@ export interface ChannelProps {
   ack?: 'authority';
 }
 
+/** The four channels every peer shares (dev-notes/modules/mesh.md):
+ *  - committed — document state: persisted by durable peers, acked, undoable;
+ *  - preview   — high-frequency, latest-wins (gestures, sensor streams);
+ *  - runtime   — retained state that lives only while its author runs
+ *                (server status, runtime overrides, spawned entities);
+ *  - control   — commands: delivered once, never retained. Anything that must
+ *                survive while its receiver is offline is state, not control. */
 export const BUILTIN_CHANNELS: Readonly<Record<string, ChannelProps>> = {
-  committed: { transport: 'reliable', stamped: true, retained: true, ack: 'authority' },
+  committed: {
+    transport: 'reliable',
+    stamped: true,
+    retained: true,
+    ack: 'authority',
+  },
   preview: { transport: 'lossy', stamped: false, retained: false },
+  runtime: { transport: 'reliable', stamped: true, retained: true },
+  control: { transport: 'reliable', stamped: false, retained: false },
 };
 
 export class ChannelRegistry {

@@ -15,5 +15,22 @@
     "setKeyframeAll": "Set keyframe at playhead (all components)",
     "setGroupBtn": "◆ set group",
     "doubleClickEdit": "Double-click to edit"
+  },
+  "toast": {
+    "dismiss": "Dismiss"
+  },
+  "write": {
+    "subject": {
+      "doc": "the change",
+      "scene_node": "the node",
+      "compose_layer": "the layer",
+      "track_clip": "the track clip",
+      "behavior": "the behavior",
+      "camera_effect": "the camera effect",
+      "logic": "the logic graph"
+    },
+    "rejected": "Couldn’t save {{subject}} — the server refused the change.",
+    "rejectedWithReason": "Couldn’t save {{subject}}: {{reason}}",
+    "failed": "Couldn’t save {{subject}}. Check your connection and try again."
   }
 }

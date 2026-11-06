@@ -26,3 +26,20 @@ html, body, #root {
   font-family: system-ui, sans-serif;
   pointer-events: none;
 }
+
+/* AI assistant: pulse-highlight a control the agent points the user at
+   (ui_highlight_control → dispatchUiAction → highlightControl). */
+.vs-ai-highlight {
+  animation: vs-ai-pulse 1.2s ease-in-out 2;
+  border-radius: 6px;
+}
+@keyframes vs-ai-pulse {
+  0%, 100% {
+    box-shadow: 0 0 0 0 rgba(99, 179, 255, 0);
+    outline: 2px solid rgba(99, 179, 255, 0);
+  }
+  50% {
+    box-shadow: 0 0 0 5px rgba(99, 179, 255, 0.45);
+    outline: 2px solid rgba(99, 179, 255, 0.9);
+  }
+}

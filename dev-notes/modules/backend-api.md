@@ -51,7 +51,7 @@ Sub-routers are composed with `router.use(subRouter)` in `routes/index.ts` (no p
 For the canonical, always-current request/response contracts of every route, browse Swagger UI at `http://localhost:3001/api-docs`. The notes below cover only behaviour that is not visible from the schema alone.
 
 - **behaviors** (behavior routes): every mutation calls `refreshAllBehaviorManagers()` so manager state hot-reloads from DB.
-- **scene-nodes**: `POST /scenes/:sceneId/nodes` and `DELETE /scene-nodes/:nodeId` now broadcast **through the sync layer** (`sync.document.upsert/remove` for rtype `scene_node`, wire kind `'sync'`) rather than bespoke `node_added`/`node_removed` kinds; updates still broadcast the legacy `node_updated`. `POST /scene-nodes/:nodeId/clips` is an idempotent upsert keyed on `(source_file_path, clip_index)` — the frontend's Viewport calls it on VRM load to register real FBX clip durations.
+- **scene-nodes**: `POST /scenes/:sceneId/nodes` and `DELETE /scene-nodes/:nodeId` now broadcast **through the sync layer** (`sync.document.upsert/remove` for rtype `scene_node`, wire kind `'sync'`) rather than bespoke `node_added`/`node_removed` kinds. `PUT /scene-nodes/:nodeId` broadcasts nothing: it writes through the mesh collection, which is what reaches clients. `POST /scene-nodes/:nodeId/clips` is an idempotent upsert keyed on `(source_file_path, clip_index)` — the frontend's Viewport calls it on VRM load to register real FBX clip durations.
 - **assets**: GET also runs `discoverAssets()`; files live under `uploads/{projectId}/{subdir}/` with subdir inferred from extension (avatars, animations, images, other). See `routes/shared.ts` for `SUBFOLDER_BY_EXT` / `MIME_BY_EXT` / `allocateFilename`. **VRM/GLB metadata:** `discoverAssets` extracts metadata (`vrm/metadata.ts`) on newly-discovered files and runs a freshness/self-heal loop — a cheap `statSync` size+mtime gate trusts the stored `hash`+`metadata`; on a size/mtime mismatch it recomputes sha256 and, if the hash drifted, updates `hash`+`size`+`file_mtime`+`metadata` together (so they can never disagree). Extraction is non-fatal: a non-VRM `.glb` stores partial/empty metadata, never throws out of the upload/list path.
 - **camera-effects**: create/delete now flow through the sync layer (`sync.document.upsert/remove`, rtype `camera_effect`, wire kind `'sync'`); updates still broadcast the legacy `camera_effect_updated`.
 - **signal**: `graphId` format is `<prefix>:<behaviorId>` (e.g. `vmc-pipeline:abc123`); `routes/signal.ts` dispatches by prefix to the right manager's `fireGraphEvent`.
@@ -126,11 +126,16 @@ Uses built-in `https` with redirect following for download. Inline semver compar
 ### `routes/config.ts`
 
 ```
-GET /api/config       reads config.json next to the executable (or process.cwd() in dev)
-PUT /api/config       writes config.json; channel change triggers checkForUpdates()
+GET  /api/config            reads config.json; returns { channel, assistant } with a REDACTED assistant view (hasApiKey, never the raw key)
+PUT  /api/config            writes config.json; channel change triggers checkForUpdates()
+PUT  /api/assistant-config  updates the AI Assistant settings; apiKey only overwritten when a non-empty string is sent
 ```
 
-`config.json` shape matches `AppConfig` from `packages/shared/src/types.ts`.
+`config.json` shape matches `AppConfig` from `packages/shared/src/types.ts` (documented by repo-root `config.example.json`); it lives at `getInstallDir()/config.json`, overridable via `VSPARK_CONFIG_PATH` (tests, custom installs). `resolveAssistantConfig()` merges `config.json` over env defaults — provider-neutral `ASSISTANT_BASE_URL`/`ASSISTANT_API_KEY`/`ASSISTANT_MODEL`, with legacy `VLLM_HOST`/`VLLM_AUTH` still honored (generic wins when both set); the endpoint is any OpenAI-compatible base URL. See [mcp-assistant.md](mcp-assistant.md).
+
+## MCP server — `mcp/` (mounted at `/mcp`)
+
+`app.use('/mcp', createMcpHttpRouter(...))` mounts a stateless Streamable-HTTP MCP server exposing the REST surface as 57 tools; the tools call back into this same backend over loopback, exercising the real REST validation path. The same tool catalog also ships as the standalone stdio `vspark-mcp` bin and powers the in-app assistant. See [mcp-assistant.md](mcp-assistant.md).
 
 ## Database — `db/`
 

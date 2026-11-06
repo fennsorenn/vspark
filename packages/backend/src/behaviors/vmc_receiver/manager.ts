@@ -9,13 +9,18 @@ import { initPoseBroadcast } from '../../signal/nodes/pose_broadcast.js';
 import { initBlendshapesBroadcast } from '../../signal/nodes/blendshapes_broadcast.js';
 import { OnPoseBroadcast } from '../../signal/nodes/on_pose_broadcast.js';
 import { broadcastBus } from '../../broadcast/bus.js';
-import { makeVmcGraphDescriptor, HEAD_CALIB_BONES } from './graph.js';
+import {
+  makeVmcGraphDescriptor,
+  makeVmcGraphDescriptor2d,
+  HEAD_CALIB_BONES,
+} from './graph.js';
 import { loadVrmSkeleton } from '../../vrm/skeleton.js';
 import type { VrmSkeletonData } from '../../vrm/skeleton.js';
 import { join } from 'path';
 import { getDb } from '../../db/index.js';
 import { BehaviorKind } from '../decorator.js';
 import { trackingGraceMs } from '../tracking_grace.js';
+import { publishTracking } from '../../mesh/status.js';
 
 // ---------- Minimal OSC parser ----------
 
@@ -202,6 +207,15 @@ interface Receiver {
   applicableTo: ['any'],
   defaultConfig: { host: '0.0.0.0', port: 39539, mirror: false },
 })
+@BehaviorKind({
+  kind: 'vmc_receiver_2d',
+  label: 'VMC Receiver (2D)',
+  icon: '📡',
+  description:
+    'Drives a 2D puppet from VMC head pose + ARKit blendshapes. Same VMC ingest as the 3D receiver, minus the skeleton-based arm IK.',
+  applicableTo: ['live2d'],
+  defaultConfig: { host: '0.0.0.0', port: 39539, mirror: false },
+})
 export class VmcManager {
   private readonly receivers = new Map<string, Receiver>();
   private readonly graphs = new Map<string, SignalGraph>();
@@ -211,6 +225,8 @@ export class VmcManager {
     Record<string, unknown>
   >();
   private readonly behaviorNodeIds = new Map<string, string>();
+  // behaviorId → kind ('vmc_receiver' | 'vmc_receiver_2d'); selects the graph template.
+  private readonly behaviorKinds = new Map<string, string>();
   private readonly behaviorSkeletons = new Map<
     string,
     VrmSkeletonData | null
@@ -228,28 +244,15 @@ export class VmcManager {
     // configured window starts at 0.1s. A 2s tick would round every short "Idle
     // after" setting up to its own period.
     this.timer = setInterval(() => this.checkTimeouts(), 250);
-
-    // Send current receiver state to any new WebSocket client (handles page refresh / new tabs).
-    ws.onClientConnected((client) => {
-      for (const [behaviorId, info] of this.receivers) {
-        ws.sendTo(client, 'vmc_status', {
-          behaviorId,
-          connected: info.connected,
-        });
-        if (info.trackingActive !== null) {
-          ws.sendTo(client, 'vmc_tracking_state', {
-            behaviorId,
-            tracking: info.trackingActive,
-          });
-        }
-      }
-    });
   }
 
   // ── graph management ───────────────────────────────────────────────────────
 
   private createGraph(behaviorId: string): SignalGraph {
-    const descriptor = makeVmcGraphDescriptor(behaviorId);
+    const descriptor =
+      this.behaviorKinds.get(behaviorId) === 'vmc_receiver_2d'
+        ? makeVmcGraphDescriptor2d(behaviorId)
+        : makeVmcGraphDescriptor(behaviorId);
     this.descriptors.set(behaviorId, descriptor);
     if (!this.nodeStates.has(behaviorId))
       this.nodeStates.set(behaviorId, new Map());
@@ -398,7 +401,7 @@ export class VmcManager {
     console.log(
       `[VMC] Tracking ${tracking ? 'ACTIVE' : 'LOST'} (component ${behaviorId})`
     );
-    this.ws.broadcast('vmc_tracking_state', { behaviorId, tracking });
+    publishTracking({ behaviorId, tracking });
     // Drop our bus slot on tracking loss so the merge falls back to other
     // producers (or the additive-identity fallback frame if we were the
     // only one). Resume is automatic — the next publishBones re-creates it.
@@ -440,7 +443,7 @@ export class VmcManager {
         console.log(
           `[VMC] Client connected: ${rinfo.address}:${rinfo.port} → port ${port} (component ${behaviorId})`
         );
-        this.ws.broadcast('vmc_status', {
+        publishTracking({
           behaviorId,
           connected: true,
           remoteAddress: rinfo.address,
@@ -530,14 +533,14 @@ export class VmcManager {
     this.interceptorCleanups.delete(behaviorId);
     broadcastBus.removeBehavior(behaviorId);
     if (info.connected)
-      this.ws.broadcast('vmc_status', { behaviorId, connected: false });
+      publishTracking({ behaviorId, connected: false });
     // Signal tracking loss on teardown. Tracking-false is otherwise only emitted
     // from the /Body handler, which needs packets still arriving — disabling the
     // source stops them, so the transition would never fire and every client
     // would keep a stale `tracking: true` forever (pinning avatars to their base
     // animation, unreachable idle). Mirrors MediaPipeTrackerManager.stop().
     if (info.trackingActive)
-      this.ws.broadcast('vmc_tracking_state', {
+      publishTracking({
         behaviorId,
         tracking: false,
       });
@@ -555,7 +558,11 @@ export class VmcManager {
   ) {
     const active = new Set<string>();
     for (const c of comps) {
-      if (c.kind !== 'vmc_receiver' || !c.enabled) continue;
+      if (
+        (c.kind !== 'vmc_receiver' && c.kind !== 'vmc_receiver_2d') ||
+        !c.enabled
+      )
+        continue;
       // Restore persisted node state from the config's _nodeState namespace.
       const savedStates = (c.config._nodeState ?? {}) as Record<
         string,
@@ -569,7 +576,11 @@ export class VmcManager {
       const { _nodeState: _removed, ...liveConfig } = c.config;
       this.behaviorConfigs.set(c.id, liveConfig);
       this.behaviorNodeIds.set(c.id, c.nodeId);
-      this._loadSkeletonForBehavior(c.id, c.nodeId);
+      this.behaviorKinds.set(c.id, c.kind);
+      // The 2D pipeline has no arm-IK stage, so it needs no VRM skeleton (and the
+      // node it's attached to has none). Only the 3D receiver loads one.
+      if (c.kind === 'vmc_receiver_2d') this.behaviorSkeletons.set(c.id, null);
+      else this._loadSkeletonForBehavior(c.id, c.nodeId);
       const port = (c.config.port as number) ?? 39539;
       this.startReceiver(c.id, port);
       active.add(c.id);
@@ -631,7 +642,7 @@ export class VmcManager {
       if (info.connected && now - info.lastSeen > 3000) {
         info.connected = false;
         console.log(`[VMC] Client timed out (component ${behaviorId})`);
-        this.ws.broadcast('vmc_status', { behaviorId, connected: false });
+        publishTracking({ behaviorId, connected: false });
       }
 
       // Both loss paths resolve here, on one clock. The signal counts as alive

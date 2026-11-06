@@ -12,11 +12,15 @@ DB behaviors row
     → diff running vs desired state
     → start/stop/reload graph instances as needed
   → graph runs; nodes call setState(nodeId, state)
-    → manager persists state into config._nodeState namespace in DB
-  → on restart: syncBehaviors() restores state via getState callbacks
+    → engine routes DURABLE nodes to the manager's persist callback
+      → manager writes state into config._nodeState namespace in DB
+    → engine keeps every other node's state in the graph's scratch map
+  → on restart: syncBehaviors() restores durable state via getState callbacks
 ```
 
 State lives in `config._nodeState[nodeId]` so it survives restarts without a separate DB column.
+
+Only nodes declaring `static readonly persistState = true` (today: `body_calibration`, `arm_ik_calibration`) reach a manager's persist callback — see [signal-graph.md](signal-graph.md) → *Scratch vs durable state*. Per-frame node state never hits the DB, so a manager's `getState`/`onSetState` callbacks are called at user-action rate, not frame rate. Existing rows may still carry `_nodeState` entries for scratch nodes; they are inert and never read back.
 
 ---
 
@@ -36,13 +40,14 @@ Manages VMC/RhyLive motion capture receivers. Each behavior owns a `SignalGraph`
 
 **Graph descriptor**: `makeVmcGraphDescriptor(behaviorId)` wires:
 ```
-vmc_packet_source → rhylive_bone_mapper → body_calibration → arm_ik_calibration → pose_broadcast
+vmc_packet_source → rhylive_bone_mapper → body_calibration → arm_ik_calibration → eye_range_map → pose_broadcast
                   → arkit_vrm_mapper (×3) → blendshapes_sum → blendshapes_broadcast
 ```
+`eye_range_map` is inserted after `arm_ik_calib` by `withEyeRangeStage` (`behaviors/eyeRange.ts`), default **off** for VMC (`eyeRange.enabled` / `eyeRange.inputMaxDeg` behavior config; "Gaze" section in `VmcReceiverProps`). The Live2D `VMC_2D_PIPELINE_TEMPLATE` derives from `VMC_BASE_TEMPLATE` and has no eye range stage (the Gaze section is hidden for `vmc_receiver_2d`). See [ifacialmocap.md](ifacialmocap.md#gaze--eye-range).
 
 **Tracking detection** (two loss paths, one grace period): the `/Body` handler sums the frame-to-frame delta over the RhyLive float array against `TRACKING_THRESHOLD` — motion clears `Receiver.quietSince` and re-latches tracking, going still only *stamps* `quietSince`. Packets going away is the second path, detected off `lastSeen`. The 250ms `checkTimeouts()` sweep resolves both from `Math.min(quietSince ?? now, lastSeen)` against the avatar node's grace period, so whichever dropout started first drives the window. Connection status (the grey dot) keeps its own fixed 3s window — reachability is a separate question from tracking. See [animation.md](animation.md) (Tracking-loss grace period).
 
-**`setTracking(behaviorId, tracking)`** is the single transition point: collapses no-op repeats, broadcasts `vmc_tracking_state`, and on loss calls `broadcastBus.removeBehavior(behaviorId)` — which (if it leaves the nodeMap empty) emits a final fallback frame so the frontend ramps back to pure animation. Resume is automatic: the next `publishBones` re-creates the per-behavior slot. Add new transition triggers by calling this, not by mutating `trackingActive` directly.
+**`setTracking(behaviorId, tracking)`** is the single transition point: collapses no-op repeats, publishes the `tracking` field of the behavior's `server_status` document (`publishTracking`, see [mesh.md](mesh.md#runtime-state-the-runtime-channel)), and on loss calls `broadcastBus.removeBehavior(behaviorId)` — which (if it leaves the nodeMap empty) emits a final fallback frame so the frontend ramps back to pure animation. Resume is automatic: the next `publishBones` re-creates the per-behavior slot. Add new transition triggers by calling this, not by mutating `trackingActive` directly.
 
 **Grace period** is read per-sweep via `trackingGraceMs(sceneNodeId, fallbackMs)` from [`behaviors/tracking_grace.ts`](../../packages/backend/src/behaviors/tracking_grace.ts) — the avatar node's `properties.trackingGracePeriod`, shared with `mediapipe_tracker` and the extension point for any future tracking source. The old per-behavior `poseTimeout` config field is gone (migration 035).
 
@@ -56,17 +61,17 @@ vmc_packet_source → rhylive_bone_mapper → body_calibration → arm_ik_calibr
 
 ## IFacialMocapManager — `ifacialmocap_receiver/manager.ts`
 
-ARKit face tracking from the iFacialMocap iOS app. Built deliberately parallel to `VmcManager` — same graph lifecycle, same `_nodeState` persistence, same interceptor registration, same `vmc_status` / `vmc_tracking_state` WS surface, same broadcast-bus slot semantics, same shared UDP socket pool.
+ARKit face tracking from the iFacialMocap iOS app. Built deliberately parallel to `VmcManager` — same graph lifecycle, same `_nodeState` persistence, same interceptor registration, same `server_status` tracking documents (`connected` / `tracking`, via `publishTracking`), same broadcast-bus slot semantics, same shared UDP socket pool.
 
 **Input**: plain-text UDP datagrams on a configurable port (default 49983)
 **Output**: `vmc_pose` and `vmc_blendshapes` WebSocket broadcasts
 
 **Graph descriptor**: `makeIFacialMocapGraphDescriptor(behaviorId)` wires:
 ```
-ifacialmocap_packet_source → rhylive_bone_mapper → body_calibration → pose_broadcast
+ifacialmocap_packet_source → rhylive_bone_mapper → body_calibration → eye_range_map → pose_broadcast
                            → arkit_vrm_mapper (×3) → blendshapes_sum → blendshapes_broadcast
 ```
-Everything except the source node is shared verbatim with the VMC pipeline.
+Everything except the source node is shared verbatim with the VMC pipeline. The eye range stage defaults **on** here.
 
 **Differences from `VmcManager`** (full detail in [ifacialmocap.md](ifacialmocap.md)):
 
@@ -240,20 +245,16 @@ per-bone response rig. That gives whole-body follow-through *and* makes glitches
 structurally impossible on the bones the rig owns, because the drivers are
 clamped, deadzoned and rate-limited before anything is rebuilt.
 
-**Persist guard** (differs from the other managers): `_persistNodeState` skips
-node kinds in `EPHEMERAL_STATE_KINDS` — currently `on_pose_broadcast`, whose state
-is the *entire current pose*, injected fresh before every fire. Without the guard
-that would be a read-modify-write of the behavior row at the pose rate (~60Hz),
-persisting a value that is meaningless after a restart.
-
-> **Watch item.** `ManualCalibrationManager` lacks this guard and therefore does
-> write a full pose into SQLite on every interceptor frame (~60Hz read-modify-write
-> of the behavior row, persisting state that is meaningless after a restart).
-> Pre-existing and accepted for now, but the two managers differ for no principled
-> reason and the fix is to lift `EPHEMERAL_STATE_KINDS` into the shared interceptor
-> path. Do this before anything else adopts `ManualCalibrationManager` as the
-> reference interceptor manager. Also listed in
-> [stylized-tracking.md](stylized-tracking.md#watch-list).
+**Per-frame state never reaches persistence** — and this is now an engine
+guarantee rather than a per-manager one. `on_pose_broadcast` carries the *entire
+current pose* in its state, injected fresh before every fire; persisting that
+would be a read-modify-write of the behavior row at the pose rate (~60Hz) for a
+value that is meaningless after a restart. Since the scratch-vs-durable split
+(`static persistState`), only node classes that opt in reach a manager's
+`_persistNodeState` callback at all, so no manager needs to filter by kind. Both
+this manager and `ManualCalibrationManager` are covered; a local
+`EPHEMERAL_STATE_KINDS` guard that predated the engine fix has been removed as
+unreachable. See [signal-graph.md](signal-graph.md) (scratch vs durable state).
 
 Config: `{ amount, strength, lag, restUnmapped, preset, response, rig, rigMode, simpleRig }` — `preset` names a base
 for the whole behavior (rig + optionally response and follow-through) — `follow`,
@@ -363,6 +364,8 @@ Shared sink that merges per-behavior pose/blendshape outputs into the single `vm
   - `vmc_pose` with empty `bones` and `animationBlendMode: 'additive'`
   - `vmc_blendshapes` with empty `{}` record
 - The frontend Viewport sees the empty-bones frame, trips off pose application, and ramps back to pure animation. While *any* producer is still active (e.g. breathing) the fallback does not fire and other producers continue uninterrupted.
+
+**Tracking Mix weighting**: each slot carries its `behaviorId`, and the composers weight slots by the avatar node's `properties.trackingMix` (see [animation.md](animation.md) (Tracking Mix)). `_composeBones` orders slots with `orderSources(mix, …)` (`mix.order` first, the rest by ascending priority as before) and multiplies `scaleRotation(q, w)` per bone; offsets (which sum across slots) are scaled by `w`; a bone with weight 0 in every slot is omitted, leaving it to the frontend's animation. `_composeBlendshapes` sums `w × value` and clamps to `0..1`. Weights are not normalised. The mix comes from an injected reader, `broadcastBus.setTrackingMixReader(fn)`, installed in `index.ts` to read `getMeshCollection('scene_node').get(id).properties.trackingMix` — the mesh view is overlay-aware, so preview-channel slider drags reweight live tracking before commit. A throwing reader falls back to weight 1; with no mix the output is identical to the old priority-ordered stacking.
 
 **Two interceptor chains**: after composing a scene node's slots the bus offers
 the merged frame to a registry before emitting — `poseInterceptorRegistry` for

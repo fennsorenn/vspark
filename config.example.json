@@ -1,0 +1,9 @@
+{
+  "channel": "stable",
+  "assistant": {
+    "enabled": true,
+    "baseUrl": "https://your-openai-compatible-endpoint/v1",
+    "apiKey": "sk-your-api-key-or-empty-if-not-required",
+    "model": "google/gemma-4-12B-it-qat-w4a16-ct"
+  }
+}

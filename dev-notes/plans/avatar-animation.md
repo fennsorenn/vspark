@@ -1,8 +1,14 @@
 # Avatar animation — shared, scheduled, content-addressed playback
 
-**Status:** implemented (2026-06-13). Replaces the unsynchronized idle-animation
-playback and the bespoke `api_animation` WS relay with a proper, collab-shared
-avatar animation model.
+> **Status:** shipped (2026-06-13) — migration `033_scheduled_animations`; the
+> `scheduled_animation` rtype is mesh-synced and the frontend feeder applies it
+> (`frontend/src/sync/meshStoreFeeder.ts`). Module doc:
+> [`../modules/animation.md`](../modules/animation.md). Deferred work is listed below
+> and is still open. Note the clock-localization call sites in
+> `backend/src/mesh/index.ts` are numerically a no-op today by design, not by omission.
+
+This plan replaced the unsynchronized idle-animation playback and the bespoke
+`api_animation` WS relay with a proper, collab-shared avatar animation model.
 
 **Implemented:** steps 1 (schema + sync, incl. 1b clock localization), 2
 (clock-anchored frontend driver), and 3 (api_controller writes the schedule;

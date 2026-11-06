@@ -1,8 +1,20 @@
 import { WebSocket, WebSocketServer } from 'ws';
 import { IncomingMessage } from 'http';
+import { randomUUID } from 'crypto';
+
+/** A connected editor client, addressable by the UI-control channel. */
+interface UiSession {
+  sessionId: string;
+  ws: WebSocket;
+  projectId: string | null;
+  connectedAt: number;
+}
 
 export class WSSync {
   private wss: WebSocketServer;
+  /** sessionId → session; lets REST UI-action routes target one editor tab. */
+  private sessions = new Map<string, UiSession>();
+  private wsToSession = new WeakMap<WebSocket, UiSession>();
   private clientConnectedHandlers: ((ws: WebSocket) => void)[] = [];
   private messageHandlers: ((
     kind: string,
@@ -15,6 +27,13 @@ export class WSSync {
   private collabRelay:
     | ((kind: string, payload: Record<string, unknown>) => void)
     | null = null;
+  /** In-flight feed-preview round-trips (requestId → resolver). The assistant's
+   *  render_feed_template tool asks a connected editor to rasterize a feed and
+   *  reply with a PNG; this correlates the reply back to the awaiting request. */
+  private pendingPreviews = new Map<
+    string,
+    { resolve: (pngBase64: string) => void; reject: (e: Error) => void; timer: ReturnType<typeof setTimeout> }
+  >();
 
   constructor() {
     this.wss = new WebSocketServer({ noServer: true });
@@ -42,6 +61,17 @@ export class WSSync {
   upgrade(req: IncomingMessage, socket: any, head: Buffer) {
     this.wss.handleUpgrade(req, socket, head, (ws) => {
       this.wss.emit('connection', ws, req);
+      // Register a UI session so the agent / MCP can drive this exact tab.
+      const session: UiSession = {
+        sessionId: randomUUID(),
+        ws,
+        projectId: null,
+        connectedAt: Date.now(),
+      };
+      this.sessions.set(session.sessionId, session);
+      this.wsToSession.set(ws, session);
+      this.sendTo(ws, 'session_hello', { sessionId: session.sessionId });
+      ws.on('close', () => this.sessions.delete(session.sessionId));
       for (const h of this.clientConnectedHandlers) h(ws);
       ws.on('message', (data) => {
         try {
@@ -50,6 +80,26 @@ export class WSSync {
             [k: string]: unknown;
           };
           if (typeof msg.kind === 'string') {
+            // The client tags its session with the project it has open so
+            // list_ui_sessions can label tabs.
+            if (msg.kind === 'ui_register') {
+              const pid = (msg as { projectId?: unknown }).projectId;
+              if (typeof pid === 'string') session.projectId = pid;
+            }
+            // Editor's reply to an image request (feed preview / viewport
+            // screenshot): resolve the awaiting tool by requestId.
+            if (
+              msg.kind === 'feed_preview_result' ||
+              msg.kind === 'viewport_screenshot_result'
+            ) {
+              const m = msg as {
+                requestId?: string;
+                pngBase64?: string;
+                error?: string;
+              };
+              if (typeof m.requestId === 'string')
+                this.settlePreview(m.requestId, m.pngBase64, m.error);
+            }
             for (const h of this.messageHandlers) h(msg.kind, msg, ws);
           }
         } catch {
@@ -57,6 +107,96 @@ export class WSSync {
         }
       });
     });
+  }
+
+  /** The session id assigned to a socket (for the in-app agent). */
+  sessionIdFor(ws: WebSocket): string | null {
+    return this.wsToSession.get(ws)?.sessionId ?? null;
+  }
+
+  /** The project this socket has open (tagged via ui_register), if known. */
+  projectIdFor(ws: WebSocket): string | null {
+    return this.wsToSession.get(ws)?.projectId ?? null;
+  }
+
+  /** Active editor sessions, for list_ui_sessions. */
+  listSessions(): { sessionId: string; projectId: string | null; connectedAt: number }[] {
+    return Array.from(this.sessions.values())
+      .filter((s) => s.ws.readyState === WebSocket.OPEN)
+      .map((s) => ({
+        sessionId: s.sessionId,
+        projectId: s.projectId,
+        connectedAt: s.connectedAt,
+      }));
+  }
+
+  /** Push a UI-control action to one editor session. Returns false if the
+   *  session is gone (closed tab / bad id). */
+  sendUiAction(sessionId: string, action: Record<string, unknown>): boolean {
+    const session = this.sessions.get(sessionId);
+    if (!session || session.ws.readyState !== WebSocket.OPEN) return false;
+    this.sendTo(session.ws, 'ui_action', action);
+    return true;
+  }
+
+  /** Ask one editor session to produce an image (this browser's engine) and
+   *  resolve with the PNG (base64). The editor replies with a `<...>_result`
+   *  carrying the same requestId. Rejects if the session is gone, the editor
+   *  reports an error, or it doesn't reply in time. */
+  requestClientImage(
+    sessionId: string,
+    requestKind: string,
+    payload: Record<string, unknown> = {},
+    timeoutMs = 15000
+  ): Promise<string> {
+    const session = this.sessions.get(sessionId);
+    if (!session || session.ws.readyState !== WebSocket.OPEN)
+      return Promise.reject(
+        new Error('no editor session is connected to render the image')
+      );
+    const requestId = randomUUID();
+    return new Promise<string>((resolve, reject) => {
+      const timer = setTimeout(() => {
+        this.pendingPreviews.delete(requestId);
+        reject(new Error('the editor did not return an image in time'));
+      }, timeoutMs);
+      this.pendingPreviews.set(requestId, { resolve, reject, timer });
+      this.sendTo(session.ws, requestKind, { requestId, ...payload });
+    });
+  }
+
+  /** Rasterize a feed template in one editor (same renderer as the live layer). */
+  requestFeedPreview(
+    sessionId: string,
+    payload: Record<string, unknown>,
+    timeoutMs = 15000
+  ): Promise<string> {
+    return this.requestClientImage(
+      sessionId,
+      'feed_preview_request',
+      payload,
+      timeoutMs
+    );
+  }
+
+  /** Screenshot the 3D viewport in one editor. */
+  requestViewportScreenshot(sessionId: string, timeoutMs = 15000): Promise<string> {
+    return this.requestClientImage(
+      sessionId,
+      'viewport_screenshot_request',
+      {},
+      timeoutMs
+    );
+  }
+
+  private settlePreview(requestId: string, pngBase64?: string, error?: string) {
+    const pending = this.pendingPreviews.get(requestId);
+    if (!pending) return;
+    clearTimeout(pending.timer);
+    this.pendingPreviews.delete(requestId);
+    if (error) pending.reject(new Error(error));
+    else if (pngBase64) pending.resolve(pngBase64);
+    else pending.reject(new Error('the editor returned an empty preview'));
   }
 
   sendTo(ws: WebSocket, kind: string, payload: Record<string, unknown>) {

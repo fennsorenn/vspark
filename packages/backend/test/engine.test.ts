@@ -100,3 +100,84 @@ describe('SignalGraph engine', () => {
     ).toThrow(/Unknown kind/);
   });
 });
+
+/**
+ * Node state is split by `static persistState`: durable nodes read and write the
+ * owner's store (which is JSON-serialised into SQLite), scratch nodes keep their
+ * state inside the graph. Persisting scratch state used to write a row per frame
+ * AND strip class identity from the values it stored — a `Blendshapes` came back
+ * from the DB as a plain object and crashed the first consumer to call a method
+ * on it.
+ */
+describe('SignalGraph node state persistence', () => {
+  function buildStateGraph(
+    nodes: Array<{ id: string; kind: string }>,
+    seed: Record<string, unknown> = {}
+  ) {
+    const descriptor: GraphDescriptor = {
+      id: 'state-graph',
+      label: 'state',
+      readonly: false,
+      nodes: nodes.map((n) => ({ ...n, position: { x: 0, y: 0 } })),
+      edges: [],
+    };
+    const store = new Map<string, unknown>(Object.entries(seed));
+    const writes: string[] = [];
+    const graph = SignalGraph.fromDescriptor(
+      descriptor,
+      NODE_REGISTRY,
+      () => ({}),
+      (id) => store.get(id),
+      (id, s) => {
+        writes.push(id);
+        store.set(id, s);
+      }
+    );
+    return { graph, store, writes };
+  }
+
+  it('keeps scratch-node state out of the owner store', () => {
+    const { graph, store, writes } = buildStateGraph([
+      { id: 'u', kind: 'unpack_event' },
+    ]);
+
+    graph.deliverExternal('u', 'event', mkEvent({ foo: 1 }));
+
+    expect(graph.getNodeState('u')).toEqual({ payload: { foo: 1 } });
+    expect(writes).toEqual([]);
+    expect(store.has('u')).toBe(false);
+  });
+
+  it('ignores stale persisted state for a scratch node', () => {
+    // A previously-persisted (and JSON-mangled) payload must not resurface as the
+    // node's state on the next boot.
+    const { graph } = buildStateGraph([{ id: 'u', kind: 'unpack_event' }], {
+      u: { payload: { _values: {} } },
+    });
+
+    expect(graph.getNodeState('u')).toBeUndefined();
+  });
+
+  it('writes durable-node state through to the owner store', () => {
+    const { graph, store, writes } = buildStateGraph([
+      { id: 'calib', kind: 'body_calibration' },
+    ]);
+
+    graph.setNodeState('calib', { bodyOffsets: { head: [0, 0, 0, 1] } });
+
+    expect(writes).toEqual(['calib']);
+    expect(store.get('calib')).toEqual({
+      bodyOffsets: { head: [0, 0, 0, 1] },
+    });
+  });
+
+  it('restores durable-node state from the owner store', () => {
+    const seeded = { bodyOffsets: { head: [0, 0, 0, 1] } };
+    const { graph } = buildStateGraph(
+      [{ id: 'calib', kind: 'body_calibration' }],
+      { calib: seeded }
+    );
+
+    expect(graph.getNodeState('calib')).toEqual(seeded);
+  });
+});

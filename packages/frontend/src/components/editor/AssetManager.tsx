@@ -1,18 +1,37 @@
 import { useState, useRef, useEffect } from 'react';
+import { commitBehaviorCreate } from '../../mesh/behaviorWrites';
 import { useTranslation } from 'react-i18next';
+import { commitEffectCreate } from '../../mesh/effectWrites';
 import { useEditorStore } from '../../store/editorStore';
 import { api } from '../../api/client';
+import {
+  commitNodeCreate,
+  commitNodePatch,
+  commitNodePath,
+} from '../../mesh/writes';
+import { commitLayerCreate, commitLayerPath } from '../../mesh/layerWrites';
 import type { AssetFile } from '../../api/client';
 import type { BottomDockTab, Behavior } from '../../store/editorStore';
 import { newBehaviorId, CAMERA_EFFECT_KINDS } from '../../store/editorStore';
-import { BEHAVIOR_ICON, BEHAVIOR_FALLBACK } from '../icons';
+import {
+  BEHAVIOR_ICON,
+  BEHAVIOR_FALLBACK,
+  CAMERA_EFFECT_ICON,
+  CAMERA_EFFECT_FALLBACK,
+} from '../icons';
 import { TrackClipTimeline } from './TrackClipTimeline';
 import { PresetLibrary } from './PresetLibrary';
 import { CreatePalette } from './CreatePalette';
 import { AssetThumb } from './AssetThumb';
 import { DND_ASSET } from './dnd';
-import { behaviorCompatibleWith } from './createKinds';
+import {
+  behaviorCompatibleWith,
+  createNodeFromLive2dAsset,
+} from './createKinds';
 import { HelpButton } from '../../help/HelpButton';
+import { useCameraEffects, useNodeBehaviors } from '../../mesh/hooks';
+import { useComposeLayers } from '../../mesh/compose';
+import { useSceneNodes } from '../../mesh/nodes';
 
 /** Per-tab contextual help target — one consistent `?` follows the active tab. */
 const tabHelp: Partial<
@@ -41,18 +60,14 @@ export function AssetManager() {
     addAsset,
     deleteAsset,
     activeSceneId,
-    addNode,
     projectId,
     selectedNodeId,
-    nodes,
-    updateNode: storeUpdateNode,
-    addBehavior,
-    behaviors,
     behaviorKinds,
-    cameraEffects,
-    addCameraEffect,
   } = useEditorStore();
+  const nodes = useSceneNodes();
   const selectedNode = nodes.find((n) => n.id === selectedNodeId) ?? null;
+  const selectedEffects = useCameraEffects(selectedNode?.id);
+  const selectedBehaviors = useNodeBehaviors(selectedNode?.id);
   const canApplyAnim =
     selectedNode?.kind === 'avatar' || selectedNode?.kind === 'model';
   const canApplyModel =
@@ -62,19 +77,16 @@ export function AssetManager() {
   const canApplyCameraBg = selectedNode?.kind === 'camera';
   const canApplyVideo = selectedNode?.kind === 'video';
   const canApplyAudio = selectedNode?.kind === 'audio';
+  const canApplyLive2d = selectedNode?.kind === 'live2d';
   const tab = useEditorStore((s) => s.bottomTab);
   const setTab = useEditorStore((s) => s.setBottomTab);
   const leftTab = useEditorStore((s) => s.leftTab);
   const activeComposeSceneId = useEditorStore((s) => s.activeComposeSceneId);
-  const addComposeLayer = useEditorStore((s) => s.addComposeLayer);
   const selectComposeLayer = useEditorStore((s) => s.selectComposeLayer);
   const selectedComposeLayerId = useEditorStore(
     (s) => s.selectedComposeLayerId
   );
-  const composeLayers = useEditorStore((s) => s.composeLayers);
-  const updateComposeLayerLocal = useEditorStore(
-    (s) => s.updateComposeLayerLocal
-  );
+  const composeLayers = useComposeLayers();
   const selectedComposeLayer =
     composeLayers.find((l) => l.id === selectedComposeLayerId) ?? null;
   const canApplyImageLayer = selectedComposeLayer?.kind === 'image';
@@ -98,6 +110,7 @@ export function AssetManager() {
       relevantTabs.add('models');
       relevantTabs.add('animations');
     }
+    if (selectedNode.kind === 'live2d') relevantTabs.add('models');
     if (selectedNode.kind === 'camera') {
       relevantTabs.add('effects');
       relevantTabs.add('images');
@@ -129,16 +142,66 @@ export function AssetManager() {
     };
   }, [bottomTabFlash]);
   const modelInputRef = useRef<HTMLInputElement>(null);
+  const live2dInputRef = useRef<HTMLInputElement>(null);
   const animInputRef = useRef<HTMLInputElement>(null);
   const imageInputRef = useRef<HTMLInputElement>(null);
   const videoInputRef = useRef<HTMLInputElement>(null);
   const audioInputRef = useRef<HTMLInputElement>(null);
 
-  const models = assets.filter((a) => a.kind === 'model');
+  // A Live2D model is a folder (manifest + moc3 + textures), not a single file;
+  // `webkitdirectory` isn't in React's input attribute types, so set it directly.
+  //
+  // Depends on `tab`: the input is only RENDERED while the Models tab is open,
+  // so a mount-only effect ran when the ref was still null, silently left the
+  // attribute unset, and the picker offered single files — which made the whole
+  // bundle flow look broken.
+  useEffect(() => {
+    const el = live2dInputRef.current;
+    if (!el) return;
+    el.setAttribute('webkitdirectory', '');
+    el.setAttribute('directory', '');
+  }, [tab]);
+
+  // The Models tab holds both 3D models (vrm/glb) and Live2D bundles.
+  const models = assets.filter(
+    (a) => a.kind === 'model' || a.kind === 'live2d'
+  );
   const animations = assets.filter((a) => a.kind === 'animation');
   const images = assets.filter((a) => a.kind === 'image');
   const videos = assets.filter((a) => a.kind === 'video');
   const audioAssets = assets.filter((a) => a.kind === 'audio');
+
+  // Live2D models upload as a folder (manifest + moc3 + textures) via the bundle
+  // endpoint, preserving each file's path relative to the model root.
+  const handleUploadLive2dFolder = async (files: FileList | File[]) => {
+    if (!projectId) {
+      alert('No project loaded.');
+      return;
+    }
+    const list = Array.from(files);
+    if (list.length === 0) return;
+    const firstPath = list[0].webkitRelativePath || list[0].name;
+    const rootName = firstPath.includes('/')
+      ? firstPath.split('/')[0]
+      : 'live2d-model';
+    const inputs = list.map((f) => {
+      const rel = f.webkitRelativePath || f.name;
+      const relPath = rel.startsWith(`${rootName}/`)
+        ? rel.slice(rootName.length + 1)
+        : rel;
+      return { relPath, file: f };
+    });
+    setUploading(true);
+    try {
+      const asset = await api.uploadLive2dBundle(projectId, rootName, inputs);
+      addAsset(asset);
+      setTab('models');
+    } catch (e: unknown) {
+      alert(e instanceof Error ? e.message : 'Live2D upload failed');
+    } finally {
+      setUploading(false);
+    }
+  };
 
   // OS file drag-and-drop onto the dock. Uploads every dropped file, then jumps
   // to the tab for the first file's kind so the upload is visible.
@@ -190,7 +253,7 @@ export function AssetManager() {
     const ext = asset.name.split('.').pop()?.toLowerCase();
     const nodeKind = ext === 'vrm' ? 'avatar' : 'model';
     try {
-      const node = await api.createNode(activeSceneId, {
+      await commitNodeCreate(activeSceneId, {
         parentId: null,
         name: asset.name,
         kind: nodeKind,
@@ -210,8 +273,6 @@ export function AssetManager() {
           },
         },
       });
-      if (useEditorStore.getState().nodes.every((n) => n.id !== node.id))
-        addNode(node);
     } catch (e: unknown) {
       alert(e instanceof Error ? e.message : t('alerts.addSceneFailed'));
     }
@@ -223,7 +284,7 @@ export function AssetManager() {
       return;
     }
     try {
-      const node = await api.createNode(activeSceneId, {
+      await commitNodeCreate(activeSceneId, {
         parentId: null,
         name: asset.name,
         kind: 'billboard',
@@ -251,8 +312,6 @@ export function AssetManager() {
           },
         },
       });
-      if (useEditorStore.getState().nodes.every((n) => n.id !== node.id))
-        addNode(node);
     } catch (e: unknown) {
       alert(e instanceof Error ? e.message : t('alerts.addBillboardFailed'));
     }
@@ -277,7 +336,7 @@ export function AssetManager() {
       return;
     }
     try {
-      const node = await api.createNode(activeSceneId, {
+      await commitNodeCreate(activeSceneId, {
         parentId: null,
         name: asset.name,
         kind: 'video',
@@ -301,8 +360,6 @@ export function AssetManager() {
           },
         },
       });
-      if (useEditorStore.getState().nodes.every((n) => n.id !== node.id))
-        addNode(node);
     } catch (e: unknown) {
       alert(e instanceof Error ? e.message : t('alerts.addVideoFailed'));
     }
@@ -314,7 +371,7 @@ export function AssetManager() {
       return;
     }
     try {
-      const node = await api.createNode(activeSceneId, {
+      await commitNodeCreate(activeSceneId, {
         parentId: null,
         name: asset.name,
         kind: 'audio',
@@ -340,10 +397,37 @@ export function AssetManager() {
           },
         },
       });
-      if (useEditorStore.getState().nodes.every((n) => n.id !== node.id))
-        addNode(node);
     } catch (e: unknown) {
       alert(e instanceof Error ? e.message : t('alerts.addAudioFailed'));
+    }
+  };
+
+  const handleAddAsLive2d = async (asset: AssetFile) => {
+    if (!activeSceneId) {
+      alert('No active scene.');
+      return;
+    }
+    try {
+      await createNodeFromLive2dAsset(asset, activeSceneId);
+    } catch (e: unknown) {
+      alert(e instanceof Error ? e.message : 'Failed to add Live2D model');
+    }
+  };
+
+  const handleApplyLive2dModel = async (asset: AssetFile) => {
+    if (!selectedNode) return;
+    const existing = (selectedNode.components?.live2d ?? {}) as Record<
+      string,
+      unknown
+    >;
+    const components = {
+      ...selectedNode.components,
+      live2d: { type: 'live2d', ...existing, modelUrl: asset.url },
+    };
+    try {
+      commitNodePatch(selectedNode.id, { components, filePath: asset.url });
+    } catch (e: unknown) {
+      alert(e instanceof Error ? e.message : 'Failed to set Live2D model');
     }
   };
 
@@ -368,13 +452,12 @@ export function AssetManager() {
           }
         : { objectFit: 'contain' };
     try {
-      const created = await api.createComposeSceneLayer(activeComposeSceneId, {
+      const created = await commitLayerCreate(activeComposeSceneId, {
         name: asset.name,
         kind,
         assetId: asset.id,
         config,
       });
-      addComposeLayer(created);
       selectComposeLayer(created.id);
     } catch (e: unknown) {
       alert(e instanceof Error ? e.message : t('alerts.addLayerFailed'));
@@ -395,11 +478,7 @@ export function AssetManager() {
       [key]: { ...existing, assetId: asset.id, sourceUrl: asset.url },
     };
     try {
-      await api.updateNode(selectedNode.id, {
-        components,
-        filePath: asset.url,
-      });
-      storeUpdateNode(selectedNode.id, { components, filePath: asset.url });
+      commitNodePatch(selectedNode.id, { components, filePath: asset.url });
     } catch (e: unknown) {
       alert(e instanceof Error ? e.message : t('alerts.applyMediaFailed'));
     }
@@ -411,8 +490,7 @@ export function AssetManager() {
     const layer = selectedComposeLayer;
     if (!layer) return;
     try {
-      await api.updateComposeLayer(layer.id, { assetId: asset.id });
-      updateComposeLayerLocal(layer.id, { assetId: asset.id });
+      commitLayerPath(layer.id, 'assetId', asset.id);
     } catch (e: unknown) {
       alert(e instanceof Error ? e.message : t('alerts.applyMediaFailed'));
     }
@@ -430,8 +508,7 @@ export function AssetManager() {
       [key]: { ...existing, textureUrl: asset.url },
     };
     try {
-      await api.updateNode(selectedNode.id, { components });
-      storeUpdateNode(selectedNode.id, { components });
+      commitNodePath(selectedNode.id, 'components', components);
     } catch (e: unknown) {
       alert(e instanceof Error ? e.message : t('alerts.applyTextureFailed'));
     }
@@ -448,8 +525,7 @@ export function AssetManager() {
       camera: { ...existing, backgroundImage: asset.url },
     };
     try {
-      await api.updateNode(selectedNode.id, { components });
-      storeUpdateNode(selectedNode.id, { components });
+      commitNodePath(selectedNode.id, 'components', components);
     } catch (e: unknown) {
       alert(e instanceof Error ? e.message : t('alerts.applyCameraBgFailed'));
     }
@@ -458,8 +534,7 @@ export function AssetManager() {
   const handleApplyModel = async (asset: AssetFile) => {
     if (!selectedNode) return;
     try {
-      await api.updateNode(selectedNode.id, { filePath: asset.url });
-      storeUpdateNode(selectedNode.id, { filePath: asset.url });
+      commitNodePath(selectedNode.id, 'filePath', asset.url);
     } catch (e: unknown) {
       alert(e instanceof Error ? e.message : t('alerts.applyModelFailed'));
     }
@@ -473,7 +548,8 @@ export function AssetManager() {
     // behind would silently pin the avatar to the *previous* idle — the new url
     // would land in the ignored legacy slot. Clearing it lets the Viewport
     // re-derive a fresh clip id for this url, exactly like the panel's edit path.
-    const prevProps = (selectedNode.properties as Record<string, unknown>) ?? {};
+    const prevProps =
+      (selectedNode.properties as Record<string, unknown>) ?? {};
     const prevAnim =
       (prevProps.animation as Record<string, unknown> | undefined) ?? {};
     const prevSpeed =
@@ -485,10 +561,12 @@ export function AssetManager() {
       ...selectedNode.components,
       animation: { idleUrl: asset.url, speed: prevSpeed },
     };
-    const properties = { ...prevProps, animation: { ...prevAnim, idle: undefined } };
+    const properties = {
+      ...prevProps,
+      animation: { ...prevAnim, idle: undefined },
+    };
     try {
-      await api.updateNode(selectedNode.id, { components, properties });
-      storeUpdateNode(selectedNode.id, { components, properties });
+      commitNodePatch(selectedNode.id, { components, properties });
     } catch (e: unknown) {
       alert(e instanceof Error ? e.message : t('alerts.applyAnimFailed'));
     }
@@ -500,7 +578,8 @@ export function AssetManager() {
   // wholesale so no stale clipId lingers).
   const handleApplyAnimationAsBase = async (asset: AssetFile) => {
     if (!selectedNode) return;
-    const prevProps = (selectedNode.properties as Record<string, unknown>) ?? {};
+    const prevProps =
+      (selectedNode.properties as Record<string, unknown>) ?? {};
     const prevAnim =
       (prevProps.animation as Record<string, unknown> | undefined) ?? {};
     const prevSpeed =
@@ -510,8 +589,7 @@ export function AssetManager() {
       animation: { ...prevAnim, base: { url: asset.url, speed: prevSpeed } },
     };
     try {
-      await api.updateNode(selectedNode.id, { properties });
-      storeUpdateNode(selectedNode.id, { properties });
+      commitNodePath(selectedNode.id, 'properties', properties);
     } catch (e: unknown) {
       alert(e instanceof Error ? e.message : t('alerts.applyAnimFailed'));
     }
@@ -537,12 +615,7 @@ export function AssetManager() {
       enabled: true,
       config: { ...ct.defaultConfig },
     };
-    addBehavior(comp);
-    try {
-      await api.createBehavior(selectedNode.id, comp);
-    } catch {
-      /* non-fatal */
-    }
+    await commitBehaviorCreate(selectedNode.id, comp);
   };
 
   const handleAddEffect = async (kind: string) => {
@@ -556,12 +629,7 @@ export function AssetManager() {
       enabled: true,
       config: { ...ek.defaultConfig },
     };
-    addCameraEffect(effect);
-    try {
-      await api.createCameraEffect(selectedNode.id, effect);
-    } catch {
-      /* non-fatal */
-    }
+    await commitEffectCreate(selectedNode.id, effect);
   };
 
   const tabBtn = (tabId: BottomDockTab): React.CSSProperties => {
@@ -608,9 +676,7 @@ export function AssetManager() {
     ct: (typeof behaviorKinds)[number],
     dimmed: boolean
   ) => {
-    const alreadyAdded = behaviors.some(
-      (c) => c.nodeId === selectedNode!.id && c.kind === ct.kind
-    );
+    const alreadyAdded = selectedBehaviors.some((c) => c.kind === ct.kind);
     return (
       <div
         key={ct.kind}
@@ -764,10 +830,18 @@ export function AssetManager() {
           flexShrink: 0,
         }}
       >
-        <button className="vs-tab-create" style={tabBtn('create')} onClick={() => setTab('create')}>
+        <button
+          className="vs-tab-create"
+          style={tabBtn('create')}
+          onClick={() => setTab('create')}
+        >
           {t('tabs.create')}
         </button>
-        <button className="vs-tab-models" style={tabBtn('models')} onClick={() => setTab('models')}>
+        <button
+          className="vs-tab-models"
+          style={tabBtn('models')}
+          onClick={() => setTab('models')}
+        >
           {t('tabs.models')}
         </button>
         <button
@@ -777,13 +851,25 @@ export function AssetManager() {
         >
           {t('tabs.animations')}
         </button>
-        <button className="vs-tab-images" style={tabBtn('images')} onClick={() => setTab('images')}>
+        <button
+          className="vs-tab-images"
+          style={tabBtn('images')}
+          onClick={() => setTab('images')}
+        >
           {t('tabs.images')}
         </button>
-        <button className="vs-tab-videos" style={tabBtn('videos')} onClick={() => setTab('videos')}>
+        <button
+          className="vs-tab-videos"
+          style={tabBtn('videos')}
+          onClick={() => setTab('videos')}
+        >
           {t('tabs.videos')}
         </button>
-        <button className="vs-tab-audio" style={tabBtn('audio')} onClick={() => setTab('audio')}>
+        <button
+          className="vs-tab-audio"
+          style={tabBtn('audio')}
+          onClick={() => setTab('audio')}
+        >
           {t('tabs.audio')}
         </button>
         <button
@@ -793,13 +879,25 @@ export function AssetManager() {
         >
           {t('tabs.components')}
         </button>
-        <button className="vs-tab-effects" style={tabBtn('effects')} onClick={() => setTab('effects')}>
+        <button
+          className="vs-tab-effects"
+          style={tabBtn('effects')}
+          onClick={() => setTab('effects')}
+        >
           {t('tabs.effects')}
         </button>
-        <button className="vs-tab-clips" style={tabBtn('clips')} onClick={() => setTab('clips')}>
+        <button
+          className="vs-tab-clips"
+          style={tabBtn('clips')}
+          onClick={() => setTab('clips')}
+        >
           {t('tabs.clips')}
         </button>
-        <button className="vs-tab-presets" style={tabBtn('presets')} onClick={() => setTab('presets')}>
+        <button
+          className="vs-tab-presets"
+          style={tabBtn('presets')}
+          onClick={() => setTab('presets')}
+        >
           {t('tabs.presets')}
         </button>
         {/* One contextual help affordance for the active tab — consistent across
@@ -857,6 +955,25 @@ export function AssetManager() {
               multiple
               onChange={(e) => {
                 if (e.target.files) handleUploadFiles(e.target.files);
+                e.target.value = '';
+              }}
+            />
+            <button
+              style={uploadBtn}
+              disabled={uploading}
+              title="Upload a Live2D model folder (.model3.json + .moc3 + textures)"
+              onClick={() => live2dInputRef.current?.click()}
+            >
+              {uploading ? 'Uploading…' : 'Upload Live2D'}
+            </button>
+            <input
+              ref={live2dInputRef}
+              type="file"
+              multiple
+              style={{ display: 'none' }}
+              onChange={(e) => {
+                if (e.target.files && e.target.files.length > 0)
+                  handleUploadLive2dFolder(e.target.files);
                 e.target.value = '';
               }}
             />
@@ -1036,8 +1153,8 @@ export function AssetManager() {
               {selectedNode && selectedNode.kind === 'camera' && (
                 <div style={cardGrid}>
                   {CAMERA_EFFECT_KINDS.map((ek) => {
-                    const alreadyAdded = cameraEffects.some(
-                      (e) => e.nodeId === selectedNode.id && e.kind === ek.kind
+                    const alreadyAdded = selectedEffects.some(
+                      (e) => e.kind === ek.kind
                     );
                     return (
                       <div
@@ -1061,7 +1178,9 @@ export function AssetManager() {
                           }}
                         >
                           {(() => {
-                            const I = ek.icon;
+                            const I =
+                              CAMERA_EFFECT_ICON[ek.kind] ??
+                              CAMERA_EFFECT_FALLBACK;
                             return <I size={20} />;
                           })()}
                         </span>
@@ -1201,6 +1320,10 @@ export function AssetManager() {
                   {list.map((asset) => (
                     <div
                       key={asset.id}
+                      data-attach-kind="asset"
+                      data-attach-id={asset.id}
+                      data-attach-name={asset.name}
+                      data-attach-url={asset.url}
                       style={{ ...cardStyle, cursor: 'grab' }}
                       draggable
                       title={t('card.dragHint')}
@@ -1271,6 +1394,39 @@ export function AssetManager() {
                             {t('actions.applyToNode', {
                               name: selectedNode!.name,
                             })}
+                          </button>
+                        )}
+                        {asset.kind === 'live2d' && (
+                          <button
+                            style={{
+                              background: '#1a3a5a',
+                              border: 'none',
+                              color: '#7ab',
+                              borderRadius: 4,
+                              padding: '2px 8px',
+                              cursor: 'pointer',
+                              fontSize: 11,
+                            }}
+                            onClick={() => handleAddAsLive2d(asset)}
+                          >
+                            Add to Scene
+                          </button>
+                        )}
+                        {asset.kind === 'live2d' && canApplyLive2d && (
+                          <button
+                            style={{
+                              background: '#1a3a2a',
+                              border: 'none',
+                              color: '#7c9',
+                              borderRadius: 4,
+                              padding: '2px 8px',
+                              cursor: 'pointer',
+                              fontSize: 11,
+                            }}
+                            title={`Set as model for "${selectedNode!.name}"`}
+                            onClick={() => handleApplyLive2dModel(asset)}
+                          >
+                            Apply to {selectedNode!.name}
                           </button>
                         )}
                         {asset.kind === 'animation' && canApplyAnim && (

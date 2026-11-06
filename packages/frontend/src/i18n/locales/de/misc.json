@@ -15,5 +15,22 @@
     "setKeyframeAll": "Keyframe am Abspielkopf setzen (alle Komponenten)",
     "setGroupBtn": "◆ Gruppe setzen",
     "doubleClickEdit": "Doppelklick zum Bearbeiten"
+  },
+  "toast": {
+    "dismiss": "Schließen"
+  },
+  "write": {
+    "subject": {
+      "doc": "Die Änderung",
+      "scene_node": "Der Knoten",
+      "compose_layer": "Die Ebene",
+      "track_clip": "Der Track-Clip",
+      "behavior": "Das Verhalten",
+      "camera_effect": "Der Kameraeffekt",
+      "logic": "Der Logik-Graph"
+    },
+    "rejected": "{{subject}} konnte nicht gespeichert werden – vom Server abgelehnt.",
+    "rejectedWithReason": "{{subject}} konnte nicht gespeichert werden: {{reason}}",
+    "failed": "{{subject}} konnte nicht gespeichert werden. Prüfe die Verbindung und versuche es erneut."
   }
 }

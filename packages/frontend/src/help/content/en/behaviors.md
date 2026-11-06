@@ -15,7 +15,8 @@ your network. Tools like phone face-trackers and full-body suits can broadcast
 VMC; the VMC receiver behavior listens for it and feeds it to your avatar.
 
 You just tell it which port to listen on (the sending app shows this), and the
-motion flows in.
+motion flows in. If the avatar's eyes look too far, see
+[Gaze](topic:behaviors#eye-range).
 
 ## iFacialMocap receiver {#ifacialmocap}
 
@@ -54,6 +55,24 @@ becomes the avatar's resting posture.
 
 Expressions are mapped exactly like the [VMC receiver](topic:behaviors#vmc)'s —
 same three face mappers, same custom mapping editor.
+
+### Gaze: eyes looking too far {#eye-range}
+
+Every avatar model sets how far its eyes may turn — usually only around 10°,
+because anime-style eyes are large. iFacialMocap reports how far **your** eyes
+actually turn, which is up to about 30°. Applied directly, ordinary eye movement
+rolls the iris under the eyelids and the avatar shows the whites of its eyes.
+
+**Fit eye movement to the model's eye range** (under **Gaze**) fixes that: your
+eye rotation is scaled so that turning your eyes as far as **Physical eye range**
+(30° by default) reaches the model's own limit, and anything further stops
+there. Lower the range if the avatar's eyes feel sluggish; raise it if they still
+look too far.
+
+It is on by default for iFacialMocap. The [VMC receiver](topic:behaviors#vmc) has
+the same setting, off by default: most VMC senders already fit the eyes to your
+model, and fitting them twice would make them too small. Turn it on there only
+if your sender passes raw eye angles through.
 
 ## Camera tracking {#tracking}
 

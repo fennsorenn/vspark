@@ -11,17 +11,52 @@ import { UpdateDialog } from './UpdateDialog';
 import { OverliveAccountsModal } from './OverliveAccountsModal';
 import { LanguageSwitcher } from '../LanguageSwitcher';
 import { HelpButton } from '../../help/HelpButton';
+import { useAssistantStore } from '../../store/assistantStore';
+import {
+  meshUndo,
+  meshRedo,
+  onMeshUndoChange,
+  getMeshUndoStatus,
+} from '../../mesh/peer';
+
+/** Track the tab peer's undo/redo availability for button enablement. */
+function useMeshUndoStatus() {
+  const [status, setStatus] = useState(getMeshUndoStatus);
+  useEffect(() => onMeshUndoChange(setStatus), []);
+  return status;
+}
+
+const undoBtnStyle = (enabled: boolean): React.CSSProperties => ({
+  background: 'none',
+  border: 'none',
+  color: enabled ? '#ccc' : '#555',
+  cursor: enabled ? 'pointer' : 'default',
+  fontSize: 16,
+  lineHeight: 1,
+  padding: '2px 4px',
+});
 
 export function TopBar() {
   const navigate = useNavigate();
   const { t } = useTranslation('topbar');
+  const { canUndo, canRedo } = useMeshUndoStatus();
   const { projectId, projectName, updateAvailable, setUpdateAvailable } =
     useEditorStore();
   const [connected, setConnected] = useState(false);
-  const [mediaOpen, setMediaOpen] = useState(false);
+  // Store-driven open flags so the assistant can open these via a ui_action;
+  // the *mounted* flags stay local (lazy-mount, keep alive while hidden).
+  const mediaOpen = useEditorStore((s) => s.mediaModalOpen);
+  const setMediaOpen = useEditorStore((s) => s.setMediaModalOpen);
   const [mediaMounted, setMediaMounted] = useState(false);
-  const [connectionsOpen, setConnectionsOpen] = useState(false);
+  const connectionsOpen = useEditorStore((s) => s.connectionsModalOpen);
+  const setConnectionsOpen = useEditorStore((s) => s.setConnectionsModalOpen);
   const [connectionsMounted, setConnectionsMounted] = useState(false);
+  useEffect(() => {
+    if (mediaOpen) setMediaMounted(true);
+  }, [mediaOpen]);
+  useEffect(() => {
+    if (connectionsOpen) setConnectionsMounted(true);
+  }, [connectionsOpen]);
   const mpConnectedIds = useConnectionsStore((s) => s.connectedIds);
   const mpNameById = useConnectionsStore((s) => s.nameById);
   const mpIncoming = useConnectionsStore((s) => s.incoming);
@@ -45,8 +80,11 @@ export function TopBar() {
       })
       .catch(() => {});
   }, [setMpMeta, setMpPeers]);
-  const [updateOpen, setUpdateOpen] = useState(false);
-  const [accountsOpen, setAccountsOpen] = useState(false);
+  const updateOpen = useEditorStore((s) => s.updateDialogOpen);
+  const setUpdateOpen = useEditorStore((s) => s.setUpdateDialogOpen);
+  // Store-driven so the assistant can open it via a ui_action (open_window).
+  const accountsOpen = useEditorStore((s) => s.accountsModalOpen);
+  const setAccountsOpen = useEditorStore((s) => s.setAccountsModalOpen);
   // Anchor the Updates popover under whichever control opened it.
   const updateAnchorRef = useRef<HTMLButtonElement>(null);
 
@@ -115,6 +153,32 @@ export function TopBar() {
           {projectName || t('loading')}
         </span>
 
+        {/* Undo / redo (mesh-native, this tab's actions) */}
+        <span style={{ color: '#444' }}>|</span>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+          <button
+            className="vs-topbar-undo"
+            style={undoBtnStyle(canUndo)}
+            disabled={!canUndo}
+            onClick={() => meshUndo()}
+            title={t('undo.title')}
+            aria-label={t('undo.label')}
+          >
+            ↶
+          </button>
+          <button
+            className="vs-topbar-redo"
+            style={undoBtnStyle(canRedo)}
+            disabled={!canRedo}
+            onClick={() => meshRedo()}
+            title={t('redo.title')}
+            aria-label={t('redo.label')}
+          >
+            ↷
+          </button>
+          <HelpButton topic="scene" anchor="undo" tip={t('undo.help')} />
+        </div>
+
         {/* Spacer */}
         <div style={{ flex: 1 }} />
 
@@ -135,7 +199,7 @@ export function TopBar() {
               gap: 5,
             }}
             onClick={() => {
-              setMediaOpen((v) => !v);
+              setMediaOpen(!mediaOpen);
               setMediaMounted(true);
             }}
             title={t('media.title')}
@@ -159,7 +223,7 @@ export function TopBar() {
               gap: 5,
             }}
             onClick={() => {
-              setConnectionsOpen((v) => !v);
+              setConnectionsOpen(!connectionsOpen);
               setConnectionsMounted(true);
             }}
             title={
@@ -298,6 +362,7 @@ export function TopBar() {
             />
             {t('update.versionLabel')}
           </button>
+          <AssistantToggle />
           <LanguageSwitcher compact />
           <HelpButton topic="overview" tip={t('help.tip')} size={18} />
         </div>
@@ -314,5 +379,34 @@ export function TopBar() {
         <OverliveAccountsModal onClose={() => setAccountsOpen(false)} />
       )}
     </>
+  );
+}
+
+/** Top-bar button that toggles the in-app AI assistant window. */
+function AssistantToggle() {
+  const { t } = useTranslation('assistant');
+  const open = useAssistantStore((s) => s.open);
+  const available = useAssistantStore((s) => s.available);
+  const toggle = useAssistantStore((s) => s.toggleAssistant);
+  // Hide the whole AI affordance until an LLM endpoint is configured (probed
+  // from /api/config by AssistantWindow on mount).
+  if (available !== true) return null;
+  return (
+    <button
+      className="vs-topbar-assistant"
+      onClick={toggle}
+      title={t('topbarTip')}
+      style={{
+        background: open ? '#1a2a3a' : '#2a2a2a',
+        border: `1px solid ${open ? '#60a5fa' : '#3a3a3a'}`,
+        color: open ? '#60a5fa' : '#ccc',
+        borderRadius: 5,
+        padding: '3px 10px',
+        cursor: 'pointer',
+        fontSize: 12,
+      }}
+    >
+      🤖 {t('label')}
+    </button>
   );
 }

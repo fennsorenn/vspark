@@ -24,8 +24,11 @@ import type {
   OverliveAppCredentialRecord,
   OverliveAccountRecord,
   OverliveAccountStatus,
+  ObsConnectionRecord,
+  ObsConnectionStatus,
   Project,
 } from '../../api/client';
+import { useServerStatuses, withLiveStatus } from '../../mesh/runtime';
 
 interface Props {
   onClose: () => void;
@@ -62,6 +65,27 @@ export function OverliveAccountsModal({ onClose }: Props) {
   const [showSeForm, setShowSeForm] = useState(false);
   const [pendingTwitchAppPick, setPendingTwitchAppPick] = useState(false);
   const [otherProjects, setOtherProjects] = useState<Project[]>([]);
+  // OBS connections and accounts are REST records; their live status is a
+  // server_status document, laid over them where the pills render.
+  const obsConnections = useEditorStore((s) => s.obsConnections);
+  const obsStatus = useServerStatuses('obs_connection');
+  const accountStatus = useServerStatuses('overlive_account');
+  const obsShown = obsConnections.map((c) =>
+    withLiveStatus(c, obsStatus[c.id])
+  );
+  const setObsConnections = useEditorStore((s) => s.setObsConnections);
+  // null = closed; 'new' = add form; a record = editing it.
+  const [obsForm, setObsForm] = useState<ObsConnectionRecord | 'new' | null>(
+    null
+  );
+
+  const OBS_STATUS_LABEL: Record<ObsConnectionStatus, { color: string }> = {
+    connected: { color: '#4ade80' },
+    connecting: { color: '#facc15' },
+    reconnecting: { color: '#facc15' },
+    disconnected: { color: '#888' },
+    error: { color: '#f87171' },
+  };
 
   // Build status label map using translated strings
   const STATUS_LABEL: Record<
@@ -79,12 +103,14 @@ export function OverliveAccountsModal({ onClose }: Props) {
   const refresh = async () => {
     if (!projectId) return;
     try {
-      const [a, b] = await Promise.all([
+      const [a, b, c] = await Promise.all([
         api.getOverliveAppCredentials(projectId),
         api.getOverliveAccounts(projectId),
+        api.getObsConnections(projectId),
       ]);
       setApps(a);
       setAccounts(b);
+      setObsConnections(c);
     } catch {
       /* non-fatal */
     }
@@ -202,6 +228,56 @@ export function OverliveAccountsModal({ onClose }: Props) {
       );
     } catch (e) {
       alert(e instanceof Error ? e.message : t('alerts.setDefaultFailed'));
+    }
+  };
+
+  const handleSaveObs = async (input: {
+    id?: string;
+    label: string;
+    host: string;
+    port: number;
+    password?: string;
+  }) => {
+    if (!projectId) return;
+    try {
+      if (input.id) {
+        const upd = await api.updateObsConnection(input.id, input);
+        setObsConnections(
+          obsConnections.map((c) => (c.id === upd.id ? upd : c))
+        );
+      } else {
+        const created = await api.createObsConnection(projectId, input);
+        setObsConnections([...obsConnections, created]);
+      }
+      setObsForm(null);
+    } catch (e) {
+      alert(e instanceof Error ? e.message : t('obs.saveFailed'));
+    }
+  };
+
+  const handleTestObs = async (conn: ObsConnectionRecord) => {
+    try {
+      await api.testObsConnection(conn.id);
+      // Live status arrives as a server_status document.
+    } catch {
+      /* non-fatal — status pill reflects the outcome */
+    }
+  };
+
+  const handleDeleteObs = async (conn: ObsConnectionRecord) => {
+    if (
+      !(await confirm({
+        message: t('obs.removeConfirm', { label: conn.label }),
+        confirmLabel: t('common:actions.remove'),
+        danger: true,
+      }))
+    )
+      return;
+    try {
+      await api.deleteObsConnection(conn.id);
+      setObsConnections(obsConnections.filter((c) => c.id !== conn.id));
+    } catch (e) {
+      alert(e instanceof Error ? e.message : t('obs.removeFailed'));
     }
   };
 
@@ -340,7 +416,8 @@ export function OverliveAccountsModal({ onClose }: Props) {
                 : t('accounts.emptyHasApp')}
             </div>
           ) : (
-            accounts.map((acc) => {
+            accounts.map((rawAcc) => {
+              const acc = withLiveStatus(rawAcc, accountStatus[rawAcc.id]);
               const status = STATUS_LABEL[acc.status];
               const needsReauth =
                 acc.status === 'error' || acc.status === 'needs_reauth';
@@ -441,6 +518,78 @@ export function OverliveAccountsModal({ onClose }: Props) {
           )}
         </section>
 
+        {/* OBS Connections section (obs-websocket power tier) */}
+        <section style={sectionStyle}>
+          <div style={sectionHeaderStyle}>
+            <span
+              style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}
+            >
+              {t('obs.heading')}
+              <HelpButton
+                topic="obs"
+                anchor="obs-websocket"
+                tip={t('obs.help')}
+              />
+            </span>
+            <button
+              style={primaryBtnStyle}
+              onClick={() => setObsForm('new')}
+              disabled={busy}
+            >
+              {t('obs.add')}
+            </button>
+          </div>
+          {obsConnections.length === 0 ? (
+            <div style={emptyStateStyle}>{t('obs.empty')}</div>
+          ) : (
+            obsShown.map((conn) => (
+              <div key={conn.id} style={rowStyle}>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={rowTitleStyle}>
+                    {conn.label}
+                    <span
+                      style={{ color: '#666', fontWeight: 400, marginLeft: 6 }}
+                    >
+                      ({conn.host}:{conn.port})
+                    </span>
+                  </div>
+                  <div style={rowSubStyle}>
+                    <span
+                      style={{ color: OBS_STATUS_LABEL[conn.status].color }}
+                    >
+                      ● {t(`status.${conn.status}`)}
+                    </span>
+                    {conn.statusMessage && (
+                      <span style={{ color: '#888', marginLeft: 6 }}>
+                        · {conn.statusMessage}
+                      </span>
+                    )}
+                  </div>
+                </div>
+                <button
+                  style={secondaryBtnStyle}
+                  onClick={() => handleTestObs(conn)}
+                >
+                  {t('obs.test')}
+                </button>
+                <button
+                  style={secondaryBtnStyle}
+                  onClick={() => setObsForm(conn)}
+                >
+                  {t('obs.edit')}
+                </button>
+                <button
+                  style={dangerBtnStyle}
+                  onClick={() => handleDeleteObs(conn)}
+                  title={t('accounts.removeTitle')}
+                >
+                  ×
+                </button>
+              </div>
+            ))
+          )}
+        </section>
+
         {/* Footer note */}
         <div
           style={{
@@ -486,6 +635,149 @@ export function OverliveAccountsModal({ onClose }: Props) {
             onPick={(id) => startTwitchOAuthFor(id)}
           />
         )}
+        {obsForm && (
+          <ObsConnectionDialog
+            existing={obsForm === 'new' ? null : obsForm}
+            onCancel={() => setObsForm(null)}
+            onSave={handleSaveObs}
+          />
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ─── OBS connection dialog ───────────────────────────────────────────────────
+
+function ObsConnectionDialog({
+  existing,
+  onCancel,
+  onSave,
+}: {
+  existing: ObsConnectionRecord | null;
+  onCancel: () => void;
+  onSave: (input: {
+    id?: string;
+    label: string;
+    host: string;
+    port: number;
+    /** Omitted = keep the stored password. */
+    password?: string;
+  }) => void | Promise<void>;
+}) {
+  const { t } = useTranslation('accounts');
+  const [label, setLabel] = useState(existing?.label ?? 'OBS');
+  const [host, setHost] = useState(existing?.host ?? 'localhost');
+  const [port, setPort] = useState(String(existing?.port ?? 4455));
+  // The stored password is never sent to the browser. The field starts empty
+  // and is only submitted once the user types in it.
+  const [password, setPassword] = useState('');
+  const [passwordTouched, setPasswordTouched] = useState(false);
+  const [busy, setBusy] = useState(false);
+
+  const handleSave = async () => {
+    if (!label.trim() || !host.trim()) {
+      alert(t('obs.allRequired'));
+      return;
+    }
+    setBusy(true);
+    try {
+      await onSave({
+        ...(existing ? { id: existing.id } : {}),
+        label: label.trim(),
+        host: host.trim(),
+        port: Number(port) || 4455,
+        ...(passwordTouched || !existing ? { password } : {}),
+      });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div
+      style={subOverlayStyle}
+      onClick={(e) => {
+        if (e.target === e.currentTarget) onCancel();
+      }}
+    >
+      <div style={subModalStyle}>
+        <div style={headerStyle}>
+          <h3 style={{ margin: 0, fontSize: 15, color: '#fff' }}>
+            {existing ? t('obs.editTitle') : t('obs.addTitle')}
+          </h3>
+          <button style={closeBtnStyle} onClick={onCancel}>
+            ×
+          </button>
+        </div>
+        <div
+          style={{
+            padding: '12px 16px',
+            color: '#bbb',
+            fontSize: 12,
+            lineHeight: 1.6,
+          }}
+        >
+          {t('obs.hint')}
+        </div>
+        <div
+          style={{
+            padding: '4px 16px 12px',
+            display: 'grid',
+            gridTemplateColumns: '110px 1fr',
+            gap: '8px 10px',
+            alignItems: 'center',
+          }}
+        >
+          <label style={labelStyle}>{t('obs.fields.label')}</label>
+          <input
+            style={inputStyle}
+            value={label}
+            onChange={(e) => setLabel(e.target.value)}
+          />
+          <label style={labelStyle}>{t('obs.fields.host')}</label>
+          <input
+            style={inputStyle}
+            value={host}
+            onChange={(e) => setHost(e.target.value)}
+          />
+          <label style={labelStyle}>{t('obs.fields.port')}</label>
+          <input
+            style={inputStyle}
+            value={port}
+            onChange={(e) => setPort(e.target.value)}
+            inputMode="numeric"
+          />
+          <label style={labelStyle}>{t('obs.fields.password')}</label>
+          <input
+            style={inputStyle}
+            value={password}
+            onChange={(e) => {
+              setPassword(e.target.value);
+              setPasswordTouched(true);
+            }}
+            type="password"
+            autoComplete="off"
+            placeholder={
+              existing?.hasPassword ? t('obs.fields.passwordUnchanged') : ''
+            }
+          />
+        </div>
+        <div
+          style={{
+            padding: '4px 16px 16px',
+            display: 'flex',
+            justifyContent: 'flex-end',
+            gap: 8,
+          }}
+        >
+          <button style={secondaryBtnStyle} onClick={onCancel} disabled={busy}>
+            {t('obs.cancel')}
+          </button>
+          <button style={primaryBtnStyle} onClick={handleSave} disabled={busy}>
+            {t('obs.save')}
+          </button>
+        </div>
       </div>
     </div>
   );

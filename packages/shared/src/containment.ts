@@ -19,8 +19,12 @@
  */
 
 export interface ContainmentSchema {
-  /** field on the entity DTO holding its parent id (e.g. 'parentId', 'nodeId'). */
-  parentField: string;
+  /** Field on the entity DTO holding its parent id (e.g. 'parentId', 'nodeId').
+   *
+   *  Several fields may be given when an entity can hang off more than one kind
+   *  of owner — a track clip belongs to a scene node OR a compose layer — in
+   *  which case the first one present on the doc wins. */
+  parentField: string | string[];
   /** rtypes a parent may be (cross-type containment). */
   parentTypes: string[];
   /** may this entity have a null parent (be a root)? */
@@ -48,8 +52,13 @@ interface IndexNode {
   data: unknown;
 }
 
-const get = (data: unknown, field?: string): unknown =>
-  field ? (data as Record<string, unknown>)[field] : undefined;
+const get = (data: unknown, field?: string | string[]): unknown => {
+  if (!field) return undefined;
+  const d = data as Record<string, unknown>;
+  if (typeof field === 'string') return d[field];
+  for (const f of field) if (d[f] != null) return d[f];
+  return undefined;
+};
 
 /** Sort comparator: fractional order key, then id (stable concurrent tiebreak). */
 function byOrder(a: IndexNode, b: IndexNode): number {

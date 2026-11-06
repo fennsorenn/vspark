@@ -10,5 +10,6 @@
     "add": "Hinzufügen",
     "remove": "Entfernen",
     "ok": "OK"
-  }
+  },
+  "connecting": "Verbindung zum vspark-Server wird hergestellt …"
 }

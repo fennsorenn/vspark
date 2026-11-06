@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
+import { commitBehaviorPatch } from '../../mesh/behaviorWrites';
 import { useTranslation } from 'react-i18next';
 import { HelpButton } from '../../help/HelpButton';
 import {
@@ -46,7 +47,6 @@ import {
   type SimpleColumn,
   type RigMode,
 } from '@vspark/shared/style_rig';
-import type { PoseSection, PoseSource } from '@vspark/shared';
 import { useParams } from 'react-router-dom';
 import { useEditorStore } from '../../store/editorStore';
 import { api, fireSignalEvent, updateScene } from '../../api/client';
@@ -56,9 +56,19 @@ import {
   ComposeLayerProperties,
   ComposeSceneProperties,
 } from './ComposeLayerProperties';
-import type { AssetFile } from '../../api/client';
+import type { AssetFile, CameraEffectRecord } from '../../api/client';
+import { setLive2dConsent } from '../../lib/puppet2d/live2d/coreLoader';
+import type { Live2dParamMap, ParamMapEntry } from '../../lib/live2dParamMap';
 import { MicCapture, type VowelTemplates } from '../../media/MicCapture';
 import { useTrackClipRecorder } from '../../hooks/useTrackClipRecorder';
+import { useMeshField } from '../../hooks/useMeshField';
+import {
+  commitNodePatch,
+  commitNodePath,
+  previewNodePath,
+  previewNodeTransform,
+} from '../../mesh/writes';
+import { commitEffectPatch } from '../../mesh/effectWrites';
 
 /** Small "Pick…" button that routes the user to a bottom-dock asset tab and
  *  flashes it as a hint. The asset tab's existing "Apply to <node>" buttons do
@@ -85,8 +95,15 @@ function PickButton({ onClick }: { onClick: () => void }) {
   );
 }
 import { NumInput, VecInput, SliderInput } from './numericInputs';
+import { TrackingMixSection } from './TrackingMix';
+import { EyeRangeSettings } from './EyeRangeSettings';
 import { vrmRegistry } from '../../vrmRegistry';
-import { BEHAVIOR_ICON, BEHAVIOR_FALLBACK } from '../icons';
+import {
+  BEHAVIOR_ICON,
+  BEHAVIOR_FALLBACK,
+  CAMERA_EFFECT_ICON,
+  CAMERA_EFFECT_FALLBACK,
+} from '../icons';
 import { Check, Clapperboard } from 'lucide-react';
 import {
   getMaterialSlots,
@@ -96,6 +113,10 @@ import {
   type AlphaMode,
   type EmissiveMapMode,
 } from './materialOverrides';
+import { useCollection, useMeshDoc } from '@vspark/mesh-react';
+import { useAnimationClips, useCameraEffects } from '../../mesh/hooks';
+import { useComposeLayers, useComposeScenes } from '../../mesh/compose';
+import { useSceneNode, useSceneNodes, useScenes } from '../../mesh/nodes';
 
 interface Transform {
   x: number;
@@ -356,7 +377,6 @@ function MaterialRow({
   slot: ReturnType<typeof getMaterialSlots>[number];
 }) {
   const { t } = useTranslation('properties');
-  const { updateNode: storeUpdateNode } = useEditorStore();
   const [open, setOpen] = useState(false);
   const [advOpen, setAdvOpen] = useState(false);
   const overrides = (node.properties?.materialOverrides ??
@@ -368,23 +388,23 @@ function MaterialRow({
   if (shader === 'mtoon' && !slot.supportsMToon) shader = 'pbr';
   const isStandard = shader === 'pbr' || shader === 'apbr';
 
-  const writeOverrides = (next: MaterialOverrides, persist: boolean) => {
-    const properties = { ...node.properties, materialOverrides: next };
-    storeUpdateNode(node.id, { properties });
-    if (persist)
-      api
-        .updateNode(node.id, { properties: { materialOverrides: next } })
-        .catch(() => {});
-  };
+  const overridesPath = 'properties.materialOverrides';
+  const slotPath = `${overridesPath}.${slot.key}`;
 
+  /** Whole-map replace — used by reset, which removes a slot entry. */
+  const writeOverrides = (next: MaterialOverrides, persist: boolean) =>
+    (persist ? commitNodePath : previewNodePath)(node.id, overridesPath, next);
+
+  /** One field of this material. Path writes stamp exactly the field touched,
+   *  so editing two materials (or two params) concurrently no longer clobbers.
+   *  `persist: false` is the live gesture value; `true` commits one undo step. */
   const patch = (p: Partial<MaterialOverride>, persist: boolean) => {
-    const prev = (node.properties?.materialOverrides ??
-      {}) as MaterialOverrides;
-    const prevEntry: MaterialOverride = prev[slot.key] ?? {
-      shader: defaultShader,
-    };
-    const next = { ...prev, [slot.key]: { ...prevEntry, ...p } };
-    writeOverrides(next, persist);
+    const write = persist ? commitNodePath : previewNodePath;
+    // No entry yet: seed shader + fields as one write, so the slot never exists
+    // in a half-formed state and the edit stays a single undo step.
+    if (!ov) return write(node.id, slotPath, { shader: defaultShader, ...p });
+    for (const [k, v] of Object.entries(p))
+      write(node.id, `${slotPath}.${k}`, v);
   };
 
   const reset = () => {
@@ -1910,13 +1930,9 @@ function liveOrMetaList(
 
 function VmcReceiverProps({ comp }: { comp: Behavior }) {
   const { t } = useTranslation('properties');
-  const {
-    updateBehavior,
-    vrmMorphTargetsByNode,
-    vrmExpressionsByNode,
-    nodes,
-    assets,
-  } = useEditorStore();
+  const { vrmMorphTargetsByNode, vrmExpressionsByNode, assets } =
+    useEditorStore();
+  const nodes = useSceneNodes();
   const meta = assetMetaForNode(
     nodes.find((n) => n.id === comp.nodeId)?.filePath,
     assets
@@ -2015,12 +2031,7 @@ function VmcReceiverProps({ comp }: { comp: Behavior }) {
 
   const save = async (patch: Partial<Record<string, unknown>>) => {
     const newConfig = { ...comp.config, ...patch };
-    updateBehavior(comp.id, { config: newConfig });
-    try {
-      await api.updateBehavior(comp.id, { config: newConfig });
-    } catch {
-      /* non-fatal */
-    }
+    commitBehaviorPatch(comp.id, { config: newConfig });
   };
 
   const saveMapperNode = (nodeId: string, patch: Partial<MapperNodeConfig>) => {
@@ -2136,6 +2147,10 @@ function VmcReceiverProps({ comp }: { comp: Behavior }) {
           it describes the avatar's transition, not this receiver, and every
           tracking source on the node now shares the one setting. */}
 
+      {comp.kind !== 'vmc_receiver_2d' && (
+        <EyeRangeSettings comp={comp} defaultEnabled={false} />
+      )}
+
       {/* Face mappers */}
       <div
         style={{
@@ -2216,7 +2231,19 @@ function VmcReceiverProps({ comp }: { comp: Behavior }) {
       </div>
 
       <div style={{ height: 1, background: '#222', margin: '4px 0' }} />
-      <CalibrationSection comp={comp} />
+      {/*
+        This panel serves both vmc_receiver and vmc_receiver_2d. The 2D pipeline
+        has no skeleton, so it has no arm IK stage and its graph id carries the
+        `-2d` suffix (makeVmcGraphDescriptor2d) — the same head-only shape the
+        iFacialMocap receiver uses, expressed through the same two props.
+      */}
+      <CalibrationSection
+        comp={comp}
+        graphPrefix={
+          comp.kind === 'vmc_receiver_2d' ? 'vmc-pipeline-2d:' : 'vmc-pipeline:'
+        }
+        arms={comp.kind !== 'vmc_receiver_2d'}
+      />
     </div>
   );
 }
@@ -2235,13 +2262,9 @@ function VmcReceiverProps({ comp }: { comp: Behavior }) {
  */
 function IFacialMocapReceiverProps({ comp }: { comp: Behavior }) {
   const { t } = useTranslation('properties');
-  const {
-    updateBehavior,
-    vrmMorphTargetsByNode,
-    vrmExpressionsByNode,
-    nodes,
-    assets,
-  } = useEditorStore();
+  const { vrmMorphTargetsByNode, vrmExpressionsByNode, assets } =
+    useEditorStore();
+  const nodes = useSceneNodes();
   const meta = assetMetaForNode(
     nodes.find((n) => n.id === comp.nodeId)?.filePath,
     assets
@@ -2349,12 +2372,7 @@ function IFacialMocapReceiverProps({ comp }: { comp: Behavior }) {
 
   const save = async (patch: Partial<Record<string, unknown>>) => {
     const newConfig = { ...comp.config, ...patch };
-    updateBehavior(comp.id, { config: newConfig });
-    try {
-      await api.updateBehavior(comp.id, { config: newConfig });
-    } catch {
-      /* non-fatal */
-    }
+    commitBehaviorPatch(comp.id, { config: newConfig });
   };
 
   const saveMapperNode = (nodeId: string, patch: Partial<MapperNodeConfig>) => {
@@ -2554,6 +2572,8 @@ function IFacialMocapReceiverProps({ comp }: { comp: Behavior }) {
         {t('ifm.axesHint')}
       </div>
 
+      <EyeRangeSettings comp={comp} defaultEnabled={true} />
+
       {/* Face mappers */}
       <div
         style={{
@@ -2641,7 +2661,6 @@ function IFacialMocapReceiverProps({ comp }: { comp: Behavior }) {
 
 function LipsyncProcessorProps({ comp }: { comp: Behavior }) {
   const { t } = useTranslation('properties');
-  const { updateBehavior } = useEditorStore();
   const { projectId } = useParams<{ projectId: string }>();
   const cfg = comp.config as {
     sensitivity?: number;
@@ -2651,8 +2670,7 @@ function LipsyncProcessorProps({ comp }: { comp: Behavior }) {
 
   const save = (patch: Record<string, unknown>) => {
     const config = { ...comp.config, ...patch };
-    updateBehavior(comp.id, { config });
-    api.updateBehavior(comp.id, { config }).catch(() => {});
+    commitBehaviorPatch(comp.id, { config });
   };
 
   const rowStyle: React.CSSProperties = {
@@ -2894,7 +2912,6 @@ function LipsyncCalibration({
 
 function MediapipeTrackerProps({ comp }: { comp: Behavior }) {
   const { t } = useTranslation('properties');
-  const { updateBehavior } = useEditorStore();
   const { projectId } = useParams<{ projectId: string }>();
   const cfg = comp.config as {
     enableFace?: boolean;
@@ -2948,8 +2965,7 @@ function MediapipeTrackerProps({ comp }: { comp: Behavior }) {
 
   const save = (patch: Record<string, unknown>) => {
     const config = { ...comp.config, ...patch };
-    updateBehavior(comp.id, { config });
-    api.updateBehavior(comp.id, { config }).catch(() => {});
+    commitBehaviorPatch(comp.id, { config });
   };
 
   const saveIk = (patch: Record<string, unknown>) => {
@@ -3322,7 +3338,6 @@ function ApiControllerProps({ comp }: { comp: Behavior }) {
 
 function BreathingProps({ comp }: { comp: Behavior }) {
   const { t } = useTranslation('properties');
-  const { updateBehavior } = useEditorStore();
   const cfg = (comp.config ?? {}) as {
     chestAmplitude?: number;
     shoulderAmplitude?: number;
@@ -3337,8 +3352,7 @@ function BreathingProps({ comp }: { comp: Behavior }) {
 
   const save = (patch: Record<string, unknown>) => {
     const config = { ...comp.config, ...patch };
-    updateBehavior(comp.id, { config });
-    api.updateBehavior(comp.id, { config }).catch(() => {});
+    commitBehaviorPatch(comp.id, { config });
   };
 
   return (
@@ -3514,7 +3528,6 @@ function BoneCalibRow({
 }
 
 function ManualCalibrationProps({ comp }: { comp: Behavior }) {
-  const { updateBehavior } = useEditorStore();
   const cfg = (comp.config ?? {}) as {
     calibrations?: Record<string, BoneCalibration>;
   };
@@ -3522,8 +3535,7 @@ function ManualCalibrationProps({ comp }: { comp: Behavior }) {
 
   const saveCalibrations = (next: Record<string, BoneCalibration>) => {
     const config = { ...comp.config, calibrations: next };
-    updateBehavior(comp.id, { config });
-    api.updateBehavior(comp.id, { config }).catch(() => {});
+    commitBehaviorPatch(comp.id, { config });
   };
 
   const setBone = (bone: string, patch: BoneCalibration) => {
@@ -3716,13 +3728,9 @@ function NameListEditor({
 
 function BlendshapeLimiterProps({ comp }: { comp: Behavior }) {
   const { t } = useTranslation('properties');
-  const {
-    updateBehavior,
-    vrmMorphTargetsByNode,
-    vrmExpressionsByNode,
-    nodes,
-    assets,
-  } = useEditorStore();
+  const { vrmMorphTargetsByNode, vrmExpressionsByNode, assets } =
+    useEditorStore();
+  const nodes = useSceneNodes();
 
   // Names the loaded model actually exposes — offered as datalist suggestions.
   const meta = assetMetaForNode(
@@ -3749,8 +3757,7 @@ function BlendshapeLimiterProps({ comp }: { comp: Behavior }) {
 
   const save = (next: BlendshapeLimitsConfig) => {
     const config = { ...comp.config, limits: next };
-    updateBehavior(comp.id, { config });
-    api.updateBehavior(comp.id, { config }).catch(() => {});
+    commitBehaviorPatch(comp.id, { config });
   };
   const patch = (p: Partial<BlendshapeLimitsConfig>) =>
     save({ ...limits, ...p });
@@ -4477,7 +4484,6 @@ function RigBoneRow({
 
 function StylizedTrackingProps({ comp }: { comp: Behavior }) {
   const { t } = useTranslation('properties');
-  const { updateBehavior } = useEditorStore();
   const cfg = (comp.config ?? {}) as StylizerConfig;
   const overrides = cfg.rig ?? {};
   // The rig editor shows the selected preset as the baseline; the stored
@@ -4525,8 +4531,7 @@ function StylizedTrackingProps({ comp }: { comp: Behavior }) {
 
   const save = (patch: Record<string, unknown>) => {
     const config = { ...comp.config, ...patch };
-    updateBehavior(comp.id, { config });
-    api.updateBehavior(comp.id, { config }).catch(() => {});
+    commitBehaviorPatch(comp.id, { config });
   };
 
   // Bones the panel offers: everything the stock rig drives, plus anything the
@@ -4842,6 +4847,7 @@ function BehaviorProps({ comp }: { comp: Behavior }) {
   const { t } = useTranslation('properties');
   switch (comp.kind) {
     case 'vmc_receiver':
+    case 'vmc_receiver_2d':
       return <VmcReceiverProps comp={comp} />;
     case 'ifacialmocap_receiver':
       return <IFacialMocapReceiverProps comp={comp} />;
@@ -4932,19 +4938,19 @@ function EffectRow({
 
 function EffectPanel({ effectId, kind }: { effectId: string; kind: string }) {
   const { t } = useTranslation('properties');
-  const effect = useEditorStore((s) =>
-    s.cameraEffects.find((e) => e.id === effectId)
+  const effect = useMeshDoc(
+    useCollection<CameraEffectRecord>('camera_effect'),
+    effectId
   );
-  const updateCameraEffect = useEditorStore((s) => s.updateCameraEffect);
 
   if (!effect) return null;
   const cfg = effect.config;
   const ek = CAMERA_EFFECT_KINDS.find((k) => k.kind === kind)!;
 
   const save = (patch: Record<string, unknown>) => {
-    const config = { ...cfg, ...patch };
-    updateCameraEffect(effectId, { config });
-    api.updateCameraEffect(effectId, { config }).catch(() => {});
+    // One committed write per settled edit, so one undo step — the helper
+    // applies locally too, so the panel still updates immediately.
+    commitEffectPatch(effectId, { config: { ...cfg, ...patch } });
   };
 
   const TONE_MAPPING_MODES: { label: string; value: number }[] = [
@@ -5744,49 +5750,410 @@ function SceneSettings({
 
 // ---------- Main panel ----------
 
+/** Common blendshape field names vspark emits, offered as autocomplete hints
+ *  for the param-map editor's `source` inputs. */
+const LIVE2D_SOURCE_SUGGESTIONS = [
+  'jawOpen',
+  'mouthFunnel',
+  'mouthPucker',
+  'eyeBlinkLeft',
+  'eyeBlinkRight',
+  'browInnerUp',
+  'browDownLeft',
+  'browDownRight',
+  'mouthSmileLeft',
+  'mouthSmileRight',
+  'Fcl_MTH_A',
+  'Fcl_MTH_I',
+  'Fcl_MTH_U',
+  'Fcl_MTH_E',
+  'Fcl_MTH_O',
+  'Fcl_EYE_Close_L',
+  'Fcl_EYE_Close_R',
+];
+
+/** Properties section for `live2d` nodes. Split out from the main panel so it
+ *  can own hooks (license state, param-map editor) — the panel renders the
+ *  other node kinds via inline IIFEs that cannot host hooks. */
+function Live2DProperties({ node }: { node: StageObject }) {
+  const { assets, live2dParamsByNode } = useEditorStore();
+  const [licenseAccepted, setLicenseAccepted] = useState<boolean | null>(null);
+  const [licenseBusy, setLicenseBusy] = useState(false);
+
+  useEffect(() => {
+    let alive = true;
+    api
+      .getConfig()
+      .then((c) => {
+        if (!alive) return;
+        const accepted = Boolean(c.live2dLicenseAccepted);
+        setLicenseAccepted(accepted);
+        if (accepted) setLive2dConsent(true);
+      })
+      .catch(() => {
+        if (alive) setLicenseAccepted(false);
+      });
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  const lc: Record<string, unknown> = {
+    modelUrl: null,
+    scale: 1,
+    width: 2,
+    height: 2,
+    facing: 'screen',
+    autoBlink: true,
+    autoBreath: true,
+    ...((node.components?.live2d ?? {}) as Record<string, unknown>),
+  };
+  const saveLc = (patch: Record<string, unknown>) => {
+    const components = {
+      ...node.components,
+      live2d: { type: 'live2d', ...lc, ...patch },
+    };
+    commitNodePath(node.id, 'components', components);
+  };
+
+  const paramMap = (lc.paramMap as Live2dParamMap | undefined) ?? {};
+  const modelParams = live2dParamsByNode[node.id] ?? [];
+  const mappedIds = Object.keys(paramMap);
+  const unmapped = modelParams.filter((p) => !mappedIds.includes(p));
+
+  const setEntry = (paramId: string, entry: ParamMapEntry | null) => {
+    const next: Live2dParamMap = { ...paramMap };
+    if (entry == null) delete next[paramId];
+    else next[paramId] = entry;
+    saveLc({ paramMap: next });
+  };
+
+  const acceptLicense = async () => {
+    setLicenseBusy(true);
+    try {
+      await api.patchConfig({ live2dLicenseAccepted: true });
+      setLive2dConsent(true);
+      setLicenseAccepted(true);
+    } catch {
+      /* leave unaccepted on failure */
+    } finally {
+      setLicenseBusy(false);
+    }
+  };
+
+  const row = (label: string, children: React.ReactNode) => (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+      <span style={{ fontSize: 12, color: '#888', flex: 1 }}>{label}</span>
+      {children}
+    </div>
+  );
+  const sel: React.CSSProperties = {
+    background: '#2a2a2a',
+    border: '1px solid #3a3a3a',
+    color: '#e0e0e0',
+    borderRadius: 4,
+    padding: '3px 6px',
+    fontSize: 12,
+  };
+  const removeBtn: React.CSSProperties = {
+    background: 'transparent',
+    border: 'none',
+    color: '#a06060',
+    cursor: 'pointer',
+    fontSize: 14,
+    lineHeight: 1,
+    padding: '0 2px',
+  };
+  const live2dAssets = assets.filter((a) => a.kind === 'live2d');
+
+  return (
+    <>
+      <div style={sectionHeader}>Live2D</div>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+        {row(
+          'Model',
+          <select
+            style={sel}
+            value={(lc.modelUrl as string) ?? ''}
+            onChange={(e) => saveLc({ modelUrl: e.target.value || null })}
+          >
+            <option value="">— none —</option>
+            {live2dAssets.map((a) => (
+              <option key={a.id} value={a.url}>
+                {a.name}
+              </option>
+            ))}
+          </select>
+        )}
+        <span style={{ fontSize: 11, color: '#666' }}>
+          Upload Live2D models in the Models tab of the asset dock.
+        </span>
+        <EffectRow
+          label="Scale"
+          cfg={lc}
+          field="scale"
+          step={0.05}
+          min={0.01}
+          onSave={saveLc}
+        />
+        <EffectRow
+          label="Width (m)"
+          cfg={lc}
+          field="width"
+          step={0.1}
+          min={0.01}
+          onSave={saveLc}
+        />
+        <EffectRow
+          label="Height (m)"
+          cfg={lc}
+          field="height"
+          step={0.1}
+          min={0.01}
+          onSave={saveLc}
+        />
+        {row(
+          'Facing',
+          <select
+            style={sel}
+            value={(lc.facing as string) ?? 'screen'}
+            onChange={(e) => saveLc({ facing: e.target.value })}
+          >
+            <option value="screen">Screen</option>
+            <option value="world">World</option>
+          </select>
+        )}
+        {row(
+          'Auto blink',
+          <input
+            type="checkbox"
+            checked={Boolean(lc.autoBlink)}
+            onChange={(e) => saveLc({ autoBlink: e.target.checked })}
+          />
+        )}
+        {row(
+          'Auto breath',
+          <input
+            type="checkbox"
+            checked={Boolean(lc.autoBreath)}
+            onChange={(e) => saveLc({ autoBreath: e.target.checked })}
+          />
+        )}
+
+        {licenseAccepted === false && (
+          <div
+            style={{
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 6,
+              padding: 8,
+              background: '#2a2418',
+              border: '1px solid #4a3a1a',
+              borderRadius: 4,
+            }}
+          >
+            <span style={{ fontSize: 11, color: '#d9b873' }}>
+              Live2D rendering uses the proprietary Cubism Core, fetched at
+              runtime from Live2D&apos;s CDN (never bundled). Accepting agrees
+              to the{' '}
+              <a
+                href="https://www.live2d.com/eula/live2d-proprietary-software-license-agreement_en.html"
+                target="_blank"
+                rel="noreferrer"
+                style={{ color: '#e0c080' }}
+              >
+                Proprietary Software License
+              </a>{' '}
+              and{' '}
+              <a
+                href="https://www.live2d.com/eula/live2d-open-software-license-agreement_en.html"
+                target="_blank"
+                rel="noreferrer"
+                style={{ color: '#e0c080' }}
+              >
+                Open Software License
+              </a>
+              .
+            </span>
+            <button
+              disabled={licenseBusy}
+              onClick={acceptLicense}
+              style={{
+                ...sel,
+                cursor: licenseBusy ? 'default' : 'pointer',
+                color: '#f0d090',
+                borderColor: '#6a5a2a',
+              }}
+            >
+              {licenseBusy ? 'Saving…' : 'Accept Live2D license'}
+            </button>
+          </div>
+        )}
+        {licenseAccepted === true && (
+          <span style={{ fontSize: 11, color: '#5a9e5a' }}>
+            ✓ Live2D license accepted — Cubism Core loads on first use.
+          </span>
+        )}
+
+        <div style={sectionHeader}>Parameter mapping</div>
+        {modelParams.length === 0 ? (
+          <span style={{ fontSize: 11, color: '#666' }}>
+            Load a model to list its parameters. Defaults already drive eyes,
+            mouth, brows and head angle from this node&apos;s tracking
+            behaviors; add per-parameter overrides here.
+          </span>
+        ) : (
+          <>
+            <datalist id="live2d-src-suggest">
+              {LIVE2D_SOURCE_SUGGESTIONS.map((s) => (
+                <option key={s} value={s} />
+              ))}
+            </datalist>
+            {mappedIds.length === 0 && (
+              <span style={{ fontSize: 11, color: '#666' }}>
+                No overrides — {modelParams.length} model parameters using
+                defaults.
+              </span>
+            )}
+            {mappedIds.map((pid) => {
+              const e = paramMap[pid];
+              return (
+                <div
+                  key={pid}
+                  style={{ display: 'flex', alignItems: 'center', gap: 4 }}
+                >
+                  <span
+                    style={{
+                      fontSize: 11,
+                      color: '#bbb',
+                      width: 100,
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis',
+                      whiteSpace: 'nowrap',
+                    }}
+                    title={pid}
+                  >
+                    {pid}
+                  </span>
+                  <input
+                    list="live2d-src-suggest"
+                    style={{ ...sel, width: 84 }}
+                    value={e.source}
+                    placeholder="source"
+                    title="source blendshape field"
+                    onChange={(ev) =>
+                      setEntry(pid, { ...e, source: ev.target.value })
+                    }
+                  />
+                  <input
+                    type="number"
+                    step={0.1}
+                    style={{ ...sel, width: 46 }}
+                    value={e.gain ?? 1}
+                    title="gain"
+                    onChange={(ev) =>
+                      setEntry(pid, { ...e, gain: Number(ev.target.value) })
+                    }
+                  />
+                  <label
+                    style={{
+                      fontSize: 10,
+                      color: '#888',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 2,
+                    }}
+                    title="invert (output = 1 − value)"
+                  >
+                    <input
+                      type="checkbox"
+                      checked={Boolean(e.invert)}
+                      onChange={(ev) =>
+                        setEntry(pid, { ...e, invert: ev.target.checked })
+                      }
+                    />
+                    inv
+                  </label>
+                  <button
+                    style={removeBtn}
+                    title="remove override"
+                    onClick={() => setEntry(pid, null)}
+                  >
+                    ×
+                  </button>
+                </div>
+              );
+            })}
+            {unmapped.length > 0 && (
+              <select
+                style={sel}
+                value=""
+                onChange={(ev) => {
+                  if (ev.target.value)
+                    setEntry(ev.target.value, { source: '' });
+                }}
+              >
+                <option value="">+ add parameter override…</option>
+                {unmapped.map((p) => (
+                  <option key={p} value={p}>
+                    {p}
+                  </option>
+                ))}
+              </select>
+            )}
+          </>
+        )}
+
+        <span style={{ fontSize: 11, color: '#666' }}>
+          Parameters are driven by this node&apos;s tracking behaviors
+          (face/lip-sync). Rendering needs in-browser verification.
+        </span>
+      </div>
+    </>
+  );
+}
+
 export function PropertiesPanel() {
   const { t } = useTranslation('properties');
   const { projectId } = useParams<{ projectId: string }>();
   const {
-    nodes,
     selectedNodeId,
-    updateNode: storeUpdateNode,
     assets,
     selectedBehaviorId,
-    behaviors,
     fbxDebugVisible,
     setFbxDebugVisible,
     vrmExpressionsByNode,
     vrmMorphTargetsByNode,
     behaviorKinds,
-    cameraEffects,
     selectedEffect,
-    scenes,
     activeSceneId,
     sceneSelected,
-    updateSceneItem,
-    composeLayers,
-    composeScenes,
     activeComposeSceneId,
     selectedComposeLayerId,
     leftTab,
     activeLogicId,
   } = useEditorStore();
+  const nodes = useSceneNodes();
+  const scenes = useScenes();
+  const composeLayers = useComposeLayers();
+  const composeScenes = useComposeScenes();
+  const selectedBehaviorDoc = useMeshDoc(
+    useCollection<Behavior>('behavior'),
+    selectedBehaviorId ?? ''
+  );
   const activeScene = scenes.find((s) => s.id === activeSceneId) ?? null;
   const animAssets: AssetFile[] = assets.filter((a) => a.kind === 'animation');
   const modelAssets: AssetFile[] = assets.filter((a) => a.kind === 'model');
-  const node = nodes.find((n) => n.id === selectedNodeId) ?? null;
-  const animationClips = useEditorStore((s) => s.animationClips);
-  const selectedBehavior =
-    behaviors.find((c) => c.id === selectedBehaviorId) ?? null;
+  // With its live transform: the transform fields follow a drag in progress.
+  const node = useSceneNode(selectedNodeId) ?? null;
+  const animationClips = useAnimationClips();
+  const selectedBehavior = selectedBehaviorDoc ?? null;
   const selectedCompType = selectedBehavior
     ? behaviorKinds.find((ct) => ct.kind === selectedBehavior.kind)
     : null;
+  const selectedNodeEffects = useCameraEffects(selectedEffect?.nodeId);
   const selectedEffectRecord = selectedEffect
-    ? cameraEffects.find(
-        (e) =>
-          e.nodeId === selectedEffect.nodeId && e.kind === selectedEffect.kind
-      )
+    ? selectedNodeEffects.find((e) => e.kind === selectedEffect.kind)
     : null;
   const selectedEffectNode = selectedEffect
     ? nodes.find((n) => n.id === selectedEffect.nodeId)
@@ -5796,7 +6163,10 @@ export function PropertiesPanel() {
     : null;
 
   const { canRecord, recordKeyframe, recordKeyframes } = useTrackClipRecorder();
-  const [name, setName] = useState('');
+  // Bound straight to the node's mesh doc: no draft state, no re-sync effect,
+  // and (unlike the old `useState` + `[node.id]` effect) it tracks renames from
+  // other tabs live instead of going stale until the node is reselected.
+  const nameField = useMeshField<string>(node?.id ?? '', 'name', '');
   const nameInputRef = useRef<HTMLInputElement>(null);
   const focusNameNonce = useEditorStore((s) => s.focusNameNonce);
   const lastFocusNonce = useRef(focusNameNonce);
@@ -5849,7 +6219,6 @@ export function PropertiesPanel() {
 
   useEffect(() => {
     if (!node) return;
-    setName(node.name);
     const t = getTransform(node);
     setTransform(t);
     transformRef.current = t;
@@ -5904,17 +6273,13 @@ export function PropertiesPanel() {
   const idleSpeedDisplay = legacyIdle?.speed ?? idleProp?.speed ?? 1;
   const writeIdle = (idleUrl: string | null, speed: number) => {
     if (!node) return;
-    const animation = idleUrl ? { idleUrl, speed } : undefined;
-    const components = { ...node.components, animation };
-    const prevProps = (node.properties as Record<string, unknown>) ?? {};
-    const prevAnim =
-      (prevProps.animation as Record<string, unknown> | undefined) ?? {};
-    const properties = {
-      ...prevProps,
-      animation: { ...prevAnim, idle: undefined },
-    };
-    api.updateNode(node.id, { components, properties }).catch(() => {});
-    storeUpdateNode(node.id, { components, properties });
+    // Both fields in one op: retiring the legacy `components.animation` slot
+    // and clearing the new `properties.animation.idle` are one edit, so they
+    // must also be one undo step.
+    commitNodePatch(node.id, {
+      components: { animation: idleUrl ? { idleUrl, speed } : undefined },
+      properties: { animation: { idle: undefined } },
+    } as Partial<StageObject>);
   };
 
   // Base animation — the loop live tracking stacks onto (see the stacking
@@ -5938,15 +6303,11 @@ export function PropertiesPanel() {
   const baseSpeedDisplay = baseProp?.speed ?? 1;
   const writeBase = (url: string | null, speed: number) => {
     if (!node) return;
-    const prevProps = (node.properties as Record<string, unknown>) ?? {};
-    const prevAnim =
-      (prevProps.animation as Record<string, unknown> | undefined) ?? {};
-    const properties = {
-      ...prevProps,
-      animation: { ...prevAnim, base: url ? { url, speed } : undefined },
-    };
-    api.updateNode(node.id, { properties }).catch(() => {});
-    storeUpdateNode(node.id, { properties });
+    commitNodePath(
+      node.id,
+      'properties.animation.base',
+      url ? { url, speed } : undefined
+    );
   };
 
   const panelShell = (children: React.ReactNode) => (
@@ -6045,7 +6406,9 @@ export function PropertiesPanel() {
         >
           <span style={{ display: 'inline-flex', color: '#cfcfcf' }}>
             {(() => {
-              const I = selectedEffectKind.icon;
+              const I =
+                CAMERA_EFFECT_ICON[selectedEffectKind.kind] ??
+                CAMERA_EFFECT_FALLBACK;
               return <I size={18} />;
             })()}
           </span>
@@ -6089,13 +6452,7 @@ export function PropertiesPanel() {
         sceneName={activeScene.name}
         broadcastTickHz={activeScene.runtimeSettings.broadcastTickHz ?? 60}
         onChange={(hz) => {
-          // Optimistic store update so the input stays responsive.
-          updateSceneItem(activeScene.id, {
-            runtimeSettings: {
-              ...activeScene.runtimeSettings,
-              broadcastTickHz: hz,
-            },
-          });
+          // The route writes through the mesh, so the change shows everywhere.
           void updateScene(activeScene.id, {
             runtimeSettings: { broadcastTickHz: hz },
           });
@@ -6191,41 +6548,28 @@ export function PropertiesPanel() {
   // At this point node is guaranteed to be non-null (component-only path handled above).
   if (!node) return null;
 
-  const saveName = () => {
-    if (name === node.name) return;
-    storeUpdateNode(node.id, { name });
-    api
-      .updateNode(node.id, { name })
-      .catch(() => storeUpdateNode(node.id, { name: node.name }));
-  };
-
   // Called on blur: applies to Viewport + persists to DB in one shot.
   // Uses the ref (not state) so the value is always current regardless of render timing.
   const saveTransform = () => {
     const t = transformRef.current;
-    const components = {
-      ...node.components,
-      transform: { type: 'transform', ...t },
-    };
-    storeUpdateNode(node.id, { components });
-    api.updateNode(node.id, { components }).catch(() => {});
+    commitNodePath(node.id, 'components.transform', {
+      type: 'transform',
+      ...t,
+    });
   };
 
   const saveLight = (l: LightProps) => {
-    const components = { ...node.components, light: { type: 'light', ...l } };
-    storeUpdateNode(node.id, { components });
-    api.updateNode(node.id, { components }).catch(() => {});
+    commitNodePath(node.id, 'components.light', { type: 'light', ...l });
   };
 
   const saveCamera = (c: CameraProps) => {
     // Merge over the existing camera component so fields not covered by
     // CameraProps (e.g. backgroundImage) survive the write.
-    const components = {
-      ...node.components,
-      camera: { ...(node.components?.camera as object), type: 'camera', ...c },
-    };
-    storeUpdateNode(node.id, { components });
-    api.updateNode(node.id, { components }).catch(() => {});
+    commitNodePath(node.id, 'components.camera', {
+      ...(node.components?.camera as object),
+      type: 'camera',
+      ...c,
+    });
   };
 
   return (
@@ -6262,9 +6606,7 @@ export function PropertiesPanel() {
           ref={nameInputRef}
           className="vs-node-name"
           style={textInput}
-          value={name}
-          onChange={(e) => setName(e.target.value)}
-          onBlur={saveName}
+          {...nameField.bind()}
         />
 
         {/* Kind badge */}
@@ -6302,6 +6644,10 @@ export function PropertiesPanel() {
             };
             transformRef.current = t;
             setTransform(t);
+            // Live feedback while dragging: fan the in-flight value out on the
+            // mesh preview channel so the 3D viewport and every watching tab
+            // track the gesture. Committed on release by saveTransform.
+            previewNodeTransform(node.id, { x: t.x, y: t.y, z: t.z });
             // Suppress any active clip override for this axis so the user sees
             // their typed value land; cleared on the next clip event.
             const path =
@@ -6377,6 +6723,10 @@ export function PropertiesPanel() {
             };
             transformRef.current = t;
             setTransform(t);
+            // Live feedback while dragging: fan the in-flight value out on the
+            // mesh preview channel so the 3D viewport and every watching tab
+            // track the gesture. Committed on release by saveTransform.
+            previewNodeTransform(node.id, { rx: t.rx, ry: t.ry, rz: t.rz });
             const path =
               axis === 0
                 ? 'rotation.x'
@@ -6446,6 +6796,10 @@ export function PropertiesPanel() {
             };
             transformRef.current = t;
             setTransform(t);
+            // Live feedback while dragging: fan the in-flight value out on the
+            // mesh preview channel so the 3D viewport and every watching tab
+            // track the gesture. Committed on release by saveTransform.
+            previewNodeTransform(node.id, { sx: t.sx, sy: t.sy, sz: t.sz });
             const path =
               axis === 0 ? 'scale.x' : axis === 1 ? 'scale.y' : 'scale.z';
             useEditorStore
@@ -6504,6 +6858,10 @@ export function PropertiesPanel() {
             const t = { ...transformRef.current, opacity: next };
             transformRef.current = t;
             setTransform(t);
+            // Live feedback while dragging: fan the in-flight value out on the
+            // mesh preview channel so the 3D viewport and every watching tab
+            // track the gesture. Committed on release by saveTransform.
+            previewNodeTransform(node.id, { opacity: t.opacity });
             useEditorStore
               .getState()
               .suppressOverride('scene_node', node.id, 'opacity');
@@ -7093,14 +7451,12 @@ export function PropertiesPanel() {
                 unknown
               >;
               const bgAssets = assets.filter((a) => a.kind === 'image');
-              const saveBgImage = (url: string | null) => {
-                const components = {
-                  ...node.components,
-                  camera: { ...cam, backgroundImage: url },
-                };
-                api.updateNode(node.id, { components }).catch(() => {});
-                storeUpdateNode(node.id, { components });
-              };
+              const saveBgImage = (url: string | null) =>
+                commitNodePath(
+                  node.id,
+                  'components.camera.backgroundImage',
+                  url
+                );
               return (
                 <div
                   style={{ display: 'flex', flexDirection: 'column', gap: 8 }}
@@ -7218,14 +7574,10 @@ export function PropertiesPanel() {
           (() => {
             const gr =
               (node.components.godray as Record<string, unknown>) ?? {};
-            const saveGr = (patch: Record<string, unknown>) => {
-              const components = {
-                ...node.components,
-                godray: { ...gr, ...patch },
-              };
-              api.updateNode(node.id, { components }).catch(() => {});
-              storeUpdateNode(node.id, { components });
-            };
+            const saveGr = (patch: Record<string, unknown>) =>
+              commitNodePatch(node.id, {
+                components: { godray: patch },
+              } as Partial<StageObject>);
             const defaults: Record<string, number> = {
               scale: 0.3,
               samples: 60,
@@ -7351,14 +7703,11 @@ export function PropertiesPanel() {
                 unknown
               >),
             };
-            const saveBc = (patch: Record<string, unknown>) => {
-              const components = {
-                ...node.components,
-                billboard: { ...bc, ...patch },
-              };
-              api.updateNode(node.id, { components }).catch(() => {});
-              storeUpdateNode(node.id, { components });
-            };
+            const saveBc = (patch: Record<string, unknown>) =>
+              commitNodePath(node.id, 'components.billboard', {
+                ...bc,
+                ...patch,
+              });
             const imageAssets = assets.filter((a) => a.kind === 'image');
             const sel: React.CSSProperties = {
               background: '#2a2a2a',
@@ -7541,15 +7890,16 @@ export function PropertiesPanel() {
             };
             const saveVc = (patch: Record<string, unknown>) => {
               const next = { ...vc, ...patch };
-              const components = { ...node.components, video: next };
               const filePatch =
                 'sourceUrl' in patch
                   ? { filePath: (patch.sourceUrl as string) ?? null }
                   : {};
-              api
-                .updateNode(node.id, { components, ...filePatch })
-                .catch(() => {});
-              storeUpdateNode(node.id, { components, ...filePatch });
+              // One op, so swapping the source stays a single undo step even
+              // though it touches both the component and the node's filePath.
+              commitNodePatch(node.id, {
+                components: { video: next },
+                ...filePatch,
+              } as Partial<StageObject>);
             };
             const videoAssets = assets.filter((a) => a.kind === 'video');
             const sel: React.CSSProperties = {
@@ -7883,15 +8233,16 @@ export function PropertiesPanel() {
             };
             const saveAc = (patch: Record<string, unknown>) => {
               const next = { ...ac, ...patch };
-              const components = { ...node.components, audio: next };
               const filePatch =
                 'sourceUrl' in patch
                   ? { filePath: (patch.sourceUrl as string) ?? null }
                   : {};
-              api
-                .updateNode(node.id, { components, ...filePatch })
-                .catch(() => {});
-              storeUpdateNode(node.id, { components, ...filePatch });
+              // One op, so swapping the source stays a single undo step even
+              // though it touches both the component and the node's filePath.
+              commitNodePatch(node.id, {
+                components: { audio: next },
+                ...filePatch,
+              } as Partial<StageObject>);
             };
             const audioAssets = assets.filter((a) => a.kind === 'audio');
             const sel: React.CSSProperties = {
@@ -8143,12 +8494,10 @@ export function PropertiesPanel() {
               } else if ('billboard' in patch) {
                 merged.facing = patch.billboard ? 'screen' : 'world';
               }
-              const components = {
-                ...node.components,
-                text: { type: 'text', ...merged },
-              };
-              api.updateNode(node.id, { components }).catch(() => {});
-              storeUpdateNode(node.id, { components });
+              commitNodePath(node.id, 'components.text', {
+                type: 'text',
+                ...merged,
+              });
             };
             const sel: React.CSSProperties = {
               background: '#2a2a2a',
@@ -8341,13 +8690,11 @@ export function PropertiesPanel() {
               ...((node.components?.feed ?? {}) as Record<string, unknown>),
             };
             const saveFc = (patch: Record<string, unknown>) => {
-              const merged: Record<string, unknown> = { ...fc, ...patch };
-              const components = {
-                ...node.components,
-                feed: { type: 'feed', ...merged },
-              };
-              api.updateNode(node.id, { components }).catch(() => {});
-              storeUpdateNode(node.id, { components });
+              commitNodePath(node.id, 'components.feed', {
+                type: 'feed',
+                ...fc,
+                ...patch,
+              });
             };
             const row = (label: string, children: React.ReactNode) => (
               <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -8485,20 +8832,19 @@ export function PropertiesPanel() {
             );
           })()}
 
+        {node.kind === 'live2d' && <Live2DProperties node={node} />}
+
         {node.kind === 'particle' &&
           (() => {
             const pc: Record<string, unknown> = {
               ...PARTICLE_DEFAULTS,
               ...((node.components?.particle ?? {}) as Record<string, unknown>),
             };
-            const savePc = (patch: Record<string, unknown>) => {
-              const components = {
-                ...node.components,
-                particle: { ...pc, ...patch },
-              };
-              api.updateNode(node.id, { components }).catch(() => {});
-              storeUpdateNode(node.id, { components });
-            };
+            const savePc = (patch: Record<string, unknown>) =>
+              commitNodePath(node.id, 'components.particle', {
+                ...pc,
+                ...patch,
+              });
             const imageAssets = assets.filter((a) => a.kind === 'image');
             const sel: React.CSSProperties = {
               background: '#2a2a2a',
@@ -9272,23 +9618,12 @@ export function PropertiesPanel() {
                           v: number,
                           persist: boolean
                         ) => {
-                          const prev = (node.properties?.defaultExpressions ??
-                            {}) as Record<string, number>;
                           // Keep 0 entries (don't delete) so the viewport keeps
                           // driving the expression back to 0 — dropping the key
                           // would leave the last applied weight stuck on the VRM.
-                          const next = { ...prev, [n]: v };
-                          const properties = {
-                            ...node.properties,
-                            defaultExpressions: next,
-                          };
-                          storeUpdateNode(node.id, { properties });
-                          if (persist)
-                            api
-                              .updateNode(node.id, {
-                                properties: { defaultExpressions: next },
-                              })
-                              .catch(() => {});
+                          const path = `properties.defaultExpressions.${n}`;
+                          if (persist) commitNodePath(node.id, path, v);
+                          else previewNodePath(node.id, path, v);
                         };
                         return (
                           <div
@@ -9358,25 +9693,12 @@ export function PropertiesPanel() {
                 min={0}
                 suffix="s"
                 style={{ flex: 1, minWidth: 0 }}
-                onChange={(v) => {
-                  const properties = {
-                    ...node.properties,
-                    blendTransitionTime: v,
-                  };
-                  storeUpdateNode(node.id, { properties });
-                }}
-                onCommit={(v) => {
-                  const properties = {
-                    ...node.properties,
-                    blendTransitionTime: v,
-                  };
-                  storeUpdateNode(node.id, { properties });
-                  api
-                    .updateNode(node.id, {
-                      properties: { blendTransitionTime: v },
-                    })
-                    .catch(() => {});
-                }}
+                onChange={(v) =>
+                  previewNodePath(node.id, 'properties.blendTransitionTime', v)
+                }
+                onCommit={(v) =>
+                  commitNodePath(node.id, 'properties.blendTransitionTime', v)
+                }
               />
             </div>
 
@@ -9411,25 +9733,12 @@ export function PropertiesPanel() {
                 max={60}
                 suffix="s"
                 style={{ flex: 1, minWidth: 0 }}
-                onChange={(v) => {
-                  const properties = {
-                    ...node.properties,
-                    trackingGracePeriod: v,
-                  };
-                  storeUpdateNode(node.id, { properties });
-                }}
-                onCommit={(v) => {
-                  const properties = {
-                    ...node.properties,
-                    trackingGracePeriod: v,
-                  };
-                  storeUpdateNode(node.id, { properties });
-                  api
-                    .updateNode(node.id, {
-                      properties: { trackingGracePeriod: v },
-                    })
-                    .catch(() => {});
-                }}
+                onChange={(v) =>
+                  previewNodePath(node.id, 'properties.trackingGracePeriod', v)
+                }
+                onCommit={(v) =>
+                  commitNodePath(node.id, 'properties.trackingGracePeriod', v)
+                }
               />
             </div>
           </>
@@ -9442,17 +9751,10 @@ export function PropertiesPanel() {
               ...DEFAULT_POSE_DYNAMICS,
               ...node.properties?.poseDynamics,
             };
-            const liveDyn = (next: PoseDynamicsConfig) => {
-              storeUpdateNode(node.id, {
-                properties: { ...node.properties, poseDynamics: next },
-              });
-            };
-            const commitDyn = (next: PoseDynamicsConfig) => {
-              liveDyn(next);
-              api
-                .updateNode(node.id, { properties: { poseDynamics: next } })
-                .catch(() => {});
-            };
+            const liveDyn = (next: PoseDynamicsConfig) =>
+              previewNodePath(node.id, 'properties.poseDynamics', next);
+            const commitDyn = (next: PoseDynamicsConfig) =>
+              commitNodePath(node.id, 'properties.poseDynamics', next);
             const labelStyle = {
               fontSize: 12,
               color: '#888',
@@ -9553,140 +9855,8 @@ export function PropertiesPanel() {
             );
           })()}
 
-        {/* Partial tracking — per-section animation/tracking influence (avatar only) */}
-        {node.kind === 'avatar' &&
-          (() => {
-            const SECTIONS: PoseSection[] = [
-              'head',
-              'gaze',
-              'body',
-              'arms',
-              'hands',
-              'legs',
-            ];
-            const src: PoseSource = node.properties?.poseSource ?? {};
-            const infOf = (sec: PoseSection) =>
-              src[sec] ?? { anim: 1, track: 1 };
-            const apply = (next: PoseSource, persist: boolean) => {
-              // Prune sections left at the { anim:1, track:1 } default so we only
-              // store deviations.
-              const pruned: PoseSource = {};
-              for (const s of SECTIONS) {
-                const v = next[s];
-                if (v && (v.anim !== 1 || v.track !== 1)) pruned[s] = v;
-              }
-              storeUpdateNode(node.id, {
-                properties: { ...node.properties, poseSource: pruned },
-              });
-              if (persist)
-                api
-                  .updateNode(node.id, { properties: { poseSource: pruned } })
-                  .catch(() => {});
-            };
-            const setInf = (
-              sec: PoseSection,
-              patch: Partial<{ anim: number; track: number }>,
-              persist: boolean
-            ) => apply({ ...src, [sec]: { ...infOf(sec), ...patch } }, persist);
-            const anyConfigured = SECTIONS.some((s) => {
-              const v = src[s];
-              return v && (v.anim !== 1 || v.track !== 1);
-            });
-            const colLabel = {
-              fontSize: 10,
-              color: '#666',
-              flexShrink: 0,
-            } as const;
-            return (
-              <>
-                <div
-                  style={{
-                    ...sectionHeader,
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: 6,
-                  }}
-                >
-                  {t('avatar.poseSourceHeader')}
-                  <HelpButton
-                    topic="avatar"
-                    anchor="partial-tracking"
-                    tip={t('help.poseSource')}
-                  />
-                </div>
-                <div
-                  style={{
-                    fontSize: 10,
-                    color: '#555',
-                    lineHeight: 1.4,
-                    marginBottom: 6,
-                  }}
-                >
-                  {t('avatar.poseSourceHint')}
-                </div>
-                {SECTIONS.map((sec) => {
-                  const inf = infOf(sec);
-                  return (
-                    <div
-                      key={sec}
-                      style={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: 6,
-                        marginBottom: 4,
-                      }}
-                    >
-                      <span
-                        style={{
-                          fontSize: 12,
-                          color: '#999',
-                          width: 48,
-                          flexShrink: 0,
-                        }}
-                      >
-                        {t(`avatar.poseSection.${sec}`)}
-                      </span>
-                      <span style={colLabel}>{t('avatar.poseSourceAnim')}</span>
-                      <SliderInput
-                        className={`vs-posesrc-anim-${sec}`}
-                        value={inf.anim}
-                        min={0}
-                        max={1}
-                        step={0.05}
-                        precision={2}
-                        onChange={(v) => setInf(sec, { anim: v }, false)}
-                        onCommit={(v) => setInf(sec, { anim: v }, true)}
-                        style={{ flex: 1, minWidth: 0 }}
-                      />
-                      <span style={colLabel}>
-                        {t('avatar.poseSourceTrack')}
-                      </span>
-                      <SliderInput
-                        className={`vs-posesrc-track-${sec}`}
-                        value={inf.track}
-                        min={0}
-                        max={1}
-                        step={0.05}
-                        precision={2}
-                        onChange={(v) => setInf(sec, { track: v }, false)}
-                        onCommit={(v) => setInf(sec, { track: v }, true)}
-                        style={{ flex: 1, minWidth: 0 }}
-                      />
-                    </div>
-                  );
-                })}
-                {anyConfigured && (
-                  <button
-                    className="vs-posesrc-reset"
-                    style={resetBtnStyle}
-                    onClick={() => apply({}, true)}
-                  >
-                    {t('avatar.poseSourceReset')}
-                  </button>
-                )}
-              </>
-            );
-          })()}
+        {/* Tracking Mix — per-source influence on bones / blendshapes (avatar only) */}
+        {node.kind === 'avatar' && <TrackingMixSection node={node} />}
 
         {/* Forearm twist — avatar only */}
         {node.kind === 'avatar' && (
@@ -9717,13 +9887,11 @@ export function PropertiesPanel() {
                 type="checkbox"
                 checked={node.properties?.forceTwistBone === true}
                 onChange={(e) => {
-                  const forceTwistBone = e.target.checked;
-                  storeUpdateNode(node.id, {
-                    properties: { ...node.properties, forceTwistBone },
-                  });
-                  api
-                    .updateNode(node.id, { properties: { forceTwistBone } })
-                    .catch(() => {});
+                  commitNodePath(
+                    node.id,
+                    'properties.forceTwistBone',
+                    e.target.checked
+                  );
                 }}
               />
               {t('avatar.twistForce')}
@@ -9745,13 +9913,11 @@ export function PropertiesPanel() {
                   type="checkbox"
                   checked={node.properties?.excludeSleeves === true}
                   onChange={(e) => {
-                    const excludeSleeves = e.target.checked;
-                    storeUpdateNode(node.id, {
-                      properties: { ...node.properties, excludeSleeves },
-                    });
-                    api
-                      .updateNode(node.id, { properties: { excludeSleeves } })
-                      .catch(() => {});
+                    commitNodePath(
+                      node.id,
+                      'properties.excludeSleeves',
+                      e.target.checked
+                    );
                   }}
                 />
                 {t('avatar.twistExcludeSleeves')}
@@ -9826,11 +9992,9 @@ export function PropertiesPanel() {
                 defaultValue={node.filePath ?? ''}
                 key={node.id + ':model'}
                 onBlur={(e) => {
-                  const filePath = e.target.value.trim();
-                  api
-                    .updateNode(node.id, { filePath: filePath || '' })
-                    .catch(() => {});
-                  storeUpdateNode(node.id, { filePath: filePath || null });
+                  // '' (not null) is the cleared value: REST's field-presence
+                  // merge drops a null, so the fallback would never clear it.
+                  commitNodePath(node.id, 'filePath', e.target.value.trim());
                 }}
               />
               {node.filePath && (
@@ -9846,8 +10010,7 @@ export function PropertiesPanel() {
                     flexShrink: 0,
                   }}
                   onClick={() => {
-                    api.updateNode(node.id, { filePath: '' }).catch(() => {});
-                    storeUpdateNode(node.id, { filePath: null });
+                    commitNodePath(node.id, 'filePath', '');
                   }}
                 >
                   ×
@@ -9882,10 +10045,7 @@ export function PropertiesPanel() {
                     }}
                     title={a.name}
                     onClick={() => {
-                      api
-                        .updateNode(node.id, { filePath: a.url })
-                        .catch(() => {});
-                      storeUpdateNode(node.id, { filePath: a.url });
+                      commitNodePath(node.id, 'filePath', a.url);
                     }}
                   >
                     {a.name}
@@ -10005,7 +10165,7 @@ export function PropertiesPanel() {
                   {t('avatar.baseAnimation')}
                   <HelpButton
                     topic="avatar"
-                    anchor="partial-tracking"
+                    anchor="base-animation"
                     tip={t('help.baseAnimation')}
                   />
                 </div>

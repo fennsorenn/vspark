@@ -16,6 +16,8 @@ interface Node {
 }
 
 const SERVER_ID = 'srv-1';
+const GOOD_TOKEN = 'enrolled-token';
+const authenticate = ({ token }: { token: string }) => token === GOOD_TOKEN;
 
 async function waitFor(cond: () => boolean, ms = 3000): Promise<void> {
   const start = Date.now();
@@ -26,21 +28,29 @@ async function waitFor(cond: () => boolean, ms = 3000): Promise<void> {
 }
 
 let http: Server;
+let port = 0;
 let backend: MeshPeer;
 let tab: MeshPeer;
 let serverNodes: Collection<Node>;
 let tabNodes: Collection<Node>;
 const db = new Map<string, Node>();
+let transport: WsServerTransport;
+/** Transport info the tab was handed (welcome extras, then pushes). */
+const infos: Record<string, unknown>[] = [];
+const STUN = [{ urls: 'stun:stun.example:3478' }];
 
 beforeAll(async () => {
-  const transport = new WsServerTransport(SERVER_ID);
+  transport = new WsServerTransport(SERVER_ID, {
+    authenticate,
+    welcome: () => ({ iceServers: STUN }),
+  });
   http = createServer();
   http.on('upgrade', (req, socket, head) => {
     if (req.url?.startsWith('/mesh')) transport.upgrade(req, socket, head);
     else socket.destroy();
   });
   await new Promise<void>((r) => http.listen(0, '127.0.0.1', r));
-  const port = (http.address() as { port: number }).port;
+  port = (http.address() as { port: number }).port;
 
   backend = createMeshPeer({
     identity: { peerId: SERVER_ID },
@@ -69,6 +79,8 @@ beforeAll(async () => {
         url: `ws://127.0.0.1:${port}/mesh`,
         participantId,
         serverPeerId: SERVER_ID,
+        token: () => GOOD_TOKEN,
+        onInfo: (i) => infos.push(i),
       }),
     ],
   });
@@ -85,7 +97,7 @@ afterAll(async () => {
 describe('ws transport pair', () => {
   it('handshakes, snapshots, and streams live ops to the tab', async () => {
     serverNodes.create({ id: 'n1', name: 'first' });
-    await tab.subscribe(SERVER_ID, {
+    await tab.subscribe({
       entityRtype: 'node',
       entityId: '*',
       includeDescendants: false,
@@ -105,13 +117,141 @@ describe('ws transport pair', () => {
   });
 
   it('tab creates flow home and removes propagate back', async () => {
-    expect((await tabNodes.create({ id: 'n2', name: 'tab-made' }).ack).status).toBe(
-      'acked'
-    );
+    expect(
+      (await tabNodes.create({ id: 'n2', name: 'tab-made' }).ack).status
+    ).toBe('acked');
     expect(db.get('n2')?.name).toBe('tab-made');
 
     serverNodes.remove('n2');
     await waitFor(() => tabNodes.get('n2') === undefined);
     expect(db.has('n2')).toBe(false);
+  });
+});
+
+describe('ws transport authentication', () => {
+  it('refuses a hello without a valid token, before any mesh message', async () => {
+    const ws = new WebSocket(`ws://127.0.0.1:${port}/mesh`);
+    const closed = new Promise<number>((resolve) => {
+      ws.onclose = (e) => resolve(e.code);
+    });
+    ws.onopen = () => {
+      ws.send(
+        JSON.stringify({
+          t: 'hello',
+          participantId: makeClientParticipantId(SERVER_ID, 'intruder'),
+          token: 'guessed',
+        })
+      );
+      // Even if the server read on past the hello, this must never apply.
+      ws.send(
+        JSON.stringify({
+          t: 'op',
+          rtype: 'node',
+          op: 'upsert',
+          id: 'forged',
+          data: { id: 'forged', name: 'x' },
+          v: { t: Date.now(), c: 0, n: 'intruder' },
+          origin: makeClientParticipantId(SERVER_ID, 'intruder'),
+          ch: 'committed',
+        })
+      );
+    };
+    expect(await closed).toBe(4401);
+    expect(serverNodes.get('forged')).toBeUndefined();
+  });
+
+  it('a refused tab is told, re-enrolls, and then connects', async () => {
+    let token = 'stale';
+    let refusals = 0;
+    const participantId = makeClientParticipantId(SERVER_ID, 'tab-2');
+    const second = createMeshPeer({
+      identity: { peerId: participantId },
+      transports: [
+        new WsBackendTransport({
+          url: `ws://127.0.0.1:${port}/mesh`,
+          participantId,
+          serverPeerId: SERVER_ID,
+          token: () => token,
+          onUnauthorized: () => {
+            refusals++;
+            token = GOOD_TOKEN; // what enrolling again would hand back
+          },
+          reconnectDelayMs: 10,
+        }),
+      ],
+    });
+    // Never announced while refused.
+    expect(second.status().peers).toHaveLength(0);
+    await waitFor(() => second.status().peers.some((p) => p.id === SERVER_ID));
+    expect(refusals).toBe(1);
+    second.close();
+  });
+});
+
+describe('ws transport info', () => {
+  it('hands the tab the welcome extras, then what the server pushes', async () => {
+    expect(infos[0]).toEqual({ iceServers: STUN });
+    const fresh = [
+      { urls: 'turn:turn.example:3478', username: 'u', credential: 'c' },
+    ];
+    transport.push({ iceServers: fresh });
+    await waitFor(() => infos.length === 2);
+    expect(infos[1]).toEqual({ iceServers: fresh });
+  });
+
+  it('pushes nothing to a socket that has not authenticated', async () => {
+    const ws = new WebSocket(`ws://127.0.0.1:${port}/mesh`);
+    const got: string[] = [];
+    ws.onmessage = (e) => got.push(String(e.data));
+    await new Promise<void>((r) => (ws.onopen = () => r()));
+    transport.push({ iceServers: [{ urls: 'turn:x', credential: 'secret' }] });
+    await new Promise((r) => setTimeout(r, 100));
+    expect(got).toEqual([]);
+    ws.close();
+  });
+});
+
+describe('ws transport: one socket per participant', () => {
+  it('a newer socket under the same id replaces the older one, which stays away', async () => {
+    const participantId = makeClientParticipantId(SERVER_ID, 'twin');
+    const sub = {
+      entityRtype: 'node',
+      entityId: '*',
+      includeDescendants: false,
+      pathPrefix: '',
+    };
+    const open = () => {
+      const peer = createMeshPeer({
+        identity: { peerId: participantId },
+        transports: [
+          new WsBackendTransport({
+            url: `ws://127.0.0.1:${port}/mesh`,
+            participantId,
+            serverPeerId: SERVER_ID,
+            token: () => GOOD_TOKEN,
+            reconnectDelayMs: 10,
+          }),
+        ],
+      });
+      return { peer, nodes: peer.collection<Node>('node') };
+    };
+    const older = open();
+    await older.peer.subscribe(sub);
+    const newer = open();
+    await newer.peer.subscribe(sub);
+
+    // The older one is told it was replaced and does not reconnect.
+    await waitFor(() => older.peer.status().peers.length === 0);
+    await new Promise((r) => setTimeout(r, 100));
+    expect(older.peer.status().peers).toHaveLength(0);
+
+    // The newer one keeps its link: its writes are acked.
+    serverNodes.create({ id: 'tw', name: 'before' });
+    await waitFor(() => newer.nodes.get('tw') !== undefined);
+    expect((await newer.nodes.update('tw', { name: 'after' }).ack).status).toBe(
+      'acked'
+    );
+    older.peer.close();
+    newer.peer.close();
   });
 });

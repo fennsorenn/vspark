@@ -307,6 +307,77 @@ describe('compose-layers API (mesh-backed)', () => {
       expect(res.body.error.code).toBe('NOT_FOUND');
       expect(res.body.error.message).toContain('compose layer not found');
     });
+
+    it('rejects a feed layer with a syntactically broken template (400)', async () => {
+      const res = await createLayerInScene(composeSceneId, {
+        name: 'BadFeed',
+        kind: 'feed',
+        config: { template: '<div>`${chat.map((m) => <p>${m.text}</p>)}</div>' },
+      });
+      expect(res.status).toBe(400);
+      expect(res.body.ok).toBe(false);
+      expect(res.body.error.code).toBe('VALIDATION_ERROR');
+      expect(res.body.error.message).toMatch(/Template syntax error/);
+    });
+
+    it('rejects a feed layer with structurally broken CSS (400)', async () => {
+      const res = await createLayerInScene(composeSceneId, {
+        name: 'BadCss',
+        kind: 'feed',
+        config: { template: '<div></div>', css: '.chat { border-width: 20px;' },
+      });
+      expect(res.status).toBe(400);
+      expect(res.body.error.code).toBe('VALIDATION_ERROR');
+      expect(res.body.error.message).toMatch(/unclosed "{"/);
+    });
+
+    it('accepts a feed layer with valid template + border-image CSS (201)', async () => {
+      const res = await createLayerInScene(composeSceneId, {
+        name: 'GoodFeed',
+        kind: 'feed',
+        config: {
+          template: '<div>${chat.map((m) => html`<p>${m.text}</p>`)}</div>',
+          css: '.chat { border-image: url(/u/border.png) 120 stretch; }',
+        },
+      });
+      expect(res.status).toBe(201);
+      expect(res.body.ok).toBe(true);
+    });
+
+    it('merges config on update — a css-only patch keeps the template', async () => {
+      const created = await createLayerInScene(composeSceneId, {
+        name: 'Feed',
+        kind: 'feed',
+        config: { template: '<div>${chat}</div>', css: '.chat { color: red; }' },
+      });
+      const layerId = created.body.data.id as string;
+      const res = await updateLayer(layerId, {
+        config: { css: '.chat { border-image: url(/u/b.png) 120 stretch; }' },
+      });
+      expect(res.status).toBe(200);
+      // Template is preserved (not wiped by the css-only patch); css is updated.
+      const layers = (
+        await request(app).get(`/api/compose-scenes/${composeSceneId}/layers`)
+      ).body.data as Array<{ id: string; config: Record<string, unknown> }>;
+      const l = layers.find((x) => x.id === layerId);
+      expect(l?.config.template).toBe('<div>${chat}</div>');
+      expect(l?.config.css).toMatch(/border-image/);
+    });
+
+    it('rejects an update that introduces a broken template (400)', async () => {
+      const created = await createLayerInScene(composeSceneId, {
+        name: 'Feed',
+        kind: 'feed',
+        config: { template: '<div></div>' },
+      });
+      const layerId = created.body.data.id as string;
+      const res = await updateLayer(layerId, {
+        config: { template: '<div>${chat' },
+      });
+      expect(res.status).toBe(400);
+      expect(res.body.error.code).toBe('VALIDATION_ERROR');
+      expect(res.body.error.message).toMatch(/Template syntax error/);
+    });
   });
 
   describe('compose-layer defaults', () => {
@@ -335,23 +406,101 @@ describe('compose-layers API (mesh-backed)', () => {
       });
     });
 
-    it('applies default scene_order when not specified', async () => {
-      // Create first layer
+    it('gives a new layer a key that puts it at the front', async () => {
       const first = await createLayerInScene(composeSceneId, {
         name: 'First',
         kind: 'rect',
       });
-      const firstOrder = first.body.data.sceneOrder as number;
-
-      // Create second layer
       const second = await createLayerInScene(composeSceneId, {
         name: 'Second',
         kind: 'rect',
       });
-      const secondOrder = second.body.data.sceneOrder as number;
 
-      // Second should have a higher order (append to back of stack)
-      expect(secondOrder).toBeGreaterThan(firstOrder);
+      // Ascending orderKey = back→front, so the later layer sorts last (front).
+      expect(second.body.data.orderKey > first.body.data.orderKey).toBe(true);
+    });
+
+    it('keys siblings independently per group', async () => {
+      // Keys are scoped to (rootComposeSceneId, parentId), so nesting restarts
+      // the range — the whole reason the old delete route's scene-wide query
+      // collided across groups.
+      const groupA = (
+        await createLayerInScene(composeSceneId, { name: 'A', kind: 'group' })
+      ).body.data.id as string;
+
+      const rootChild = await createLayerInScene(composeSceneId, {
+        name: 'Root child',
+        kind: 'rect',
+      });
+      const nested = await createLayerInScene(composeSceneId, {
+        name: 'Nested',
+        kind: 'rect',
+        parentId: groupA,
+      });
+
+      // Same first key in each group — independent sequences, not a global one.
+      expect(nested.body.data.orderKey).toBeTruthy();
+      expect(rootChild.body.data.orderKey).toBeTruthy();
+    });
+
+    it('deleting a layer leaves unrelated layers ordered as they were', async () => {
+      // Regression: the delete route used to "re-anchor" camera layers sharing
+      // the deleted layer's sceneOrder — a leftover from the signed-axis model,
+      // where camera layers were pinned to a scene-wide layer's slot. Ordering
+      // is per sibling group while that query spanned the whole compose scene,
+      // so it moved unrelated layers that merely shared the value.
+      const sceneId = (await createComposeScene('S')).body.data.id as string;
+
+      // camera_node_id has an FK onto scene_nodes, so seed a real camera.
+      await request(app)
+        .post(`/api/projects/${projectId}/scenes`)
+        .send({ name: 'Stage', populate: false });
+      const stageId = (
+        await request(app).get(`/api/projects/${projectId}/scenes`)
+      ).body.data.scenes[0].id as string;
+      const cameraNodeId = (
+        await request(app)
+          .post(`/api/scenes/${stageId}/nodes`)
+          .send({ name: 'Cam', kind: 'camera' })
+      ).body.data.id as string;
+
+      const groupA = (
+        await createLayerInScene(sceneId, { name: 'A', kind: 'group' })
+      ).body.data.id as string;
+      const groupB = (
+        await createLayerInScene(sceneId, { name: 'B', kind: 'group' })
+      ).body.data.id as string;
+
+      // A camera layer in one group and an ordinary layer in another, both at
+      // the same sceneOrder — the collision the old query keyed on.
+      const camera = (
+        await createLayerInScene(sceneId, {
+          name: 'Cam',
+          kind: 'camera_view',
+          parentId: groupA,
+          cameraNodeId,
+        })
+      ).body.data.id as string;
+      const victim = (
+        await createLayerInScene(sceneId, {
+          name: 'Plain',
+          kind: 'image',
+          parentId: groupB,
+        })
+      ).body.data.id as string;
+      const camKey = (
+        await request(app).get(`/api/compose-scenes/${sceneId}/layers`)
+      ).body.data.find((l: { id: string }) => l.id === camera)
+        .orderKey as string;
+
+      await deleteLayer(victim);
+
+      const before = camKey;
+      const layers = (await listLayersInScene(sceneId)).body
+        .data as { id: string; orderKey: string }[];
+      const cam = layers.find((l) => l.id === camera);
+      expect(cam?.orderKey).toBe(before); // untouched
+      expect(layers.some((l) => l.id === victim)).toBe(false);
     });
   });
 });

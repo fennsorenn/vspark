@@ -51,7 +51,7 @@ import {
   existsSync,
 } from 'fs';
 import { join, dirname, relative } from 'path';
-import { fileURLToPath } from 'url';
+import { fileURLToPath, pathToFileURL } from 'url';
 import { createHash } from 'crypto';
 import ts from 'typescript';
 
@@ -325,7 +325,9 @@ function cmdBless() {
   console.log(`[controls] blessed → ${relative(process.cwd(), MANIFEST)}`);
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+// pathToFileURL, not a `file://` prefix: on Windows argv[1] is `C:\…` while
+// import.meta.url is `file:///C:/…`, so the naive comparison never matched.
+if (import.meta.url === pathToFileURL(process.argv[1]).href) {
   const cmd = process.argv[2] ?? 'report';
   if (cmd === 'report') cmdReport();
   else if (cmd === 'check') cmdCheck();

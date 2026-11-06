@@ -16,6 +16,8 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { runMigrations, closeDb, getDb } from '../src/db/index.js';
 import migrate035 from '../src/db/migrations/035_tracking_grace_period_to_node.js';
+import migrate044 from '../src/db/migrations/044_pose_source_to_tracking_mix.js';
+import migrate037 from '../src/db/migrations/037_compose_layer_order_key.js';
 
 // ── Reset between tests so each suite gets a clean :memory: DB ───────────────
 beforeEach(async () => {
@@ -80,6 +82,21 @@ describe('Migration runner — expected tables', () => {
     expect(getTables().has('compose_layers')).toBe(true);
   });
 
+  it('orders compose layers by a fractional order_key (migration 037)', () => {
+    const cols = new Set(
+      (
+        getDb().prepare('PRAGMA table_info(compose_layers)').all() as {
+          name: string;
+        }[]
+      ).map((c) => c.name)
+    );
+    expect(cols.has('order_key')).toBe(true);
+    // The integer pair is gone: renumbering every sibling on a drag doesn't
+    // survive concurrent edits, and camera_order was only a tie-break.
+    expect(cols.has('scene_order')).toBe(false);
+    expect(cols.has('camera_order')).toBe(false);
+  });
+
   it('creates the track_clips table', () => {
     expect(getTables().has('track_clips')).toBe(true);
   });
@@ -101,6 +118,22 @@ describe('Migration runner — expected tables', () => {
 
   it('creates the mesh_tombstones table (migration 032)', () => {
     expect(getTables().has('mesh_tombstones')).toBe(true);
+  });
+
+  it('creates the obs_connections table (migration 036)', () => {
+    // Renumbered from 035 when this branch merged: dev's 035 (tracking grace
+    // period) had already shipped and run on real databases, so it owns that
+    // number. `_migrations` is keyed by FILENAME, so 036 is simply pending on a
+    // DB that already applied 035 — both must be present and applied.
+    expect(getTables().has('obs_connections')).toBe(true);
+
+    const names = (
+      getDb().prepare('SELECT name FROM _migrations').all() as {
+        name: string;
+      }[]
+    ).map((r) => r.name);
+    expect(names).toContain('035_tracking_grace_period_to_node.ts');
+    expect(names).toContain('036_obs_connections.sql');
   });
 });
 
@@ -176,14 +209,14 @@ describe('Migration runner — idempotency', () => {
     expect(countAfter).toBe(countBefore);
   });
 
-  it('all 35 migrations are recorded in _migrations after a full run', () => {
+  it('all 44 migrations are recorded in _migrations after a full run', () => {
     const count = (
       getDb()
         .prepare('SELECT COUNT(*) AS cnt FROM _migrations')
         .all() as { cnt: number }[]
     )[0].cnt;
-    // There are 35 migrations (001 – 035).
-    expect(count).toBe(35);
+    // There are 44 migrations (001 – 044).
+    expect(count).toBe(44);
   });
 
   it('each migration name appears exactly once in _migrations', () => {
@@ -362,5 +395,193 @@ describe('035_tracking_grace_period_to_node', () => {
     migrate035(db as never);
 
     expect(nodeProps(db).trackingGracePeriod).toBe(5);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 044_pose_source_to_tracking_mix — poseSource sections → per-source bone weights
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('044_pose_source_to_tracking_mix', () => {
+  function seedAndMigrate(
+    nodeProperties: Record<string, unknown>,
+    behaviors: Array<{ id: string; kind: string }> = []
+  ) {
+    const db = getDb();
+    db.prepare("INSERT INTO projects (id, name) VALUES ('pm', 'P')").run();
+    db.prepare(
+      `INSERT INTO scene_nodes (id, project_id, root_scene_node_id, name, kind, components, properties)
+       VALUES ('nm', 'pm', 'nm', 'Avatar', 'avatar', '{}', ?)`
+    ).run(JSON.stringify(nodeProperties));
+    for (const b of behaviors) {
+      db.prepare(
+        "INSERT INTO behaviors (id, node_id, kind, enabled, config) VALUES (?, 'nm', ?, 1, '{}')"
+      ).run(b.id, b.kind);
+    }
+    migrate044(db as never);
+    return db;
+  }
+
+  const nodeProps = (db: ReturnType<typeof getDb>) =>
+    JSON.parse(
+      (
+        db
+          .prepare('SELECT properties FROM scene_nodes WHERE id = ?')
+          .get('nm') as {
+          properties: string;
+        }
+      ).properties
+    ) as Record<string, any>;
+
+  it('moves anim onto the animation source and track onto every bone source', () => {
+    const db = seedAndMigrate(
+      {
+        poseSource: {
+          legs: { anim: 1, track: 0 },
+          head: { anim: 0.5, track: 1 },
+        },
+      },
+      [
+        { id: 'vmc', kind: 'vmc_receiver' },
+        { id: 'br', kind: 'breathing' },
+        { id: 'lip', kind: 'lipsync_processor' }, // blendshapes only — not a bone source
+      ]
+    );
+    const p = nodeProps(db);
+    expect(p.poseSource).toBeUndefined();
+    const s = p.trackingMix.sources;
+    expect(s.animation.bones).toEqual({ neck: 0.5, head: 0.5, jaw: 0.5 });
+    expect(s.vmc.bones.hips).toBe(0);
+    expect(s.vmc.bones.leftToes).toBe(0);
+    expect(s.br.bones.rightUpperLeg).toBe(0);
+    expect(s.vmc.bones.head).toBeUndefined();
+    expect(s.lip).toBeUndefined();
+  });
+
+  it('maps the hands section onto the finger bones', () => {
+    const db = seedAndMigrate({
+      poseSource: { hands: { anim: 0.25, track: 1 } },
+    });
+    const bones = nodeProps(db).trackingMix.sources.animation.bones;
+    expect(Object.keys(bones)).toHaveLength(30);
+    expect(bones.leftThumbMetacarpal).toBe(0.25);
+    expect(bones.rightLittleDistal).toBe(0.25);
+  });
+
+  it('drops a default-only poseSource without writing a mix', () => {
+    const db = seedAndMigrate({
+      poseSource: { arms: { anim: 1, track: 1 } },
+      blendTransitionTime: 0.8,
+    });
+    const p = nodeProps(db);
+    expect(p.poseSource).toBeUndefined();
+    expect(p.trackingMix).toBeUndefined();
+    expect(p.blendTransitionTime).toBe(0.8);
+  });
+
+  it('keeps an existing trackingMix', () => {
+    const existing = { order: ['x'] };
+    const db = seedAndMigrate({
+      poseSource: { arms: { anim: 0, track: 0 } },
+      trackingMix: existing,
+    });
+    expect(nodeProps(db).trackingMix).toEqual(existing);
+    expect(nodeProps(db).poseSource).toBeUndefined();
+  });
+
+  it('is idempotent', () => {
+    const db = seedAndMigrate({ poseSource: { body: { anim: 0, track: 1 } } });
+    migrate044(db as never);
+    expect(nodeProps(db).trackingMix.sources.animation.bones.spine).toBe(0);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 037 on real data: several layers per sibling group, and a half-applied run
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('Migration 037 — compose layer order keys', () => {
+  /** Put compose_layers back in its pre-037 shape with three siblings, given
+   *  out of paint order, plus a second group of one. */
+  function seedOldShape(opts: { halfApplied?: boolean } = {}) {
+    const db = getDb();
+    db.exec('PRAGMA foreign_keys = OFF');
+    db.exec(`DROP TABLE compose_layers;
+      CREATE TABLE compose_layers (
+        id TEXT PRIMARY KEY, project_id TEXT NOT NULL,
+        root_compose_scene_id TEXT, parent_id TEXT, camera_node_id TEXT,
+        name TEXT NOT NULL, kind TEXT NOT NULL, asset_id TEXT,
+        config TEXT NOT NULL DEFAULT '{}',
+        x REAL NOT NULL DEFAULT 0, y REAL NOT NULL DEFAULT 0,
+        width REAL NOT NULL DEFAULT 320, height REAL NOT NULL DEFAULT 180,
+        rotation REAL NOT NULL DEFAULT 0,
+        anchor_h TEXT NOT NULL DEFAULT 'left', anchor_v TEXT NOT NULL DEFAULT 'top',
+        scene_order INTEGER NOT NULL DEFAULT 0,
+        camera_order INTEGER NOT NULL DEFAULT 0,
+        visible INTEGER NOT NULL DEFAULT 1,
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        updated_at TEXT NOT NULL DEFAULT (datetime('now')))`);
+    db.exec('PRAGMA foreign_keys = ON');
+    const rows: [string, string | null, number][] = [
+      ['root', null, 0],
+      ['c', 'root', 2],
+      ['a', 'root', 0],
+      ['b', 'root', 1],
+      ['solo', 'c', 0],
+    ];
+    for (const [id, parent, order] of rows)
+      db.prepare(
+        `INSERT INTO compose_layers
+           (id, project_id, root_compose_scene_id, parent_id, name, kind, scene_order)
+         VALUES (?, 'p', ?, ?, ?, 'image', ?)`
+      ).run(id, parent ? 'root' : null, parent, id, order);
+    // What a run that died in the backfill leaves behind: the column added,
+    // one key written, the table not rebuilt.
+    if (opts.halfApplied) {
+      db.exec('ALTER TABLE compose_layers ADD COLUMN order_key TEXT');
+      db.prepare(
+        "UPDATE compose_layers SET order_key = 'zz' WHERE id = 'c'"
+      ).run();
+    }
+    return db;
+  }
+
+  const ordered = (db: ReturnType<typeof getDb>) =>
+    (
+      db
+        .prepare(
+          "SELECT id FROM compose_layers WHERE parent_id = 'root' ORDER BY order_key, id"
+        )
+        .all() as { id: string }[]
+    ).map((r) => r.id);
+
+  const columns = (db: ReturnType<typeof getDb>) =>
+    new Set(
+      (
+        db.prepare('PRAGMA table_info(compose_layers)').all() as {
+          name: string;
+        }[]
+      ).map((c) => c.name)
+    );
+
+  it('backfills keys for a group of several siblings, keeping paint order', () => {
+    const db = seedOldShape();
+    migrate037(db as never);
+    expect(ordered(db)).toEqual(['a', 'b', 'c']);
+    expect(columns(db).has('scene_order')).toBe(false);
+  });
+
+  it('finishes a run that failed after adding order_key', () => {
+    const db = seedOldShape({ halfApplied: true });
+    migrate037(db as never);
+    expect(ordered(db)).toEqual(['a', 'b', 'c']);
+    expect(columns(db).has('scene_order')).toBe(false);
+    expect(columns(db).has('camera_order')).toBe(false);
+  });
+
+  it('does nothing on an already-migrated table', () => {
+    const db = getDb();
+    expect(() => migrate037(db as never)).not.toThrow();
+    expect(columns(db).has('order_key')).toBe(true);
   });
 });

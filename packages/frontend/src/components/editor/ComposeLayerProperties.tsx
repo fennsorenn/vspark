@@ -1,10 +1,11 @@
 import { type CSSProperties } from 'react';
+import { useLayerField } from '../../hooks/useMeshField';
 import { useTranslation } from 'react-i18next';
 import {
   useEditorStore,
   type ComposeLayerRecord,
+  type OutputWindowStatus,
 } from '../../store/editorStore';
-import { api } from '../../api/client';
 import type { ComposeAnchorH, ComposeAnchorV } from '../../api/client';
 import { LAYER_KIND_ICON } from '../icons';
 import { Globe } from 'lucide-react';
@@ -12,11 +13,17 @@ import { useTrackClipRecorder } from '../../hooks/useTrackClipRecorder';
 import { NumInput, VecInput, SliderInput } from './numericInputs';
 import { CSS_BLEND_MODES, readChroma } from './videoFx';
 import { HelpButton } from '../../help/HelpButton';
+import { obsOutputWindowTitle } from '@vspark/shared';
+import { keyBetween } from '@vspark/shared/fracIndex';
+import { commitLayerPatch, commitLayerPath } from '../../mesh/layerWrites';
 import {
   DEFAULT_COMPOSE_WIDTH,
   DEFAULT_COMPOSE_HEIGHT,
   type PreviewBg,
 } from './ComposeView';
+import { useComposeLayers, useComposeScenes } from '../../mesh/compose';
+import { useSceneNodes } from '../../mesh/nodes';
+import { useServerStatus } from '../../mesh/runtime';
 
 // The old `numInput` / `NumberField` / `KfBtn` helpers were removed when the
 // numeric controls were unified — see ./numericInputs.tsx.
@@ -73,6 +80,41 @@ const select: CSSProperties = {
   boxSizing: 'border-box',
 };
 
+/** One stack-order step. Reordering is primarily drag-and-drop in the compose
+ *  tree; these give a precise nudge without dragging. */
+function OrderButton({
+  className,
+  label,
+  disabled,
+  onClick,
+}: {
+  className: string;
+  label: string;
+  disabled: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      className={className}
+      onClick={onClick}
+      disabled={disabled}
+      title={label}
+      style={{
+        flex: 1,
+        background: '#1c1c1c',
+        border: '1px solid #2a2a2a',
+        borderRadius: 4,
+        color: disabled ? '#444' : '#bbb',
+        cursor: disabled ? 'default' : 'pointer',
+        fontSize: 11,
+        padding: '3px 0',
+      }}
+    >
+      {label}
+    </button>
+  );
+}
+
 export function ComposeLayerProperties({
   layer,
 }: {
@@ -80,9 +122,9 @@ export function ComposeLayerProperties({
 }) {
   const { t } = useTranslation('compose');
   const assets = useEditorStore((s) => s.assets);
-  const updateLayerLocal = useEditorStore((s) => s.updateComposeLayerLocal);
+  const composeLayers = useComposeLayers();
   const flashBottomTab = useEditorStore((s) => s.flashBottomTab);
-  const nodes = useEditorStore((s) => s.nodes);
+  const nodes = useSceneNodes();
   const { canRecord, recordKeyframe, recordKeyframes } = useTrackClipRecorder();
 
   const cameraNode = layer.cameraNodeId
@@ -94,9 +136,49 @@ export function ComposeLayerProperties({
       })
     : t('properties.scopeAllCameras');
 
-  const commit = (patch: Partial<ComposeLayerRecord>) => {
-    updateLayerLocal(layer.id, patch);
-    api.updateComposeLayer(layer.id, patch).catch(() => {});
+  const commit = (patch: Partial<ComposeLayerRecord>) =>
+    commitLayerPatch(layer.id, patch);
+
+  // Text fields bind to the layer document: a local draft while typing (so a
+  // replica echo can't clobber it), one committed write on blur. The URL and
+  // the feed template/css only commit — half-typed, they would reload the
+  // page or fail to compile in every tab.
+  const nameField = useLayerField<string>(layer.id, 'name', '');
+  const urlField = useLayerField<string>(layer.id, 'config.url', '', {
+    livePreview: false,
+  });
+  const contentField = useLayerField<string>(layer.id, 'config.content', '');
+  const templateField = useLayerField<string>(layer.id, 'config.template', '', {
+    livePreview: false,
+  });
+  const cssField = useLayerField<string>(layer.id, 'config.css', '', {
+    livePreview: false,
+  });
+
+  // Stack order. Drag-and-drop in the compose tree is the primary way to
+  // reorder; these buttons are the precision path. Paint order is ascending
+  // orderKey, so index 0 is the BACK and the last index is the front.
+  const siblings = composeLayers
+    .filter(
+      (l) =>
+        l.rootComposeSceneId === layer.rootComposeSceneId &&
+        (l.parentId ?? null) === (layer.parentId ?? null)
+    )
+    .sort(
+      (a, b) => a.orderKey.localeCompare(b.orderKey) || a.id.localeCompare(b.id)
+    );
+  const orderIdx = siblings.findIndex((l) => l.id === layer.id);
+
+  /** Re-key this layer so it sits at `target` in the back→front sequence. */
+  const moveTo = (target: number) => {
+    const rest = siblings.filter((l) => l.id !== layer.id);
+    const clamped = Math.max(0, Math.min(target, rest.length));
+    commit({
+      orderKey: keyBetween(
+        rest[clamped - 1]?.orderKey ?? null,
+        rest[clamped]?.orderKey ?? null
+      ),
+    });
   };
 
   // Mirror the 3D media nodes' "Pick…" affordance: jump to + flash the matching
@@ -122,7 +204,7 @@ export function ComposeLayerProperties({
   );
 
   // The compose scene this layer belongs to defines the % reference frame.
-  const composeScenes = useEditorStore((s) => s.composeScenes);
+  const composeScenes = useComposeScenes();
   const parentScene = composeScenes.find(
     (cs) => cs.id === layer.rootComposeSceneId
   );
@@ -316,13 +398,7 @@ export function ComposeLayerProperties({
       <input
         type="text"
         className="vs-layer-name"
-        value={layer.name}
-        onChange={(e) => updateLayerLocal(layer.id, { name: e.target.value })}
-        onBlur={(e) =>
-          api
-            .updateComposeLayer(layer.id, { name: e.target.value })
-            .catch(() => {})
-        }
+        {...nameField.bind()}
         style={textInput}
       />
 
@@ -891,19 +967,7 @@ export function ComposeLayerProperties({
           <div style={sectionHeader}>{t('properties.sectionUrl')}</div>
           <input
             type="text"
-            value={(layer.config.url as string | undefined) ?? ''}
-            onChange={(e) =>
-              updateLayerLocal(layer.id, {
-                config: { ...layer.config, url: e.target.value },
-              })
-            }
-            onBlur={(e) =>
-              api
-                .updateComposeLayer(layer.id, {
-                  config: { ...layer.config, url: e.target.value },
-                })
-                .catch(() => {})
-            }
+            {...urlField.bind()}
             placeholder="https://…"
             style={textInput}
           />
@@ -914,19 +978,7 @@ export function ComposeLayerProperties({
         <>
           <div style={sectionHeader}>{t('properties.sectionText')}</div>
           <textarea
-            value={(layer.config.content as string | undefined) ?? ''}
-            onChange={(e) =>
-              updateLayerLocal(layer.id, {
-                config: { ...layer.config, content: e.target.value },
-              })
-            }
-            onBlur={(e) =>
-              api
-                .updateComposeLayer(layer.id, {
-                  config: { ...layer.config, content: e.target.value },
-                })
-                .catch(() => {})
-            }
+            {...contentField.bind()}
             rows={3}
             style={{ ...textInput, resize: 'vertical' }}
           />
@@ -1027,19 +1079,7 @@ export function ComposeLayerProperties({
         <>
           <div style={sectionHeader}>{t('properties.sectionTemplate')}</div>
           <textarea
-            value={(layer.config.template as string | undefined) ?? ''}
-            onChange={(e) =>
-              updateLayerLocal(layer.id, {
-                config: { ...layer.config, template: e.target.value },
-              })
-            }
-            onBlur={(e) =>
-              api
-                .updateComposeLayer(layer.id, {
-                  config: { ...layer.config, template: e.target.value },
-                })
-                .catch(() => {})
-            }
+            {...templateField.bind()}
             placeholder={
               '<div className="chat">\n  ${(chat || []).map((m) => html`\n    <div key=${m.id}>${m.displayName}: <${Emote} html=${m.html} /></div>\n  `)}\n</div>'
             }
@@ -1066,19 +1106,7 @@ export function ComposeLayerProperties({
 
           <div style={sectionHeader}>{t('properties.sectionStyles')}</div>
           <textarea
-            value={(layer.config.css as string | undefined) ?? ''}
-            onChange={(e) =>
-              updateLayerLocal(layer.id, {
-                config: { ...layer.config, css: e.target.value },
-              })
-            }
-            onBlur={(e) =>
-              api
-                .updateComposeLayer(layer.id, {
-                  config: { ...layer.config, css: e.target.value },
-                })
-                .catch(() => {})
-            }
+            {...cssField.bind()}
             placeholder={'.chat { display:flex; flex-direction:column; }'}
             rows={6}
             spellCheck={false}
@@ -1105,23 +1133,29 @@ export function ComposeLayerProperties({
 
       <div style={sectionHeader}>{t('properties.sectionStackOrder')}</div>
       <div style={row}>
-        <NumInput
-          className="vs-layer-scene-order"
-          value={layer.sceneOrder}
-          prefix={t('properties.prefixScene')}
-          step={1}
-          precision={0}
-          onCommit={(v) => commit({ sceneOrder: Math.round(v) })}
-          style={{ flex: 1 }}
+        <OrderButton
+          className="vs-layer-order-back"
+          label={t('properties.orderBack')}
+          disabled={orderIdx <= 0}
+          onClick={() => moveTo(0)}
         />
-        <NumInput
-          className="vs-layer-camera-order"
-          value={layer.cameraOrder}
-          prefix={t('properties.prefixCam')}
-          step={1}
-          precision={0}
-          onCommit={(v) => commit({ cameraOrder: Math.round(v) })}
-          style={{ flex: 1 }}
+        <OrderButton
+          className="vs-layer-order-backward"
+          label={t('properties.orderBackward')}
+          disabled={orderIdx <= 0}
+          onClick={() => moveTo(orderIdx - 1)}
+        />
+        <OrderButton
+          className="vs-layer-order-forward"
+          label={t('properties.orderForward')}
+          disabled={orderIdx < 0 || orderIdx >= siblings.length - 1}
+          onClick={() => moveTo(orderIdx + 1)}
+        />
+        <OrderButton
+          className="vs-layer-order-front"
+          label={t('properties.orderFront')}
+          disabled={orderIdx < 0 || orderIdx >= siblings.length - 1}
+          onClick={() => moveTo(siblings.length - 1)}
         />
       </div>
       <div
@@ -1143,10 +1177,10 @@ export function ComposeSceneProperties({
 }) {
   const { t } = useTranslation('compose');
   const assets = useEditorStore((s) => s.assets);
-  const updateSceneLocal = useEditorStore((s) => s.updateComposeSceneLocal);
   const imageAssets = assets.filter((a) => a.kind === 'image');
 
-  const w = scene.width && scene.width > 0 ? scene.width : DEFAULT_COMPOSE_WIDTH;
+  const w =
+    scene.width && scene.width > 0 ? scene.width : DEFAULT_COMPOSE_WIDTH;
   const h =
     scene.height && scene.height > 0 ? scene.height : DEFAULT_COMPOSE_HEIGHT;
   const pb = (scene.config?.previewBg ?? {}) as PreviewBg;
@@ -1155,13 +1189,19 @@ export function ComposeSceneProperties({
   const commitSize = (values: number[]) => {
     const nw = Math.max(16, Math.round(values[0]));
     const nh = Math.max(16, Math.round(values[1]));
-    updateSceneLocal({ ...scene, width: nw, height: nh });
-    api.updateComposeLayer(scene.id, { width: nw, height: nh }).catch(() => {});
+    commitLayerPatch(scene.id, { width: nw, height: nh });
   };
   const setPb = (patch: Partial<PreviewBg>) => {
     const config = { ...scene.config, previewBg: { ...pb, ...patch } };
-    updateSceneLocal({ ...scene, config });
-    api.updateComposeLayer(scene.id, { config }).catch(() => {});
+    commitLayerPath(scene.id, 'config', config);
+  };
+  const obsWindow = scene.config?.obsWindowCapture === true;
+  const runtime = useServerStatus('output_window', 'main') as
+    | OutputWindowStatus
+    | undefined;
+  const setObsWindow = (on: boolean) => {
+    const config = { ...scene.config, obsWindowCapture: on };
+    commitLayerPath(scene.id, 'config', config);
   };
 
   return (
@@ -1177,8 +1217,71 @@ export function ComposeSceneProperties({
         onCommit={commitSize}
       />
 
+      <div
+        style={{
+          ...sectionHeader,
+          display: 'flex',
+          alignItems: 'center',
+          gap: 6,
+        }}
+      >
+        {t('sceneProps.obsWindowHeader')}
+        <HelpButton
+          topic="compose"
+          anchor="obs-window-capture"
+          tip={t('help.obsWindowCapture')}
+        />
+      </div>
+      <label
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: 5,
+          fontSize: 12,
+          color: '#bbb',
+          cursor: 'pointer',
+        }}
+      >
+        <input
+          className="vs-compose-obs-window"
+          type="checkbox"
+          checked={obsWindow}
+          onChange={(e) => setObsWindow(e.target.checked)}
+        />
+        {t('sceneProps.obsWindowCapture')}
+      </label>
+      {obsWindow && (
+        <div
+          style={{
+            fontSize: 10,
+            color: runtime?.state === 'error' ? '#e06c6c' : '#666',
+            lineHeight: 1.4,
+            marginTop: 4,
+          }}
+        >
+          {runtime?.state === 'downloading'
+            ? t('sceneProps.obsWindowDownloading', {
+                progress: runtime.progress,
+              })
+            : runtime?.state === 'error'
+              ? t('sceneProps.obsWindowError', { message: runtime.message })
+              : runtime?.state === 'unavailable'
+                ? t('sceneProps.obsWindowUnavailable')
+                : t('sceneProps.obsWindowHint', {
+                    title: obsOutputWindowTitle(scene.name),
+                  })}
+        </div>
+      )}
+
       <div style={sectionHeader}>{t('sceneProps.previewBgHeader')}</div>
-      <div style={{ fontSize: 10, color: '#666', lineHeight: 1.4, marginBottom: 8 }}>
+      <div
+        style={{
+          fontSize: 10,
+          color: '#666',
+          lineHeight: 1.4,
+          marginBottom: 8,
+        }}
+      >
         {t('sceneProps.previewBgHint')}
       </div>
       <div style={row}>

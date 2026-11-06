@@ -64,7 +64,7 @@ export function UpdateDialog({ onClose, anchorRef }: Props) {
   const handleChannelChange = async (newChannel: UpdateChannel) => {
     setChannel(newChannel);
     try {
-      await api.putConfig({ channel: newChannel });
+      await api.patchConfig({ channel: newChannel });
       const status = await api.getUpdateStatus();
       useEditorStore.getState().setUpdateAvailable(
         status.updateAvailable,

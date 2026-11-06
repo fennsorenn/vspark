@@ -1,4 +1,10 @@
-import type { AnimationBlendMode } from '@vspark/shared';
+import type { AnimationBlendMode, TrackingMix } from '@vspark/shared';
+import {
+  blendshapeWeight,
+  boneWeight,
+  orderSources,
+  scaleRotation,
+} from '@vspark/shared/trackingMix';
 import { Blendshapes, NormalizedPose, Quaternion } from '@vspark/shared/signal';
 import type { VRMBoneName } from '@vspark/shared/signal';
 import { getDb } from '../db/index.js';
@@ -10,15 +16,23 @@ const DEFAULT_TICK_HZ = 60;
 const MIN_TICK_HZ = 1;
 const MAX_TICK_HZ = 240;
 
-interface BoneSlot {
+export interface BoneSlot {
+  /** The publishing behavior — the slot's Tracking Mix source key. */
+  behaviorId: string;
   pose: NormalizedPose;
   priority: number;
   animationBlendMode: AnimationBlendMode;
 }
 
-interface BlendshapeSlot {
+export interface BlendshapeSlot {
+  behaviorId: string;
   blendshapes: Blendshapes;
 }
+
+/** Reads an avatar node's Tracking Mix (`properties.trackingMix`). */
+export type TrackingMixReader = (
+  sceneNodeId: string
+) => TrackingMix | undefined;
 
 /** Per-(sceneNodeId, behaviorId) slot state held by the bus. */
 interface ProducerSlots {
@@ -61,8 +75,28 @@ export class BroadcastBus {
   /** sceneNodeId → sceneId (lookup cache; populated on first publish) */
   private readonly _nodeScene = new Map<string, string>();
 
+  /** Where the per-avatar Tracking Mix comes from. Injected at startup (the
+   *  mesh's scene_node collection, whose reads include live preview overlays,
+   *  so a slider drag reweights tracking before it is committed). Without one,
+   *  every weight is 1 — the pre-mix stacking. */
+  private _mixReader: TrackingMixReader | null = null;
+
   init(ws: WSSync): void {
     this._ws = ws;
+  }
+
+  /** Install the Tracking Mix source (idempotent). */
+  setTrackingMixReader(fn: TrackingMixReader | null): void {
+    this._mixReader = fn;
+  }
+
+  private _mixOf(sceneNodeId: string): TrackingMix | undefined {
+    if (!this._mixReader) return undefined;
+    try {
+      return this._mixReader(sceneNodeId);
+    } catch {
+      return undefined; // a bad read must not stop the tick
+    }
   }
 
   /** Install the multiplayer stream forwarder (idempotent). */
@@ -90,9 +124,11 @@ export class BroadcastBus {
     priority: number,
     animationBlendMode: AnimationBlendMode
   ): void {
+    if (!_isIterableMap(pose))
+      return this._rejectPublish('bones', behaviorId, pose);
     const slot = this._slot(sceneNodeId, behaviorId);
     if (!slot) return;
-    slot.bones = { pose, priority, animationBlendMode };
+    slot.bones = { behaviorId, pose, priority, animationBlendMode };
   }
 
   /** Publish blendshapes for (sceneNodeId, behaviorId). Slot is fully replaced. */
@@ -101,9 +137,33 @@ export class BroadcastBus {
     behaviorId: string,
     blendshapes: Blendshapes
   ): void {
+    if (!_isIterableMap(blendshapes))
+      return this._rejectPublish('blendshapes', behaviorId, blendshapes);
     const slot = this._slot(sceneNodeId, behaviorId);
     if (!slot) return;
-    slot.blendshapes = { blendshapes };
+    slot.blendshapes = { behaviorId, blendshapes };
+  }
+
+  /** Behaviors already warned about, so a 60 Hz producer logs once, not per frame. */
+  private readonly _warned = new Set<string>();
+
+  /**
+   * Drop a malformed publication instead of parking it in a slot. Composition runs
+   * on a timer, so a bad value stored here would throw on every tick — outside any
+   * request scope — and take the process down with it.
+   */
+  private _rejectPublish(
+    what: string,
+    behaviorId: string,
+    value: unknown
+  ): void {
+    const key = `${what}:${behaviorId}`;
+    if (this._warned.has(key)) return;
+    this._warned.add(key);
+    console.warn(
+      `[BroadcastBus] Ignoring ${what} from behavior ${behaviorId}: ` +
+        `expected a ${what === 'bones' ? 'NormalizedPose' : 'Blendshapes'}, got ${_describe(value)}`
+    );
   }
 
   /** Drop all slots belonging to a component (call when the component is deleted/recreated,
@@ -123,6 +183,8 @@ export class BroadcastBus {
           sceneMap.delete(sceneNodeId);
           this._pendingModes.delete(sceneNodeId);
         }
+        this._warned.delete(`bones:${behaviorId}`);
+        this._warned.delete(`blendshapes:${behaviorId}`);
       }
     }
   }
@@ -228,7 +290,13 @@ export class BroadcastBus {
     if (!sceneMap || sceneMap.size === 0) return;
     for (const [sceneNodeId, nodeMap] of sceneMap) {
       if (nodeMap.size === 0) continue;
-      this._composeAndEmit(sceneNodeId, nodeMap);
+      try {
+        this._composeAndEmit(sceneNodeId, nodeMap);
+      } catch (err) {
+        // The tick has no caller to propagate to — an escaping throw would be an
+        // unhandled exception and stop the server. Skip this node, keep ticking.
+        console.error(`[BroadcastBus] compose failed for ${sceneNodeId}:`, err);
+      }
     }
   }
 
@@ -244,8 +312,13 @@ export class BroadcastBus {
       if (slots.blendshapes) bsSlots.push(slots.blendshapes);
     }
 
+    const mix =
+      boneSlots.length > 0 || bsSlots.length > 0
+        ? this._mixOf(sceneNodeId)
+        : undefined;
+
     if (boneSlots.length > 0) {
-      const composed = _composeBones(boneSlots);
+      const composed = _composeBones(boneSlots, mix);
       const mode = _resolveAnimationBlendMode(boneSlots);
       if (!poseInterceptorRegistry.start(sceneNodeId, composed)) {
         this._emitPose(sceneNodeId, composed, mode);
@@ -256,7 +329,7 @@ export class BroadcastBus {
     }
 
     if (bsSlots.length > 0) {
-      const merged = _composeBlendshapes(bsSlots);
+      const merged = _composeBlendshapes(bsSlots, mix);
       // Same hand-off as the pose path: if any blendshape interceptor is
       // registered for this node (e.g. the Expression Limits behavior), the
       // chain terminal emits via emitMergedBlendshapes instead.
@@ -311,46 +384,88 @@ export class BroadcastBus {
   }
 }
 
+/**
+ * Structural check for the map-like value classes the bus composes
+ * (`NormalizedPose` / `Blendshapes`): it only ever calls `entries()` and
+ * `toRecord()` on them. Structural rather than `instanceof` so a value that
+ * crossed a module boundary (bundled build, duplicated package copy) still
+ * passes, while a JSON-revived plain object — which has neither method — does not.
+ */
+function _isIterableMap(v: unknown): boolean {
+  if (typeof v !== 'object' || v === null) return false;
+  const o = v as { entries?: unknown; toRecord?: unknown };
+  return typeof o.entries === 'function' && typeof o.toRecord === 'function';
+}
+
+/** Short, log-safe description of a rejected publication. */
+function _describe(v: unknown): string {
+  if (v === null) return 'null';
+  if (typeof v !== 'object') return typeof v;
+  return `${(v as object).constructor?.name ?? 'object'} ${JSON.stringify(v)?.slice(0, 120) ?? ''}`;
+}
+
 function _clampHz(hz: number): number {
   if (!Number.isFinite(hz)) return DEFAULT_TICK_HZ;
   return Math.max(MIN_TICK_HZ, Math.min(MAX_TICK_HZ, hz));
 }
 
 /**
- * Compose bone slots in ascending priority order: identity → multiply each slot's bone in order.
- * Bones absent from all slots are omitted from the output (frontend leaves them to the animation).
- * Within a single slot, a bone's quaternion is taken as-is at that slot's step.
+ * Compose bone slots under the avatar's Tracking Mix: slots are ordered by
+ * `mix.order` (unlisted ones by ascending priority), and each slot's bone is
+ * scaled toward identity by its weight (`scaleRotation`) before being
+ * multiplied onto the accumulator. Weights are not normalised — with no mix
+ * every weight is 1 and this is plain priority-ordered stacking.
+ *
+ * Bones absent from all slots — or present only with weight 0 — are omitted
+ * from the output, so the frontend leaves them to the animation.
  */
-function _composeBones(slots: BoneSlot[]): NormalizedPose {
-  const sorted = [...slots].sort((a, b) => a.priority - b.priority);
+export function _composeBones(
+  slots: BoneSlot[],
+  mix?: TrackingMix
+): NormalizedPose {
+  const sorted = orderSources(
+    mix,
+    slots.map((s) => ({ ...s, id: s.behaviorId }))
+  );
   const acc = new Map<VRMBoneName, Quaternion>();
   // Translations SUM across slots rather than composing like the rotations do —
   // two producers each nudging the hips should displace them by the total.
   const offsets = new Map<VRMBoneName, [number, number, number]>();
   for (const slot of sorted) {
     for (const [bone, q] of slot.pose.entries()) {
+      const w = boneWeight(mix, slot.behaviorId, bone);
+      if (w === 0) continue;
+      const scaled = scaleRotation(q, w);
       const existing = acc.get(bone);
-      acc.set(bone, existing ? q.multiply(existing) : q);
+      acc.set(bone, existing ? scaled.multiply(existing) : scaled);
     }
     for (const [bone, v] of slot.pose.offsetEntries()) {
+      const w = boneWeight(mix, slot.behaviorId, bone);
+      if (w === 0) continue;
       const prev = offsets.get(bone);
       offsets.set(
         bone,
         prev
-          ? [prev[0] + v[0], prev[1] + v[1], prev[2] + v[2]]
-          : [v[0], v[1], v[2]]
+          ? [prev[0] + v[0] * w, prev[1] + v[1] * w, prev[2] + v[2] * w]
+          : [v[0] * w, v[1] * w, v[2] * w]
       );
     }
   }
   return new NormalizedPose(acc.entries(), offsets.entries());
 }
 
-/** Compose blendshapes additively across slots, clamped to [0, 1]. */
-function _composeBlendshapes(slots: BlendshapeSlot[]): Blendshapes {
+/** Compose blendshapes additively across slots (`weight × value`, weights from
+ *  the Tracking Mix, default 1), clamped to [0, 1]. Order doesn't matter. */
+export function _composeBlendshapes(
+  slots: BlendshapeSlot[],
+  mix?: TrackingMix
+): Blendshapes {
   const sums = new Map<string, number>();
   for (const slot of slots) {
     for (const [name, value] of slot.blendshapes.entries()) {
-      sums.set(name, (sums.get(name) ?? 0) + value);
+      const w = blendshapeWeight(mix, slot.behaviorId, name);
+      if (w === 0 && !sums.has(name)) continue;
+      sums.set(name, (sums.get(name) ?? 0) + value * w);
     }
   }
   for (const [name, total] of sums)

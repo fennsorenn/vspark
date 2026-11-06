@@ -23,7 +23,12 @@ const router: ReturnType<typeof Router> = Router();
  */
 router.get('/projects', (_req, res) => {
   const data = getDb()
-    .prepare('SELECT * FROM projects ORDER BY updated_at DESC')
+    // Peer-owned rows are projects we HOLD, not projects we have: they exist so
+    // a mounted collab scene can be stored exactly as its author wrote it
+    // (migration 039). Nobody authors into one, so they are not listed.
+    .prepare(
+      'SELECT * FROM projects WHERE owner_peer_id IS NULL ORDER BY updated_at DESC'
+    )
     .all();
   res.json({ ok: true, data });
 });

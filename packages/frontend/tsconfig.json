@@ -27,9 +27,15 @@
       "@vspark/shared/infer_nodes": ["../shared/src/infer_nodes.ts"],
       "@vspark/shared/arkit": ["../shared/src/arkit_tables.ts"],
       "@vspark/shared/paramPaths": ["../shared/src/paramPaths.ts"],
+      "@vspark/shared/cameraEffects": ["../shared/src/cameraEffects.ts"],
       "@vspark/shared/style_rig": ["../shared/src/style_rig.ts"],
       "@vspark/shared/blendshapeLimits": ["../shared/src/blendshapeLimits.ts"],
-      "@vspark/shared/sync": ["../shared/src/sync.ts"]
+      "@vspark/shared/trackingMix": ["../shared/src/trackingMix.ts"],
+      "@vspark/shared/sync": ["../shared/src/sync.ts"],
+      "@vspark/shared/models": ["../shared/src/models.ts"],
+      "@vspark/shared/fracIndex": ["../shared/src/fracIndex.ts"],
+      "@vspark/shared/clipPlayback": ["../shared/src/clipPlayback.ts"],
+      "@vspark/shared/idMap": ["../shared/src/idMap.ts"]
     }
   },
   "include": ["src"]

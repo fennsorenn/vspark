@@ -432,12 +432,14 @@ using it here would mean a read-modify-write of the behavior row at the pose rat
 (~60Hz) for a value that is meaningless after a restart. Node instances live for
 the graph's lifetime, so plain private fields are the right home.
 
-For the same reason `PoseStylizerManager._persistNodeState` **skips
-`on_pose_broadcast`** (`EPHEMERAL_STATE_KINDS`): the interceptor registry injects
-the entire current pose into that node's state before every fire.
-
-> Note: `ManualCalibrationManager` does not have this guard, so it does write a
-> full pose into SQLite on every interceptor frame. Same fix applies there.
+The same hazard applies to `on_pose_broadcast`, whose state is the *entire current
+pose*, injected by the interceptor registry before every fire. This is now handled
+generally by the engine rather than per manager: only node classes declaring
+`static persistState` reach a manager's persist callback, and everything else goes
+to graph-local scratch (`signal/engine.ts` `_writeState`). `PoseStylizerManager`
+briefly carried a local `EPHEMERAL_STATE_KINDS` guard for this; it was removed once
+the engine-level split landed, since the callback can no longer be reached. See
+[signal-graph.md](signal-graph.md) (scratch vs durable state).
 
 **Both value outputs memoize on the input pose object's identity.** Value outputs
 are pulled on demand and could in principle be pulled more than once per frame;
@@ -483,12 +485,13 @@ rediscovered from scratch.
   `set_data` publish exists, expect users to wire it expecting Logic-graph or
   particle reach and find only bones. If it starts generating confusion, the cheap
   interim fix is a UI hint on the picker entry rather than a new node.
-- **`ManualCalibrationManager` writes a full pose to SQLite every interceptor
-  frame.** Pre-existing, not introduced here, and out of scope for this PR — but
-  this behavior's `EPHEMERAL_STATE_KINDS` guard is the fix, and the two managers
-  now differ for no principled reason. See the note in
-  [component-managers.md](component-managers.md). Worth doing before anything else
-  starts copying `ManualCalibrationManager` as the reference interceptor manager.
+- ~~**`ManualCalibrationManager` writes a full pose to SQLite every interceptor
+  frame.**~~ **Resolved** by the scratch-vs-durable state split (`static
+  persistState`, PR #68): the engine now routes any node that does not opt in to
+  graph-local scratch, so `on_pose_broadcast` state never reaches a manager's
+  persist callback. That fixes it for *both* managers at the engine layer, and
+  this behavior's local `EPHEMERAL_STATE_KINDS` guard was removed as unreachable.
+  See [signal-graph.md](signal-graph.md) (scratch vs durable state).
 - **Interceptor priority 8 is hardcoded and the escape hatch doesn't reach it.**
   Fine while the interceptor set is small and its ordering is deliberate
   (stylize at 8 → manual trim at 5). It becomes a real constraint the moment a

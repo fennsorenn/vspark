@@ -9,10 +9,10 @@
  * authoritative echo (or a `_share_write_nak` → rollback) reconciles it. See
  * dev-notes/plans/multiplayer-phase6.md.
  */
-import { useEditorStore } from '../store/editorStore';
 import type { StageObject } from '../store/editorStore';
 import { canWriteObject } from '../store/connectionsStore';
 import { setRemoteWriteRouter } from '../api/client';
+import { randomUUID } from '@vspark/shared/sync';
 import type { SyncEnvelope } from '@vspark/shared/sync';
 import {
   owningProjectionRoot,
@@ -21,6 +21,7 @@ import {
   addProjectedNode,
 } from './sharedProjection';
 import { sendShareWriteDirect } from './shareDirect';
+import { sceneNodesNow } from '../mesh/nodes';
 
 /** A projected remote node the local user has *edit* rights on — selectable +
  *  editable in the tree (its commits route to the owner), unlike read-only
@@ -67,7 +68,7 @@ export function routeRemoteWrite(
   id: string,
   data?: Partial<StageObject>
 ): boolean {
-  const node = useEditorStore.getState().nodes.find((n) => n.id === id);
+  const node = sceneNodesNow().find((n) => n.id === id);
   if (!node?.remote || !node.remoteOwnerPeerId) return false;
   const owner = node.remoteOwnerPeerId;
   const root = owningProjectionRoot(owner, id);
@@ -110,7 +111,7 @@ export function createRemoteChild(
   const root = owningProjectionRoot(owner, parent.id);
   if (!root || !canWriteObject(owner, root)) return null;
 
-  const id = crypto.randomUUID();
+  const id = randomUUID();
   const node: StageObject = {
     id,
     parentId: parent.id, // owner-side id — the owner derives structure from it

@@ -116,6 +116,29 @@ export function isClientParticipant(id: string): boolean {
   return id.includes(CLIENT_SEP);
 }
 
+/** RFC-4122 v4 UUID that works in NON-secure browser contexts.
+ *
+ *  `crypto.randomUUID()` is only defined in a secure context (HTTPS or
+ *  `localhost`). Serving the app over plain HTTP on a LAN/Tailscale IP
+ *  (e.g. `http://100.x.y.z:5173`) leaves it `undefined`, which previously
+ *  threw on the very first line of mesh-peer init and silently killed all live
+ *  sync in that tab. `crypto.getRandomValues()` IS available in non-secure
+ *  contexts, so fall back to building a v4 UUID from it. */
+interface MinimalCrypto {
+  randomUUID?: () => string;
+  getRandomValues: (array: Uint8Array) => Uint8Array;
+}
+export function randomUUID(): string {
+  const c = (globalThis as unknown as { crypto: MinimalCrypto }).crypto;
+  if (typeof c?.randomUUID === 'function') return c.randomUUID();
+  const b = c.getRandomValues(new Uint8Array(16));
+  b[6] = (b[6] & 0x0f) | 0x40; // version 4
+  b[8] = (b[8] & 0x3f) | 0x80; // variant 10
+  const h: string[] = [];
+  for (let i = 0; i < 16; i++) h.push(b[i].toString(16).padStart(2, '0'));
+  return `${h[0]}${h[1]}${h[2]}${h[3]}-${h[4]}${h[5]}-${h[6]}${h[7]}-${h[8]}${h[9]}-${h[10]}${h[11]}${h[12]}${h[13]}${h[14]}${h[15]}`;
+}
+
 /** The owning server's peer id for any participant (itself if it's a server). */
 export function participantServer(id: string): string {
   const i = id.indexOf(CLIENT_SEP);
@@ -303,9 +326,10 @@ export function granteeCandidates(requester: string): string[] {
 // --- Subscriptions ----------------------------------------------------------
 //
 // A subscription is a peer's *interest* — same (entity × path) shape as a grant,
-// minus rights. It's admitted only if a read grant fully covers it
-// (`grantCoversSubscription`), so the write path can route by pure interest match
-// with no per-message permission recheck. Revalidation drops subscriptions whose
+// minus rights. The mesh admits one when a read grant overlaps it and projects
+// every outgoing message through the recipient's grants (packages/mesh/src/
+// grants.ts); `grantCoversSubscription` below is the stricter full-cover check
+// the SubscriptionHub uses. Revalidation drops subscriptions whose
 // covering grant was revoked (evict-on-revoke). The descendants axis is resolved
 // by the injected containment {@link IsDescendant}. See
 // dev-notes/plans/permissioned-sync-mesh.md.

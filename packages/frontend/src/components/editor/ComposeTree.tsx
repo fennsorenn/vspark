@@ -6,6 +6,15 @@ import {
   type ComposeLayerRecord,
 } from '../../store/editorStore';
 import { api } from '../../api/client';
+import { keyBetween } from '@vspark/shared/fracIndex';
+import {
+  commitLayerDelete,
+  commitLayerDeleteKeepChildren,
+  commitLayerPatch,
+  commitLayerPath,
+  commitComposeSceneCreate,
+} from '../../mesh/layerWrites';
+import { commitLogicCreate } from '../../mesh/logicWrites';
 import type { ComposeLayerKind } from '../../api/client';
 import { ClipsSection } from './ClipsSection';
 import { LogicSection } from './LogicSection';
@@ -17,7 +26,12 @@ import { HelpButton } from '../../help/HelpButton';
 import { usePrompt, useChoose, useConfirm } from '../DialogProvider';
 import { LAYER_KIND_ICON } from '../icons';
 import { canSendTo3D, sendComposeLayerTo3D } from './composeSendTo3D';
-
+import {
+  composeLayersNow,
+  useComposeLayers,
+  useComposeScenes,
+} from '../../mesh/compose';
+import { useSceneNodes } from '../../mesh/nodes';
 
 // Monochrome SVG icons (stroke = currentColor) so the button `color` actually
 // applies — unlike the coloured emoji they replace, which ignore CSS colour.
@@ -136,47 +150,37 @@ function isSelfOrDescendant(
 }
 
 /** Move `draggedId` to `newParentId` and slot it into `index` among that
- *  parent's display-ordered siblings (front → back). Reassigns descending
- *  sceneOrder across the group (front-of-list = highest sceneOrder, since the
- *  layer stack paints higher sceneOrder further back and the tree lists
- *  front-first). Persists the parent change and the bulk reorder. Generalises
- *  the old same-parent reorder to also handle re-parenting (drag into a layer
- *  or across groups). */
+ *  parent's display-ordered siblings.
+ *
+ *  The tree lists front-first (descending orderKey) while the stack paints
+ *  back-to-front, so the neighbours around the drop index are swapped when
+ *  computing the key: the layer ABOVE in the tree is the one AFTER in paint
+ *  order.
+ *
+ *  Writes one key — not a renumbering of the group. That is the whole point of
+ *  fractional ordering: a move touches a single row, so concurrent moves by two
+ *  peers commute instead of LWW-merging two full renumberings into a stack
+ *  neither asked for. */
 function moveComposeLayer(
   orderedSiblings: ComposeLayerRecord[],
   draggedId: string,
   newParentId: string | null,
   index: number
 ) {
-  const store = useEditorStore.getState();
-  const dragged = store.composeLayers.find((l) => l.id === draggedId);
+  const dragged = composeLayersNow().find((l) => l.id === draggedId);
   if (!dragged) return;
 
-  const order = orderedSiblings
-    .map((l) => l.id)
-    .filter((id) => id !== draggedId);
-  const clamped = Math.max(0, Math.min(index, order.length));
-  order.splice(clamped, 0, draggedId);
+  const rest = orderedSiblings.filter((l) => l.id !== draggedId);
+  const clamped = Math.max(0, Math.min(index, rest.length));
+  // rest is front-first; the neighbour below the slot in the tree is the one
+  // BEFORE it in paint order, and vice versa.
+  const above = rest[clamped - 1] ?? null; // nearer the front
+  const below = rest[clamped] ?? null; // nearer the back
+  const orderKey = keyBetween(below?.orderKey ?? null, above?.orderKey ?? null);
 
-  // Persist the parent change first (a separate column from sceneOrder).
-  if ((dragged.parentId ?? null) !== newParentId) {
-    store.updateComposeLayerLocal(draggedId, { parentId: newParentId });
-    api
-      .updateComposeLayer(draggedId, { parentId: newParentId })
-      .catch(() => {});
-  }
-
-  // Assign descending sceneOrder so the top of the list paints in front.
-  const n = order.length;
-  const updates = order.map((id, i) => ({
-    id,
-    sceneOrder: n - i,
-    cameraOrder: 0,
-  }));
-  for (const u of updates) {
-    store.updateComposeLayerLocal(u.id, { sceneOrder: u.sceneOrder });
-  }
-  api.reorderComposeLayers(updates).catch(() => {});
+  const patch: Partial<ComposeLayerRecord> = { orderKey };
+  if ((dragged.parentId ?? null) !== newParentId) patch.parentId = newParentId;
+  commitLayerPatch(draggedId, patch);
 }
 
 /** Copy (or, with `copy=false`, move) a layer subtree into `targetSceneId`
@@ -203,14 +207,9 @@ async function transferComposeLayer(
       targetSceneId,
       parentId
     );
-    if (!copy) {
-      useEditorStore.getState().removeComposeLayer(draggedId);
-      await api.deleteComposeLayer(draggedId).catch(() => {});
-    }
-    // deserialize inserts via raw INSERT without a WS broadcast, so re-pull the
-    // project's compose layers from the scenes bundle.
-    const bundle = await api.getScenes(projectId);
-    useEditorStore.setState({ composeLayers: bundle.composeLayers });
+    if (!copy) await commitLayerDelete(draggedId);
+    // The instantiated layers arrive through the mesh (deserialize writes
+    // through it), like any other write.
   } catch (e) {
     onError(e instanceof Error ? e.message : errFallback);
   }
@@ -228,28 +227,27 @@ function LayerRow({
   depth: number;
 }) {
   const { t } = useTranslation('compose');
-  const nodes = useEditorStore((s) => s.nodes);
+  const nodes = useSceneNodes();
   const selectedComposeLayerId = useEditorStore(
     (s) => s.selectedComposeLayerId
   );
   const selectComposeLayer = useEditorStore((s) => s.selectComposeLayer);
   const selectNode = useEditorStore((s) => s.selectNode);
-  const updateComposeLayerLocal = useEditorStore(
-    (s) => s.updateComposeLayerLocal
-  );
   const [dropPos, setDropPos] = useState<DropZone | null>(null);
 
   // Siblings in display order (front-first), used for drag-reorder.
   const siblings = (layersByParent.get(layer.parentId ?? null) ?? [])
     .slice()
-    .sort((a, b) => b.sceneOrder - a.sceneOrder);
+    .sort(
+      (a, b) => b.orderKey.localeCompare(a.orderKey) || b.id.localeCompare(a.id)
+    );
 
   const selected = selectedComposeLayerId === layer.id;
   const children = layersByParent.get(layer.id) ?? [];
   // Every layer in this compose scene (flattened from the parent buckets) —
   // used for the cycle guard when re-parenting via drag.
   const allSceneLayers = [...layersByParent.values()].flat();
-  const composeScenes = useEditorStore((s) => s.composeScenes);
+  const composeScenes = useComposeScenes();
   const cam =
     layer.kind === 'camera_view' && layer.cameraNodeId
       ? nodes.find((n) => n.id === layer.cameraNodeId)
@@ -269,12 +267,7 @@ function LayerRow({
   const choose = useChoose();
   const confirm = useConfirm();
   const handleDelete = async () => {
-    const store = useEditorStore.getState();
     const directChildren = layersByParent.get(layer.id) ?? [];
-    const delOne = async (id: string) => {
-      store.removeComposeLayer(id);
-      await api.deleteComposeLayer(id).catch(() => {});
-    };
 
     // Leaf layer: a simple confirm.
     if (directChildren.length === 0) {
@@ -285,7 +278,7 @@ function LayerRow({
         }))
       )
         return;
-      await delOne(layer.id);
+      await commitLayerDelete(layer.id);
       return;
     }
 
@@ -302,25 +295,13 @@ function LayerRow({
     if (!choice) return; // cancel / dismiss
 
     if (choice === 'with') {
-      // Collect the whole subtree (leaves first) and delete each — the backend
-      // delete doesn't cascade on parent_id, so we remove them explicitly.
-      const subtree: string[] = [];
-      const stack = [layer.id];
-      while (stack.length) {
-        const id = stack.pop()!;
-        subtree.push(id);
-        for (const c of layersByParent.get(id) ?? []) stack.push(c.id);
-      }
-      for (const id of subtree.reverse()) await delOne(id);
+      // Removes the subtree explicitly, children before parents, as ONE undo
+      // action — see mesh/writes.ts on why the FK cascade alone isn't enough.
+      await commitLayerDelete(layer.id);
     } else {
-      // Keep children: reparent the direct children onto this layer's parent,
-      // then delete this layer.
-      for (const c of directChildren) {
-        const patch = { parentId: layer.parentId ?? null };
-        store.updateComposeLayerLocal(c.id, patch);
-        await api.updateComposeLayer(c.id, patch).catch(() => {});
-      }
-      await delOne(layer.id);
+      // Keep children: detach them onto this layer's parent, then delete —
+      // also one action, so the reparents don't unwind separately.
+      await commitLayerDeleteKeepChildren(layer.id, layer.parentId ?? null);
     }
   };
 
@@ -359,12 +340,7 @@ function LayerRow({
         targetSceneId,
         layer.id // parent the new layer under the right-clicked one
       );
-      // Refresh the project's compose layers from the scenes bundle —
-      // deserialize.ts inserts compose-layer rows via raw INSERT and
-      // doesn't broadcast compose_layer_added, so the WS sync wouldn't
-      // pick up the paste otherwise.
-      const bundle = await api.getScenes(projectId);
-      useEditorStore.setState({ composeLayers: bundle.composeLayers });
+      // The pasted layers arrive through the mesh (deserialize writes through it).
     } catch (e) {
       alert(e instanceof Error ? e.message : t('tree.errors.pasteFailed'));
     }
@@ -374,11 +350,11 @@ function LayerRow({
     const payload = await pasteFromClipboard(clipboardPayload);
     if (!payload || payload.kind !== 'graph') return;
     try {
-      const created = await api.createLayerLogic(layer.id, payload.name);
-      await api.updateLogic(created.id, {
-        descriptor: payload.descriptor,
-        enabled: true,
-      });
+      await commitLogicCreate(
+        { kind: 'compose_layer', id: layer.id },
+        payload.name,
+        payload.descriptor
+      );
     } catch (e) {
       alert(e instanceof Error ? e.message : t('tree.errors.pasteGraphFailed'));
     }
@@ -432,21 +408,15 @@ function LayerRow({
     return items;
   };
 
-  const handleToggleVisible = async () => {
-    const next = !layer.visible;
-    updateComposeLayerLocal(layer.id, { visible: next });
-    await api.updateComposeLayer(layer.id, { visible: next }).catch(() => {});
+  const handleToggleVisible = () => {
+    commitLayerPath(layer.id, 'visible', !layer.visible);
   };
 
   const locked = layer.config.locked === true;
   const locked3d = layer.config.locked3d === true;
 
-  const toggleLock = async (key: 'locked' | 'locked3d') => {
-    const nextConfig = { ...layer.config, [key]: !layer.config[key] };
-    updateComposeLayerLocal(layer.id, { config: nextConfig });
-    await api
-      .updateComposeLayer(layer.id, { config: nextConfig })
-      .catch(() => {});
+  const toggleLock = (key: 'locked' | 'locked3d') => {
+    commitLayerPath(layer.id, `config.${key}`, !layer.config[key]);
   };
 
   return (
@@ -512,9 +482,7 @@ function LayerRow({
           )
             return;
 
-          const dragged = useEditorStore
-            .getState()
-            .composeLayers.find((l) => l.id === draggedId);
+          const dragged = composeLayersNow().find((l) => l.id === draggedId);
           const targetSceneId = layer.rootComposeSceneId ?? layer.id;
           const sameScene = dragged?.rootComposeSceneId === targetSceneId;
 
@@ -538,7 +506,11 @@ function LayerRow({
           if (zone === 'inside') {
             const childOrder = (layersByParent.get(layer.id) ?? [])
               .slice()
-              .sort((a, b) => b.sceneOrder - a.sceneOrder);
+              .sort(
+                (a, b) =>
+                  b.orderKey.localeCompare(a.orderKey) ||
+                  b.id.localeCompare(a.id)
+              );
             moveComposeLayer(childOrder, draggedId, layer.id, 0);
           } else {
             const newParentId = layer.parentId ?? null;
@@ -552,6 +524,9 @@ function LayerRow({
           }
         }}
         className="vs-layer-row"
+        data-attach-kind="compose_layer"
+        data-attach-id={layer.id}
+        data-attach-name={layer.name}
         style={{
           ...rowStyle(selected || dropPos === 'inside'),
           paddingLeft: 8 + depth * 14,
@@ -693,7 +668,10 @@ function LayerRow({
       )}
       {children
         .slice()
-        .sort((a, b) => b.sceneOrder - a.sceneOrder)
+        .sort(
+          (a, b) =>
+            b.orderKey.localeCompare(a.orderKey) || b.id.localeCompare(a.id)
+        )
         .map((child) => (
           <LayerRow
             key={child.id}
@@ -728,7 +706,7 @@ function ComposeSceneRoot({
   const selectComposeScene = useEditorStore((s) => s.selectComposeScene);
   const selectComposeLayer = useEditorStore((s) => s.selectComposeLayer);
   const selectNode = useEditorStore((s) => s.selectNode);
-  const composeLayers = useEditorStore((s) => s.composeLayers);
+  const composeLayers = useComposeLayers();
   const clipboardPayload = useEditorStore((s) => s.clipboardPayload);
   const activeSceneId = useEditorStore((s) => s.activeSceneId);
   const [collapsed, setCollapsed] = useState(false);
@@ -751,12 +729,15 @@ function ComposeSceneRoot({
   }
   const roots = (layersByParent.get(null) ?? [])
     .slice()
-    .sort((a, b) => b.sceneOrder - a.sceneOrder);
+    .sort(
+      (a, b) => b.orderKey.localeCompare(a.orderKey) || b.id.localeCompare(a.id)
+    );
 
   const handleDeleteScene = async () => {
     if (!confirm(t('tree.deleteSceneConfirm', { name: scene.name }))) return;
-    useEditorStore.getState().removeComposeScene(scene.id);
-    await api.deleteComposeLayer(scene.id).catch(() => {});
+    // A compose scene is itself a compose_layer row, so this is a subtree
+    // delete: its layers are removed explicitly and come back on one undo.
+    await commitLayerDelete(scene.id);
   };
 
   // Drop a layer at this compose scene's top level (parentId = null). A
@@ -794,8 +775,6 @@ function ComposeSceneRoot({
         scene.id,
         null // parentId null → top-level layer of this compose scene
       );
-      const bundle = await api.getScenes(projectId);
-      useEditorStore.setState({ composeLayers: bundle.composeLayers });
     } catch (e) {
       alert(e instanceof Error ? e.message : t('tree.errors.pasteFailed'));
     }
@@ -805,11 +784,11 @@ function ComposeSceneRoot({
     const payload = await pasteFromClipboard(clipboardPayload);
     if (!payload || payload.kind !== 'graph') return;
     try {
-      const created = await api.createLayerLogic(scene.id, payload.name);
-      await api.updateLogic(created.id, {
-        descriptor: payload.descriptor,
-        enabled: true,
-      });
+      await commitLogicCreate(
+        { kind: 'compose_layer', id: scene.id },
+        payload.name,
+        payload.descriptor
+      );
     } catch (e) {
       alert(e instanceof Error ? e.message : t('tree.errors.pasteGraphFailed'));
     }
@@ -1047,8 +1026,7 @@ export function ComposeTree() {
   const { t } = useTranslation('compose');
   const prompt = usePrompt();
   const { projectId } = useParams<{ projectId: string }>();
-  const composeScenes = useEditorStore((s) => s.composeScenes);
-  const addComposeScene = useEditorStore((s) => s.addComposeScene);
+  const composeScenes = useComposeScenes();
   const selectComposeScene = useEditorStore((s) => s.selectComposeScene);
 
   const handleNewComposeScene = async () => {
@@ -1060,11 +1038,7 @@ export function ComposeTree() {
     });
     if (!name?.trim()) return;
     try {
-      const created = await api.createComposeScene(projectId, {
-        name: name.trim(),
-      });
-      addComposeScene(created);
-      selectComposeScene(created.id);
+      selectComposeScene(await commitComposeSceneCreate(name.trim()));
     } catch (e) {
       alert(e instanceof Error ? e.message : t('tree.errors.createFailed'));
     }

@@ -37,6 +37,11 @@ function cycleCount(cfg: unknown): number {
 })
 export class Cycle extends Node {
   static readonly kind = 'cycle';
+  /** The toggle position is user-visible state (which output the next press
+   *  hits), so it survives a reconcile/restart rather than resetting on every
+   *  graph edit. A plain `{ index }` number, written once per event — the JSON
+   *  round-trip is lossless and there is no per-frame churn. */
+  static readonly persistState = true;
 
   @eventIn('in', 'Any')
   onIn(ev: Event<unknown>): void {

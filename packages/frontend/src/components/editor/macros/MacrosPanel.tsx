@@ -14,6 +14,9 @@ import {
   listAllParamPaths,
 } from '@vspark/shared/paramPaths';
 import { useEditorStore } from '../../../store/editorStore';
+import { useSceneNodes } from '../../../mesh/nodes';
+import { useComposeLayers } from '../../../mesh/compose';
+import { useTrackClips } from '../../../mesh/hooks';
 import { HelpButton } from '../../../help/HelpButton';
 import { useMacros } from './useMacros';
 import { MACRO_ACTION_DEFS, macroActionById } from './actionRegistry';
@@ -116,9 +119,9 @@ function FieldEditor({
   onChange: (v: MacroFieldValue) => void;
 }) {
   const { t } = useTranslation('macros');
-  const nodes = useEditorStore((s) => s.nodes);
-  const composeLayers = useEditorStore((s) => s.composeLayers);
-  const trackClips = useEditorStore((s) => s.trackClips);
+  const nodes = useSceneNodes();
+  const composeLayers = useComposeLayers();
+  const trackClips = useTrackClips();
   const expressionsByNode = useEditorStore((s) => s.vrmExpressionsByNode);
   const cls = `vs-macro-field-${field.key}`;
   const cur = value === undefined ? '' : String(value);

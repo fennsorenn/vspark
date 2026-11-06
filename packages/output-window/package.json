@@ -1,0 +1,10 @@
+{
+  "name": "@vspark/output-window",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Off-screen Electron windows that render compose scenes for OBS Window Capture",
+  "main": "index.cjs",
+  "dependencies": {
+    "electron": "^44.5.1"
+  }
+}

@@ -25,7 +25,16 @@ Decorators live in `packages/shared/src/node_decorators.ts`:
 
 **Port metadata harvest**: `@SignalNode` reads ports from the Stage-3 `ctx.metadata` buffer that the port decorators populate at class-definition time, so the palette / `NodeKindMeta` can introspect ports **without instantiating** the node. Field-decorator factories return a generic identity initializer (required by `tsc --strict`, TS1270); the engine overwrites the field with the real emitter/thunk in `Node.bind()`.
 
-**State**: `this.getState<T>()` / `this.setState(v)` on the base (DB-backed via engine injection). Most nodes are stateless; `body_calibration` / `arm_ik_calibration` / `queue_events` / `unpack_event` keep state there. `reconcile()` stays rebuild-from-scratch, so anything that must survive a reconcile lives in state, not instance fields.
+**State**: `this.getState<T>()` / `this.setState(v)` on the base (injected by the engine). Most nodes are stateless; `body_calibration` / `arm_ik_calibration` / `queue_events` / `unpack_event` / `viseme_passthrough` / `on_pose_broadcast` keep state there. `reconcile()` stays rebuild-from-scratch, so anything that must survive a reconcile lives in state, not instance fields.
+
+**Scratch vs durable state** — a node class opts in to durable state with `static readonly persistState = true`:
+
+| | where it lives | survives a restart |
+|---|---|---|
+| default (no `persistState`) | scratch map inside the `SignalGraph` | no |
+| `static persistState = true` | owner's store (`config._nodeState[nodeId]` / `logic.node_state`), i.e. SQLite | yes |
+
+Only `body_calibration` and `arm_ik_calibration` are durable today — user-produced calibration, stored as plain numbers/arrays so the JSON round-trip is lossless. **Everything else must stay scratch.** Per-frame state (`unpack_event` payloads, scaled visemes, interceptor frames) persisted at frame rate cost a DB write per frame, and the round-trip strips class identity: a `Blendshapes` / `NormalizedPose` comes back from SQLite as a plain object and throws in the first consumer that calls a method on it. Stale `_nodeState` written before the split is simply ignored — scratch nodes never read the owner's store.
 
 **Lifecycle hooks**: the constructor runs **before** ports are wired; the `protected onBind()` hook runs **after** bind, so dynamic-port setup goes in `onBind()`, not the constructor.
 
@@ -59,7 +68,7 @@ A graph executes when `fire(nodeId, portName, value)` is called from outside (by
 
 **Node config resolves live**: `_makeBindContext` exposes `config` as a **getter** (not a value snapshotted at graph-build time), so `this.config` — and therefore a `behavior_config` node reading `_behaviorConfig` — re-reads the owning behavior's current config on every access. This is what makes `behavior_config`-fed values (breathing amplitudes, manual-calibration map) hot-apply without a graph rebuild; before, they only took effect on behavior restart.
 
-**Hydration**: `SignalGraph.fromDescriptor(descriptor, registry, getConfig, getState, onSetState)` — builds a graph from a `GraphDescriptor` template. Config and state are injected from outside (DB-backed), so the graph itself is stateless across restarts.
+**Hydration**: `SignalGraph.fromDescriptor(descriptor, registry, getConfig, getState, onSetState)` — builds a graph from a `GraphDescriptor` template. Config is injected from outside (DB-backed). State only reaches `getState`/`onSetState` for nodes declaring `static persistState`; every other node's state stays in the graph's scratch map (see **Scratch vs durable state** above).
 
 **Inspection**: `getStates()` returns a snapshot of node last-inputs / last-outputs / last-executed timestamps and edge fire history — used by `/api/signal/graphs/:id/node-states`.
 
@@ -74,7 +83,7 @@ Transport is folded **into** the type. The old `PortKind` / `PortDecl.kind` / `p
 
 ## Node Registry — `signal/registry.ts`
 
-`NODE_REGISTRY` maps kind string → node class. All 95 built-in node kinds are registered here. `getAllNodeKindMeta()` returns per-port `{name, resolved, typeTag, transport}` + `dynamic` flag and display metadata for each kind — this drives the UI node palette.
+`NODE_REGISTRY` maps kind string → node class. All 108 built-in node kinds are registered here. `getAllNodeKindMeta()` returns per-port `{name, resolved, typeTag, transport}` + `dynamic` flag and display metadata for each kind — this drives the UI node palette.
 
 To register a node: import the class and add it to the registry (and, if it has dynamic or non-trivial ports, add its `inferPorts` entry to `INFER_BY_KIND` in `infer_nodes.ts`).
 
@@ -115,6 +124,7 @@ Organized by role:
 |------|-------------|
 | `body_calibration` | Captures neutral pose; subtracts offset via quaternion inversion. Supports optional `mirrorPairs` config + `mirrorSource` input port for one-hand symmetric calibration (used by finger_calib in MediaPipe tracker). |
 | `arm_ik_calibration` | Two-bone arm IK; captures arm reach (finger-to-eye-corner); applies corrected IK at runtime |
+| `eye_range_map` (label "Eye Range Map") | `pose` + `nodeId` (SceneNode) + `enabled` (Bool) + `inputMaxDeg` (Float) in → `pose` out. Scales `leftEye`/`rightEye` pitch/yaw so `inputMaxDeg` of tracked rotation reaches the model's VRM look-at range (read via `vrm/lookAt.ts`), clamped beyond; roll dropped, other bones and expression-type look-at models pass through. Inserted into receiver pipelines by `behaviors/eyeRange.ts`. See [ifacialmocap.md](ifacialmocap.md#gaze--eye-range). |
 | `pose_manual_calibration` (label "Manual Calibration") | Static `pose` in → `pose` out. For each configured bone, decomposes the quaternion to ZYX euler and applies per axis `angle' = angle * multiplier + offset` (offset in DEGREES, converted to radians; multiplier unitless). Bones with no entry, or at identity (mult `[1,1,1]` / offset `[0,0,0]`), pass through. The per-bone map arrives via a wired `calibrations` value-input (fed by a `behavior_config` node, `field: 'calibrations'`), not a hidden config read; shape `Record<boneName, { multiplier?: [x,y,z]; offset?: [x,y,z] }>`. Ordinary static node (NOT in `INFER_BY_KIND`; ports via decorators / `defaultInfer`, like `body_calibration` / `pose_apply_bone`). Drives the `manual_calibration` behavior interceptor — see [component-managers.md](component-managers.md). Euler-space, so ZYX-order-dependent + degrades at the yaw=±90° gimbal singularity. |
 | `pose_style_drivers` (label "Style Drivers") | `pose` + `response` + `preset` in → `drivers` (`StyleDrivers`) out. (`preset` is needed here too because a preset may carry a response baseline — `expressive` tightens the ranges.) Collapses a full pose into nine normalized scalars: head orientation relative to the torso (`neck·head` composed), torso orientation (`hips·spine·chest·upperChest` composed), per-arm elevation, and a motion-`energy` summary. Each is conditioned `÷ range → clamp ±1 → deadzone → rate limit → EMA smooth`; the rate limit is the glitch gate that turns an impossible tracker jump into a human slew, and the frame-rate-compensated EMA keeps the feel constant across tracker rates. Previous-driver state lives on the node INSTANCE (not `setState`) because persisting it would put a SQLite write in the 60Hz pose path; the output memoizes on the input pose object so it integrates exactly once per frame. Ordinary static node (not in `INFER_BY_KIND`). Drives the `pose_stylizer` behavior — see [stylized-tracking.md](stylized-tracking.md). |
 | `pose_stylize` (label "Stylize Pose") | `pose` + `drivers` + `amount` + `lag` + `preset` + `rig` + `restUnmapped` in → `pose` out. Rebuilds the pose from the drivers through a `StyleRig` (`bone → {mode, lag, drivers: driverName → [pitch,yaw,roll] degrees at driver 1}`), merged over the rig named by `preset` (`follow` / `counter` / `headOnly` / `headOnlyCounter` / `expressive`; unknown/absent → `follow`). `preset` also supplies the base `lag` when the `lag` input is null. `rigMode` + `simpleRig` add the simplified 6×6 section-total surface on top (identity when empty, so the two editors are interchangeable); `strength` multiplies every rig contribution before the lag integrator. `replace` bones are synthesized outright (bounded by construction → glitch-proof; emitted even if the tracker never sent them, so a face-only source drives a whole body); `add` bones premultiply the offset onto the tracked rotation and are skipped when untracked. A per-bone first-order lag (base `lag` × the rig's per-bone multiplier) staggers the chain for follow-through; `amount` slerps the result against the untouched pose. Per-bone lag state on the instance + memoized on the input pose, same reasoning as above. Ordinary static node. See [stylized-tracking.md](stylized-tracking.md). |
@@ -158,7 +168,7 @@ weights — with identical shapes and separate registries
 Both are entered from `BroadcastBus._composeAndEmit`: if `start()` reports that a
 chain exists, the bus does NOT emit and the chain's terminal node does, via
 `emitMergedPose` / `emitMergedBlendshapes`. Priority orders the chain (higher runs
-first); ties break by registration order.
+first); ties break by registration order. Interceptors receive the frame after Tracking Mix weighting has been applied by the bus (see [component-managers.md](component-managers.md#broadcastbus--broadcastbusts)).
 
 | Kind | Description |
 |------|-------------|
@@ -186,6 +196,8 @@ A `GraphDescriptor` (defined in `packages/shared/src/signal.ts`) is a static tem
   edges: Array<{ fromNodeId, fromPort, toNodeId, toPort }>
 }
 ```
+
+**Two shapes, one meaning.** The above is the RUNTIME shape — what the engine instantiates from and what the canvas renders, both of which want lists. A *persisted* graph (the `logic` table, see [project-graphs.md](project-graphs.md)) is stored and synced as a `GraphDescriptorDoc`, with `nodes` and `edges` keyed by id: a list is one mesh path, so two people editing one graph would overwrite each other's whole program. `toGraphDescriptor` / `toDescriptorDoc` convert at the boundary, and `toGraphDescriptor` also accepts the list form, so a descriptor written before the keying still loads. An edge's key is DERIVED from its endpoints (`edgeKey`), because edges carry no id — which also means two peers drawing the same connection converge instead of duplicating it. Behavior graphs are built in code and never persisted, so they only ever exist in the runtime shape.
 
 Edges no longer carry a `kind` — transport is derived from the resolved port types at load time (the old `PortKind` is deleted). Each manager creates its own descriptor factory (e.g., `makeVmcGraphDescriptor(behaviorId)`). The descriptor is passed to `SignalGraph.fromDescriptor()` along with live config/state callbacks; `fromDescriptor` replays the edges through `InferGraph.tryAddEdge` and silently skips any the inference rejects.
 
@@ -237,7 +249,7 @@ Phase 2 (branch `feature/signal-graph-nodes-v2`) landed both architecture change
    - `@valueIn('name', TypeTag)` / `@listIn('name', TypeTag)` on a **field** typed as a thunk (`() => T` / `() => T[]`); the engine assigns the puller. Read upstream with `this.field()`.
    - `@eventOut('name', TypeTag)` on a **field** typed `Emitter<T>`; emit the RAW payload with `this.field.emit(payload)` (the engine wraps it in `Event<T>`).
    - `@valueOut('name', TypeTag)` on a **field** you define as a thunk `() => T` (it may read other `@valueIn` thunks).
-4. For state that must survive `reconcile()`, use `this.getState<T>()` / `this.setState(v)` — do not keep it in plain instance fields.
+4. For state that must survive `reconcile()`, use `this.getState<T>()` / `this.setState(v)` — do not keep it in plain instance fields. That state is scratch (graph-lifetime) by default. Add `static readonly persistState = true` only if the user would expect it back after a restart, and only if it is plain JSON — never a `Blendshapes` / `NormalizedPose` / `Quaternion` / `Map`, which do not survive the round-trip.
 5. Register the class in `packages/backend/src/signal/registry.ts`.
 6. If the node has dynamic ports or non-trivial type relationships, add an `inferPorts` entry to `INFER_BY_KIND` in `packages/shared/src/infer_nodes.ts` (shared by engine + frontend). Dynamic-port nodes read/write by name via `this.input(name)`, `this.emitOn(name, v)`, and `setDynamicOutputs(resolve)` — set these up in the `protected onBind()` hook (the constructor runs before ports are wired).
 7. Add the node to the appropriate manager's graph descriptor if it belongs to a built-in pipeline.

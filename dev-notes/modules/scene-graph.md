@@ -108,7 +108,7 @@ DELETE /scene-nodes/:nodeId
 ```
 
 `POST /scenes/:sceneId/nodes` and `DELETE /scene-nodes/:nodeId` now broadcast **through the sync layer** — `sync.document.upsert`/`remove` for rtype `scene_node` on the single `'sync'` WS kind — instead of the bespoke `node_added`/`node_removed` kinds. The frontend applies them via the sync apply dispatcher (`upsert` dedupes by id; `remove` deletes the node). `DELETE` cascades children in the DB but emits a removal only for the deleted node. See [sync.md](sync.md).  
-`PUT /scene-nodes/:nodeId` still broadcasts the legacy `node_updated` (updates are not yet migrated).  
+`PUT /scene-nodes/:nodeId` writes the node through the mesh collection and broadcasts nothing. The `node_updated` kind it used to emit alongside that write was a strictly worse second copy — a flat `updateNode(id, patch)` with no knowledge of a running gesture, so it would snap a node the feeder was mid-tween on.  
 
 Note: the spawn manager still emits inline `node_added` / `node_removed` for ephemeral tmp nodes, so those legacy handlers remain in place. See [spawn.md](spawn.md).
 
@@ -228,6 +228,6 @@ Both preserve world placement. The target bone is found by `pickBoneUnderRay` (i
 
 1. User edits position/rotation/scale in `PropertiesPanel`
 2. On blur → `api.updateNode(nodeId, { components: { ...existing, transform: newTransform } })`
-3. `PUT /scene-nodes/:nodeId` → DB write → WS `node_updated` broadcast
-4. `useWsSync` applies the patch to the store
+3. `PUT /scene-nodes/:nodeId` → mesh collection write → the tap persists it
+4. `sync/meshStoreFeeder.ts` applies the document to the store
 5. Viewport reads transform from store and sets `group.position`, `group.rotation`, `group.scale` each frame
