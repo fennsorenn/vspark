@@ -4,9 +4,11 @@ import {
   type ComposeLayerRecord,
   type StageObject,
 } from '../../store/editorStore';
-import { api } from '../../api/client';
 import { layerFrame } from './composeHitTest';
+import { commitPromoteLayerToNode } from '../../mesh/layerWrites';
 import { DEFAULT_COMPOSE_WIDTH, DEFAULT_COMPOSE_HEIGHT } from './ComposeView';
+import { composeLayersNow, composeScenesNow } from '../../mesh/compose';
+import { sceneNodesNow } from '../../mesh/nodes';
 
 /** Placement for a node sent from a 2D compose layer into a camera's 3D scene:
  *  a world position + the billboard/video quad size (world units) chosen so the
@@ -135,9 +137,9 @@ function sceneResolution(source: ComposeLayerRecord): {
   w: number;
   h: number;
 } {
-  const scene = useEditorStore
-    .getState()
-    .composeScenes.find((s) => s.id === source.rootComposeSceneId);
+  const scene = composeScenesNow().find(
+    (s) => s.id === source.rootComposeSceneId
+  );
   return {
     w: scene?.width && scene.width > 0 ? scene.width : DEFAULT_COMPOSE_WIDTH,
     h:
@@ -149,10 +151,9 @@ function sceneResolution(source: ComposeLayerRecord): {
  *  camera-view layer wired to a camera in the current scene set). */
 export function canSendTo3D(source: ComposeLayerRecord): boolean {
   if (source.kind !== 'image' && source.kind !== 'video') return false;
-  const store = useEditorStore.getState();
   const { w, h } = sceneResolution(source);
-  const cv = findOverlappingCameraView(source, store.composeLayers, w, h);
-  return !!(cv && store.nodes.some((n) => n.id === cv.cameraNodeId));
+  const cv = findOverlappingCameraView(source, composeLayersNow(), w, h);
+  return !!(cv && sceneNodesNow().some((n) => n.id === cv.cameraNodeId));
 }
 
 /** Create a screen-facing billboard (image) or video node in the overlapped
@@ -164,13 +165,13 @@ export async function sendComposeLayerTo3D(
 ): Promise<void> {
   const store = useEditorStore.getState();
   const { w, h } = sceneResolution(source);
-  const camView = findOverlappingCameraView(source, store.composeLayers, w, h);
+  const camView = findOverlappingCameraView(source, composeLayersNow(), w, h);
   if (!camView?.cameraNodeId) return;
-  const cameraNode = store.nodes.find((n) => n.id === camView.cameraNodeId);
+  const cameraNode = sceneNodesNow().find((n) => n.id === camView.cameraNodeId);
   if (!cameraNode) return;
   const sceneId = cameraNode.rootSceneNodeId;
 
-  const byId = new Map(store.composeLayers.map((l) => [l.id, l] as const));
+  const byId = new Map(composeLayersNow().map((l) => [l.id, l] as const));
   const place = computeSendTo3DPlacement(
     cameraNode,
     camView,
@@ -192,10 +193,27 @@ export async function sendComposeLayerTo3D(
     sz: 1,
   };
 
+  // Build the node doc here rather than creating it: the create and the
+  // layer removal have to be issued together so "send to 3D" is one undo step.
+  const draft = (spec: Partial<StageObject>): StageObject => ({
+    id: crypto.randomUUID(),
+    rootSceneNodeId: sceneId,
+    projectId: store.projectId ?? '',
+    parentId: null,
+    boneAttachment: null,
+    name: source.name,
+    kind: 'billboard',
+    filePath: null,
+    components: {},
+    properties: {},
+    hidden: false,
+    ...spec,
+  });
+
   try {
     let node: StageObject;
     if (source.kind === 'video') {
-      node = await api.createNode(sceneId, {
+      node = draft({
         parentId: null,
         name: source.name,
         kind: 'video',
@@ -223,9 +241,7 @@ export async function sendComposeLayerTo3D(
       const asset = source.assetId
         ? store.assets.find((a) => a.id === source.assetId)
         : null;
-      node = await api.createNode(sceneId, {
-        parentId: null,
-        name: source.name,
+      node = draft({
         kind: 'billboard',
         filePath: asset?.url ?? null,
         components: {
@@ -242,14 +258,12 @@ export async function sendComposeLayerTo3D(
         },
       });
     }
-    if (store.nodes.every((n) => n.id !== node.id)) store.addNode(node);
     // The 2D layer has been promoted into 3D — remove it, and stay in the
     // compose view (the new node lives in the camera's scene and shows through
     // the camera_view).
     if (store.selectedComposeLayerId === source.id)
       store.selectComposeLayer(null);
-    store.removeComposeLayer(source.id);
-    await api.deleteComposeLayer(source.id).catch(() => {});
+    await commitPromoteLayerToNode(node, source.id);
   } catch (err) {
     alert(err instanceof Error ? err.message : 'Failed to send layer to 3D');
   }

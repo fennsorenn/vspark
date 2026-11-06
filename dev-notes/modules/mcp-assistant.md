@@ -247,6 +247,13 @@ produces a broken-but-accepted result. The encoded rules:
   `set_logic_descriptor` (`create_project_logic` returns only an id).
   **`set_logic_descriptor` changes only the nodes/edges, not the name** —
   rename / enable-disable a graph with `update_logic(id, name?, enabled?)`.
+- **Logic descriptors are lists on the MCP surface.** Storage (and REST `GET`)
+  keys a descriptor's nodes/edges by id so concurrent mesh edits merge (see
+  [project-graphs.md](project-graphs.md)); `get_logic` / `list_project_logic`
+  convert back with `toGraphDescriptor()` so the model reads the same list shape
+  `set_logic_descriptor` takes. **Decided (user, 2026-10-04):** the MCP diverges
+  from REST here on purpose — the model never writes per element, so the keyed
+  form would only cost tokens and teach it a second shape.
 - **Signal-node `kind` and port names come from the catalog**, not guesses —
   `list_node_kinds` then `lookup_node_kind` (ports + types/transport). A wrong
   port name is not validated server-side and yields a dead graph.

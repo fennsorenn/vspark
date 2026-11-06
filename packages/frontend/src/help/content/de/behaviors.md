@@ -16,7 +16,8 @@ und Ganzkörperanzüge können VMC senden; das VMC-Empfänger-Verhalten hört da
 und leitet es an deinen Avatar weiter.
 
 Du gibst lediglich an, auf welchem Port es lauschen soll (die sendende App zeigt
-diesen an), und die Bewegung fließt herein.
+diesen an), und die Bewegung fließt herein. Wenn die Augen des Avatars zu weit
+schauen, siehe [Blick](topic:behaviors#eye-range).
 
 ## iFacialMocap-Empfänger {#ifacialmocap}
 
@@ -55,6 +56,26 @@ die Richtungen stimmen, nimm eine entspannte neutrale Haltung ein und drücke
 
 Die Mimik wird genau wie beim [VMC-Empfänger](topic:behaviors#vmc) zugeordnet —
 dieselben drei Gesichts-Mapper, derselbe Editor für eigene Zuordnungen.
+
+### Blick: Augen schauen zu weit {#eye-range}
+
+Jedes Avatar-Modell legt fest, wie weit sich seine Augen drehen dürfen – meist
+nur etwa 10°, weil Anime-Augen groß sind. iFacialMocap meldet, wie weit sich
+**deine** Augen tatsächlich drehen, bis etwa 30°. Direkt übernommen rutscht die
+Iris schon bei normalen Augenbewegungen unter die Lider, und der Avatar zeigt
+das Weiße seiner Augen.
+
+**Augenbewegung an den Augenbereich des Modells anpassen** (unter **Blick**)
+behebt das: Deine Augendrehung wird so skaliert, dass eine Drehung um den
+**physischen Augenbereich** (standardmäßig 30°) die Grenze des Modells erreicht;
+alles darüber bleibt dort stehen. Verkleinere den Bereich, wenn sich die Augen
+des Avatars träge anfühlen; vergrößere ihn, wenn sie immer noch zu weit schauen.
+
+Bei iFacialMocap ist die Anpassung standardmäßig an. Der
+[VMC-Empfänger](topic:behaviors#vmc) hat dieselbe Einstellung, standardmäßig aus:
+Die meisten VMC-Sender passen die Augen schon an dein Modell an, und eine
+doppelte Anpassung würde sie zu klein machen. Schalte sie dort nur ein, wenn dein
+Sender rohe Augenwinkel weiterreicht.
 
 ## Kamera-Tracking {#tracking}
 

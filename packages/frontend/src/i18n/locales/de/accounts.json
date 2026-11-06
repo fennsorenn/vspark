@@ -113,7 +113,8 @@
       "label": "Bezeichnung",
       "host": "Host",
       "port": "Port",
-      "password": "Passwort"
+      "password": "Passwort",
+      "passwordUnchanged": "Unverändert (leer lassen zum Beibehalten)"
     },
     "allRequired": "Bezeichnung und Host sind erforderlich.",
     "saveFailed": "Verbindung konnte nicht gespeichert werden",

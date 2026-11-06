@@ -102,6 +102,7 @@ carried the original copy; this table is the durable source of truth.)
 | Project | Projekt |
 | Properties | Eigenschaften |
 | Add / Remove / Delete | Hinzufügen / Entfernen / Löschen |
+| Notice / toast | Meldung |
 
 When you introduce a new recurring domain term, add it here so future
 translations stay consistent.

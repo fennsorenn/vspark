@@ -411,7 +411,8 @@ function mapAppCredential(r: AppCredentialRow) {
     projectId: r.project_id,
     label: r.label,
     clientId: r.client_id,
-    clientSecret: r.client_secret,
+    // The client secret never leaves the backend (PUT keeps it when omitted).
+    hasClientSecret: Boolean(r.client_secret),
     redirectUri: r.redirect_uri,
     createdAt: r.created_at,
     updatedAt: r.updated_at,
@@ -425,6 +426,12 @@ function getAccount(id: string) {
   return row ? mapAccount(row) : null;
 }
 
+/** The part of an account's credential blob that is safe to hand out. */
+function publicCredentials(c: unknown): Record<string, unknown> {
+  const channelId = (c as { channelId?: unknown } | null)?.channelId;
+  return typeof channelId === 'string' ? { channelId } : {};
+}
+
 function mapAccount(r: AccountRow) {
   return {
     id: r.id,
@@ -432,7 +439,9 @@ function mapAccount(r: AccountRow) {
     platform: r.platform,
     label: r.label,
     appCredentialId: r.app_credential_id,
-    credentials: safeJson(r.credentials),
+    // OAuth tokens and SE JWTs never leave the backend. Only the non-secret
+    // channel id is exposed (StreamElements shows it in the account list).
+    credentials: publicCredentials(safeJson(r.credentials)),
     broadcasterId: r.broadcaster_id,
     broadcasterLogin: r.broadcaster_login,
     status: r.status,

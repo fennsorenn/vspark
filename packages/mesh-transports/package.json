@@ -5,7 +5,8 @@
   "type": "module",
   "exports": {
     "./wsServer": "./src/wsServer.ts",
-    "./wsClient": "./src/wsClient.ts"
+    "./wsClient": "./src/wsClient.ts",
+    "./webrtc": "./src/webrtc.ts"
   },
   "scripts": {
     "build": "tsc --noEmit",

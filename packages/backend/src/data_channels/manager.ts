@@ -24,63 +24,85 @@
  * referencing a bare field name resolves before the first publish rather than
  * throwing). Whole-value republish per field — no diffing (fine for chat rates).
  *
- * Scopes/fields are retained until cleared, and re-sent as a snapshot on every
- * new WS connect so a freshly-loaded editor/viewer matches current state.
+ * Scopes/fields are retained until cleared. That retention is now the mesh's:
+ * each field is a document in the `data_field` collection on the retained
+ * `runtime` channel (see mesh/runtime.ts), so a freshly-loaded editor/viewer
+ * gets the current values in its subscription snapshot. This class used to hold
+ * them in `_scopes`, broadcast each change on `/ws`, forward it to object-share
+ * subscribers, AND answer a `data_channel_snapshot` per connect; the replica
+ * does all four.
  *
  * See dev-notes/modules/data-channels.md.
  */
-import type { WSSync } from '../ws/index.js';
-
-/** Snapshot row: one scope and all its retained fields. */
-interface SnapshotEntry {
-  scope: string;
-  fields: Record<string, unknown>;
-}
+import {
+  dataFieldCollection,
+  dataFieldKey,
+  RUNTIME_CHANNEL,
+  type DataFieldDoc,
+} from '../mesh/runtime.js';
+import { getMeshCollection } from '../mesh/index.js';
 
 export class DataChannelManager {
-  private _ws: WSSync | null = null;
-  /** Optional tap for multiplayer fan-out of data channels scoped to a shared node. */
-  private _forward:
-    | ((op: 'set' | 'clear', payload: Record<string, unknown>) => void)
-    | null = null;
-
-  /** scope → (field → last-published value). scope '' is GLOBAL. */
-  private readonly _scopes = new Map<string, Map<string, unknown>>();
-
-  init(ws: WSSync): void {
-    this._ws = ws;
-  }
-
-  /** Install the multiplayer data-channel forwarder (injected at startup). */
-  setDataChannelForwarder(
-    fn: (op: 'set' | 'clear', payload: Record<string, unknown>) => void
-  ): void {
-    this._forward = fn;
-  }
+  /** scope id → what it names, cached. Only used to pick the containment
+   *  parent, so a miss costs routing reach, not correctness. */
+  private readonly _scopeKinds = new Map<
+    string,
+    'scene_node' | 'compose_layer' | null
+  >();
 
   private _scopeKey(scope: unknown): string {
     return typeof scope === 'string' ? scope.trim() : '';
   }
 
-  private _bucket(scope: string): Map<string, unknown> {
-    let m = this._scopes.get(scope);
-    if (!m) {
-      m = new Map();
-      this._scopes.set(scope, m);
-    }
-    return m;
+  /** What a scope id names, so the document can carry its own containment
+   *  parent. Read from the replica rather than SQLite: this runs on the publish
+   *  path, which is chat-rate, and the collections are already in memory. */
+  private _scopeKind(scope: string): 'scene_node' | 'compose_layer' | null {
+    if (scope === '') return null;
+    const cached = this._scopeKinds.get(scope);
+    if (cached !== undefined) return cached;
+    const kind = getMeshCollection('scene_node')?.get(scope)
+      ? 'scene_node'
+      : getMeshCollection('compose_layer')?.get(scope)
+        ? 'compose_layer'
+        : null;
+    this._scopeKinds.set(scope, kind);
+    return kind;
   }
 
-  /** Merge `fields` into a scope, overwriting same-named fields. Broadcasts the
-   *  changed subset. */
+  /** Write one field document. */
+  private _put(scope: string, field: string, value: unknown): void {
+    const id = dataFieldKey(scope, field);
+    dataFieldCollection()?.set(
+      id,
+      '',
+      {
+        id,
+        scope,
+        scopeKind: this._scopeKind(scope),
+        field,
+        value,
+      } as DataFieldDoc,
+      { channel: RUNTIME_CHANNEL }
+    );
+  }
+
+  /** Every live field of a scope. */
+  private _fieldsOf(scope: string): DataFieldDoc[] {
+    return (dataFieldCollection()?.all() ?? []).filter((d) => d.scope === scope);
+  }
+
+  /** Merge `fields` into a scope, overwriting same-named fields.
+   *
+   *  One document per field, so the merge is structural rather than something
+   *  this method has to preserve: two producers publishing different fields of
+   *  one scope write different documents and cannot clobber each other, even
+   *  under LWW. */
   set(scope: string, fields: Record<string, unknown>): void {
     const key = this._scopeKey(scope);
     const names = Object.keys(fields ?? {});
     if (names.length === 0) return;
-    const bucket = this._bucket(key);
-    for (const name of names) bucket.set(name, fields[name]);
-    this._ws?.broadcast('data_channel_set', { scope: key, fields });
-    this._forward?.('set', { scope: key, fields });
+    for (const name of names) this._put(key, name, fields[name]);
   }
 
   /** Like `set`, but only fills fields not already present. Broadcasts only the
@@ -88,57 +110,35 @@ export class DataChannelManager {
    *  fields so bare-name template references resolve before first publish. */
   seed(scope: string, fields: Record<string, unknown>): void {
     const key = this._scopeKey(scope);
-    const bucket = this._bucket(key);
-    const added: Record<string, unknown> = {};
-    for (const name of Object.keys(fields ?? {})) {
-      if (!bucket.has(name)) {
-        bucket.set(name, fields[name]);
-        added[name] = fields[name];
-      }
-    }
-    if (Object.keys(added).length > 0) {
-      this._ws?.broadcast('data_channel_set', { scope: key, fields: added });
-      this._forward?.('set', { scope: key, fields: added });
-    }
+    const col = dataFieldCollection();
+    if (!col) return;
+    for (const name of Object.keys(fields ?? {}))
+      if (!col.get(dataFieldKey(key, name))) this._put(key, name, fields[name]);
   }
 
-  /** Clear one field in a scope, or the whole scope when `field` is omitted. */
+  /** Clear one field in a scope, or the whole scope when `field` is omitted.
+   *
+   *  A clear is a document remove, so the whole-scope form enumerates: the
+   *  replica has no prefix-delete, and a receiver sees one remove per field
+   *  rather than a single message with an optional `field`. */
   clear(scope: string, field?: string): void {
     const key = this._scopeKey(scope);
-    const bucket = this._scopes.get(key);
-    if (!bucket) return;
-    if (field === undefined) {
-      this._scopes.delete(key);
-      this._ws?.broadcast('data_channel_clear', { scope: key });
-      this._forward?.('clear', { scope: key });
-      return;
-    }
-    if (!bucket.delete(field)) return;
-    if (bucket.size === 0) this._scopes.delete(key);
-    this._ws?.broadcast('data_channel_clear', { scope: key, field });
-    this._forward?.('clear', { scope: key, field });
+    const col = dataFieldCollection();
+    if (!col) return;
+    const ids =
+      field === undefined
+        ? this._fieldsOf(key).map((d) => d.id)
+        : [dataFieldKey(key, field)];
+    for (const id of ids)
+      if (col.get(id)) col.remove(id, { channel: RUNTIME_CHANNEL });
   }
 
   /** Drop every scope. Mainly for tests / full reset. */
   clearAll(): void {
-    if (this._scopes.size === 0) return;
-    const keys = [...this._scopes.keys()];
-    this._scopes.clear();
-    for (const key of keys) {
-      this._ws?.broadcast('data_channel_clear', { scope: key });
-    }
-  }
-
-  /** Send the current snapshot to a freshly-connected WS client (one message
-   *  with all retained scopes/fields). Mirrors the override-bus snapshot. */
-  sendSnapshotTo(
-    send: (kind: string, payload: Record<string, unknown>) => void
-  ): void {
-    const entries: SnapshotEntry[] = [];
-    for (const [scope, bucket] of this._scopes) {
-      entries.push({ scope, fields: Object.fromEntries(bucket) });
-    }
-    send('data_channel_snapshot', { entries });
+    const col = dataFieldCollection();
+    if (!col) return;
+    for (const d of col.all()) col.remove(d.id, { channel: RUNTIME_CHANNEL });
+    this._scopeKinds.clear();
   }
 }
 

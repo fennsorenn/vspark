@@ -24,6 +24,12 @@ import { getDb } from '../db/index.js';
 import { defineResource } from './registry.js';
 import { rowToLayer, type LayerRow } from '../routes/compose-layers.js';
 import { loadClip } from '../routes/track-clips.js';
+import { itemsOf, type IdMap } from '@vspark/shared/idMap';
+import {
+  toDescriptorDoc,
+  toGraphDescriptor,
+  type GraphDescriptorDoc,
+} from '@vspark/shared/signal';
 
 interface StageObjectRow {
   id: string;
@@ -233,8 +239,8 @@ defineResource<ReturnType<typeof rowToLayer>>({
         `INSERT INTO compose_layers
            (id, project_id, root_compose_scene_id, camera_node_id, parent_id,
             name, kind, asset_id, config, x, y, width, height, rotation,
-            anchor_h, anchor_v, scene_order, camera_order, visible)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            anchor_h, anchor_v, order_key, visible)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT(id) DO UPDATE SET
            project_id            = excluded.project_id,
            root_compose_scene_id = excluded.root_compose_scene_id,
@@ -251,8 +257,7 @@ defineResource<ReturnType<typeof rowToLayer>>({
            rotation              = excluded.rotation,
            anchor_h              = excluded.anchor_h,
            anchor_v              = excluded.anchor_v,
-           scene_order           = excluded.scene_order,
-           camera_order          = excluded.camera_order,
+           order_key             = excluded.order_key,
            visible               = excluded.visible,
            updated_at            = datetime('now')`
       )
@@ -273,14 +278,12 @@ defineResource<ReturnType<typeof rowToLayer>>({
         dto.rotation,
         dto.anchorH,
         dto.anchorV,
-        dto.sceneOrder,
-        dto.cameraOrder,
+        dto.orderKey,
         dto.visible ? 1 : 0
       );
   },
   remove: (id) => {
-    // Dependent camera layers (scene_order re-anchoring) is a UI concern handled
-    // by the REST route. For generic sync removal, a plain delete is sufficient —
+    // For generic sync removal a plain delete is sufficient —
     // the schema does not cascade on compose_layers.parent_id automatically, but
     // child layers reference the deleted parent via parent_id (nullable FK), so
     // they are left in place (orphaned) until the caller resolves them.
@@ -293,16 +296,17 @@ defineResource({
   cls: 'document',
   load: (id) => loadClip(id) ?? undefined,
   save: (dto) => {
-    // `dto` is the canonical DTO returned by loadClip/mapClip:
-    //   { id, ownerNodeId, ownerLayerId, name, duration, loop, mode, autoplay,
-    //     startedAt, createdAt, lanes:[{id, clipId, targetKind, targetId,
-    //     paramPath, defaultValue, keyframes:[...]}], events:[...] }
+    // `dto` is the canonical DTO returned by loadClip/mapClip. Its child
+    // collections are id-keyed maps, not arrays (see @vspark/shared/idMap), so
+    // each element is its own mesh path; a deleted one is present as `null`
+    // and `itemsOf` skips it. Only live elements get rows, which is why
+    // tombstones never reach SQLite and a reload comes back clean.
     //
     // Persist strategy: delete-then-reinsert children (same as applyClipDto in
     // collabScene.ts) so re-applying an existing clip is idempotent without
     // hitting UNIQUE constraint errors on stale child ids.
-    // started_at and created_at are preserved when present in the DTO so that
-    // load(id) after save(dto) returns the same values.
+    // created_at is preserved when present in the DTO so that load(id) after
+    // save(dto) returns the same value.
     const d = dto as {
       id: string;
       ownerNodeId: string | null;
@@ -312,16 +316,15 @@ defineResource({
       loop: boolean;
       mode: string;
       autoplay: boolean;
-      startedAt?: number | null;
       createdAt?: string;
-      lanes: Array<{
+      lanes: IdMap<{
         id: string;
         clipId?: string;
         targetKind: string;
         targetId: string;
         paramPath: string;
         defaultValue: number;
-        keyframes: Array<{
+        keyframes: IdMap<{
           id: string;
           t: number;
           value: number;
@@ -332,7 +335,7 @@ defineResource({
           outHandleVFraction: number | null;
         }>;
       }>;
-      events: Array<{
+      events: IdMap<{
         id: string;
         t: number;
         action: string;
@@ -357,12 +360,12 @@ defineResource({
     db.prepare('DELETE FROM track_clip_lanes WHERE clip_id = ?').run(d.id);
     db.prepare('DELETE FROM track_clip_events WHERE clip_id = ?').run(d.id);
     db.prepare('DELETE FROM track_clips WHERE id = ?').run(d.id);
-    // Reinsert the clip row, preserving started_at and created_at for round-trip.
+    // Reinsert the clip row, preserving created_at for round-trip.
     db.prepare(
       `INSERT INTO track_clips
          (id, owner_node_id, owner_layer_id, name, duration, loop, mode, autoplay,
-          started_at, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, COALESCE(?, datetime('now')))`
+          created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, COALESCE(?, datetime('now')))`
     ).run(
       d.id,
       d.ownerNodeId ?? null,
@@ -372,16 +375,15 @@ defineResource({
       d.loop ? 1 : 0,
       d.mode,
       d.autoplay ? 1 : 0,
-      d.startedAt ?? null,
       d.createdAt ?? prior?.created_at ?? null
     );
-    for (const lane of d.lanes ?? []) {
+    for (const lane of itemsOf(d.lanes)) {
       db.prepare(
         `INSERT INTO track_clip_lanes
            (id, clip_id, target_kind, target_id, param_path, default_value)
          VALUES (?, ?, ?, ?, ?, ?)`
       ).run(lane.id, d.id, lane.targetKind, lane.targetId, lane.paramPath, lane.defaultValue);
-      for (const kf of lane.keyframes ?? [])
+      for (const kf of itemsOf(lane.keyframes))
         db.prepare(
           `INSERT INTO track_clip_keyframes
              (id, lane_id, t, value, easing, in_handle_t_fraction, in_handle_v_fraction,
@@ -393,7 +395,7 @@ defineResource({
           kf.outHandleTFraction ?? null, kf.outHandleVFraction ?? null
         );
     }
-    for (const ev of d.events ?? [])
+    for (const ev of itemsOf(d.events))
       db.prepare(
         `INSERT INTO track_clip_events (id, clip_id, t, action, target_kind, target_id, payload)
          VALUES (?, ?, ?, ?, ?, ?, ?)`
@@ -413,6 +415,86 @@ defineResource({
 // Declared so the four-class API surface is complete and these names are
 // reserved. Lossy/latest-wins, no load/scope/snapshot. The live broadcasts
 // (pose_broadcast / blendshapes_broadcast / ik_broadcast) still emit their
+interface LogicRowShape {
+  id: string;
+  owner_kind: string;
+  owner_id: string;
+  name: string;
+  enabled: number;
+  descriptor: string;
+  node_state: string;
+  created_at: string;
+  updated_at: string;
+}
+
+/** A signal graph. Owned polymorphically — by a project, a scene node, or a
+ *  compose layer — which is why the DTO carries `ownerKind` alongside
+ *  `ownerId`. `node_state` is runtime scratch owned by the running graph, not
+ *  document content, so it is deliberately absent from the DTO and left alone
+ *  by `save`. */
+defineResource({
+  rtype: 'logic',
+  cls: 'document',
+  load: (id) => {
+    const r = getDb()
+      .prepare('SELECT * FROM logic WHERE id = ?')
+      .get(id) as unknown as LogicRowShape | undefined;
+    if (!r) return undefined;
+    return {
+      id: r.id,
+      ownerKind: r.owner_kind,
+      ownerId: r.owner_id,
+      name: r.name,
+      enabled: r.enabled === 1,
+      // Normalized to the DOCUMENT form (nodes/edges keyed by id) whatever the
+      // row holds: descriptors written before the keying are lists, and this is
+      // where they are converted — the next save writes them back keyed.
+      descriptor: toDescriptorDoc(
+        toGraphDescriptor(JSON.parse(r.descriptor) as GraphDescriptorDoc)
+      ),
+      createdAt: r.created_at,
+    };
+  },
+  save: (dto) => {
+    const d = dto as {
+      id: string;
+      ownerKind: string;
+      ownerId: string;
+      name: string;
+      enabled?: boolean;
+      descriptor?: unknown;
+      createdAt?: string;
+    };
+    const db = getDb();
+    const prior = db
+      .prepare('SELECT created_at FROM logic WHERE id = ?')
+      .get(d.id) as { created_at: string } | undefined;
+    db.prepare(
+      `INSERT INTO logic
+         (id, owner_kind, owner_id, name, enabled, descriptor, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, COALESCE(?, datetime('now')), datetime('now'))
+       ON CONFLICT(id) DO UPDATE SET
+         owner_kind = excluded.owner_kind,
+         owner_id   = excluded.owner_id,
+         name       = excluded.name,
+         enabled    = excluded.enabled,
+         descriptor = excluded.descriptor,
+         updated_at = datetime('now')`
+    ).run(
+      d.id,
+      d.ownerKind,
+      d.ownerId,
+      d.name,
+      d.enabled === false ? 0 : 1,
+      JSON.stringify(d.descriptor ?? { nodes: [], edges: [] }),
+      d.createdAt ?? prior?.created_at ?? null
+    );
+  },
+  remove: (id) => {
+    getDb().prepare('DELETE FROM logic WHERE id = ?').run(id);
+  },
+});
+
 // legacy WS kinds; migrating that 90 Hz hot path onto sync.stream.publish is
 // deferred until it can be runtime-verified (see the design doc, Phase 3).
 interface AnimationClipRow {
@@ -569,6 +651,82 @@ defineResource({
   },
   remove: (id) => {
     getDb().prepare('DELETE FROM scheduled_animations WHERE id = ?').run(id);
+  },
+});
+
+interface ClipPlaybackRow {
+  id: string;
+  clip_id: string;
+  state: string;
+  start_epoch: number | null;
+  paused_at_t: number | null;
+  speed: number;
+  loop: number;
+  created_at: string;
+}
+
+/** A clip's transport state. Peers derive the playhead from `startEpoch`
+ *  against the wall clock rather than receiving evaluated frames — see
+ *  migration 037 and principle 1 in dev-notes/modules/mesh.md. */
+defineResource({
+  rtype: 'clip_playback',
+  cls: 'document',
+  load: (id) => {
+    const r = getDb()
+      .prepare('SELECT * FROM clip_playback WHERE id = ?')
+      .get(id) as unknown as ClipPlaybackRow | undefined;
+    if (!r) return undefined;
+    return {
+      id: r.id,
+      clipId: r.clip_id,
+      state: r.state,
+      startEpoch: r.start_epoch,
+      pausedAtT: r.paused_at_t,
+      speed: r.speed,
+      loop: r.loop === 1,
+      createdAt: r.created_at,
+    };
+  },
+  save: (dto) => {
+    const d = dto as {
+      id: string;
+      clipId: string;
+      state?: string;
+      startEpoch?: number | null;
+      pausedAtT?: number | null;
+      speed?: number;
+      loop?: boolean;
+      createdAt?: string;
+    };
+    const db = getDb();
+    const prior = db
+      .prepare('SELECT created_at FROM clip_playback WHERE id = ?')
+      .get(d.id) as { created_at: string } | undefined;
+    db.prepare(
+      `INSERT INTO clip_playback
+         (id, clip_id, state, start_epoch, paused_at_t, speed, loop, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, COALESCE(?, datetime('now')))
+       ON CONFLICT(id) DO UPDATE SET
+         clip_id     = excluded.clip_id,
+         state       = excluded.state,
+         start_epoch = excluded.start_epoch,
+         paused_at_t = excluded.paused_at_t,
+         speed       = excluded.speed,
+         loop        = excluded.loop,
+         updated_at  = datetime('now')`
+    ).run(
+      d.id,
+      d.clipId,
+      d.state ?? 'stopped',
+      d.startEpoch ?? null,
+      d.pausedAtT ?? null,
+      d.speed ?? 1,
+      d.loop ? 1 : 0,
+      d.createdAt ?? prior?.created_at ?? null
+    );
+  },
+  remove: (id) => {
+    getDb().prepare('DELETE FROM clip_playback WHERE id = ?').run(id);
   },
 });
 

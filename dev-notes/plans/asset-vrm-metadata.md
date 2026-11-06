@@ -1,6 +1,10 @@
 # Plan: Pre-extract VRM/GLB metadata into asset_files
 
-> Branch: `claude/dazzling-heisenberg-ri7pj2` · Status: implemented
+> **Status:** shipped — migration `034_asset_metadata` adds the bones / materials /
+> morph-target / expression JSON columns on `asset_files`. Module doc:
+> [`../modules/asset-management.md`](../modules/asset-management.md).
+
+> *(Historical.)* Branch: `claude/dazzling-heisenberg-ri7pj2`
 > This plan is the seed context for a cloud worker. It is a starting point, not an
 > airtight spec — the worker is interactive and may ask to refine it.
 

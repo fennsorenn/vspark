@@ -6,10 +6,20 @@
  * nodes mutate scene-node and compose-layer params at runtime, transient by
  * default with an opt-in persistent mode.
  *
+ * The overrides themselves live in the mesh `runtime_override` collection on a
+ * retained channel (see mesh/runtime.ts) — this class validates and coerces,
+ * then writes there. It used to broadcast on `/ws`, forward to object-share
+ * subscribers, tap the collab relay, AND hold every live value in its own map
+ * so it could replay a snapshot to each new client. The replica does all four.
+ *
  * See dev-notes/modules/runtime-overrides.md.
  */
-import type { WSSync } from '../ws/index.js';
 import { getDb } from '../db/index.js';
+import {
+  overrideCollection,
+  overrideKey,
+  RUNTIME_CHANNEL,
+} from '../mesh/runtime.js';
 import {
   coerceParamValue,
   getParamPathSpec,
@@ -37,50 +47,24 @@ export type RuntimePersistFn = (
   value: RuntimeOverrideValue
 ) => void | Promise<void>;
 
-interface OverrideEntry {
-  sceneId: string;
-  value: RuntimeOverrideValue;
-}
-
-/** Snapshot row shape sent on client connect. */
-interface SnapshotEntry {
-  targetKind: ParamTargetKind;
-  targetId: string;
-  paramPath: string;
-  value: RuntimeOverrideValue;
-}
-
 export class RuntimeOverrideManager {
-  private _ws: WSSync | null = null;
   private _persist: RuntimePersistFn | null = null;
-  /** Optional tap for multiplayer fan-out of overrides on shared scene nodes. */
-  private _forward:
-    | ((
-        op: 'set' | 'clear',
-        payload: Record<string, unknown>
-      ) => void)
-    | null = null;
-
-  /** sceneId → `${targetKind}:${targetId}:${paramPath}` → entry */
-  private readonly _bySceneId = new Map<string, Map<string, OverrideEntry>>();
-  /** targetId → sceneId (lookup cache) */
+  /** targetId → sceneId, for targets with no row of their own (spawned tmp
+   *  entities). Kept only so `clear` can still find them — see registerTarget. */
   private readonly _sceneByTarget = new Map<string, string>();
 
-  init(ws: WSSync, persist?: RuntimePersistFn | null): void {
-    this._ws = ws;
+  init(persist?: RuntimePersistFn | null): void {
     this._persist = persist ?? null;
   }
 
-  /** Install the multiplayer override forwarder (injected at startup). */
-  setOverrideForwarder(
-    fn: (op: 'set' | 'clear', payload: Record<string, unknown>) => void
-  ): void {
-    this._forward = fn;
-  }
-
-  /** Pre-register a (target → scene) mapping so the bus doesn't have to look
-   *  it up in SQLite. Used by SpawnManager for tmp entities that have no
-   *  database row. Safe to call repeatedly with the same mapping. */
+  /** Pre-register a (target → scene) mapping for an entity with no database
+   *  row. Used by SpawnManager for tmp entities. Safe to call repeatedly.
+   *
+   *  A spawned entity is not a mesh document either, so its overrides get no
+   *  containment parent and reach tabs by rtype subscription rather than by
+   *  scene grant. That is the same reach they had over the old `/ws`
+   *  broadcast; only collab/share routing (which never carried tmp ids) is
+   *  narrower. */
   registerTarget(targetId: string, sceneId: string): void {
     this._sceneByTarget.set(targetId, sceneId);
   }
@@ -111,30 +95,25 @@ export class RuntimeOverrideManager {
       return;
     }
 
-    const sceneId = this._resolveSceneId(targetKind, targetId);
-    if (!sceneId) {
+    // Still resolved, still refused when it doesn't land: an override on an
+    // entity that is in no scene is a graph addressing something that isn't
+    // there, and dropping it with a log is the behaviour the bus has always
+    // had. The scene id no longer keys anything — containment does that now —
+    // so this is purely the existence check.
+    if (!this._resolveSceneId(targetKind, targetId)) {
       console.warn(
         `[runtime-overrides] ${targetKind} ${targetId} not found in any scene`
       );
       return;
     }
 
-    const key = _key(targetKind, targetId, paramPath);
-    let sceneMap = this._bySceneId.get(sceneId);
-    if (!sceneMap) {
-      sceneMap = new Map();
-      this._bySceneId.set(sceneId, sceneMap);
-    }
-    sceneMap.set(key, { sceneId, value: coerced });
-
-    this._ws?.broadcast('runtime_override_set', {
-      sceneId,
-      targetKind,
-      targetId,
-      paramPath,
-      value: coerced,
-    });
-    this._forward?.('set', { targetKind, targetId, paramPath, value: coerced });
+    const id = overrideKey(targetKind, targetId, paramPath);
+    overrideCollection()?.set(
+      id,
+      '',
+      { id, targetKind, targetId, paramPath, value: coerced },
+      { channel: RUNTIME_CHANNEL }
+    );
 
     if (opts.persist && this._persist) {
       // Persist asynchronously; never block the override or interrupt the
@@ -151,43 +130,29 @@ export class RuntimeOverrideManager {
   }
 
   /** Clear a single override, or all overrides for a target when paramPath is
-   *  omitted. No-op if nothing is set. */
+   *  omitted. No-op if nothing is set.
+   *
+   *  A clear is a document REMOVE, which is why the whole-target form has to
+   *  enumerate: the replica holds one document per path, and there is no
+   *  prefix-delete. `all()` is a small list (live overrides only), and this
+   *  runs on entity deletion, not per frame. */
   clear(
     targetKind: ParamTargetKind,
     targetId: string,
     paramPath?: string
   ): void {
-    const sceneId = this._sceneByTarget.get(targetId);
-    if (!sceneId) return;
-    const sceneMap = this._bySceneId.get(sceneId);
-    if (!sceneMap) return;
-
-    if (paramPath) {
-      const key = _key(targetKind, targetId, paramPath);
-      if (!sceneMap.delete(key)) return;
-    } else {
-      const prefix = `${targetKind}:${targetId}:`;
-      let removed = 0;
-      for (const k of Array.from(sceneMap.keys())) {
-        if (k.startsWith(prefix)) {
-          sceneMap.delete(k);
-          removed += 1;
-        }
-      }
-      if (removed === 0) return;
-    }
-
-    this._ws?.broadcast('runtime_override_clear', {
-      sceneId,
-      targetKind,
-      targetId,
-      ...(paramPath ? { paramPath } : {}),
-    });
-    this._forward?.('clear', {
-      targetKind,
-      targetId,
-      ...(paramPath ? { paramPath } : {}),
-    });
+    const col = overrideCollection();
+    if (!col) return;
+    const ids = paramPath
+      ? [overrideKey(targetKind, targetId, paramPath)]
+      : col
+          .all()
+          .filter(
+            (d) => d.targetKind === targetKind && d.targetId === targetId
+          )
+          .map((d) => d.id);
+    for (const id of ids)
+      if (col.get(id)) col.remove(id, { channel: RUNTIME_CHANNEL });
   }
 
   /** Drop every override owned by a target. Called on entity delete so the
@@ -195,22 +160,6 @@ export class RuntimeOverrideManager {
   clearAllForTarget(targetKind: ParamTargetKind, targetId: string): void {
     this.clear(targetKind, targetId);
     this._sceneByTarget.delete(targetId);
-  }
-
-  /** Send the current snapshot to a freshly-connected WS client. Mirrors the
-   *  track-clip snapshot pattern (single message with all entries). */
-  sendSnapshotTo(
-    send: (kind: string, payload: Record<string, unknown>) => void
-  ): void {
-    const entries: SnapshotEntry[] = [];
-    for (const sceneMap of this._bySceneId.values()) {
-      for (const [key, entry] of sceneMap) {
-        const parsed = _parseKey(key);
-        if (!parsed) continue;
-        entries.push({ ...parsed, value: entry.value });
-      }
-    }
-    send('runtime_override_snapshot', { entries });
   }
 
   /** Resolve a target id back to its containing scene id. Cached after the
@@ -239,32 +188,6 @@ export class RuntimeOverrideManager {
     this._sceneByTarget.set(targetId, sceneId);
     return sceneId;
   }
-}
-
-function _key(
-  targetKind: ParamTargetKind,
-  targetId: string,
-  paramPath: string
-): string {
-  return `${targetKind}:${targetId}:${paramPath}`;
-}
-
-function _parseKey(
-  key: string
-): { targetKind: ParamTargetKind; targetId: string; paramPath: string } | null {
-  const i = key.indexOf(':');
-  if (i < 0) return null;
-  const targetKind = key.slice(0, i) as ParamTargetKind;
-  if (targetKind !== 'scene_node' && targetKind !== 'compose_layer')
-    return null;
-  const rest = key.slice(i + 1);
-  const j = rest.indexOf(':');
-  if (j < 0) return null;
-  return {
-    targetKind,
-    targetId: rest.slice(0, j),
-    paramPath: rest.slice(j + 1),
-  };
 }
 
 export const runtimeOverrideManager = new RuntimeOverrideManager();

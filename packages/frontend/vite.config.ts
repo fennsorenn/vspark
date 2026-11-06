@@ -26,7 +26,8 @@ const resilientProxy: ProxyOptions['configure'] = (proxy) => {
     try {
       if (target && 'writeHead' in target) {
         const res = target as ServerResponse;
-        if (!res.headersSent) res.writeHead(502, { 'content-type': 'text/plain' });
+        if (!res.headersSent)
+          res.writeHead(502, { 'content-type': 'text/plain' });
         res.end('proxy error');
       } else if (target && 'destroy' in target) {
         (target as Socket).destroy();
@@ -48,6 +49,9 @@ function cubism(sub: string) {
 }
 
 export default defineConfig({
+  // ES-module workers: the Live2D worker imports the Cubism framework
+  // dynamically, after the Core is loaded (the IIFE default can't split code).
+  worker: { format: 'es' },
   // Istanbul instrumentation for e2e code coverage. Gated on COVERAGE so it
   // NEVER touches the production build — only the e2e coverage run sets it
   // (see e2e/playwright.config.ts). Coverage shows up on window.__coverage__.
@@ -69,6 +73,10 @@ export default defineConfig({
     proxy: {
       '/api': {
         target: `http://localhost:${backendPort}`,
+        // Pass the browser's address on: mesh enrollment decides "same
+        // machine or pairing code" by it, and every proxied request would
+        // otherwise look local.
+        xfwd: true,
         configure: resilientProxy,
       },
       '/ws': {
@@ -94,24 +102,56 @@ export default defineConfig({
   resolve: {
     // More-specific aliases must come before less-specific ones.
     alias: [
+      { find: '@vspark/shared/fracIndex', replacement: shared('fracIndex.ts') },
+      {
+        find: '@vspark/shared/clipPlayback',
+        replacement: shared('clipPlayback.ts'),
+      },
+      {
+        find: '@vspark/shared/idMap',
+        replacement: shared('idMap.ts'),
+      },
       { find: /^@cubism\/framework\/(.*)/, replacement: cubism('$1') },
-      { find: '@vspark/shared/signal_types', replacement: shared('signal_types.ts') },
+      {
+        find: '@vspark/shared/signal_types',
+        replacement: shared('signal_types.ts'),
+      },
       { find: '@vspark/shared/signal', replacement: shared('signal.ts') },
-      { find: '@vspark/shared/node_decorators', replacement: shared('node_decorators.ts') },
+      {
+        find: '@vspark/shared/node_decorators',
+        replacement: shared('node_decorators.ts'),
+      },
       { find: '@vspark/shared/node', replacement: shared('node.ts') },
       { find: '@vspark/shared/inference', replacement: shared('inference.ts') },
-      { find: '@vspark/shared/infer_nodes', replacement: shared('infer_nodes.ts') },
+      {
+        find: '@vspark/shared/infer_nodes',
+        replacement: shared('infer_nodes.ts'),
+      },
       { find: '@vspark/shared/schema', replacement: shared('schema.ts') },
       { find: '@vspark/shared/arkit', replacement: shared('arkit_tables.ts') },
-      { find: '@vspark/shared/paramPaths', replacement: shared('paramPaths.ts') },
-      { find: '@vspark/shared/cameraEffects', replacement: shared('cameraEffects.ts') },
-      { find: '@vspark/shared/feedValidation', replacement: shared('feedValidation.ts') },
+      {
+        find: '@vspark/shared/paramPaths',
+        replacement: shared('paramPaths.ts'),
+      },
+      {
+        find: '@vspark/shared/cameraEffects',
+        replacement: shared('cameraEffects.ts'),
+      },
+      {
+        find: '@vspark/shared/feedValidation',
+        replacement: shared('feedValidation.ts'),
+      },
       { find: '@vspark/shared/style_rig', replacement: shared('style_rig.ts') },
       {
         find: '@vspark/shared/blendshapeLimits',
         replacement: shared('blendshapeLimits.ts'),
       },
+      {
+        find: '@vspark/shared/trackingMix',
+        replacement: shared('trackingMix.ts'),
+      },
       { find: '@vspark/shared/sync', replacement: shared('sync.ts') },
+      { find: '@vspark/shared/models', replacement: shared('models.ts') },
       { find: '@vspark/shared/live2d', replacement: shared('live2d.ts') },
       { find: '@vspark/shared', replacement: shared('types.ts') },
     ],

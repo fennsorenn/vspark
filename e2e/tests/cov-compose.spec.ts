@@ -116,6 +116,21 @@ test('cov-compose: exercise ComposeTree and layer-property controls', async ({
     await collapseBtn.click(); // expand back
   }
 
+  // vs-compose-obs-window — the compose scene (no layer selected) shows its
+  // settings; toggle OBS window capture on, assert it persisted, then off again
+  // so the backend closes the output window it opened.
+  const obsWindow = page.locator('.vs-compose-obs-window');
+  await expect(obsWindow).toBeVisible({ timeout: 5_000 });
+  const sceneConfig = async () => {
+    const res = await request.get(`/api/projects/${projectId}/compose-scenes`);
+    const scenes = ((await res.json()).data ?? []) as ComposeLayer[];
+    return scenes.find((s) => s.id === composeSceneId)?.config ?? {};
+  };
+  await obsWindow.click();
+  await expect.poll(async () => (await sceneConfig()).obsWindowCapture).toBe(true);
+  await obsWindow.click();
+  await expect.poll(async () => (await sceneConfig()).obsWindowCapture).toBe(false);
+
   // ---- 4. Select the layer to show its properties --------------------------
 
   // Click on the layer row to select it.
@@ -246,17 +261,10 @@ test('cov-compose: exercise ComposeTree and layer-property controls', async ({
   // Reset.
   await xUnit.selectOption('px');
 
-  // vs-layer-scene-order — scene order NumInput.
-  const sceneOrderInput = page.locator('.vs-layer-scene-order');
-  await expect(sceneOrderInput).toBeVisible();
-  const sceneOrderNumberInput = sceneOrderInput.locator('input');
-  await sceneOrderNumberInput.fill('2');
-  await sceneOrderNumberInput.blur();
-
-  // vs-layer-camera-order — camera order NumInput.
-  const cameraOrderInput = page.locator('.vs-layer-camera-order');
-  await expect(cameraOrderInput).toBeVisible();
-  const cameraOrderNumberInput = cameraOrderInput.locator('input');
-  await cameraOrderNumberInput.fill('1');
-  await cameraOrderNumberInput.blur();
+  // Stack order is a fractional key now, so it's driven by these four buttons
+  // rather than typing an integer. With a single layer in the group there is
+  // nowhere to move, so they are all disabled — assert that, then exercise the
+  // enabled path below once a second layer exists.
+  await expect(page.locator('.vs-layer-order-back')).toBeDisabled();
+  await expect(page.locator('.vs-layer-order-front')).toBeDisabled();
 });

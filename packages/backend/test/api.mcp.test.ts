@@ -231,7 +231,6 @@ describe('MCP server', () => {
               fromPort: 'tick',
               toNodeId: 'rnd',
               toPort: 'fire',
-              kind: 'event',
             },
           ],
         },
@@ -248,6 +247,22 @@ describe('MCP server', () => {
     ) as { descriptor: { nodes: unknown[]; edges: unknown[] } };
     expect(got.descriptor.nodes).toHaveLength(2);
     expect(got.descriptor.edges).toHaveLength(1);
+
+    // Storage keys nodes/edges by id; the MCP reads back the list form it was
+    // written in, from the list tool as well as get_logic.
+    const listed = JSON.parse(
+      text(
+        (await mcp.callTool({
+          name: 'list_project_logic',
+          arguments: { projectId: proj.id },
+        })) as { content: { type: string; text?: string }[] }
+      )
+    ) as { id: string; descriptor: { nodes: unknown[]; edges: unknown[] } }[];
+    const row = listed.find((l) => l.id === created.id);
+    expect(row?.descriptor.nodes).toHaveLength(2);
+    expect(row?.descriptor.edges).toEqual([
+      { fromNodeId: 'clk', fromPort: 'tick', toNodeId: 'rnd', toPort: 'fire' },
+    ]);
   });
 
   // A 1x1 transparent PNG.

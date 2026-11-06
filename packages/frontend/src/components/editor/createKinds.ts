@@ -1,5 +1,6 @@
 import { useEditorStore, type StageObject } from '../../store/editorStore';
-import { api } from '../../api/client';
+import { commitNodeCreate } from '../../mesh/writes';
+import { commitLayerCreate } from '../../mesh/layerWrites';
 import { createRemoteChild } from '../../sync/remoteEdit';
 import type { AssetFile, ComposeLayerKind } from '../../api/client';
 import { PARTICLE_DEFAULTS } from '../../particleUtils';
@@ -29,6 +30,8 @@ import {
   Volume2,
   type LucideIcon,
 } from 'lucide-react';
+import { composeLayersNow, composeScenesNow } from '../../mesh/compose';
+import { sceneNodesNow } from '../../mesh/nodes';
 
 // ---------------------------------------------------------------------------
 // Shared registry of the node + compose-layer kinds the user can create, plus
@@ -169,9 +172,8 @@ export function uniqueName(base: string, taken: Set<string>): string {
 /** Default-name dedupe for a node in a given scene. */
 export function nextNodeName(def: NodeKindDef, sceneId: string): string {
   const taken = new Set(
-    useEditorStore
-      .getState()
-      .nodes.filter((n) => n.rootSceneNodeId === sceneId)
+    sceneNodesNow()
+      .filter((n) => n.rootSceneNodeId === sceneId)
       .map((n) => n.name)
   );
   return uniqueName(def.label, taken);
@@ -296,25 +298,20 @@ export async function createSceneNode(
   // If the parent is a writable *remote* node, this is a create on a shared
   // object: route it to the owner (Phase 6) instead of our local REST API.
   const parent = parentId
-    ? useEditorStore.getState().nodes.find((n) => n.id === parentId)
+    ? sceneNodesNow().find((n) => n.id === parentId)
     : null;
   if (parent) {
     const remoteNode = createRemoteChild(parent, def.kind, name, components);
     if (remoteNode) return remoteNode;
   }
 
-  const node = await api.createNode(sceneId, {
+  return commitNodeCreate(sceneId, {
     parentId,
     name,
     kind: def.kind,
     filePath: null,
     components,
   });
-  // The WS broadcast may also deliver this node; dedupe by id.
-  if (useEditorStore.getState().nodes.every((n) => n.id !== node.id)) {
-    useEditorStore.getState().addNode(node);
-  }
-  return node;
 }
 
 // ---------------------------------------------------------------------------
@@ -329,17 +326,13 @@ export async function createNodeFromModelAsset(
 ): Promise<StageObject> {
   const ext = asset.name.split('.').pop()?.toLowerCase();
   const kind = ext === 'vrm' ? 'avatar' : 'model';
-  const node = await api.createNode(sceneId, {
+  return commitNodeCreate(sceneId, {
     parentId,
     name: asset.name,
     kind,
     filePath: asset.url,
     components: { ...DEFAULT_COMPONENTS },
   });
-  if (useEditorStore.getState().nodes.every((n) => n.id !== node.id)) {
-    useEditorStore.getState().addNode(node);
-  }
-  return node;
 }
 
 /** Add a Live2D bundle asset (its *.model3.json manifest) to a scene as a
@@ -349,7 +342,7 @@ export async function createNodeFromLive2dAsset(
   sceneId: string,
   parentId: string | null = null
 ): Promise<StageObject> {
-  const node = await api.createNode(sceneId, {
+  return commitNodeCreate(sceneId, {
     parentId,
     name: asset.name,
     kind: 'live2d',
@@ -359,10 +352,6 @@ export async function createNodeFromLive2dAsset(
       live2d: { ...LIVE2D_DEFAULTS, modelUrl: asset.url },
     },
   });
-  if (useEditorStore.getState().nodes.every((n) => n.id !== node.id)) {
-    useEditorStore.getState().addNode(node);
-  }
-  return node;
 }
 
 /** Add an image asset to a scene as a billboard node textured with it. */
@@ -371,7 +360,7 @@ export async function createBillboardFromImageAsset(
   sceneId: string,
   parentId: string | null = null
 ): Promise<StageObject> {
-  const node = await api.createNode(sceneId, {
+  return commitNodeCreate(sceneId, {
     parentId,
     name: asset.name,
     kind: 'billboard',
@@ -388,10 +377,6 @@ export async function createBillboardFromImageAsset(
       },
     },
   });
-  if (useEditorStore.getState().nodes.every((n) => n.id !== node.id)) {
-    useEditorStore.getState().addNode(node);
-  }
-  return node;
 }
 
 // ---------------------------------------------------------------------------
@@ -435,9 +420,7 @@ export async function createLayer(
   // Camera views default to the first available camera; reassign in properties.
   let cameraNodeId: string | null = null;
   if (kind === 'camera_view') {
-    const cameras = useEditorStore
-      .getState()
-      .nodes.filter((n) => n.kind === 'camera');
+    const cameras = sceneNodesNow().filter((n) => n.kind === 'camera');
     if (cameras.length === 0) {
       alert('No cameras exist yet. Add a camera node to a scene first.');
       return;
@@ -466,9 +449,7 @@ export async function createLayer(
   // Scene includes default to the first OTHER compose scene; reassign in
   // properties. They mount that scene's whole layer stack.
   if (kind === 'scene_include') {
-    const others = useEditorStore
-      .getState()
-      .composeScenes.filter((s) => s.id !== composeSceneId);
+    const others = composeScenesNow().filter((s) => s.id !== composeSceneId);
     if (others.length === 0) {
       alert('No other compose scene to include. Create another one first.');
       return;
@@ -488,15 +469,14 @@ export async function createLayer(
   }
 
   const taken = new Set(
-    useEditorStore
-      .getState()
-      .composeLayers.filter((l) => l.rootComposeSceneId === composeSceneId)
+    composeLayersNow()
+      .filter((l) => l.rootComposeSceneId === composeSceneId)
       .map((l) => l.name)
   );
   const name = uniqueName(baseName, taken);
 
   try {
-    const created = await api.createComposeSceneLayer(composeSceneId, {
+    const created = await commitLayerCreate(composeSceneId, {
       name,
       kind,
       cameraNodeId,
@@ -504,8 +484,7 @@ export async function createLayer(
       config,
       ...sizeDefaults,
     });
-    // Optimistic insert; the WS broadcast dedupes by id.
-    useEditorStore.getState().addComposeLayer(created);
+    // The created layer is already in the replica; just select it.
     useEditorStore.getState().selectComposeLayer(created.id);
   } catch (e) {
     alert(e instanceof Error ? e.message : 'Failed to add layer');

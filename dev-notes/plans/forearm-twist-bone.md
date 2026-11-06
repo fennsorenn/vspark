@@ -1,6 +1,10 @@
 # Plan: Synthesized forearm twist bones
 
-> Branch: `claude/mediapipe-vmc-tracking-align-bfbdak` · Status: implemented (core + sleeve exclusion, behind its own `excludeSleeves` toggle). Module doc: [../modules/twist-bones.md](../modules/twist-bones.md).
+> **Status:** shipped — core + sleeve exclusion, behind its own `excludeSleeves` toggle.
+> Module doc: [`../modules/twist-bones.md`](../modules/twist-bones.md), which is the
+> current reference; this file is the design record.
+
+> *(Historical.)* Branch: `claude/mediapipe-vmc-tracking-align-bfbdak`
 
 ## Goal
 

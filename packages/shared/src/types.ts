@@ -1,3 +1,5 @@
+import type { IdMap } from './idMap.js';
+
 // Core identity types
 export type NodeKind =
   | 'scene'
@@ -119,28 +121,30 @@ export interface SceneNodeProperties {
    *  hand through connected twist-weighted vertices. Applies to VRM avatar
    *  nodes. Default false. */
   excludeSleeves?: boolean;
-  /** Per-body-section pose source blending ("partial tracking"): each section
-   *  carries an animation influence and a live-tracking influence, letting e.g.
-   *  legs follow an animation clip while the upper body follows tracking. Absent
-   *  sections default to { anim: 1, track: 1 } (tracking replaces animation where
-   *  present, which is the legacy behaviour). Applies to VRM avatar nodes. */
-  poseSource?: PoseSource;
+  /** Tracking Mix: per-source influence weights on each bone / blendshape,
+   *  plus the order tracking sources are composed in. Absent weights are 1
+   *  (legacy stacking). The backend bus applies the tracking-source weights;
+   *  the frontend applies the `animation` weights. Replaced the per-section
+   *  `poseSource` ("partial tracking", migration 044). See
+   *  `@vspark/shared/trackingMix`. Applies to VRM avatar nodes. */
+  trackingMix?: TrackingMix;
 }
 
-/** The body sections that can independently blend animation vs. live tracking. */
-export type PoseSection = 'legs' | 'body' | 'arms' | 'head' | 'gaze' | 'hands';
-
-/** Per-section influence weights. `anim` pulls the section from its rest pose
- *  toward the animation clip; `track` then pulls it toward the live tracking
- *  pose (scaled by the global blend ramp). Both 0..1. anim=1/track=1 = tracking
- *  wins where present (legacy); anim=1/track=0 = animation only; anim=0/track=1
- *  = tracking only; anim=0/track=0 = rest. */
-export interface PoseSectionInfluence {
-  anim: number;
-  track: number;
+/** One source's weights in a Tracking Mix. Key = VRM bone / blendshape name,
+ *  value 0..2. Absent = 1. */
+export interface TrackingMixSource {
+  bones?: Partial<Record<import('./signal.js').VRMBoneName, number>>;
+  blendshapes?: Record<string, number>;
 }
 
-export type PoseSource = Partial<Record<PoseSection, PoseSectionInfluence>>;
+/** Per-avatar tracking composition. `sources` is keyed by behavior id, or the
+ *  reserved key `'animation'` for the frontend animation layer. `order` lists
+ *  tracking-source behavior ids, first applied first; unlisted sources follow
+ *  by their legacy bus priority. */
+export interface TrackingMix {
+  order?: string[];
+  sources?: Record<string, TrackingMixSource>;
+}
 
 /** Per-bone second-order (spring–damper) dynamics that add anticipatory snap /
  *  overshoot to broadcast pose without becoming choppy. See the frontend
@@ -215,10 +219,6 @@ export type ComposeLayerKind =
 export type ComposeAnchorH = 'left' | 'right';
 export type ComposeAnchorV = 'top' | 'bottom';
 
-/** scene_order = 0 is the 3D render slot. Negative paints above the 3D, positive paints behind.
- *  Camera-specific layers carry a non-zero camera_order to interleave within a scene_order slot. */
-export const SCENE_RENDER_SLOT = 0;
-
 export interface ComposeLayer {
   id: string;
   projectId: string;
@@ -241,11 +241,23 @@ export interface ComposeLayer {
   rotation: number;
   anchorH: ComposeAnchorH;
   anchorV: ComposeAnchorV;
-  sceneOrder: number;
-  cameraOrder: number;
+  /** Sibling order: a string fractional key, sorted lexicographically and
+   *  tie-broken by `id`. Ascending = back→front. Scoped to the sibling set
+   *  (rootComposeSceneId, parentId). See fracIndex. */
+  orderKey: string;
   visible: boolean;
   createdAt: string;
   updatedAt: string;
+}
+
+/**
+ * Title of a compose scene's off-screen output window (`config.obsWindowCapture`).
+ * OBS Window Capture lists and matches windows by this title, so the backend
+ * (which opens the window) and the editor (which tells the user what to pick)
+ * must agree on it.
+ */
+export function obsOutputWindowTitle(composeSceneName: string): string {
+  return `vspark – ${composeSceneName}`;
 }
 
 // --- Logic (user-built signal graphs with owner scoping) ---
@@ -277,6 +289,9 @@ export type TrackClipEasing = 'linear' | 'step' | 'bezier';
  *  Compose layer: 'x' | 'y' | 'rotation' */
 export type TrackClipParamPath = string;
 
+/** The clip document's child collections are id-keyed, not arrays: an array is
+ *  a single path, so two peers editing different keyframes would clobber each
+ *  other. See idMap.ts for the reasoning and the read helpers. */
 export interface TrackClipKeyframe {
   id: string;
   t: number; // seconds from clip start
@@ -306,7 +321,10 @@ export interface TrackClipLane {
   paramPath: TrackClipParamPath;
   /** "Rest" value the keyframes are offsets from when the clip is in relative mode. */
   defaultValue: number;
-  keyframes: TrackClipKeyframe[];
+  /** Keyed by keyframe id so each one is its own mesh path — two people can
+   *  drag different keyframes on the same lane without one losing. Read with
+   *  `sortedBy(kfs, k => k.t)`; the map itself has no order. */
+  keyframes: IdMap<TrackClipKeyframe>;
 }
 
 /** A discrete marker on a track clip that fires a fire-and-forget media command
@@ -335,38 +353,14 @@ export interface TrackClip {
   duration: number; // seconds
   loop: boolean;
   mode: TrackClipMode;
-  /** When true AND loop=true, playback auto-resumes on backend boot using the persisted startedAt. */
+  /** When true AND loop=true, playback resumes at boot — the anchor lives on
+   *  the clip's `clip_playback` document, not here. */
   autoplay: boolean;
-  /** ms-epoch anchor for an active loop+autoplay playhead; null when not autoplaying. */
-  startedAt: number | null;
   createdAt: string;
-  lanes: TrackClipLane[];
-  /** Timed media-command markers (event lane). */
-  events: TrackClipEvent[];
-}
-
-/** WS payload broadcast when a clip begins playback. Clients compute their own clock offset
- *  from (serverNow - Date.now()) on the first such message and evaluate locally thereafter. */
-export interface TrackClipStartedMessage {
-  clipId: string;
-  startedAt: number;
-  loop: boolean;
-  serverNow: number;
-}
-
-export interface TrackClipPlaybackEntry {
-  clipId: string;
-  loop: boolean;
-  /** ms epoch anchor when playing; null when paused. */
-  startedAt?: number;
-  /** seconds-into-clip when paused; null when playing. */
-  pausedAtT?: number;
-}
-
-/** Snapshot of currently-active playback, sent to each freshly-connected WS client. */
-export interface TrackClipPlaybackSnapshot {
-  entries: TrackClipPlaybackEntry[];
-  serverNow: number;
+  /** Keyed by lane id — see the note on `TrackClipLane.keyframes`. */
+  lanes: IdMap<TrackClipLane>;
+  /** Timed media-command markers (event lane), keyed by event id. */
+  events: IdMap<TrackClipEvent>;
 }
 
 // Player/identity
@@ -528,34 +522,14 @@ export type WSMessageKind =
   | 'tracking_status'
   | 'pose_ik_targets'
   | 'server_update'
-  | 'behavior_added'
   | 'compose_layer_added'
-  | 'compose_layer_updated'
   | 'compose_layer_removed'
-  | 'compose_layer_reordered'
-  | 'node_transform_preview'
-  | 'compose_layer_preview'
   | 'track_clip_added'
-  | 'track_clip_updated'
   | 'track_clip_removed'
-  | 'track_clip_lane_added'
-  | 'track_clip_lane_updated'
-  | 'track_clip_lane_removed'
-  | 'track_clip_keyframes_replaced'
-  | 'track_clip_events_replaced'
-  | 'track_clip_started'
-  | 'track_clip_paused'
-  | 'track_clip_stopped'
-  | 'track_clip_playback_snapshot'
-  | 'data_channel_set'
-  | 'data_channel_clear'
-  | 'data_channel_snapshot'
-  | 'media_control'
-  // OBS. client_hello / client_status carry render-client lifecycle;
-  // obs_connection_status reports the backend's obs-websocket link.
+  // Render-client lifecycle (client_hello / client_status). An OBS
+  // connection's status is a `server_status` mesh document now.
   | 'client_hello'
   | 'client_status'
-  | 'obs_connection_status'
   // Assistant (in-app agent). Inbound: assistant_user_message, assistant_reset.
   // Outbound (per-connection): the rest.
   | 'assistant_user_message'
@@ -746,16 +720,6 @@ export type ObsConnectionStatus =
   | 'reconnecting'
   | 'disconnected'
   | 'error';
-
-/** Backend → frontend: an obs-websocket connection's status changed. */
-export interface ObsConnectionStatusMessage {
-  kind: 'obs_connection_status';
-  connectionId: string;
-  projectId: string;
-  status: ObsConnectionStatus;
-  reason: string | null;
-  message: string | null;
-}
 
 // ── Render-client lifecycle ──────────────────────────────────────────────────
 // A render client (a browser tab or OBS browser source showing a vspark scene)

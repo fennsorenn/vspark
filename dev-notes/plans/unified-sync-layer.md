@@ -1,6 +1,18 @@
 # Plan: Unified state-replication layer
 
-> Branch: `feature/unified-sync-layer` · Status: draft (design — needs decisions before implementation)
+> **Status:** shipped, then superseded. This is the design of the `SyncEnvelope`
+> layer — `packages/shared/src/sync.ts`, `backend/src/sync/{registry,resources}.ts`,
+> `frontend/src/sync/registry.ts` — which was built and then replaced by
+> `@vspark/mesh`. The frontend envelope bindings are **deleted** (`applyRemote` has zero
+> bindings); what survives is a shrinking set of backend `sync.document` emitters kept
+> alive only because `backend/src/sync/containmentIndex.ts` and
+> `multiplayer/manager.ts` still read them. Treat every "how state replicates today"
+> passage below as historical.
+> **Superseded by:** [`mesh-sync-refactor.md`](./mesh-sync-refactor.md); its retirement
+> is workstream A of
+> [`mesh-drop-legacy-sync-and-undo.md`](./mesh-drop-legacy-sync-and-undo.md).
+
+> *(Historical.)* Branch: `feature/unified-sync-layer`
 > Seed context for design discussion. Several forks (marked **DECISION**) need an
 > answer before this is ready to build.
 >

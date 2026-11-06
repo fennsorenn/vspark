@@ -41,6 +41,10 @@ export const DEFAULT_POSE_DYNAMICS: PoseDynamicsConfig = {
 };
 
 const MIN_FREQUENCY = 0.05; // Hz — guard against div-by-zero / runaway gains.
+/** A held target-velocity estimate is dropped once no new sample has arrived
+ *  for this long (or twice the last sample interval, if longer): the input has
+ *  stopped, and a stale velocity would keep pushing the output. */
+const STALL_SECONDS = 0.1;
 const EPS = 1e-8;
 
 // Shared scratch for the helpers below — single-threaded, reused every call.
@@ -93,22 +97,36 @@ export class SecondOrderDynamicsQuat {
   private readonly y = new THREE.Quaternion(); // output orientation
   private readonly xPrev = new THREE.Quaternion(); // previous target
   private readonly w = new THREE.Vector3(); // output angular velocity (rad/s, world)
+  /** Target angular velocity (rad/s, world), estimated per input SAMPLE and
+   *  held between samples. */
+  private readonly _wx = new THREE.Vector3();
+  /** Seconds since the last input sample, and the interval before that one. */
+  private _sinceSample = 0;
+  private _lastInterval = 0;
 
   // scratch
   private readonly _err = new THREE.Vector3();
-  private readonly _wx = new THREE.Vector3();
   private readonly _dq = new THREE.Quaternion();
 
   /**
-   * Feed one target sample. Returns a reference to the internal output
-   * quaternion — copy x/y/z/w before calling filter() again.
+   * Advance one frame toward target `x`. Returns a reference to the internal
+   * output quaternion — copy x/y/z/w before calling filter() again.
+   *
+   * `newSample` says whether `x` carries new input this frame. The target
+   * velocity (the `response` term) is estimated over the time between SAMPLES,
+   * not between frames: when the input updates less often than the display
+   * renders (a 30 Hz tracker on a 60 Hz bus, a 60 Hz bus on a 144 Hz screen),
+   * a per-frame estimate is a spike on update frames and zero in between, and
+   * with heavy damping the output jerks back and forth every frame. Callers
+   * that feed a fresh sample every frame can leave it at `true`.
    */
   filter(
     x: THREE.Quaternion,
     dt: number,
     frequency: number,
     damping: number,
-    response: number
+    response: number,
+    newSample = true
   ): THREE.Quaternion {
     if (dt <= 0) return this.y;
 
@@ -116,6 +134,9 @@ export class SecondOrderDynamicsQuat {
       this.y.copy(x);
       this.xPrev.copy(x);
       this.w.set(0, 0, 0);
+      this._wx.set(0, 0, 0);
+      this._sinceSample = 0;
+      this._lastInterval = 0;
       this.initialized = true;
       return this.y;
     }
@@ -129,9 +150,19 @@ export class SecondOrderDynamicsQuat {
     // Clamp k2 so semi-implicit Euler stays stable at large dt (low frame rates).
     const k2Stable = Math.max(k2, (dt * dt) / 2 + (dt * k1) / 2, dt * k1);
 
-    // Target angular velocity (world frame), rad/s.
-    relRotVec(this._wx, x, this.xPrev).multiplyScalar(1 / dt);
-    this.xPrev.copy(x);
+    // Target angular velocity (world frame), rad/s — re-estimated per sample,
+    // held in between, dropped once the input stalls.
+    this._sinceSample += dt;
+    if (newSample) {
+      relRotVec(this._wx, x, this.xPrev).multiplyScalar(1 / this._sinceSample);
+      this.xPrev.copy(x);
+      this._lastInterval = this._sinceSample;
+      this._sinceSample = 0;
+    } else if (
+      this._sinceSample > Math.max(STALL_SECONDS, 2 * this._lastInterval)
+    ) {
+      this._wx.set(0, 0, 0);
+    }
 
     // Spring error: rotation that would take the output onto the target.
     relRotVec(this._err, x, this.y);
@@ -154,6 +185,7 @@ export class SecondOrderDynamicsQuat {
   reset(): void {
     this.initialized = false;
     this.w.set(0, 0, 0);
+    this._wx.set(0, 0, 0);
   }
 }
 
@@ -167,14 +199,15 @@ export class BoneDynamicsBank {
     dt: number,
     frequency: number,
     damping: number,
-    response: number
+    response: number,
+    newSample = true
   ): THREE.Quaternion {
     let s = this.filters.get(boneName);
     if (!s) {
       s = new SecondOrderDynamicsQuat();
       this.filters.set(boneName, s);
     }
-    return s.filter(x, dt, frequency, damping, response);
+    return s.filter(x, dt, frequency, damping, response, newSample);
   }
 
   reset(): void {
