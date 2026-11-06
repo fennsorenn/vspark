@@ -35,22 +35,26 @@ and the model cannot load — even though every file is technically still there.
 
 ## Uploading a model {#uploading}
 
-1. Open the **Assets** dock and switch to the **Models** tab.
-2. Click **Upload Live2D**.
-3. Pick the **folder** that contains the `*.model3.json` file — not an individual
-   file inside it.
+There are three ways, and all of them keep the folder structure intact:
 
-Most models are distributed as a `.zip`. Unpack it first, and keep the folder
-structure exactly as it came out of the archive. If the archive contains a
-folder like `Hiyori/runtime/`, that `runtime` folder — the one holding the
-`*.model3.json` — is usually the one to pick.
+- **Upload Live2D** (Models tab) — opens a folder picker. Choose the **folder**
+  containing the `*.model3.json`, not an individual file inside it.
+- **Live2D Zip** (Models tab) — choose the `.zip` exactly as you downloaded it.
+  vspark unpacks it for you; there is no need to extract it first.
+- **Drag and drop** — drag the model **folder**, or its `.zip`, onto the Assets
+  dock. Dropping a folder works: vspark walks into it and keeps every file's
+  place inside the model.
+
+Archives usually wrap everything in one top-level folder (`Hiyori/…`). That
+wrapper is removed automatically, so you do not need to dig into the archive to
+find the right level.
 
 Once uploaded, the model appears in the Models tab. Use **Add to Scene** to place
 it, or select an existing Live2D object and use **Apply**.
 
-Note that vspark uploads **one model at a time**. If a folder contains several
-`*.model3.json` files, it will say so rather than guess which model you meant —
-upload each model from its own folder.
+vspark uploads **one model at a time**. If a folder or archive contains several
+`*.model3.json` files, it asks which model you meant rather than guessing — pick
+one from the list, and only that model's files are stored.
 
 ## Missing files {#missing-files}
 
@@ -73,18 +77,38 @@ paths vspark lists: if it wants `mymodel.2048/texture_00.png` and your folder
 just has `texture_00.png` loose at the top, the structure was lost somewhere
 between the download and your disk.
 
-To fix it:
+**First, vspark looks inside what you already uploaded.** The commonest version
+of this problem is not a missing file at all — it is a folder someone
+rearranged, where every file is still there but no longer in the place the
+manifest names. When vspark can find a missing file elsewhere in your upload, it
+fills it in for you and says where it found it:
 
-- **Re-download or re-unpack the model**, making sure your unpacking tool keeps
-  folders. Some tools flatten archives by default.
-- **Recreate the folders by hand** if you know where the files belong: create the
-  subfolder the manifest names and move the files into it.
-- Then upload the folder again.
+> ✓ found at `texture_00.png`
 
-vspark deliberately does **not** guess. A loose `texture_00.png` might be the
-file the manifest wants — or it might belong to a different texture set entirely.
-Guessing wrong produces a model that loads looking wrong, which is harder to
-notice and harder to debug than one that refuses to load.
+Read those lines before continuing. If one looks wrong, press **remove** next to
+it and supply the file yourself instead. Nothing is uploaded until you press the
+upload button, so a wrong match is always yours to reject first.
+
+Where several files in your folder share the same name, vspark will **not**
+choose for you — the row offers a dropdown of the candidates instead, because
+picking the wrong one produces a model that loads *looking* wrong, which is
+harder to spot than one that does not load.
+
+For anything still missing, **supply it in the window itself**. Drop the files
+onto the box at the bottom, or use **Choose files…**. You only need to add what
+is still listed — everything you already picked is still held, so nothing gets
+re-selected — and then press the upload button to finish.
+
+You do **not** have to recreate the folders. Files are matched by name, so
+dropping a bare `texture_00.png` fills the `mymodel.2048/texture_00.png` slot.
+If a name could fill more than one slot, vspark asks which one instead of
+choosing for you: a wrong guess produces a model that loads *looking* wrong,
+which is harder to notice and harder to debug than one that refuses to load.
+
+If you would rather start over — for example because the download itself was
+incomplete — close the window, re-download or re-unpack the model (making sure
+your unpacking tool keeps folders; some flatten archives by default), and upload
+it again.
 
 ### Optional — the model works, with something switched off {#optional}
 

@@ -23,7 +23,9 @@
     "audio": "Upload Audio",
     "dropFiles": "⬆ Drop files to upload",
     "live2d": "Upload Live2D",
-    "live2dTitle": "Upload a Live2D model folder (.model3.json + .moc3 + textures)"
+    "live2dTitle": "Upload a Live2D model folder (.model3.json + .moc3 + textures)",
+    "live2dZip": "Live2D Zip",
+    "live2dZipTitle": "Upload a zipped Live2D model — vspark unpacks it for you"
   },
   "empty": {
     "noAssets": "No {{tab}} yet. Upload one above.",
@@ -88,7 +90,9 @@
     "applyModelFailed": "Failed to set model",
     "applyAnimFailed": "Failed to apply animation",
     "deleteFailed": "Delete failed",
-    "live2dUploadFailed": "Live2D upload failed"
+    "live2dUploadFailed": "Live2D upload failed",
+    "live2dZipFailed": "Could not read that zip archive.",
+    "live2dZipNoManifest": "That zip does not contain a Live2D model (no *.model3.json inside)."
   },
   "resize": {
     "dragTitle": "Drag to resize"
@@ -130,6 +134,29 @@
       "motion": "motion",
       "motionSound": "motion audio",
       "userData": "user data"
+    },
+    "supply": {
+      "title": "Supply the missing files",
+      "hint": "Drop the missing files here, or pick them. The files you already chose are kept — you only need to add what is listed above. Matching is by file name, so you do not have to recreate the folders.",
+      "dropHere": "Drop the missing files here",
+      "addFiles": "Choose files…",
+      "supplied": "supplied",
+      "remove": "remove",
+      "choose": "Which one?",
+      "unmatched": "not part of this model",
+      "ambiguous": "Choose which missing file “{{name}}” is",
+      "retry": "Upload with {{count}} added file(s)",
+      "retrying": "Uploading…",
+      "cancel": "Cancel",
+      "foundAt": "found at {{path}}",
+      "caseOnly": "name differs in upper/lower case",
+      "chooseSource": "Choose which file belongs at {{path}}",
+      "chooseSourceOption": "{{count}} possible matches in this folder — choose one",
+      "relocatedNote": "vspark found {{count}} of the missing file(s) elsewhere in what you uploaded, and has filled them in above — each row shows where it was found. Check them, remove any that look wrong, then upload."
+    },
+    "picker": {
+      "title": "Which model?",
+      "lead": "“{{name}}” contains {{count}} Live2D models. vspark uploads one model at a time — choose the one you want."
     }
   }
 }

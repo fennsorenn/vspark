@@ -226,3 +226,56 @@ test('live2d: a manifest reference escaping the bundle is rejected', async ({
   );
   expect(await listAssets(request, projectId)).toEqual([]);
 });
+
+// ---------------------------------------------------------------------------
+// Test 5: the flattened bundle repairs itself from files already uploaded
+// ---------------------------------------------------------------------------
+test('live2d: a rearranged folder is repaired from its own files', async ({
+  page,
+  request,
+}) => {
+  const { projectId } = await seedProjectScene(request);
+  await openModelsTab(page, projectId);
+
+  // Every required file is present — just not where the manifest says. The
+  // motion genuinely is absent, so it must NOT be invented.
+  const dir = writeBundle('rearranged', {
+    'model.model3.json': manifestOf({
+      Moc: 'model.moc3',
+      Textures: ['model.2048/texture_00.png'],
+      Motions: { Idle: [{ File: 'motion/m01.motion3.json' }] },
+    }),
+    'model.moc3': 'moc',
+    'texture_00.png': 'png',
+  });
+  await live2dInput(page).setInputFiles(dir);
+
+  const report = reportWindow(page);
+  await expect(report).toBeVisible({ timeout: 15_000 });
+
+  // The texture was located in the upload and filled in, naming where from.
+  await expect(report.locator('.vs-live2d-relocated-note')).toContainText('1');
+  await expect(report.locator('.vs-live2d-report-required')).toContainText(
+    'found at texture_00.png'
+  );
+  // The absent motion is still listed as missing — nothing was invented.
+  await expect(report.locator('.vs-live2d-report-optional')).toContainText(
+    'motion/m01.motion3.json'
+  );
+  await expect(report.locator('.vs-live2d-report-optional')).not.toContainText(
+    'found at'
+  );
+
+  // Still the user's call: nothing is stored until they press upload.
+  expect(await listAssets(request, projectId)).toEqual([]);
+  await expect(report.locator('.vs-live2d-retry')).toBeEnabled();
+  await report.locator('.vs-live2d-retry').click();
+
+  await expect
+    .poll(
+      async () =>
+        (await listAssets(request, projectId)).map((a) => a.original_name),
+      { timeout: 15_000 }
+    )
+    .toEqual(['model.model3.json']);
+});

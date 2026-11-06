@@ -1,7 +1,8 @@
 # Plan: Live2D bundle ingestion — zip support + incremental completion
 
 > Branch: `feature/live2d-bundle-ingestion` (create from `dev`) ·
-> Status: **step 1 shipped; steps 0/2/3/4 outstanding**
+> Status: **complete** — steps 1–4 shipped (step 1 in PR #72, steps 2–4 on
+> `feature/live2d-zip-and-completion`)
 > This plan is the seed context for a cloud worker. It is a starting point, not an
 > airtight spec — the worker is interactive and may ask to refine it.
 >
