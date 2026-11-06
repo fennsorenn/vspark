@@ -23,6 +23,10 @@ A variable is identified by **(project, scope, name)**.
   nothing.
 - `cooldown` keeps a named group's "last passed" time (ms since epoch) in the
   short-lived variable `__cooldown/<group>`.
+- Action templates ([actions.md](actions.md)): a Chat command / Chat pattern /
+  Redemption counter is `<name>` in the shared scope, or — unnamed — `count`
+  in the graph's own scope; the Keyword combo keeps a graph-local short-lived
+  `comboReached` flag.
 
 ## Storage — `backend/src/variables/store.ts`
 
