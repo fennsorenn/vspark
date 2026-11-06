@@ -103,6 +103,9 @@ carried the original copy; this table is the durable source of truth.)
 | Properties | Eigenschaften |
 | Add / Remove / Delete | Hinzufügen / Entfernen / Löschen |
 | Notice / toast | Meldung |
+| Variable | Variable |
+| Cooldown | Abklingzeit |
+| Trigger (event source) | Auslöser |
 
 When you introduce a new recurring domain term, add it here so future
 translations stay consistent.
@@ -173,7 +176,7 @@ Available anchors per topic:
 | `avatar` | `loading`, `animation`, `expressions`, `materials`, `calibration` |
 | `scene` | `nodes`, `hierarchy`, `cameras`, `lights`, `compose` |
 | `behaviors` | `vmc`, `tracking`, `lipsync`, `breathing`, `expression-limits`, `devices`, `api` |
-| `logic` | `automations`, `nodes`, `events`, `triggers` |
+| `logic` | `automations`, `nodes`, `events`, `triggers`, `hotkeys`, `conditions`, `variables`, `combos`, `custom-triggers`, `macros` |
 
 ### docs.ts — `help/docs.ts`
 

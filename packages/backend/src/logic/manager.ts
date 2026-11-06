@@ -287,6 +287,9 @@ export class LogicManager {
     // nodes) read it to target the right project's resource; other nodes ignore
     // the extra key. Underscore-prefixed so it never collides with user config.
     const _projectId = this._resolveProjectId(row) ?? undefined;
+    // …and its own id as `_logicId`, which `logic_id` outputs so a graph can
+    // scope variables to itself.
+    const _logicId = row.id;
     // For scene-node- and compose-layer-scoped graphs, auto-inject the owner
     // entity's id as the `nodeId` config of any `scene_entity` instance. The
     // node just reads config.nodeId — its OUTPUT TYPE follows the scope
@@ -296,9 +299,9 @@ export class LogicManager {
       nodeDef?.kind === 'scene_entity' &&
       defaults.nodeId == null
     ) {
-      return { ...defaults, nodeId: row.owner_id, _projectId };
+      return { ...defaults, nodeId: row.owner_id, _projectId, _logicId };
     }
-    return { ...defaults, _projectId };
+    return { ...defaults, _projectId, _logicId };
   }
 
   private _persistNodeState(

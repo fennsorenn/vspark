@@ -85,6 +85,15 @@ Iteration helper for managers that need to discover nodes across all running log
 for (const { graphId, node, projectId } of logicManager.iterateNodes()) { ... }
 ```
 
+Users: overlive event routing, `HotkeyManager`, OBS events, and the cross-graph
+trigger router (`triggers/router.ts`, `send_trigger` → `on_trigger`, see
+[signal-graph.md](signal-graph.md#logic-helpers--conditions-text-variables-triggers-combos)).
+
+Context injected into every node's config: `_projectId` (the graph's resolved
+project) and `_logicId` (the graph's own id, output by `logic_id`). Deleting a logic
+also deletes the graph variables scoped to its id (`logicLifecycle.onRemoved`, see
+[variables.md](variables.md)).
+
 ## Frontend
 
 ### `components/editor/LogicSection.tsx` (renamed from `GraphsSection.tsx`)

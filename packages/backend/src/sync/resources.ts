@@ -730,6 +730,78 @@ defineResource({
   },
 });
 
+interface VariableRow {
+  id: string;
+  project_id: string;
+  scope: string;
+  name: string;
+  value: string;
+  created_at: string;
+}
+
+/** A persistent graph variable (migration 046). Short-lived variables are
+ *  `runtime_variable` documents, which have no table and no resource. `value`
+ *  is stored as JSON; a row that doesn't parse reads as null. */
+defineResource({
+  rtype: 'variable',
+  cls: 'document',
+  load: (id) => {
+    const r = getDb()
+      .prepare('SELECT * FROM variables WHERE id = ?')
+      .get(id) as unknown as VariableRow | undefined;
+    if (!r) return undefined;
+    let value: unknown = null;
+    try {
+      value = JSON.parse(r.value);
+    } catch {
+      /* corrupt value → null */
+    }
+    return {
+      id: r.id,
+      projectId: r.project_id,
+      scope: r.scope,
+      name: r.name,
+      value,
+      createdAt: r.created_at,
+    };
+  },
+  save: (dto) => {
+    const d = dto as {
+      id: string;
+      projectId: string;
+      scope?: string;
+      name: string;
+      value?: unknown;
+      createdAt?: string;
+    };
+    const db = getDb();
+    const prior = db
+      .prepare('SELECT created_at FROM variables WHERE id = ?')
+      .get(d.id) as { created_at: string } | undefined;
+    db.prepare(
+      `INSERT INTO variables
+         (id, project_id, scope, name, value, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, COALESCE(?, datetime('now')), datetime('now'))
+       ON CONFLICT(id) DO UPDATE SET
+         project_id = excluded.project_id,
+         scope      = excluded.scope,
+         name       = excluded.name,
+         value      = excluded.value,
+         updated_at = datetime('now')`
+    ).run(
+      d.id,
+      d.projectId,
+      d.scope ?? '',
+      d.name,
+      JSON.stringify(d.value ?? null),
+      d.createdAt ?? prior?.created_at ?? null
+    );
+  },
+  remove: (id) => {
+    getDb().prepare('DELETE FROM variables WHERE id = ?').run(id);
+  },
+});
+
 // legacy WS kinds; migrating that 90 Hz hot path onto sync.stream.publish is
 // deferred until it can be runtime-verified (see the design doc, Phase 3).
 defineResource({ rtype: 'vmc_pose', cls: 'stream' });

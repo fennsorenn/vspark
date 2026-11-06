@@ -48,6 +48,7 @@ import {
   initServerStatus,
   resetServerStatus,
 } from './status.js';
+import { initRuntimeVariables, resetRuntimeVariables } from './variables.js';
 import { refreshAllBehaviorManagers } from '../behaviors/refresh.js';
 import { logicLifecycle } from '../logic/lifecycle.js';
 import {
@@ -383,6 +384,15 @@ const BINDINGS: RtypeBinding[] = [
           : rowExists('compose_layers', d.ownerId),
   },
   {
+    // Persistent graph variables (the short-lived ones are the
+    // `runtime_variable` collection in mesh/variables.ts). Graphs write them
+    // through variables/store.ts; tabs only read them for now.
+    rtype: 'variable',
+    clients: { read: true },
+    table: 'variables',
+    persists: (d) => ownProject(d.projectId),
+  },
+  {
     rtype: 'clip_playback',
     clients: TAB_AUTHORED,
     table: 'clip_playback',
@@ -519,6 +529,7 @@ export function initBackendMesh(): MeshPeer {
   // collection is silent, and the overrides simply stop arriving.
   initMeshRuntime(peer);
   initServerStatus(peer);
+  initRuntimeVariables(peer);
   // The animation-clip asset follow-up re-points sourceFilePath through the
   // store once a fetched blob lands.
   const animCol = COLLECTIONS.get('animation_clip');
@@ -547,6 +558,7 @@ export function resetBackendMesh(): void {
   COLLECTIONS.clear();
   resetMeshRuntime();
   resetServerStatus();
+  resetRuntimeVariables();
 }
 
 /** Epoch reset: forget deletion markers for the given ids — replica AND the
