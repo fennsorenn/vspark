@@ -1,5 +1,9 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { apiUrl, chatCompletion, fetchFirstModel } from '../src/assistant/llm.js';
+import {
+  apiUrl,
+  chatCompletion,
+  fetchFirstModel,
+} from '../src/assistant/llm.js';
 
 describe('apiUrl', () => {
   it.each([
@@ -13,7 +17,9 @@ describe('apiUrl', () => {
   });
 
   it('only strips a final /v1 path segment', () => {
-    expect(apiUrl('https://host/v10', 'models')).toBe('https://host/v10/v1/models');
+    expect(apiUrl('https://host/v10', 'models')).toBe(
+      'https://host/v10/v1/models'
+    );
   });
 });
 
@@ -28,7 +34,14 @@ describe('LLM requests', () => {
         urls.push(url);
         const body = url.endsWith('/models')
           ? { data: [{ id: 'm' }] }
-          : { choices: [{ message: { role: 'assistant', content: 'hi' }, finish_reason: 'stop' }] };
+          : {
+              choices: [
+                {
+                  message: { role: 'assistant', content: 'hi' },
+                  finish_reason: 'stop',
+                },
+              ],
+            };
         return new Response(JSON.stringify(body), { status: 200 });
       })
     );
@@ -40,5 +53,36 @@ describe('LLM requests', () => {
       'https://host/v1/models',
       'https://host/v1/chat/completions',
     ]);
+  });
+
+  it('sends the configured maxTokens, with per-call opts winning', async () => {
+    const sent: number[] = [];
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (_url: string, init: RequestInit) => {
+        sent.push(JSON.parse(String(init.body)).max_tokens);
+        return new Response(
+          JSON.stringify({
+            choices: [{ message: { role: 'assistant', content: '' } }],
+          }),
+          { status: 200 }
+        );
+      })
+    );
+    await chatCompletion({ baseUrl: 'https://h', model: 'm' }, [], []);
+    await chatCompletion(
+      { baseUrl: 'https://h', model: 'm', maxTokens: 4096 },
+      [],
+      []
+    );
+    await chatCompletion(
+      { baseUrl: 'https://h', model: 'm', maxTokens: 4096 },
+      [],
+      [],
+      {
+        maxTokens: 64,
+      }
+    );
+    expect(sent).toEqual([1024, 4096, 64]);
   });
 });

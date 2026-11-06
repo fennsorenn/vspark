@@ -540,7 +540,7 @@ are inlined to cached data URLs first via **`inlineCssAssetUrls`**
 ## Config
 
 `AppConfig` (`packages/shared/src/types.ts`) gains an optional
-`assistant?: AssistantConfig { enabled, baseUrl, apiKey, model }`, plus an
+`assistant?: AssistantConfig { enabled, baseUrl, apiKey, model, maxTokens? }` (`maxTokens` = the per-call `max_tokens` budget, default 1024; env `ASSISTANT_MAX_TOKENS`; `PUT /api/assistant-config` takes a positive integer to set it or `null` to clear it), plus an
 `AssistantConfigPublic` (apiKey replaced by `hasApiKey: boolean`).
 
 `routes/config.ts`:

@@ -36,6 +36,8 @@ export interface LlmConfig {
   baseUrl: string;
   apiKey?: string;
   model: string;
+  /** Default `max_tokens` for every call; per-call `opts.maxTokens` wins. */
+  maxTokens?: number;
 }
 
 export interface ChatResult {
@@ -92,9 +94,9 @@ export async function chatCompletion(
       temperature: 0,
       // Conservative default: small-context models (e.g. 16k) overflow when a
       // long tool-call history meets a big requested completion. Reserve more
-      // room for input; raise per-call via opts.maxTokens if a big output is
-      // genuinely needed.
-      max_tokens: opts.maxTokens ?? 1024,
+      // room for input; raise it via the assistant config's maxTokens (or
+      // per-call opts.maxTokens) if a big output is genuinely needed.
+      max_tokens: opts.maxTokens ?? cfg.maxTokens ?? 1024,
     }),
     signal: opts.signal,
   });

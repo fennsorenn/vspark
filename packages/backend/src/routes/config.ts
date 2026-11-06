@@ -55,12 +55,21 @@ export async function resolveAssistantConfig(): Promise<AssistantConfig> {
     process.env.ASSISTANT_BASE_URL ?? process.env.VLLM_HOST ?? '';
   const envKey = process.env.ASSISTANT_API_KEY ?? process.env.VLLM_AUTH ?? '';
   const baseUrl = stored?.baseUrl ?? envBase;
+  const maxTokens =
+    validMaxTokens(stored?.maxTokens) ??
+    validMaxTokens(Number(process.env.ASSISTANT_MAX_TOKENS));
   return {
     enabled: stored?.enabled ?? Boolean(baseUrl),
     baseUrl,
     apiKey: stored?.apiKey ?? envKey,
     model: stored?.model ?? DEFAULT_ASSISTANT_MODEL,
+    ...(maxTokens !== undefined ? { maxTokens } : {}),
   };
+}
+
+/** A positive integer token budget, or undefined for anything else. */
+function validMaxTokens(v: unknown): number | undefined {
+  return typeof v === 'number' && Number.isInteger(v) && v > 0 ? v : undefined;
 }
 
 function toPublic(cfg: AssistantConfig): AssistantConfigPublic {
@@ -69,6 +78,7 @@ function toPublic(cfg: AssistantConfig): AssistantConfigPublic {
     baseUrl: cfg.baseUrl,
     hasApiKey: Boolean(cfg.apiKey),
     model: cfg.model,
+    ...(cfg.maxTokens !== undefined ? { maxTokens: cfg.maxTokens } : {}),
   };
 }
 
@@ -158,10 +168,14 @@ configRoutes.patch('/config', async (req, res) => {
 /**
  * Update the assistant settings. apiKey is only overwritten when a non-empty
  * string is supplied, so callers can change the model/endpoint without
- * resending the secret. Returns the redacted public view.
+ * resending the secret. `maxTokens`: a positive integer sets it, `null` clears
+ * it back to the client default, anything else leaves it unchanged. Returns the
+ * redacted public view.
  */
 configRoutes.put('/assistant-config', async (req, res) => {
-  const body = req.body as Partial<AssistantConfig>;
+  const body = req.body as Omit<Partial<AssistantConfig>, 'maxTokens'> & {
+    maxTokens?: number | null;
+  };
   const current = await readConfig();
   const base = await resolveAssistantConfig();
   const next: AssistantConfig = {
@@ -174,6 +188,11 @@ configRoutes.put('/assistant-config', async (req, res) => {
         ? body.apiKey
         : base.apiKey,
   };
+  const maxTokens =
+    body.maxTokens === null
+      ? undefined
+      : (validMaxTokens(body.maxTokens) ?? base.maxTokens);
+  if (maxTokens !== undefined) next.maxTokens = maxTokens;
   // A key belongs to the endpoint it was entered for. Pointing the assistant at
   // a different host without supplying a new key drops the old one — otherwise
   // the next request would send it to whatever host was just configured.
