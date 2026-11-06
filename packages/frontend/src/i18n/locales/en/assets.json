@@ -21,7 +21,11 @@
     "image": "Upload Image",
     "video": "Upload Video",
     "audio": "Upload Audio",
-    "dropFiles": "⬆ Drop files to upload"
+    "dropFiles": "⬆ Drop files to upload",
+    "live2d": "Upload Live2D",
+    "live2dTitle": "Upload a Live2D model folder (.model3.json + .moc3 + textures)",
+    "live2dZip": "Live2D Zip",
+    "live2dZipTitle": "Upload a zipped Live2D model — vspark unpacks it for you"
   },
   "empty": {
     "noAssets": "No {{tab}} yet. Upload one above.",
@@ -85,7 +89,10 @@
     "applyCameraBgFailed": "Failed to set camera background",
     "applyModelFailed": "Failed to set model",
     "applyAnimFailed": "Failed to apply animation",
-    "deleteFailed": "Delete failed"
+    "deleteFailed": "Delete failed",
+    "live2dUploadFailed": "Live2D upload failed",
+    "live2dZipFailed": "Could not read that zip archive.",
+    "live2dZipNoManifest": "That zip does not contain a Live2D model (no *.model3.json inside)."
   },
   "resize": {
     "dragTitle": "Drag to resize"
@@ -98,6 +105,58 @@
     "assets": "Learn what assets are and how to upload and use files in your project.",
     "create": "Learn how to add objects (avatars, cameras, lights, props) to your scene.",
     "effects": "Learn what camera effects do and how to add them.",
-    "presets": "Learn how to save and reuse building blocks as presets."
+    "presets": "Learn how to save and reuse building blocks as presets.",
+    "live2dMissing": "Learn what a Live2D bundle must contain and what to do about missing files."
+  },
+  "live2d": {
+    "report": {
+      "title": "Live2D model incomplete",
+      "titleIncomplete": "Live2D model uploaded with gaps",
+      "close": "Close",
+      "dismiss": "Got it",
+      "manifest": "Manifest:",
+      "leadBlocked": "“{{name}}” was not uploaded. Its manifest references files that were not in the folder, and without them there is nothing to render.",
+      "leadWarning": "“{{name}}” was uploaded and will render, but its manifest references files that were not in the folder.",
+      "required": "Missing — required ({{count}})",
+      "requiredHint": "Upload the model again with these files at exactly these paths. Live2D bundles keep textures and motions in subfolders — uploading a flattened copy is the usual cause.",
+      "optional": "Missing — optional ({{count}})",
+      "optionalHint": "The model renders without these. Motions and expressions it cannot find simply will not be available.",
+      "malformed": "Manifest problems",
+      "malformedHint": "The manifest itself is broken, so supplying files will not help. Re-export the model from Cubism, or download it again."
+    },
+    "kind": {
+      "moc": "model data",
+      "texture": "texture",
+      "physics": "physics",
+      "pose": "pose",
+      "displayInfo": "display info",
+      "expression": "expression",
+      "motion": "motion",
+      "motionSound": "motion audio",
+      "userData": "user data"
+    },
+    "supply": {
+      "title": "Supply the missing files",
+      "hint": "Drop the missing files here, or pick them. The files you already chose are kept — you only need to add what is listed above. Matching is by file name, so you do not have to recreate the folders.",
+      "dropHere": "Drop the missing files here",
+      "addFiles": "Choose files…",
+      "supplied": "supplied",
+      "remove": "remove",
+      "choose": "Which one?",
+      "unmatched": "not part of this model",
+      "ambiguous": "Choose which missing file “{{name}}” is",
+      "retry": "Upload with {{count}} added file(s)",
+      "retrying": "Uploading…",
+      "cancel": "Cancel",
+      "foundAt": "found at {{path}}",
+      "caseOnly": "name differs in upper/lower case",
+      "chooseSource": "Choose which file belongs at {{path}}",
+      "chooseSourceOption": "{{count}} possible matches in this folder — choose one",
+      "relocatedNote": "vspark found {{count}} of the missing file(s) elsewhere in what you uploaded, and has filled them in above — each row shows where it was found. Check them, remove any that look wrong, then upload."
+    },
+    "picker": {
+      "title": "Which model?",
+      "lead": "“{{name}}” contains {{count}} Live2D models. vspark uploads one model at a time — choose the one you want."
+    }
   }
 }

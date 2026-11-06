@@ -35,7 +35,8 @@
       "@vspark/shared/models": ["../shared/src/models.ts"],
       "@vspark/shared/fracIndex": ["../shared/src/fracIndex.ts"],
       "@vspark/shared/clipPlayback": ["../shared/src/clipPlayback.ts"],
-      "@vspark/shared/idMap": ["../shared/src/idMap.ts"]
+      "@vspark/shared/idMap": ["../shared/src/idMap.ts"],
+      "@vspark/shared/live2d": ["../shared/src/live2d.ts"]
     }
   },
   "include": ["src"]

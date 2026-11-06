@@ -23,7 +23,8 @@
     "./models": "./src/models.ts",
     "./fracIndex": "./src/fracIndex.ts",
     "./clipPlayback": "./src/clipPlayback.ts",
-    "./idMap": "./src/idMap.ts"
+    "./idMap": "./src/idMap.ts",
+    "./live2d": "./src/live2d.ts"
   },
   "scripts": {
     "build": "tsc --noEmit",

@@ -55,6 +55,7 @@ export default defineConfig({
       },
       { find: '@vspark/shared/sync', replacement: shared('sync.ts') },
       { find: '@vspark/shared/models', replacement: shared('models.ts') },
+      { find: '@vspark/shared/live2d', replacement: shared('live2d.ts') },
       { find: '@vspark/shared', replacement: shared('types.ts') },
     ],
   },
