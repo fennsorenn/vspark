@@ -116,6 +116,10 @@ describe('Migration runner — expected tables', () => {
     expect(getTables().has('overlive_accounts')).toBe(true);
   });
 
+  it('creates the variables table (046)', () => {
+    expect(getTables().has('variables')).toBe(true);
+  });
+
   it('creates the mesh_tombstones table (migration 032)', () => {
     expect(getTables().has('mesh_tombstones')).toBe(true);
   });
@@ -209,14 +213,15 @@ describe('Migration runner — idempotency', () => {
     expect(countAfter).toBe(countBefore);
   });
 
-  it('all 44 migrations are recorded in _migrations after a full run', () => {
+  it('all 45 migrations are recorded in _migrations after a full run', () => {
     const count = (
       getDb()
         .prepare('SELECT COUNT(*) AS cnt FROM _migrations')
         .all() as { cnt: number }[]
     )[0].cnt;
-    // There are 44 migrations (001 – 044).
-    expect(count).toBe(44);
+    // There are 45 migrations (001 – 044, 046; 045 is reserved for the
+    // actions table on a parallel branch).
+    expect(count).toBe(45);
   });
 
   it('each migration name appears exactly once in _migrations', () => {

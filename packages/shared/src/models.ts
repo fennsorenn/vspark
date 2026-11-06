@@ -136,6 +136,15 @@ export const MODELS = {
         : null;
     },
   },
+  // Graph variables (signal-graph `variable` / `set_variable` /
+  // `increment_variable`), one document per (project, scope, name). A variable
+  // lives in exactly one of the two collections: `variable` holds the
+  // persistent ones (committed, persisted in the `variables` table), and
+  // `runtime_variable` the short-lived ones (retained, gone on restart). Two
+  // collections because a collection allows only one retained channel. Neither
+  // has a parent: variables are project-wide and there is no `project` rtype.
+  variable: {},
+  runtime_variable: { channels: [RUNTIME] },
   // Server-to-server only: pose/blendshape/drag frames on collab nodes, and
   // runtime events per collab scene.
   node_stream: { channels: ['preview'] },

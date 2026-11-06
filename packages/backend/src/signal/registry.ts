@@ -136,6 +136,11 @@ import { Equals } from './nodes/equals.js';
 import { ChatRankNode } from './nodes/chat_rank.js';
 import { TextFormat } from './nodes/text_format.js';
 import { LogicId } from './nodes/logic_id.js';
+import {
+  GetVariable,
+  SetVariable,
+  IncrementVariable,
+} from './nodes/variable.js';
 
 // ──────────────────────────────────────────────────────────────────────────────
 // All known node kinds. Import a new class here to auto-register it.
@@ -277,6 +282,9 @@ const ALL_NODE_CLASSES: SignalNodeClass[] = [
   ChatRankNode,
   // Variables
   LogicId,
+  GetVariable,
+  SetVariable,
+  IncrementVariable,
   // Runtime output
   SetExpression,
 ];
