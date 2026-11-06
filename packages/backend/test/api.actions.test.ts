@@ -103,6 +103,35 @@ describe('actions', () => {
     ).toContain(actionGraphId('a1'));
   });
 
+  it('runs under the action’s project: boot start, node iteration, _projectId', async () => {
+    await create({ id: 'a1' });
+    const graphId = actionGraphId('a1');
+    // Boot path: nothing running, startAllEnabled picks action graphs up.
+    logicManager.close();
+    expect(logicManager.getRunningDescriptors()).toHaveLength(0);
+    logicManager.startAllEnabled();
+    expect(logicManager.getRunningDescriptors().map((r) => r.id)).toContain(
+      graphId
+    );
+    // Routing (overlive / hotkeys / OBS / triggers) finds the graph's nodes
+    // under the right project.
+    const hotkey = [...logicManager.iterateNodes()].find(
+      (n) => n.graphId === graphId && n.node.kind === 'system_hotkey'
+    );
+    expect(hotkey?.projectId).toBe(projectId);
+    // Project-scoped nodes get the action's project injected.
+    expect(
+      logicManager.getStates(graphId)?.nodes.hotkey?.config
+    ).toMatchObject({ _projectId: projectId });
+    // A disabled action's graph is not started at boot.
+    await request(app).put('/api/actions/a1').send({ enabled: false });
+    logicManager.close();
+    logicManager.startAllEnabled();
+    expect(logicManager.getRunningDescriptors().map((r) => r.id)).not.toContain(
+      graphId
+    );
+  });
+
   it('rejects an unknown kind and a malformed body', async () => {
     expect((await create({ kind: 'nope' })).status).toBe(400);
     expect((await create({ kind: 7 })).status).toBe(400);
