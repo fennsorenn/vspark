@@ -6660,6 +6660,12 @@ export function PropertiesPanel() {
             </div>
           </div>
         </div>
+        {selectedCompType.hasGraph && (
+          <BehaviorGraphBar
+            behavior={selectedBehavior}
+            label={selectedCompType.label}
+          />
+        )}
         <BehaviorProps comp={selectedBehavior} />
       </>
     );
