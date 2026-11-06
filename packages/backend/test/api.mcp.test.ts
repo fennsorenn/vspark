@@ -43,6 +43,23 @@ describe('MCP server', () => {
     await new Promise<void>((resolve) => httpServer.close(() => resolve()));
   });
 
+  it('annotates every tool: reads read-only, removals/overwrites destructive', async () => {
+    const { tools } = await mcp.listTools();
+    const ann = new Map(tools.map((t) => [t.name, t.annotations]));
+    for (const [name, a] of ann) {
+      expect(a?.openWorldHint, name).toBe(false);
+      if (/^(list|get|lookup)_/.test(name)) expect(a?.readOnlyHint, name).toBe(true);
+      if (/^(delete|clear|update|set)_/.test(name)) {
+        expect(a?.readOnlyHint, name).toBe(false);
+        expect(a?.destructiveHint, name).toBe(true);
+      }
+    }
+    expect(ann.get('create_scene_node')?.destructiveHint).toBe(false);
+    expect(ann.get('ui_open_panel')?.destructiveHint).toBe(false);
+    expect(ann.get('delete_scene_node')?.destructiveHint).toBe(true);
+    expect(ann.get('screenshot_viewport')?.readOnlyHint).toBe(true);
+  });
+
   it('exposes the full tool catalog', async () => {
     const { tools } = await mcp.listTools();
     const names = tools.map((t) => t.name);
