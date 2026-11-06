@@ -110,8 +110,8 @@ export function ShortcutRecorder({
 }
 
 // ── Field editors ─────────────────────────────────────────────────────────────
-// Exported for reuse by the Actions panel; `className` + '-' + field key forms
-// the control's `vs-` handle (default `vs-macro-field-<key>`).
+// Exported for reuse by the Actions panel; the control carries `className` and
+// `className-<field key>` as `vs-` handles (default `vs-macro-field…`).
 
 export function FieldEditor({
   field,
@@ -131,7 +131,10 @@ export function FieldEditor({
   const composeLayers = useComposeLayers();
   const trackClips = useTrackClips();
   const expressionsByNode = useEditorStore((s) => s.vrmExpressionsByNode);
-  const cls = `${className ?? 'vs-macro-field'}-${field.key}`;
+  // The shared handle first (what a caller's `className` names), then the
+  // per-field one.
+  const base = className ?? 'vs-macro-field';
+  const cls = `${base} ${base}-${field.key}`;
   const cur = value === undefined ? '' : String(value);
 
   const wrap = (el: React.ReactNode) => (
