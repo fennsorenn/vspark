@@ -3,7 +3,8 @@
     "stage": "Stage",
     "compose": "Compose",
     "logic": "Logic",
-    "macros": "Macros"
+    "macros": "Macros",
+    "actions": "Actions"
   },
   "sections": {
     "behaviors": "Behaviors",
@@ -129,6 +130,7 @@
     "readOnly": "read-only",
     "layer": "layer",
     "node": "node",
+    "action": "action",
     "promptName": "New logic name:",
     "promptDefault": "Untitled Logic",
     "promptRename": "Rename logic:",

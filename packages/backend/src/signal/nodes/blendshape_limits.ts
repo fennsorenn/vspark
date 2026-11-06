@@ -13,7 +13,7 @@ import {
  *
  * The rule engine itself is the pure `applyBlendshapeLimits` in
  * `@vspark/shared/blendshapeLimits`; this node is only the graph wrapper. The
- * `limits` input is wired in from a `behavior_config` (Behavior Settings) node
+ * `limits` input is wired in from a `settings` (Settings) node
  * reading the behavior's `limits` field, so the config is visible on the graph
  * rather than read behind the node's back — and because node config resolves
  * live per access, UI edits hot-apply without a graph rebuild.
@@ -34,7 +34,7 @@ export class BlendshapeLimits extends Node {
 
   @valueIn('blendshapes', 'Blendshapes')
   blendshapesIn!: () => Blendshapes | undefined;
-  // The rule set, wired in from a `behavior_config` node reading the behavior's
+  // The rule set, wired in from a `settings` node reading the behavior's
   // `limits` field. Read live on each pull so UI edits apply immediately.
   @valueIn('limits', 'Any') limitsIn!: () => unknown;
 

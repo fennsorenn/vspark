@@ -3,7 +3,8 @@
     "stage": "Bühne",
     "compose": "Komposition",
     "logic": "Logik",
-    "macros": "Makros"
+    "macros": "Makros",
+    "actions": "Aktionen"
   },
   "sections": {
     "behaviors": "Verhalten",
@@ -129,6 +130,7 @@
     "readOnly": "nur lesen",
     "layer": "Ebene",
     "node": "Knoten",
+    "action": "Aktion",
     "promptName": "Name der neuen Logik:",
     "promptDefault": "Unbenannte Logik",
     "promptRename": "Logik umbenennen:",

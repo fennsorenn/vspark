@@ -1,0 +1,75 @@
+{
+  "title": "Actions",
+  "add": "Add",
+  "empty": "No actions yet. Add one to set up a hotkey without building a graph.",
+  "rowError": "This action couldn't be shown here — open its graph instead.",
+  "help": {
+    "overview": "What actions are and how they relate to Logic",
+    "shape": "Some settings change the structure of the action's graph"
+  },
+  "kinds": {
+    "hotkey": {
+      "label": "Hotkey",
+      "description": "Press a key combination to play a clip, set a property, control media…"
+    }
+  },
+  "row": {
+    "enabled": "Enable / disable this action",
+    "settings": "Settings",
+    "closeSettings": "Close",
+    "openGraph": "Open graph",
+    "reset": "Reset",
+    "resetTip": "Rebuild the graph from the template (discards your edits to the graph)",
+    "delete": "Delete action"
+  },
+  "badge": {
+    "modified": "Modified",
+    "modifiedTip": "The graph was edited and differs from what the template generated.",
+    "templateUpdate": "Template update",
+    "templateUpdateTip": "The template now generates a different graph. Reset to use it (discards your edits to the graph).",
+    "missingGraph": "No graph",
+    "missingGraphTip": "This action has no graph. Reset creates it from the template."
+  },
+  "confirm": {
+    "reset": "Rebuild the graph of “{{name}}” from its template? Your edits to the graph are discarded.",
+    "rebuild": "This change rebuilds the graph of “{{name}}” and discards your edits to the graph. Continue?",
+    "rebuildConfirm": "Rebuild graph"
+  },
+  "form": {
+    "name": "Name",
+    "shortcut": "Shortcut",
+    "mode": "Mode",
+    "positions": "Positions",
+    "position": "Position {{n}}",
+    "response": "Response",
+    "chooseResponse": "Choose a response…"
+  },
+  "mode": {
+    "single": "Single",
+    "toggle": "Toggle",
+    "cycle": "Cycle"
+  },
+  "preview": {
+    "noShortcut": "No shortcut",
+    "noResponse": "No response",
+    "toggle": "toggle",
+    "cycle": "cycle ×{{n}}",
+    "position": "{{n}}."
+  },
+  "responses": {
+    "play_clip": "Play clip",
+    "spawn_clip": "Spawn clip",
+    "set_expression": "Set expression",
+    "set_property": "Set property",
+    "set_layer_property": "Set layer property",
+    "control_media": "Control media"
+  },
+  "mediaAction": {
+    "play": "Play",
+    "pause": "Pause",
+    "stop": "Stop",
+    "restart": "Restart",
+    "mute": "Mute",
+    "unmute": "Unmute"
+  }
+}

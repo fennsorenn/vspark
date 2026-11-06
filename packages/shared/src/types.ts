@@ -262,7 +262,12 @@ export function obsOutputWindowTitle(composeSceneName: string): string {
 
 // --- Logic (user-built signal graphs with owner scoping) ---
 
-export type LogicOwnerKind = 'project' | 'scene_node' | 'compose_layer';
+export type LogicOwnerKind =
+  | 'project'
+  | 'scene_node'
+  | 'compose_layer'
+  /** An Action's graph (dev-notes/modules/actions.md). */
+  | 'action';
 
 export interface Logic {
   id: string;

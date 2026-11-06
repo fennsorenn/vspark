@@ -192,10 +192,10 @@ export class IFacialMocapManager {
       cfg.nodeConfig as Record<string, unknown> | undefined
     )?.[nodeId] ?? {}) as Record<string, unknown>;
 
-    // behavior_config nodes get the full live behavior config injected so they
+    // settings nodes get the full live behavior config injected so they
     // can resolve arbitrary dot-notation field paths.
-    if (nodeDef?.kind === 'behavior_config') {
-      return { ...defaults, ...overrides, _behaviorConfig: cfg };
+    if (nodeDef?.kind === 'settings') {
+      return { ...defaults, ...overrides, _settings: cfg };
     }
 
     return { ...defaults, ...overrides };

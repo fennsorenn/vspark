@@ -2,13 +2,16 @@ import { SignalNode } from '@vspark/shared/signal';
 import { Node } from '@vspark/shared/node';
 import { valueIn, valueOut } from '@vspark/shared/node_decorators';
 
-export interface BehaviorConfigNodeConfig {
-  /** Dot-notation path into the component config, e.g. "host" or "nodeConfig.arkit_fcl_cfg.enabled" */
+export interface SettingsNodeConfig {
+  /** Dot-notation path into the owner's settings, e.g. "host" or
+   *  "nodeConfig.arkit_fcl_cfg.enabled" or "responses.0.clipId". */
   field?: string;
   /** Returned when the resolved path is undefined (no stored value yet). */
   defaultValue?: unknown;
-  /** Injected by the manager at resolve time — the full live component config. */
-  _behaviorConfig?: Record<string, unknown>;
+  /** Injected by whoever runs the graph, at resolve time — the full live
+   *  settings of the graph's owner: a Behavior's config (its behavior manager)
+   *  or an Action's settings (LogicManager, `owner_kind = 'action'`). */
+  _settings?: Record<string, unknown>;
 }
 
 function resolvePath(obj: unknown, path: string): unknown {
@@ -22,33 +25,37 @@ function resolvePath(obj: unknown, path: string): unknown {
 }
 
 /**
- * Reads one field from the owning component's live config and exposes it as a
- * value port. Use one instance per config field you want visible in the graph.
+ * Reads one field from the settings of whatever owns the graph and exposes it
+ * as a value port. Use one instance per settings field you want visible in the
+ * graph. The owner is a Behavior (its config) or an Action (its settings); the
+ * process running the graph injects them as `_settings`, so the node itself
+ * does not know which. (Formerly `behavior_config` — renamed when Actions
+ * started sharing it.)
  *
  * Set `field` in defaultConfig to a dot-notation path (e.g. "host",
  * "nodeConfig.arkit_fcl_cfg.enabled"). `defaultValue` is returned when no
- * stored config value exists at that path yet.
+ * stored value exists at that path yet.
  *
  * The output port is typed BehaviorConfig (a raw-value escape hatch) and is
  * compatible with any typed value port — the engine does no runtime type check.
  */
 @SignalNode({
-  label: 'Behavior Settings',
-  tags: ["utility"],
+  label: 'Settings',
+  tags: ['utility'],
   color: '#2a2a4a',
   internal: true,
 })
-export class BehaviorConfigNode extends Node {
-  static readonly kind = 'behavior_config';
+export class SettingsNode extends Node {
+  static readonly kind = 'settings';
 
   // Wired `field` port takes precedence; the engine falls back to config.field.
   @valueIn('field', 'String') field!: () => string | null | undefined;
 
   @valueOut('value', 'BehaviorConfig')
   value = (): Record<string, unknown> => {
-    const cfg = this.config as BehaviorConfigNodeConfig;
+    const cfg = this.config as SettingsNodeConfig;
     const path = this.field() ?? '';
-    const data = cfg._behaviorConfig ?? {};
+    const data = cfg._settings ?? {};
     const resolved = path ? resolvePath(data, path) : data;
     const value =
       resolved !== undefined ? resolved : (cfg.defaultValue ?? null);

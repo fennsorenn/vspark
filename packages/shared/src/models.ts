@@ -105,16 +105,23 @@ export const MODELS = {
         : null,
     clockFields: ['startEpoch'],
   },
-  // Owned polymorphically by a project, a scene node or a compose layer. A
-  // project-owned graph has no parent: there is no `project` rtype.
+  // Owned polymorphically by a project, a scene node, a compose layer or an
+  // action. A project-owned graph has no parent: there is no `project` rtype.
+  // An action's graph hangs off the action, so removing the action (removeTree)
+  // removes its graph in the same undo step.
   logic: {
     parent: (d) =>
       d.ownerKind === 'scene_node' && typeof d.ownerId === 'string'
         ? { rtype: 'scene_node', id: d.ownerId }
         : d.ownerKind === 'compose_layer' && typeof d.ownerId === 'string'
           ? { rtype: 'compose_layer', id: d.ownerId }
-          : null,
+          : d.ownerKind === 'action' && typeof d.ownerId === 'string'
+            ? { rtype: 'action', id: d.ownerId }
+            : null,
   },
+  // A project-level workflow (dev-notes/modules/actions.md). Like project
+  // logic it has no parent: there is no `project` rtype.
+  action: {},
   // Runtime state hangs off the entity it targets or is scoped to; a global
   // data field (scope '') belongs to no entity.
   runtime_override: {
@@ -164,6 +171,7 @@ export const TAB_MODELS: readonly ModelName[] = [
   'scheduled_animation',
   'clip_playback',
   'logic',
+  'action',
   'runtime_override',
   'data_field',
   'media_control',

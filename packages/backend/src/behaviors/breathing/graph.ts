@@ -38,13 +38,13 @@ export const BREATHING_PIPELINE_TEMPLATE: Omit<GraphDescriptor, 'id'> = {
     // ── Configurable amplitudes ──────────────────────────────────────────────
     {
       id: 'cfg_chest_amp',
-      kind: 'behavior_config',
+      kind: 'settings',
       position: { x: -300, y: 220 },
       defaultConfig: { field: 'chestAmplitude', defaultValue: 0.04 },
     },
     {
       id: 'cfg_shoulder_amp',
-      kind: 'behavior_config',
+      kind: 'settings',
       position: { x: -300, y: 300 },
       defaultConfig: { field: 'shoulderAmplitude', defaultValue: 0.02 },
     },

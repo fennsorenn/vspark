@@ -13,7 +13,7 @@ import type { GraphDescriptor } from '@vspark/shared/signal';
  * performance, while `Stylize Pose` needs the original as the base to blend
  * against and as the carrier for every bone the rig does not own.
  *
- * Every knob is surfaced as a `behavior_config` (Behavior Settings) node so
+ * Every knob is surfaced as a `settings` (Settings) node so
  * they are visible on the graph rather than read from config behind the nodes'
  * backs — same convention as the manual-calibration graph. Because node config
  * resolves live per access, edits in the properties panel hot-apply without a
@@ -38,56 +38,56 @@ export const POSE_STYLIZER_TEMPLATE: Omit<GraphDescriptor, 'id'> = {
     },
     {
       id: 'cfg_response',
-      kind: 'behavior_config',
+      kind: 'settings',
       position: { x: -360, y: 200 },
       defaultConfig: { field: 'response', defaultValue: {} },
     },
     {
       id: 'cfg_amount',
-      kind: 'behavior_config',
+      kind: 'settings',
       position: { x: -360, y: 300 },
       defaultConfig: { field: 'amount', defaultValue: 1 },
     },
     {
       id: 'cfg_strength',
-      kind: 'behavior_config',
+      kind: 'settings',
       position: { x: -360, y: 380 },
       defaultConfig: { field: 'strength', defaultValue: 1 },
     },
     {
       id: 'cfg_lag',
-      kind: 'behavior_config',
+      kind: 'settings',
       position: { x: -360, y: 460 },
       // null (not a number) so an unset lag falls through to the preset's base.
       defaultConfig: { field: 'lag', defaultValue: null },
     },
     {
       id: 'cfg_preset',
-      kind: 'behavior_config',
+      kind: 'settings',
       position: { x: -360, y: 540 },
       defaultConfig: { field: 'preset', defaultValue: 'follow' },
     },
     {
       id: 'cfg_rig',
-      kind: 'behavior_config',
+      kind: 'settings',
       position: { x: -360, y: 620 },
       defaultConfig: { field: 'rig', defaultValue: null },
     },
     {
       id: 'cfg_rig_mode',
-      kind: 'behavior_config',
+      kind: 'settings',
       position: { x: -360, y: 700 },
       defaultConfig: { field: 'rigMode', defaultValue: 'simple' },
     },
     {
       id: 'cfg_simple_rig',
-      kind: 'behavior_config',
+      kind: 'settings',
       position: { x: -360, y: 780 },
       defaultConfig: { field: 'simpleRig', defaultValue: null },
     },
     {
       id: 'cfg_rest_unmapped',
-      kind: 'behavior_config',
+      kind: 'settings',
       position: { x: -360, y: 860 },
       defaultConfig: { field: 'restUnmapped', defaultValue: false },
     },

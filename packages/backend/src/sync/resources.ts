@@ -497,6 +497,87 @@ defineResource({
 
 // legacy WS kinds; migrating that 90 Hz hot path onto sync.stream.publish is
 // deferred until it can be runtime-verified (see the design doc, Phase 3).
+export interface ActionRow {
+  id: string;
+  project_id: string;
+  kind: string;
+  name: string;
+  enabled: number;
+  settings: string;
+  template_fingerprint: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+/** actions row → the DTO the mesh carries and the REST read model builds on. */
+export function rowToAction(r: ActionRow) {
+  return {
+    id: r.id,
+    projectId: r.project_id,
+    kind: r.kind,
+    name: r.name,
+    enabled: r.enabled === 1,
+    settings: JSON.parse(r.settings || '{}') as Record<string, unknown>,
+    templateFingerprint: r.template_fingerprint,
+    createdAt: r.created_at,
+  };
+}
+
+/** An Action: a project-level, form-configured workflow. Its graph is a
+ *  separate `logic` document it owns (owner_kind 'action'); see
+ *  actions/lifecycle.ts. */
+defineResource({
+  rtype: 'action',
+  cls: 'document',
+  load: (id) => {
+    const r = getDb()
+      .prepare('SELECT * FROM actions WHERE id = ?')
+      .get(id) as unknown as ActionRow | undefined;
+    return r ? rowToAction(r) : undefined;
+  },
+  save: (dto) => {
+    const d = dto as {
+      id: string;
+      projectId: string;
+      kind: string;
+      name: string;
+      enabled?: boolean;
+      settings?: unknown;
+      templateFingerprint?: string | null;
+      createdAt?: string;
+    };
+    const db = getDb();
+    const prior = db
+      .prepare('SELECT created_at FROM actions WHERE id = ?')
+      .get(d.id) as { created_at: string } | undefined;
+    db.prepare(
+      `INSERT INTO actions
+         (id, project_id, kind, name, enabled, settings, template_fingerprint, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, COALESCE(?, datetime('now')), datetime('now'))
+       ON CONFLICT(id) DO UPDATE SET
+         project_id           = excluded.project_id,
+         kind                 = excluded.kind,
+         name                 = excluded.name,
+         enabled              = excluded.enabled,
+         settings             = excluded.settings,
+         template_fingerprint = excluded.template_fingerprint,
+         updated_at           = datetime('now')`
+    ).run(
+      d.id,
+      d.projectId,
+      d.kind,
+      d.name,
+      d.enabled === false ? 0 : 1,
+      JSON.stringify(d.settings ?? {}),
+      d.templateFingerprint ?? null,
+      d.createdAt ?? prior?.created_at ?? null
+    );
+  },
+  remove: (id) => {
+    getDb().prepare('DELETE FROM actions WHERE id = ?').run(id);
+  },
+});
+
 interface AnimationClipRow {
   id: string;
   name: string;

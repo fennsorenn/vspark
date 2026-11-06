@@ -27,7 +27,8 @@
       "track_clip": "the track clip",
       "behavior": "the behavior",
       "camera_effect": "the camera effect",
-      "logic": "the logic graph"
+      "logic": "the logic graph",
+      "action": "the action"
     },
     "rejected": "Couldn’t save {{subject}} — the server refused the change.",
     "rejectedWithReason": "Couldn’t save {{subject}}: {{reason}}",

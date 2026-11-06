@@ -1,0 +1,75 @@
+{
+  "title": "Aktionen",
+  "add": "Hinzufügen",
+  "empty": "Noch keine Aktionen. Füge eine hinzu, um ein Tastenkürzel einzurichten, ohne einen Graphen zu bauen.",
+  "rowError": "Diese Aktion konnte hier nicht angezeigt werden — öffne stattdessen ihren Graphen.",
+  "help": {
+    "overview": "Was Aktionen sind und wie sie mit Logik zusammenhängen",
+    "shape": "Manche Einstellungen ändern den Aufbau des Graphen der Aktion"
+  },
+  "kinds": {
+    "hotkey": {
+      "label": "Tastenkürzel",
+      "description": "Eine Tastenkombination drücken, um einen Clip abzuspielen, eine Eigenschaft zu setzen, Medien zu steuern …"
+    }
+  },
+  "row": {
+    "enabled": "Diese Aktion aktivieren / deaktivieren",
+    "settings": "Einstellungen",
+    "closeSettings": "Schließen",
+    "openGraph": "Graph öffnen",
+    "reset": "Zurücksetzen",
+    "resetTip": "Den Graphen aus der Vorlage neu aufbauen (verwirft deine Änderungen am Graphen)",
+    "delete": "Aktion löschen"
+  },
+  "badge": {
+    "modified": "Geändert",
+    "modifiedTip": "Der Graph wurde bearbeitet und weicht von dem ab, was die Vorlage erzeugt hat.",
+    "templateUpdate": "Vorlagen-Update",
+    "templateUpdateTip": "Die Vorlage erzeugt inzwischen einen anderen Graphen. Zurücksetzen, um ihn zu übernehmen (verwirft deine Änderungen am Graphen).",
+    "missingGraph": "Kein Graph",
+    "missingGraphTip": "Diese Aktion hat keinen Graphen. Zurücksetzen erzeugt ihn aus der Vorlage."
+  },
+  "confirm": {
+    "reset": "Den Graphen von „{{name}}“ aus der Vorlage neu aufbauen? Deine Änderungen am Graphen gehen verloren.",
+    "rebuild": "Diese Änderung baut den Graphen von „{{name}}“ neu auf und verwirft deine Änderungen am Graphen. Fortfahren?",
+    "rebuildConfirm": "Graph neu aufbauen"
+  },
+  "form": {
+    "name": "Name",
+    "shortcut": "Kürzel",
+    "mode": "Modus",
+    "positions": "Positionen",
+    "position": "Position {{n}}",
+    "response": "Reaktion",
+    "chooseResponse": "Reaktion auswählen …"
+  },
+  "mode": {
+    "single": "Einfach",
+    "toggle": "Umschalten",
+    "cycle": "Durchschalten"
+  },
+  "preview": {
+    "noShortcut": "Kein Kürzel",
+    "noResponse": "Keine Reaktion",
+    "toggle": "umschalten",
+    "cycle": "durchschalten ×{{n}}",
+    "position": "{{n}}."
+  },
+  "responses": {
+    "play_clip": "Clip abspielen",
+    "spawn_clip": "Clip erzeugen",
+    "set_expression": "Ausdruck setzen",
+    "set_property": "Eigenschaft setzen",
+    "set_layer_property": "Ebenen-Eigenschaft setzen",
+    "control_media": "Medien steuern"
+  },
+  "mediaAction": {
+    "play": "Abspielen",
+    "pause": "Pause",
+    "stop": "Stopp",
+    "restart": "Neu starten",
+    "mute": "Stumm",
+    "unmute": "Ton an"
+  }
+}

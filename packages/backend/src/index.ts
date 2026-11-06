@@ -306,6 +306,11 @@ async function start() {
   // Standalone project graphs — start every persisted-enabled graph on boot.
   // See dev-notes/modules/project-graphs.md.
   const { logicManager } = await import('./logic/manager.js');
+  // Actions first: create missing action graphs and regenerate unmodified
+  // ones whose template changed, so the graphs started below are current.
+  // See dev-notes/modules/actions.md.
+  const { actionLifecycle } = await import('./actions/lifecycle.js');
+  actionLifecycle.bootSync();
   logicManager.startAllEnabled();
 
   // Overlive integration — one shared kit per project with configured accounts.

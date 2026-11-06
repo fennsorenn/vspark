@@ -176,7 +176,7 @@ export function typeTagToResolved(
   transport: Transport
 ): ResolvedType {
   // `Any` and `BehaviorConfig` are both wildcard escape hatches → `unknown`.
-  // BehaviorConfig is the raw-config output of `behavior_config`, historically
+  // BehaviorConfig is the raw-config output of the `settings` node (formerly `behavior_config`), historically
   // compatible with every typed value port (it carries an arbitrary config field);
   // mapping it to `unknown` preserves that wildcard behaviour under structural typing.
   const leaf: ResolvedType =

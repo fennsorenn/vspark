@@ -24,7 +24,8 @@
     "./fracIndex": "./src/fracIndex.ts",
     "./clipPlayback": "./src/clipPlayback.ts",
     "./idMap": "./src/idMap.ts",
-    "./live2d": "./src/live2d.ts"
+    "./live2d": "./src/live2d.ts",
+    "./actions": "./src/actions.ts"
   },
   "scripts": {
     "build": "tsc --noEmit",

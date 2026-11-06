@@ -51,6 +51,7 @@ import {
 import { initRuntimeVariables, resetRuntimeVariables } from './variables.js';
 import { refreshAllBehaviorManagers } from '../behaviors/refresh.js';
 import { logicLifecycle } from '../logic/lifecycle.js';
+import { actionLifecycle, guardAction } from '../actions/lifecycle.js';
 import {
   ensurePeerProject,
   isCollabScene,
@@ -91,9 +92,13 @@ interface RtypeBinding {
    *  route, a tab, an undo, a collab peer) — they run in the persistence tap,
    *  never in a route, or a write that bypasses the route would skip them.
    *  `onRemoving` runs before the row is deleted, the others after. */
-  onSaved?: (dto: Dto) => void;
+  onSaved?: (dto: Dto, prev?: Dto) => void;
   onRemoving?: (id: string) => void;
   onRemoved?: (id: string) => void;
+  /** Hand `onSaved` the document as it was persisted before this write (read
+   *  back from SQLite ahead of the save; undefined on a create). For side
+   *  effects that depend on what changed rather than on the new state alone. */
+  withPrev?: boolean;
 }
 
 /** camera_view layers show a camera by id — a reference, not containment, so
@@ -381,7 +386,26 @@ const BINDINGS: RtypeBinding[] = [
         ? rowExists('projects', d.ownerId)
         : d.ownerKind === 'scene_node'
           ? rowExists('scene_nodes', d.ownerId)
-          : rowExists('compose_layers', d.ownerId),
+          : d.ownerKind === 'action'
+            ? rowExists('actions', d.ownerId)
+            : rowExists('compose_layers', d.ownerId),
+  },
+  {
+    rtype: 'action',
+    clients: TAB_AUTHORED,
+    table: 'actions',
+    // Settings are normalized for every writer (a correction when they were
+    // not), an unknown kind or a foreign project is refused.
+    validate: (data, { origin }) =>
+      guardAction(data as Dto, isClientParticipant(origin)),
+    // Value edits reach the running graph live; a shape edit rebuilds an
+    // unmodified graph; an enable toggle starts or stops it. Deciding which
+    // needs the document as it was, hence withPrev. The graph itself is a
+    // child document (logic parented to the action), so removing the action
+    // removes it through removeTree in the tap below.
+    withPrev: true,
+    onSaved: (d, prev) => actionLifecycle.onCommitted(d, prev),
+    persists: (d) => ownProject(d.projectId),
   },
   {
     // Persistent graph variables (the short-lived ones are the
@@ -624,12 +648,13 @@ function bindCollection(
         b.onRemoved?.(c.id);
       } else if (c.doc) {
         if (b.persists && !b.persists(c.doc)) return;
+        const prev = b.withPrev ? r.load?.(c.id) : undefined;
         // Before persisting: a throw here nacks the write and restores the
         // pre-write state on the author.
         r.save?.(c.doc);
         clearTombstone(b.rtype, c.id);
         sync.document.upsert(b.rtype, c.id);
-        b.onSaved?.(c.doc);
+        b.onSaved?.(c.doc, prev);
       }
     } finally {
       applyingFromMesh.delete(key);

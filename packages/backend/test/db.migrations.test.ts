@@ -106,6 +106,8 @@ describe('Migration runner — expected tables', () => {
     expect(tables.has('logic')).toBe(true);
     expect(tables.has('automations')).toBe(false);
     expect(tables.has('graphs')).toBe(false);
+    // 045: actions (each owns a logic row with owner_kind = 'action').
+    expect(tables.has('actions')).toBe(true);
   });
 
   it('creates the scheduled_animations table (migration 033)', () => {
@@ -219,9 +221,8 @@ describe('Migration runner — idempotency', () => {
         .prepare('SELECT COUNT(*) AS cnt FROM _migrations')
         .all() as { cnt: number }[]
     )[0].cnt;
-    // There are 45 migrations (001 – 044, 046; 045 is reserved for the
-    // actions table on a parallel branch).
-    expect(count).toBe(45);
+    // There are 46 migrations (001 – 046).
+    expect(count).toBe(46);
   });
 
   it('each migration name appears exactly once in _migrations', () => {

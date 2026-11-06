@@ -95,10 +95,10 @@ export const FINGER_MIRROR_PAIRS = [
 //       value (via pull) → converter node → pose_merge / bs_out
 //
 // Arm tracking has two modes — IK and quaternion — controlled by `useIk` in the component
-// config. The mode is read by a `behavior_config` node and wired through to each arm-related
+// config. The mode is read by a `settings` node and wired through to each arm-related
 // node's `enabled` input. `useIk` defaults to false (quaternion arms).
 
-// Helper to keep the descriptor readable: a behavior_config node that reads one field.
+// Helper to keep the descriptor readable: a settings node that reads one field.
 /**
  * Arm-solve technique switches: `armSolve.<field>` in the behavior config → a value port on
  * `pose_arms` (ArmSolveOptions) or `arm_smooth` (pose_smooth). Exposed so each technique's effect
@@ -130,7 +130,7 @@ function cfgNode(
 ) {
   return {
     id,
-    kind: 'behavior_config',
+    kind: 'settings',
     position,
     defaultConfig: { field, defaultValue },
   };
