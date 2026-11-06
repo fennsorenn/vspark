@@ -36,6 +36,84 @@ running vspark — even when vspark is not the focused window.
   expression, set a property of an object or layer, or control a video or audio
   file. Pick the response, then fill in its details.
 
+## Chat command {#chat_command}
+
+A **Chat command** replies when someone types a command such as `!hug` in your
+chat (Twitch).
+
+- **Command** and **Aliases**: the command name (with or without `!`) and other
+  names that do the same, separated by spaces or commas — `!hug` with aliases
+  `cuddle snuggle` also reacts to `!cuddle` and `!snuggle`. Upper and lower case
+  do not matter.
+- **Who may use it**: everyone, or only subscribers, moderators or the
+  broadcaster (each rank includes the ones above it).
+- **Cooldown**: see [Cooldown](#cooldown).
+- **Args must match** (optional): a [pattern](#patterns) the text after the
+  command has to match, for example `^@?(?<target>\w+)$` for "exactly one name".
+  When it does not match, nothing happens. Named groups become
+  [placeholders](#placeholders) for the reply.
+- **Counter** (optional): see [Counter](#counter).
+- **Reply**: the chat message to send back, with
+  [placeholders](#placeholders) `${user}`, `${args}` and `${count}`. Leave it
+  empty to send nothing.
+
+Example: command `!hug`, reply `${user} hugs ${args}! (${count} hugs so far)`.
+
+## Placeholders {#placeholders}
+
+Replies and messages can contain placeholders in the form `${name}`, which are
+replaced when the message is sent:
+
+| Placeholder | Meaning |
+|---|---|
+| `${user}` | The display name of the chatter or viewer |
+| `${args}` | Everything after the command (chat command) |
+| `${message}` | The chat message, or the text entered with a redemption |
+| `${reward}` | The reward's title (redemption) |
+| `${count}` | The counter's value after counting (see [Counter](#counter)), or the final count of a combo |
+| `${…}` | Every *named group* of a pattern, e.g. `${quote}` for `(?<quote>…)` |
+
+A placeholder with no value is left empty.
+
+## Patterns {#patterns}
+
+Patterns are *regular expressions* — a compact way to describe text. A few
+building blocks go a long way:
+
+- `.` any character, `\d` a digit, `\w` a letter, digit or underscore, `\s` a
+  space;
+- `+` "one or more", `*` "any number", `?` "optional";
+- `^` the start and `$` the end of the text;
+- `(?<name>…)` a *named group*: whatever it matches becomes the placeholder
+  `${name}`.
+
+Upper and lower case are ignored. An invalid pattern never matches.
+
+## Cooldown {#cooldown}
+
+The **Cooldown** is the number of seconds the action waits after running before
+it reacts again; `0` turns it off. Uses during the cooldown are ignored.
+
+Give several actions the same **shared group** name and they share one
+cooldown: after any of them runs, all of them wait. Without a group, each action
+has its own cooldown.
+
+## Counter {#counter}
+
+With **Count each use**, the action counts how often it ran, and `${count}` in
+the reply shows the number. **Step** is how much each use adds.
+
+- Without a name, the counter belongs to this action alone.
+- With a name, it is a shared counter: actions using the same name count
+  together, and any Logic can read it with a **Get Variable** node.
+- **Keep after restart** stores the counter, so it survives restarting vspark.
+
+## Account {#account}
+
+Chat and redemption actions listen on — and reply with — a streaming
+**account** from the project's accounts (**Accounts** in the toolbar). *Default
+account* is the project's default; pick another one if you have several.
+
 ## Settings that rebuild the graph {#value-shape}
 
 Most settings — the shortcut, which clip to play, a value to set — are read by

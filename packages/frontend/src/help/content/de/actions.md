@@ -40,6 +40,88 @@ Vordergrund ist.
   oder ein Video bzw. eine Audiodatei steuern. Wähle die Reaktion und fülle dann
   ihre Details aus.
 
+## Chat-Befehl {#chat_command}
+
+Ein **Chat-Befehl** antwortet, wenn jemand einen Befehl wie `!hug` in deinen
+Chat (Twitch) schreibt.
+
+- **Befehl** und **Aliase**: der Name des Befehls (mit oder ohne `!`) und
+  weitere Namen, die dasselbe tun, durch Leerzeichen oder Kommas getrennt —
+  `!hug` mit den Aliasen `cuddle snuggle` reagiert auch auf `!cuddle` und
+  `!snuggle`. Groß- und Kleinschreibung spielen keine Rolle.
+- **Wer darf ihn nutzen**: alle oder nur Abonnenten, Moderatoren oder der
+  Kanalinhaber (jeder Rang schließt die höheren ein).
+- **Abklingzeit**: siehe [Abklingzeit](#cooldown).
+- **Argumente müssen passen** (optional): ein [Muster](#patterns), zu dem der
+  Text nach dem Befehl passen muss, zum Beispiel `^@?(?<target>\w+)$` für „genau
+  ein Name“. Passt er nicht, passiert nichts. Benannte Gruppen werden zu
+  [Platzhaltern](#placeholders) für die Antwort.
+- **Zähler** (optional): siehe [Zähler](#counter).
+- **Antwort**: die Chat-Nachricht, die zurückgeschickt wird, mit den
+  [Platzhaltern](#placeholders) `${user}`, `${args}` und `${count}`. Leer lassen,
+  um nichts zu senden.
+
+Beispiel: Befehl `!hug`, Antwort `${user} umarmt ${args}! (schon ${count} Umarmungen)`.
+
+## Platzhalter {#placeholders}
+
+Antworten und Nachrichten können Platzhalter der Form `${name}` enthalten, die
+beim Senden ersetzt werden:
+
+| Platzhalter | Bedeutung |
+|---|---|
+| `${user}` | Der Anzeigename des Chatters bzw. Zuschauers |
+| `${args}` | Alles nach dem Befehl (Chat-Befehl) |
+| `${message}` | Die Chat-Nachricht bzw. der bei einer Einlösung eingegebene Text |
+| `${reward}` | Der Titel der Belohnung (Einlösung) |
+| `${count}` | Der Stand des Zählers nach dem Zählen (siehe [Zähler](#counter)) bzw. die Endzahl einer Combo |
+| `${…}` | Jede *benannte Gruppe* eines Musters, z. B. `${quote}` für `(?<quote>…)` |
+
+Ein Platzhalter ohne Wert bleibt leer.
+
+## Muster {#patterns}
+
+Muster sind *reguläre Ausdrücke* — eine kompakte Art, Text zu beschreiben. Mit
+ein paar Bausteinen kommt man weit:
+
+- `.` ein beliebiges Zeichen, `\d` eine Ziffer, `\w` ein Buchstabe, eine Ziffer
+  oder ein Unterstrich, `\s` ein Leerzeichen;
+- `+` „ein oder mehr“, `*` „beliebig viele“, `?` „optional“;
+- `^` der Anfang und `$` das Ende des Texts;
+- `(?<name>…)` eine *benannte Gruppe*: Was sie erfasst, wird zum Platzhalter
+  `${name}`.
+
+Groß- und Kleinschreibung werden ignoriert. Ein ungültiges Muster passt nie.
+
+## Abklingzeit {#cooldown}
+
+Die **Abklingzeit** ist die Anzahl Sekunden, die die Aktion nach dem Auslösen
+wartet, bevor sie wieder reagiert; `0` schaltet sie ab. Nutzungen während der
+Abklingzeit werden ignoriert.
+
+Gib mehreren Aktionen denselben Namen als **geteilte Gruppe**, dann teilen sie
+sich eine Abklingzeit: Nachdem eine von ihnen ausgelöst hat, warten alle. Ohne
+Gruppe hat jede Aktion ihre eigene Abklingzeit.
+
+## Zähler {#counter}
+
+Mit **Jede Nutzung zählen** zählt die Aktion, wie oft sie ausgelöst hat, und
+`${count}` in der Antwort zeigt die Zahl. **Schrittweite** ist, wie viel jede
+Nutzung hinzufügt.
+
+- Ohne Namen gehört der Zähler nur dieser Aktion.
+- Mit Namen ist er ein geteilter Zähler: Aktionen mit demselben Namen zählen
+  gemeinsam, und jede Logik kann ihn mit einem **Get Variable**-Knoten lesen.
+- **Nach Neustart behalten** speichert den Zähler, sodass er einen Neustart von
+  vspark übersteht.
+
+## Konto {#account}
+
+Chat- und Einlösungs-Aktionen lesen mit — und antworten — über ein
+Streaming-**Konto** aus den Konten des Projekts (**Konten** in der
+Werkzeugleiste). *Standardkonto* ist das Standardkonto des Projekts; wähle ein
+anderes, wenn du mehrere hast.
+
 ## Einstellungen, die den Graphen neu aufbauen {#value-shape}
 
 Die meisten Einstellungen — das Kürzel, welcher Clip abgespielt wird, ein zu

@@ -223,7 +223,19 @@ export function commitActionSetting(
   if (!col.get(a.id)) return;
   const next = nextSettings(a, path, value);
   if (!changesShape(a.kind, a.settings, next)) {
-    watch(col.set(a.id, `settings.${path}`, value).ack, actionLabel(RTYPE));
+    // Values the graph reads that are computed from what the form edits
+    // (`settings.derived`, e.g. a command's regex) go along in the same undo
+    // step; the server would correct them too, but the running graph and this
+    // tab should not wait for that round trip.
+    const derived = next.derived;
+    const derivedChanged =
+      derived !== undefined &&
+      JSON.stringify(derived) !== JSON.stringify(a.settings?.derived);
+    meshBatch(() => {
+      watch(col.set(a.id, `settings.${path}`, value).ack, actionLabel(RTYPE));
+      if (derivedChanged && !path.startsWith('derived'))
+        watch(col.set(a.id, 'settings.derived', derived).ack, actionLabel(RTYPE));
+    });
     return;
   }
   meshBatch(() => {

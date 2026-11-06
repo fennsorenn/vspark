@@ -372,9 +372,372 @@ const hotkey: ActionKindDef = {
   },
 };
 
+// ── chat / redemption building blocks ───────────────────────────────────────
+//
+// The chat and redemption kinds share their settings shapes (account, minimum
+// rank, cooldown, counter, reply) and the template pieces that read them. Every
+// optional part (args pattern, counter, reply, trigger, marking a redemption
+// complete) sits in a FIXED structure, switched by a value setting through an
+// `if_else` (or by being empty — an empty reply sends nothing, an empty trigger
+// name sends no trigger), so typing never rebuilds the graph. Only a response
+// TYPE is a shape setting.
+//
+// Some values the graph needs are functions of what the form edits — a regex
+// built from a command and its aliases, a counter's scope that depends on
+// whether it is named. `normalize` computes them into `settings.derived`, where
+// `settings` nodes read them like any other value. They are recomputed on
+// every normalized write (the backend normalizes every action write), never
+// edited by the form.
+
+/** Chat ranks, lowest first (the `chat_rank` node's ranks). */
+export const CHAT_RANKS = ['everyone', 'sub', 'mod', 'broadcaster'] as const;
+export type ChatRank = (typeof CHAT_RANKS)[number];
+
+const strOf = (v: unknown, d = ''): string => (typeof v === 'string' ? v : d);
+const boolOf = (v: unknown, d: boolean): boolean =>
+  typeof v === 'boolean' ? v : d;
+function numOf(v: unknown, d: number, min = -Infinity, max = Infinity): number {
+  const n = typeof v === 'number' ? v : typeof v === 'string' && v.trim() !== '' ? Number(v) : NaN;
+  if (!Number.isFinite(n)) return d;
+  return Math.min(max, Math.max(min, n));
+}
+
+/** Escape text for literal use inside a regular expression (also valid
+ *  with the `u` flag: only syntax characters are escaped). */
+export function escapeRegExp(text: string): string {
+  return text.replace(/[\\^$.*+?()[\]{}|/]/g, '\\$&');
+}
+
+/** A command and its aliases as bare names: prefix `!` stripped, empty and
+ *  duplicate (case-insensitive) names dropped. Aliases are separated by
+ *  spaces or commas — a command name cannot contain a space. */
+export function commandNames(command: unknown, aliases: unknown): string[] {
+  const out: string[] = [];
+  const seen = new Set<string>();
+  const all = [strOf(command), ...strOf(aliases).split(/[\s,]+/)];
+  for (const raw of all) {
+    const name = raw.trim().replace(/^!+/, '').trim();
+    if (!name || /\s/.test(name) || seen.has(name.toLowerCase())) continue;
+    seen.add(name.toLowerCase());
+    out.push(name);
+  }
+  return out;
+}
+
+/** Regex (flags `i`) matching exactly one of the command names, or '' (which
+ *  the regex node treats as "never matches") when there are none. */
+export function commandPattern(names: string[]): string {
+  return names.length
+    ? `^(?:${names.map(escapeRegExp).join('|')})$`
+    : '';
+}
+
+export interface CooldownSettings {
+  seconds: number;
+  group: string;
+}
+function normalizeCooldown(v: unknown, seconds: number): CooldownSettings {
+  const c = isObj(v) ? v : {};
+  return {
+    seconds: numOf(c.seconds, seconds, 0),
+    group: strOf(c.group).trim(),
+  };
+}
+
+export interface CounterSettings {
+  enabled: boolean;
+  /** Empty: the action's own counter (scope = its graph id, name `count`).
+   *  Named: a shared variable (scope ''), readable by any graph. */
+  name: string;
+  step: number;
+  persistent: boolean;
+}
+function normalizeCounter(v: unknown): CounterSettings {
+  const c = isObj(v) ? v : {};
+  return {
+    enabled: boolOf(c.enabled, false),
+    name: strOf(c.name).trim(),
+    step: numOf(c.step, 1),
+    persistent: boolOf(c.persistent, true),
+  };
+}
+/** The counter's variable name and scope template (see the builder). */
+function counterDerived(c: CounterSettings) {
+  return {
+    counterName: c.name || 'count',
+    // Rendered by a `text_format` whose `id` field is the graph's id
+    // (`logic_id`): an unnamed counter is graph-local, a named one shared.
+    counterScope: c.name ? '' : '${id}',
+  };
+}
+
+const rankOf = (v: unknown): ChatRank =>
+  CHAT_RANKS.includes(v as ChatRank) ? (v as ChatRank) : 'everyone';
+
+/** Builder for the chat / redemption templates: one settings node per field,
+ *  shared by every port that reads it (ids `cfg_<field with _ for .>`). */
+class Tpl {
+  readonly nodes: GraphNodeDescriptor[] = [];
+  readonly edges: GraphEdgeDescriptor[] = [];
+  private readonly cfg = new Map<string, string>();
+
+  node(
+    id: string,
+    kind: string,
+    x: number,
+    y: number,
+    defaultConfig?: Record<string, unknown>
+  ): string {
+    this.nodes.push(
+      defaultConfig
+        ? { id, kind, position: { x, y }, defaultConfig }
+        : { id, kind, position: { x, y } }
+    );
+    return id;
+  }
+
+  wire(fromNodeId: string, fromPort: string, toNodeId: string, toPort: string) {
+    this.edges.push({ fromNodeId, fromPort, toNodeId, toPort });
+  }
+
+  /** Feed settings field `field` into `to.toPort`. The settings node is
+   *  created at (`x`, `y`) on first use. */
+  setting(field: string, to: string, toPort: string, x: number, y: number) {
+    let id = this.cfg.get(field);
+    if (!id) {
+      id = `cfg_${field.replace(/\./g, '_')}`;
+      this.cfg.set(field, id);
+      this.nodes.push(settingsNode(id, field, x, y));
+    }
+    this.edges.push(valueEdge(id, to, toPort));
+  }
+
+  out(): TemplateGraph {
+    return { nodes: this.nodes, edges: this.edges };
+  }
+}
+
+type Out = [nodeId: string, port: string];
+
+/** Chat trigger → `chat_rank` gate (isSub / isMod / isBroadcaster of the
+ *  trigger, `minRank` setting). */
+function addRankGate(b: Tpl, source: string, entry: Out, x: number): Out {
+  b.node('rank', 'chat_rank', x, 420);
+  for (const p of ['isSub', 'isMod', 'isBroadcaster']) b.wire(source, p, 'rank', p);
+  b.setting('minRank', 'rank', 'minRank', x - 280, 560);
+  b.node('rank_gate', 'if_else', x + 280, 200);
+  b.wire(entry[0], entry[1], 'rank_gate', 'in');
+  b.wire('rank', 'allowed', 'rank_gate', 'condition');
+  return ['rank_gate', 'then'];
+}
+
+/** `cooldown` fed by every entry (seconds + optional shared group). */
+function addCooldown(b: Tpl, entries: Out[], x: number): Out {
+  b.node('cooldown', 'cooldown', x, 200);
+  for (const [n, p] of entries) b.wire(n, p, 'cooldown', 'in');
+  b.setting('cooldown.seconds', 'cooldown', 'seconds', x - 280, 640);
+  b.setting('cooldown.group', 'cooldown', 'group', x - 280, 710);
+  return ['cooldown', 'out'];
+}
+
+/**
+ * Optional counter + chat reply, from `entry`:
+ *
+ *   entry ─▶ if_else(counter.enabled) ─then▶ increment_variable ─done▶ send
+ *                                     └else────────────────────────────▶ send
+ *   text_format(reply; fields…, count ← variable, values ← `values`) ─▶ send.template
+ *
+ * The counter's variable is `derived.counterName` in the scope rendered from
+ * `derived.counterScope` (graph-local or shared). An empty reply sends nothing.
+ */
+function addCounterReply(
+  b: Tpl,
+  entry: Out,
+  fields: Record<string, Out>,
+  values: Out | null,
+  x: number
+): void {
+  b.node('counter_gate', 'if_else', x, 200);
+  b.wire(entry[0], entry[1], 'counter_gate', 'in');
+  b.setting('counter.enabled', 'counter_gate', 'condition', x - 280, 780);
+  b.node('this_logic', 'logic_id', x, 860);
+  b.node('counter_scope', 'text_format', x + 280, 860, { fields: ['id'] });
+  b.wire('this_logic', 'id', 'counter_scope', 'id');
+  b.setting('derived.counterScope', 'counter_scope', 'template', x, 960);
+  b.node('counter', 'increment_variable', x + 560, 420);
+  b.wire('counter_gate', 'then', 'counter', 'fire');
+  b.setting('derived.counterName', 'counter', 'name', x + 280, 560);
+  b.wire('counter_scope', 'text', 'counter', 'scope');
+  b.setting('counter.step', 'counter', 'by', x + 280, 640);
+  b.setting('counter.persistent', 'counter', 'persistent', x + 280, 710);
+  b.node('count', 'variable', x + 560, 760);
+  b.setting('derived.counterName', 'count', 'name', 0, 0);
+  b.wire('counter_scope', 'text', 'count', 'scope');
+  b.node('reply', 'text_format', x + 840, 560, {
+    fields: [...Object.keys(fields), 'count'],
+  });
+  b.setting('reply', 'reply', 'template', x + 560, 940);
+  for (const [field, [n, p]] of Object.entries(fields)) b.wire(n, p, 'reply', field);
+  b.wire('count', 'value', 'reply', 'count');
+  if (values) b.wire(values[0], values[1], 'reply', 'values');
+  b.node('send', 'overlive_send_chat', x + 1120, 200);
+  b.wire('counter', 'done', 'send', 'fire');
+  b.wire('counter_gate', 'else', 'send', 'fire');
+  b.wire('reply', 'text', 'send', 'template');
+  b.setting('account', 'send', 'account', 0, 0);
+}
+
+/** Preview tokens for rank / cooldown / counter, where they are set. */
+function chatMeta(s: ActionSettings): PreviewToken[] {
+  const out: PreviewToken[] = [];
+  const rank = rankOf(s.minRank);
+  if (rank !== 'everyone') out.push({ t: 'msg', key: `preview.rank.${rank}` });
+  const cd = normalizeCooldown(s.cooldown, 0);
+  if (cd.seconds > 0)
+    out.push(
+      cd.group
+        ? { t: 'msg', key: 'preview.cooldownGroup', params: { s: cd.seconds, group: cd.group } }
+        : { t: 'msg', key: 'preview.cooldown', params: { s: cd.seconds } }
+    );
+  out.push(...counterMeta(s));
+  return out;
+}
+
+function counterMeta(s: ActionSettings): PreviewToken[] {
+  const c = normalizeCounter(s.counter);
+  if (!c.enabled) return [];
+  return [
+    c.name
+      ? { t: 'msg', key: 'preview.counter', params: { name: c.name } }
+      : { t: 'msg', key: 'preview.counterOwn' },
+  ];
+}
+
+/** The reply as a quoted line, or "no reply". */
+function replyLine(reply: unknown): PreviewToken[] {
+  const r = strOf(reply).trim();
+  return r
+    ? [{ t: 'text', text: `“${r}”` }]
+    : [{ t: 'msg', key: 'preview.noReply' }];
+}
+
+/** Fields every chat-reply kind shares, normalized. */
+function chatBase(src: Record<string, unknown>, cooldownSeconds: number) {
+  const counter = normalizeCounter(src.counter);
+  return {
+    account: strOf(src.account),
+    minRank: rankOf(src.minRank),
+    cooldown: normalizeCooldown(src.cooldown, cooldownSeconds),
+    reply: strOf(src.reply),
+    counter,
+  };
+}
+
+const VALUE_FIELDS_CHAT: ActionSettingField[] = [
+  { path: 'account', class: 'value' },
+  { path: 'minRank', class: 'value' },
+  { path: 'cooldown', class: 'value' },
+  { path: 'reply', class: 'value' },
+  { path: 'counter', class: 'value' },
+  { path: 'derived', class: 'value' },
+];
+
+const DEFAULT_CHAT_COOLDOWN = 10;
+
+// ── Chat command ─────────────────────────────────────────────────────────────
+
+const chatCommand: ActionKindDef = {
+  kind: 'chat_command',
+  label: 'Chat command',
+  icon: '❗',
+  // No shape field: every optional part is gated in a fixed structure.
+  fields: [
+    { path: 'command', class: 'value' },
+    { path: 'aliases', class: 'value' },
+    { path: 'argsPattern', class: 'value' },
+    ...VALUE_FIELDS_CHAT,
+  ],
+  defaults: () => chatCommand.normalize({}),
+  normalize(raw) {
+    const src = isObj(raw) ? raw : {};
+    const base = chatBase(src, DEFAULT_CHAT_COOLDOWN);
+    const command = strOf(src.command).trim();
+    const aliases = strOf(src.aliases);
+    return {
+      ...src,
+      ...base,
+      command,
+      aliases,
+      argsPattern: strOf(src.argsPattern),
+      derived: {
+        commandPattern: commandPattern(commandNames(command, aliases)),
+        ...counterDerived(base.counter),
+      },
+    };
+  },
+  build() {
+    const b = new Tpl();
+    b.node('trigger', 'overlive_chat_command', 0, 200);
+    b.setting('account', 'trigger', 'account', -280, 200);
+    b.node('command_match', 'regex', 280, 420, { flags: 'i' });
+    b.wire('trigger', 'command', 'command_match', 'text');
+    b.setting('derived.commandPattern', 'command_match', 'pattern', 0, 500);
+    b.node('command_gate', 'if_else', 560, 200);
+    b.wire('trigger', 'event', 'command_gate', 'in');
+    b.wire('command_match', 'matched', 'command_gate', 'condition');
+    const ranked = addRankGate(b, 'trigger', ['command_gate', 'then'], 840);
+    // Optional args pattern: an empty pattern skips the check.
+    b.node('args_match', 'regex', 1120, 420, { flags: 'i' });
+    b.wire('trigger', 'args', 'args_match', 'text');
+    b.setting('argsPattern', 'args_match', 'pattern', 840, 640);
+    b.node('args_optional', 'equals', 1120, 600, { b: '' });
+    b.setting('argsPattern', 'args_optional', 'a', 0, 0);
+    b.node('args_skip', 'if_else', 1400, 200);
+    b.wire(ranked[0], ranked[1], 'args_skip', 'in');
+    b.wire('args_optional', 'equal', 'args_skip', 'condition');
+    b.node('args_gate', 'if_else', 1680, 320);
+    b.wire('args_skip', 'else', 'args_gate', 'in');
+    b.wire('args_match', 'matched', 'args_gate', 'condition');
+    const passed = addCooldown(
+      b,
+      [
+        ['args_skip', 'then'],
+        ['args_gate', 'then'],
+      ],
+      1960
+    );
+    addCounterReply(
+      b,
+      passed,
+      { user: ['trigger', 'displayName'], args: ['trigger', 'args'] },
+      ['args_match', 'groups'],
+      2240
+    );
+    return b.out();
+  },
+  preview(s) {
+    const names = commandNames(s.command, s.aliases);
+    const headline: PreviewToken[] = names.length
+      ? names.map((n) => ({ t: 'text' as const, text: `!${n}` }))
+      : [{ t: 'msg', key: 'preview.noCommand' }];
+    headline.push(...chatMeta(s));
+    const lines = [replyLine(s.reply)];
+    const args = strOf(s.argsPattern);
+    if (args)
+      lines.push([
+        { t: 'msg', key: 'preview.argsPattern' },
+        { t: 'text', text: `/${args}/` },
+      ]);
+    return { headline, lines };
+  },
+};
+
 // ── registry ─────────────────────────────────────────────────────────────────
 
-export const ACTION_KINDS: readonly ActionKindDef[] = [hotkey];
+export const ACTION_KINDS: readonly ActionKindDef[] = [
+  hotkey,
+  chatCommand,
+];
 
 const BY_KIND = new Map(ACTION_KINDS.map((k) => [k.kind, k]));
 

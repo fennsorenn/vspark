@@ -17,3 +17,12 @@ export const buttonStyle: CSSProperties = {
   cursor: 'pointer',
   padding: '2px 7px',
 };
+
+/** A form row's label (a flex row of label text and controls). */
+export const labelStyle: CSSProperties = {
+  display: 'flex',
+  alignItems: 'center',
+  gap: 4,
+  fontSize: 10,
+  color: '#888',
+};

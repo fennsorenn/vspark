@@ -1,16 +1,25 @@
 {
   "title": "Aktionen",
   "add": "Hinzufügen",
-  "empty": "Noch keine Aktionen. Füge eine hinzu, um ein Tastenkürzel einzurichten, ohne einen Graphen zu bauen.",
+  "empty": "Noch keine Aktionen. Füge eine hinzu, um ein Tastenkürzel, einen Chat-Befehl und mehr einzurichten, ohne einen Graphen zu bauen.",
   "rowError": "Diese Aktion konnte hier nicht angezeigt werden — öffne stattdessen ihren Graphen.",
   "help": {
     "overview": "Was Aktionen sind und wie sie mit Logik zusammenhängen",
-    "shape": "Manche Einstellungen ändern den Aufbau des Graphen der Aktion"
+    "shape": "Manche Einstellungen ändern den Aufbau des Graphen der Aktion",
+    "account": "Mit welchem Streaming-Konto die Aktion mitliest und antwortet",
+    "cooldown": "Wie oft die Aktion laufen darf, optional geteilt mit anderen Aktionen",
+    "counter": "Zählen, wie oft die Aktion lief, und die Zahl in der Antwort verwenden",
+    "placeholders": "Platzhalter, die du im Text verwenden kannst",
+    "patterns": "Wie Muster (reguläre Ausdrücke) funktionieren"
   },
   "kinds": {
     "hotkey": {
       "label": "Tastenkürzel",
       "description": "Eine Tastenkombination drücken, um einen Clip abzuspielen, eine Eigenschaft zu setzen, Medien zu steuern …"
+    },
+    "chat_command": {
+      "label": "Chat-Befehl",
+      "description": "Auf einen Chat-Befehl wie !hug antworten, mit Abklingzeit, Mindestrang und optionalem Zähler"
     }
   },
   "row": {
@@ -42,19 +51,57 @@
     "positions": "Positionen",
     "position": "Position {{n}}",
     "response": "Reaktion",
-    "chooseResponse": "Reaktion auswählen …"
+    "chooseResponse": "Reaktion auswählen …",
+    "account": "Konto",
+    "defaultAccount": "Standardkonto",
+    "missingAccount": "(entferntes Konto)",
+    "command": "Befehl",
+    "aliases": "Aliase",
+    "aliasesHint": "Weitere Namen für denselben Befehl, durch Leerzeichen oder Kommas getrennt.",
+    "minRank": "Wer darf ihn nutzen",
+    "cooldown": "Abklingzeit",
+    "seconds": "s",
+    "cooldownGroup": "geteilte Gruppe",
+    "argsPattern": "Argumente müssen passen",
+    "argsPatternHint": "Optionales Muster, zu dem der Text nach dem Befehl passen muss. Benannte Gruppen werden zu Platzhaltern.",
+    "counter": "Zähler",
+    "counterEnabled": "Jede Nutzung zählen",
+    "counterName": "Name des Zählers",
+    "counterNameHint": "Leer: eigener Zähler dieser Aktion. Ein Name: ein geteilter Zähler, den auch andere Aktionen nutzen können.",
+    "counterStep": "Schrittweite",
+    "counterPersistent": "Nach Neustart behalten",
+    "reply": "Antwort",
+    "placeholders": "Platzhalter: {{list}}. Leer: keine Antwort."
   },
   "mode": {
     "single": "Einfach",
     "toggle": "Umschalten",
     "cycle": "Durchschalten"
   },
+  "rank": {
+    "everyone": "Alle",
+    "sub": "Ab Abonnenten",
+    "mod": "Ab Moderatoren",
+    "broadcaster": "Nur der Kanalinhaber"
+  },
   "preview": {
     "noShortcut": "Kein Kürzel",
     "noResponse": "Keine Reaktion",
     "toggle": "umschalten",
     "cycle": "durchschalten ×{{n}}",
-    "position": "{{n}}."
+    "position": "{{n}}.",
+    "noCommand": "Kein Befehl",
+    "noReply": "Keine Antwort",
+    "rank": {
+      "sub": "ab Abos",
+      "mod": "ab Mods",
+      "broadcaster": "nur Kanalinhaber"
+    },
+    "cooldown": "⏱ {{s}} s",
+    "cooldownGroup": "⏱ {{s}} s ({{group}})",
+    "counter": "# {{name}}",
+    "counterOwn": "# gezählt",
+    "argsPattern": "Argumente:"
   },
   "responses": {
     "play_clip": "Clip abspielen",

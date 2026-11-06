@@ -35,6 +35,7 @@ import {
 import { HelpButton } from '../../../help/HelpButton';
 import { useConfirm } from '../../DialogProvider';
 import { HotkeyForm } from './HotkeyForm';
+import { CHAT_FORMS } from './ChatForms';
 import { buttonStyle, inputStyle } from './styles';
 
 // ── preview ──────────────────────────────────────────────────────────────────
@@ -329,6 +330,13 @@ function ActionRow({
           {action.kind === 'hotkey' && (
             <HotkeyForm action={action} onSetting={(p, v) => void setSetting(p, v)} />
           )}
+          {CHAT_FORMS[action.kind] &&
+            (() => {
+              const Form = CHAT_FORMS[action.kind];
+              return (
+                <Form action={action} onSetting={(p, v) => void setSetting(p, v)} />
+              );
+            })()}
         </div>
       )}
     </div>
