@@ -105,19 +105,20 @@ export const MODELS = {
         : null,
     clockFields: ['startEpoch'],
   },
-  // Owned polymorphically by a project, a scene node, a compose layer or an
-  // action. A project-owned graph has no parent: there is no `project` rtype.
-  // An action's graph hangs off the action, so removing the action (removeTree)
-  // removes its graph in the same undo step.
+  // Owned polymorphically by a project, a scene node, a compose layer, an
+  // action or a behavior. A project-owned graph has no parent: there is no
+  // `project` rtype. An action's or a behavior's graph hangs off its owner, so
+  // removing the owner (removeTree) removes its graph in the same undo step.
   logic: {
     parent: (d) =>
-      d.ownerKind === 'scene_node' && typeof d.ownerId === 'string'
-        ? { rtype: 'scene_node', id: d.ownerId }
-        : d.ownerKind === 'compose_layer' && typeof d.ownerId === 'string'
-          ? { rtype: 'compose_layer', id: d.ownerId }
-          : d.ownerKind === 'action' && typeof d.ownerId === 'string'
-            ? { rtype: 'action', id: d.ownerId }
-            : null,
+      typeof d.ownerId !== 'string'
+        ? null
+        : d.ownerKind === 'scene_node' ||
+            d.ownerKind === 'compose_layer' ||
+            d.ownerKind === 'action' ||
+            d.ownerKind === 'behavior'
+          ? { rtype: d.ownerKind, id: d.ownerId }
+          : null,
   },
   // A project-level workflow (dev-notes/modules/actions.md). Like project
   // logic it has no parent: there is no `project` rtype.

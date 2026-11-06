@@ -8,6 +8,34 @@ Du fügst Verhalten über den **Verhalten**-Tab hinzu und hängst sie an einen
 Knoten. Ein einzelner Avatar kann mehrere Verhalten gleichzeitig ausführen — zum
 Beispiel Tracking *und* Lippensynchronisation.
 
+## Der Graph eines Verhaltens {#graph}
+
+Unter der Haube führt jedes Verhalten (außer der **API-Steuerung**) einen
+[Logik-Graphen](topic:logic) aus: die Knoten, die Tracking-Daten, Mikrofon-
+Eingaben oder einen Takt in Bewegung verwandeln. Dieser Graph gehört zum
+Verhalten, und du kannst ihn wie jeden anderen Graphen bearbeiten — die
+Einstellungen im Panel des Verhaltens wirken weiter, weil der Graph sie über
+seine **Einstellungen**-Knoten liest.
+
+Die Zeile **Graph** oben in den Einstellungen eines Verhaltens zeigt:
+
+- **Graph öffnen** — öffnet den Graphen auf der Arbeitsfläche. Änderungen
+  wirken sofort auf das laufende Verhalten.
+- **Geändert** — der Graph weicht von dem ab, was die Vorlage des Verhaltens
+  erzeugt hat. Knoten zu verschieben zählt nicht als Änderung.
+- **Vorlagen-Update** — eine neuere vspark-Version erzeugt für dieses
+  Verhalten einen anderen Graphen. Unveränderte Graphen werden beim Start von
+  vspark automatisch aktualisiert; ein von dir bearbeiteter Graph bleibt, wie
+  er ist, und zeigt stattdessen dieses Abzeichen.
+- **Kein Graph** — das Verhalten hat keinen gespeicherten Graphen und läuft
+  mit seiner Vorlage.
+- **Graph zurücksetzen** — baut den Graphen aus der Vorlage neu auf. Vorher
+  wird nachgefragt, weil deine Änderungen am Graphen verloren gehen.
+  **Rückgängig** holt sie zurück.
+
+Knoten, die auf Chat, Tastenkürzel, OBS oder Auslöser reagieren, erhalten
+diese Ereignisse nur in Logik-Graphen, nicht im Graphen eines Verhaltens.
+
 ## VMC-Empfänger {#vmc}
 
 **VMC** ist ein verbreiteter Standard, den Motion-Capture-Apps nutzen, um

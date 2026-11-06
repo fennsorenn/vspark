@@ -16,7 +16,7 @@ export const HEAD_CALIB_BONES = [
 
 const VMC_BASE_TEMPLATE: Omit<GraphDescriptor, 'id'> = {
   label: 'VMC Receiver Pipeline',
-  readonly: true,
+  readonly: false,
   nodes: [
     // ── Component config value sources ────────────────────────────────────────
     // Each exposes ONE field from the component config via its `value` output port.

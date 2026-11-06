@@ -1824,10 +1824,11 @@ function LogicListPanel() {
     commitLogicPatch(g.id, { enabled: !g.enabled });
   };
 
-  // Behavior graphs are runtime state, not documents: the descriptors are built
-  // by the behavior managers, so there is nothing to sync. Their set changes
-  // only when a behavior or a graph document does, which is the trigger here —
-  // a timer would only re-fetch the same answer.
+  // The graphs the behavior managers are RUNNING (each a behavior's stored,
+  // editable graph — a logic document — or its template while none is stored).
+  // The list is fetched from the managers; it changes only when a behavior or
+  // a graph document does, which is the trigger here — a timer would only
+  // re-fetch the same answer. Opening one edits the stored document.
   useEffect(() => {
     api
       .getSignalGraphs()
@@ -2210,8 +2211,7 @@ function LogicListPanel() {
               <div>
                 <div style={{ fontWeight: 500 }}>{g.label}</div>
                 <div style={{ fontSize: 10, color: '#555', marginTop: 1 }}>
-                  {t('logic.nodes', { count: g.nodes.length })} ·{' '}
-                  {t('logic.readOnly')}
+                  {t('logic.nodes', { count: g.nodes.length })}
                 </div>
               </div>
             </div>

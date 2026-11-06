@@ -47,7 +47,7 @@ Toolchain: repo runs TC39 Stage-3 decorators (TS 5.9, **no** `experimentalDecora
 
 ## Runtime — `signal/engine.ts`
 
-`SignalGraph` (the reactive substrate; name kept) is instantiated per Behavior (one per VMC receiver, one per breathing behavior, etc.). A signal graph can also back a **Logic** (project / scene-node / compose-layer scoped) rather than a Behavior — see [project-graphs.md](project-graphs.md) for user-authored logic owned by a `logic` row (table renamed from `graphs` via migrations 022 → 025). The behavior-context kind `behavior_id` is rejected in all logic at descriptor-validation time by `LogicManager`; the shared `settings` node (formerly `behavior_config`) is rejected everywhere except in Action-owned logic (`owner_kind = 'action'`, see [actions.md](actions.md)). `scene_entity` is allowed in scene-node- and compose-layer-scoped logic (rejected only in project scope); the logic's owner kind is threaded into inference via `fromDescriptor(..., ownerKind)` so `scene_entity`'s output type follows the scope (`SceneNode` / `ComposeLayer`).
+`SignalGraph` (the reactive substrate; name kept) is instantiated per Behavior (one per VMC receiver, one per breathing behavior, etc.). A signal graph can also back a **Logic** (project / scene-node / compose-layer scoped) rather than a Behavior — see [project-graphs.md](project-graphs.md) for user-authored logic owned by a `logic` row (table renamed from `graphs` via migrations 022 → 025). The behavior-context kind `behavior_id` is rejected in all logic at descriptor-validation time by `LogicManager`; the shared `settings` node (formerly `behavior_config`) is rejected everywhere except in Action-owned logic (`owner_kind = 'action'`, see [actions.md](actions.md)) and Behavior-owned logic (`owner_kind = 'behavior'` — a behavior's stored graph, validated by `validateBehaviorGraph` and run by its manager, see [component-managers.md](component-managers.md#stored-editable-graphs)). `scene_entity` is allowed in scene-node- and compose-layer-scoped logic (rejected only in project scope); the logic's owner kind is threaded into inference via `fromDescriptor(..., ownerKind)` so `scene_entity`'s output type follows the scope (`SceneNode` / `ComposeLayer`).
 
 After the Phase 2 re-architecture the engine is **wiring + lifecycle** over Node instances, not a central dispatcher:
 
@@ -232,7 +232,7 @@ carries `_logicId` (the graph's id); `logic_id` reads it.
 | `settings` (label "Settings"; kind id was `behavior_config` until the Actions work) | Dot-notation extractor on the graph owner's settings JSON (e.g., `field: "myNode.param"`), injected as `_settings` by whoever runs the graph — a behavior manager (the behavior's config) or `LogicManager` for Action-owned logic (the action's settings). |
 | `behavior_id` (label "This Behavior") | Injects the owning behavior's instance id as a string value. |
 | `scene_entity` (label "This Entity") | Outputs the id of the entity the logic/behavior is scoped to; output type follows scope (`SceneNode` / `ComposeLayer`) |
-| `viseme_passthrough` (label "Visemes → Blendshapes") | Scales viseme weights by a sensitivity config value |
+| `viseme_passthrough` (label "Visemes → Blendshapes") | Scales viseme weights by its `sensitivity` value input (falls back to `config.sensitivity`; the Lipsync template feeds it from the behavior's `sensitivity` setting), clamped to [0, 1] |
 
 ## Graph Descriptor
 
@@ -285,7 +285,7 @@ Phase 2 (branch `feature/signal-graph-nodes-v2`) landed both architecture change
 
 #### Deferred / out of scope
 
-- **Typed `settings`** — `inferPorts`-based typing is deferred: there is no config-schema registry, so writable non-Action graphs simply **reject** the node and its `BehaviorConfig` wildcard (→ `unknown`) output stays. Stays planned for a later phase.
+- **Typed `settings`** — `inferPorts`-based typing is deferred: there is no config-schema registry, so writable Logic graphs other than Action and Behavior graphs simply **reject** the node and its `BehaviorConfig` wildcard (→ `unknown`) output stays. Stays planned for a later phase.
 - Typed `set_*_param` value input (would replace the `Any` + runtime-coerce approach with a port typed from the paramPath registry).
 - Incremental `reconcile` (stays rebuild-from-scratch).
 

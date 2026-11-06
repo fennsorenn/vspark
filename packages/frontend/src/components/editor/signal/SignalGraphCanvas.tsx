@@ -422,8 +422,8 @@ function SignalGraphCanvasInner({ graphId, kindMeta }: Props) {
   // refetch, which is the point of keying the descriptor's elements.
   const storeRecord = useLogicRecord(graphId);
 
-  // Behavior-owned graphs are not documents: their descriptors are built by the
-  // behavior managers, so they are fetched, and read-only.
+  // A running graph with no document (none should remain since behaviors
+  // store theirs, migration 047): fetched from the managers, read-only.
   const [behaviorDescriptor, setBehaviorDescriptor] =
     useState<GraphDescriptor | null>(null);
   useEffect(() => {
@@ -446,7 +446,13 @@ function SignalGraphCanvasInner({ graphId, kindMeta }: Props) {
       writableRef.current = true;
       setWritable(true);
       setActiveLogicWritable(true);
-      setOwnerKind((storeRecord.ownerKind as LogicOwnerKind) || undefined);
+      // A behavior's graph runs attached to its scene node (scene_entity is
+      // a SceneNode there), like the manager's own inference.
+      setOwnerKind(
+        storeRecord.ownerKind === 'behavior'
+          ? 'scene_node'
+          : (storeRecord.ownerKind as LogicOwnerKind) || undefined
+      );
       setDescriptor({
         ...storeRecord.descriptor,
         id: storeRecord.id,

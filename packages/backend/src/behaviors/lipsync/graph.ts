@@ -2,7 +2,7 @@ import type { GraphDescriptor } from '@vspark/shared/signal';
 
 export const LIPSYNC_PIPELINE_TEMPLATE: Omit<GraphDescriptor, 'id'> = {
   label: 'Lipsync',
-  readonly: true,
+  readonly: false,
   nodes: [
     // ── Config ──────────────────────────────────────────────────────────────
     {
@@ -48,6 +48,14 @@ export const LIPSYNC_PIPELINE_TEMPLATE: Omit<GraphDescriptor, 'id'> = {
       fromPort: 'visemes',
       toNodeId: 'passthrough',
       toPort: 'visemes',
+    },
+    // Sensitivity setting → passthrough (the behavior's `sensitivity`).
+    {
+      fromNodeId: 'cfg_sensitivity',
+      fromPort: 'value',
+      toNodeId: 'passthrough',
+      toPort: 'sensitivity',
+      kind: 'value',
     },
     // Passthrough output → broadcast
     {

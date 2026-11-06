@@ -52,6 +52,8 @@ import { initRuntimeVariables, resetRuntimeVariables } from './variables.js';
 import { refreshAllBehaviorManagers } from '../behaviors/refresh.js';
 import { logicLifecycle } from '../logic/lifecycle.js';
 import { actionLifecycle, guardAction } from '../actions/lifecycle.js';
+import { behaviorGraphLifecycle } from '../behaviors/graphLifecycle.js';
+import { validateBehaviorGraph } from '../behaviors/storedGraph.js';
 import {
   ensurePeerProject,
   isCollabScene,
@@ -233,7 +235,15 @@ const BINDINGS: RtypeBinding[] = [
     // Attaching, reconfiguring or detaching a behavior starts, restarts or
     // tears down its signal graph. Each manager re-reads the full row set, so
     // the refresh is idempotent; on remove it runs after the row is gone.
-    onSaved: () => refreshAllBehaviorManagers(),
+    // First its STORED graph is kept in step (created when missing, rebuilt
+    // on a shape change of an unmodified graph) — which needs the document as
+    // it was, hence withPrev. The graph is a child document (logic parented to
+    // the behavior), so removing the behavior removes it through removeTree.
+    withPrev: true,
+    onSaved: (d, prev) => {
+      behaviorGraphLifecycle.onCommitted(d, prev);
+      refreshAllBehaviorManagers();
+    },
     onRemoved: () => refreshAllBehaviorManagers(),
     // Tabs author behaviors directly now, so the route's owner check runs here
     // — and it matters more than for effects, because a committed behavior doc
@@ -361,9 +371,28 @@ const BINDINGS: RtypeBinding[] = [
     rtype: 'logic',
     clients: TAB_AUTHORED,
     // A graph's descriptor IS its program: committing one starts, restarts or
-    // stops the running instance.
-    onSaved: (d) => logicLifecycle.onCommitted(d.id as string),
-    onRemoved: (id) => logicLifecycle.onRemoved(id),
+    // stops the running instance. A behavior's graph runs in its behavior's
+    // manager, not in LogicManager, so its manager rebuilds it instead.
+    onSaved: (d) =>
+      d.ownerKind === 'behavior'
+        ? behaviorGraphLifecycle.onGraphCommitted()
+        : logicLifecycle.onCommitted(d.id as string),
+    // The row is gone by onRemoved; note whose graph it was while it exists.
+    onRemoving: (id) => {
+      if (
+        getDb()
+          .prepare(
+            "SELECT 1 FROM logic WHERE id = ? AND owner_kind = 'behavior'"
+          )
+          .get(id)
+      )
+        removingBehaviorGraphs.add(id);
+    },
+    onRemoved: (id) => {
+      if (removingBehaviorGraphs.delete(id))
+        behaviorGraphLifecycle.onGraphCommitted();
+      else logicLifecycle.onRemoved(id);
+    },
     table: 'logic',
     // A project-owned graph has no parent (no `project` rtype), so project
     // graphs cannot be subtree-scoped (shared or collab-scoped) until one
@@ -372,13 +401,17 @@ const BINDINGS: RtypeBinding[] = [
     // equivalent of the 400 the PUT route used to return, and the only place
     // the check lives, since REST and tabs both write through here. The canvas
     // commits `set(id, 'descriptor', …)`; the check sees the whole document.
+    // A behavior's graph is checked on its own terms: it may use the
+    // behavior-context nodes Logic refuses, and must still be buildable.
     validate: (data) => {
       const d = data as Dto;
-      if (d.descriptor)
-        validateDescriptor(
-          toGraphDescriptor(d.descriptor as GraphDescriptorDoc),
-          String(d.ownerKind)
+      if (d.descriptor) {
+        const descriptor = toGraphDescriptor(
+          d.descriptor as GraphDescriptorDoc
         );
+        if (d.ownerKind === 'behavior') validateBehaviorGraph(descriptor);
+        else validateDescriptor(descriptor, String(d.ownerKind));
+      }
       return d;
     },
     persists: (d) =>
@@ -388,7 +421,9 @@ const BINDINGS: RtypeBinding[] = [
           ? rowExists('scene_nodes', d.ownerId)
           : d.ownerKind === 'action'
             ? rowExists('actions', d.ownerId)
-            : rowExists('compose_layers', d.ownerId),
+            : d.ownerKind === 'behavior'
+              ? rowExists('behaviors', d.ownerId)
+              : rowExists('compose_layers', d.ownerId),
   },
   {
     rtype: 'action',
@@ -425,6 +460,9 @@ const BINDINGS: RtypeBinding[] = [
     persists: (d) => rowExists('track_clips', d.clipId),
   },
 ];
+
+/** Behavior-owned graphs being removed (onRemoving → onRemoved). */
+const removingBehaviorGraphs = new Set<string>();
 
 /** Echo guard for the legacy bridge: ids currently being persisted from a
  *  mesh apply — the sync.onDocument mirror skips them so the tap's own

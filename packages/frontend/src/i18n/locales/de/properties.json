@@ -785,6 +785,20 @@
     "stylizedTracking": "Erfahre, wie stilisiertes Tracking deine Bewegung umformt",
     "ifacialmocap": "Erfahre, wie du die iFacialMocap-App (iOS) verbindest",
     "ifmFirewall": "Warum die App „verbunden“ melden kann, ohne dass etwas bei vspark ankommt",
-    "expressionLimits": "Erfahren, wie Mimik-Begrenzungen übertriebene oder kaputte Gesichter verhindern"
+    "expressionLimits": "Erfahren, wie Mimik-Begrenzungen übertriebene oder kaputte Gesichter verhindern",
+    "behaviorGraph": "Erfahre, wie du den Graphen eines Verhaltens bearbeitest und was „Geändert“ und „Zurücksetzen“ bedeuten"
+  },
+  "behaviorGraph": {
+    "title": "Graph",
+    "open": "Graph öffnen",
+    "reset": "Graph zurücksetzen",
+    "resetTip": "Den Graphen dieses Verhaltens aus der Vorlage neu aufbauen (verwirft deine Änderungen am Graphen)",
+    "confirmReset": "Den Graphen von „{{name}}“ aus der Vorlage neu aufbauen? Deine Änderungen am Graphen gehen verloren.",
+    "modified": "Geändert",
+    "modifiedTip": "Der Graph wurde bearbeitet und weicht von dem ab, was die Vorlage erzeugt hat.",
+    "templateUpdate": "Vorlagen-Update",
+    "templateUpdateTip": "Die Vorlage erzeugt inzwischen einen anderen Graphen. Zurücksetzen, um ihn zu übernehmen (verwirft deine Änderungen am Graphen).",
+    "missing": "Kein Graph",
+    "missingTip": "Dieses Verhalten hat keinen gespeicherten Graphen und läuft mit seiner Vorlage. Zurücksetzen speichert ihn, damit du ihn bearbeiten kannst."
   }
 }

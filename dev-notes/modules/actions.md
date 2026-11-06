@@ -3,7 +3,8 @@
 **Status: Implemented (core + Hotkey kind).** Other kinds (Chat command, Chat
 pattern, Chat keyword, Keyword combo, Redemption) are planned — see
 [plans/actions.md](../plans/actions.md) Phase 3. Behaviors getting the same
-stored-graph treatment is Phase 4 (planned).
+stored-graph treatment (Phase 4) is implemented — see
+[component-managers.md](component-managers.md#stored-editable-graphs).
 
 An **Action** is a project-level, preauthored workflow configured by a settings
 form. It is to the project what a [Behavior](component-managers.md) is to an
@@ -92,7 +93,8 @@ Each kind (`ActionKindDef`) declares: `label`, `icon`, `fields` (dotted paths,
   fields — so a template has no access to value settings and cannot bake them
   into the graph. Value settings reach the graph only through `settings` nodes.
 - A path not matched by any shape field is a value (`settingClassOf`).
-- `graphFingerprint(descriptor)` hashes node ids, kinds and `defaultConfig`
+- `graphFingerprint(descriptor)` (also used for Behaviors' stored graphs —
+  [component-managers.md](component-managers.md#stored-editable-graphs)) hashes node ids, kinds and `defaultConfig`
   plus the edges; node **positions**, the graph's id/label/readonly and edge
   transport hints are excluded (tidying the canvas is not a modification). A
   53-bit non-cryptographic hash (cyrb53) over canonical JSON.

@@ -69,6 +69,9 @@ interface BehaviorRow {
   enabled: number;
   config: string;
   sort_order: number;
+  /** Fingerprint of the template output its graph was generated from
+   *  (migration 047); null when unknown. */
+  template_fingerprint: string | null;
 }
 
 interface CameraEffectRow {
@@ -144,6 +147,10 @@ defineResource({
       enabled: r.enabled === 1,
       config: JSON.parse(r.config || '{}'),
       sortOrder: r.sort_order ?? 0,
+      // The behavior's graph is a separate `logic` document it owns
+      // (owner_kind 'behavior'); this says which template output that graph
+      // was generated from. See behaviors/graphLifecycle.ts.
+      templateFingerprint: r.template_fingerprint ?? null,
     };
   },
   save: (dto) => {
@@ -154,17 +161,19 @@ defineResource({
       enabled: boolean;
       config: Record<string, unknown>;
       sortOrder?: number;
+      templateFingerprint?: string | null;
     };
     getDb()
       .prepare(
-        `INSERT INTO behaviors (id, node_id, kind, enabled, config, sort_order)
-         VALUES (?, ?, ?, ?, ?, ?)
+        `INSERT INTO behaviors (id, node_id, kind, enabled, config, sort_order, template_fingerprint)
+         VALUES (?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT(id) DO UPDATE SET
            node_id    = excluded.node_id,
            kind       = excluded.kind,
            enabled    = excluded.enabled,
            config     = excluded.config,
            sort_order = excluded.sort_order,
+           template_fingerprint = excluded.template_fingerprint,
            updated_at = datetime('now')`
       )
       .run(
@@ -173,7 +182,8 @@ defineResource({
         d.kind,
         d.enabled ? 1 : 0,
         JSON.stringify(d.config ?? {}),
-        d.sortOrder ?? 0
+        d.sortOrder ?? 0,
+        d.templateFingerprint ?? null
       );
   },
   remove: (id) => {

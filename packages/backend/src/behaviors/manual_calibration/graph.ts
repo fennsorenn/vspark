@@ -16,7 +16,7 @@ import type { GraphDescriptor } from '@vspark/shared/signal';
  */
 export const MANUAL_CALIBRATION_TEMPLATE: Omit<GraphDescriptor, 'id'> = {
   label: 'Manual Calibration',
-  readonly: true,
+  readonly: false,
   nodes: [
     {
       id: 'intercept',

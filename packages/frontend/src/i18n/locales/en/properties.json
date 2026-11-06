@@ -785,6 +785,20 @@
     "stylizedTracking": "Learn how stylized tracking reshapes your motion",
     "ifacialmocap": "Learn how to connect the iFacialMocap iOS app",
     "ifmFirewall": "Why the app can say “connected” while nothing reaches vspark",
-    "expressionLimits": "Learn how expression limits stop exaggerated or broken faces"
+    "expressionLimits": "Learn how expression limits stop exaggerated or broken faces",
+    "behaviorGraph": "Learn how to edit a behavior's graph, and what Modified and Reset mean"
+  },
+  "behaviorGraph": {
+    "title": "Graph",
+    "open": "Open graph",
+    "reset": "Reset graph",
+    "resetTip": "Rebuild this behavior's graph from its template (discards your edits to the graph)",
+    "confirmReset": "Rebuild the graph of “{{name}}” from its template? Your edits to the graph are discarded.",
+    "modified": "Modified",
+    "modifiedTip": "The graph was edited and differs from what the template generated.",
+    "templateUpdate": "Template update",
+    "templateUpdateTip": "The template now generates a different graph. Reset to use it (discards your edits to the graph).",
+    "missing": "No graph",
+    "missingTip": "This behavior has no stored graph and runs its template. Reset stores it so you can edit it."
   }
 }

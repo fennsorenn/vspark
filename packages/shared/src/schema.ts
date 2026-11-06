@@ -428,7 +428,7 @@ export const replaceTrackClipKeyframesSchema = z
 // --- Graphs (generalized owner-scoped) ---
 
 export const graphOwnerKindSchema = z
-  .enum(['project', 'scene_node', 'compose_layer', 'action'])
+  .enum(['project', 'scene_node', 'compose_layer', 'action', 'behavior'])
   .openapi('LogicOwnerKind');
 
 export const createLogicSchema = z

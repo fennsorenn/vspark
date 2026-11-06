@@ -17,6 +17,9 @@
  *                        `settings` node is allowed and reads the action's live
  *                        settings, injected here as `_settings`; the graph runs
  *                        only while the action is enabled.
+ *   - 'behavior'       — a Behavior's stored graph: NOT run here. Its behavior
+ *                        manager runs it (behaviors/storedGraph.ts) and the
+ *                        mesh validates it with validateBehaviorGraph.
  *
  * Per-graph node state is persisted on the logic row in a `node_state` JSON
  * column (mirroring the `_nodeState` convention used by behavior-owned
@@ -182,6 +185,9 @@ export class LogicManager {
     if (this.running.has(id)) return;
     const row = this.get(id);
     if (!row || row.enabled !== 1) return;
+    // A behavior's graph is stored as Logic but run by its behavior manager,
+    // which feeds it live data (behaviors/storedGraph.ts).
+    if (row.owner_kind === 'behavior') return;
     // An action's graph runs only while its action exists and is enabled.
     const owner = { settings: {} as Record<string, unknown> };
     if (row.owner_kind === 'action') {
