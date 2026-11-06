@@ -148,6 +148,9 @@ test('Actions panel: add, configure, badges, reset, open graph, delete (REST-ver
   // ── Open graph → the Logic tab shows it ────────────────────────────────────
   await page.locator('.vs-action-open-graph').click();
   await expect(page.getByText('Show sign').first()).toBeVisible();
+  // Merely opening the canvas must not count as a modification.
+  await page.waitForTimeout(1_000);
+  expect((await first(request, projectId))?.modified).toBe(false);
   await page.locator('.vs-tab-actions').click();
 
   // ── Delete takes the graph along ───────────────────────────────────────────
