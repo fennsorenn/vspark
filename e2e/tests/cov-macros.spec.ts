@@ -11,10 +11,13 @@ import type { APIRequestContext } from '@playwright/test';
  *   vs-macro-delete
  *
  * Each mutation is asserted via REST read-back of the project's logic graphs
- * (the panel writes through api.updateLogic), never via UI state.
+ * (the panel writes through the mesh — mesh/logicWrites), never via UI state.
  */
 
-type LogicRow = { id: string; name: string; descriptor: { nodes: { id: string; kind: string; defaultConfig?: Record<string, unknown> }[]; edges: unknown[] } };
+type MacroNode = { id: string; kind: string; defaultConfig?: Record<string, unknown> };
+/** The REST route returns descriptors in mesh document form: nodes and edges
+ *  keyed by id rather than arrays. */
+type LogicRow = { id: string; name: string; descriptor: { nodes: Record<string, MacroNode> | MacroNode[]; edges: unknown } };
 
 async function projectLogic(request: APIRequestContext, projectId: string): Promise<LogicRow[]> {
   const res = await request.get(`/api/projects/${projectId}/logic`);
@@ -24,7 +27,8 @@ async function projectLogic(request: APIRequestContext, projectId: string): Prom
 /** The nodes of the auto-created "Macros" logic graph (empty until one exists). */
 async function macroNodes(request: APIRequestContext, projectId: string) {
   const graph = (await projectLogic(request, projectId)).find((g) => g.name === 'Macros');
-  return graph?.descriptor.nodes ?? [];
+  const nodes = graph?.descriptor.nodes ?? [];
+  return Array.isArray(nodes) ? nodes : Object.values(nodes);
 }
 
 test('Macros panel: add → pick action → toggle enable → delete (REST-verified)', async ({
