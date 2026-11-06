@@ -23,26 +23,26 @@ const VMC_BASE_TEMPLATE: Omit<GraphDescriptor, 'id'> = {
     // Columns: x=-520 (cfg), x=-240 (vmc source), x=60 (mappers+bone), x=360 (calib/bs), x=640 (arm), x=920 (out)
     {
       id: 'cfg_host',
-      kind: 'behavior_config',
+      kind: 'settings',
       position: { x: -520, y: 80 },
       defaultConfig: { field: 'host', defaultValue: '0.0.0.0' },
     },
     {
       id: 'cfg_port',
-      kind: 'behavior_config',
+      kind: 'settings',
       position: { x: -520, y: 200 },
       defaultConfig: { field: 'port', defaultValue: 39539 },
     },
     {
       id: 'cfg_mirror',
-      kind: 'behavior_config',
+      kind: 'settings',
       position: { x: -520, y: 320 },
       defaultConfig: { field: 'mirror', defaultValue: false },
     },
     // Mapper config pairs — 160 px between en/map, 240 px between mapper groups.
     {
       id: 'cfg_fcl_en',
-      kind: 'behavior_config',
+      kind: 'settings',
       position: { x: -520, y: 540 },
       defaultConfig: {
         field: 'nodeConfig.arkit_fcl_cfg.enabled',
@@ -51,7 +51,7 @@ const VMC_BASE_TEMPLATE: Omit<GraphDescriptor, 'id'> = {
     },
     {
       id: 'cfg_fcl_map',
-      kind: 'behavior_config',
+      kind: 'settings',
       position: { x: -520, y: 660 },
       defaultConfig: {
         field: 'nodeConfig.arkit_fcl_cfg.mapping',
@@ -60,7 +60,7 @@ const VMC_BASE_TEMPLATE: Omit<GraphDescriptor, 'id'> = {
     },
     {
       id: 'cfg_expr_en',
-      kind: 'behavior_config',
+      kind: 'settings',
       position: { x: -520, y: 820 },
       defaultConfig: {
         field: 'nodeConfig.arkit_expr_cfg.enabled',
@@ -69,7 +69,7 @@ const VMC_BASE_TEMPLATE: Omit<GraphDescriptor, 'id'> = {
     },
     {
       id: 'cfg_expr_map',
-      kind: 'behavior_config',
+      kind: 'settings',
       position: { x: -520, y: 940 },
       defaultConfig: {
         field: 'nodeConfig.arkit_expr_cfg.mapping',
@@ -78,7 +78,7 @@ const VMC_BASE_TEMPLATE: Omit<GraphDescriptor, 'id'> = {
     },
     {
       id: 'cfg_pass_en',
-      kind: 'behavior_config',
+      kind: 'settings',
       position: { x: -520, y: 1100 },
       defaultConfig: {
         field: 'nodeConfig.arkit_pass_cfg.enabled',
@@ -87,7 +87,7 @@ const VMC_BASE_TEMPLATE: Omit<GraphDescriptor, 'id'> = {
     },
     {
       id: 'cfg_pass_map',
-      kind: 'behavior_config',
+      kind: 'settings',
       position: { x: -520, y: 1220 },
       defaultConfig: {
         field: 'nodeConfig.arkit_pass_cfg.mapping',

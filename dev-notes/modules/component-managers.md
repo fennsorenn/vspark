@@ -96,11 +96,11 @@ Procedural sine-wave breathing published as an additive pose source through the 
 - `leftShoulder` / `rightShoulder` lift on inhale.
 - `leftUpperArm` / `rightUpperArm` counter-rotate by the negated shoulder amplitude so the arm visually stays in place while the shoulder lifts.
 
-**Configurable amplitudes** (`behavior_config` nodes): `chestAmplitude`, `shoulderAmplitude`. Both flow through a single `multiply(-1)` node to produce the counter-rotated value used by the upperChest and upper-arm branches.
+**Configurable amplitudes** (`settings` nodes): `chestAmplitude`, `shoulderAmplitude`. Both flow through a single `multiply(-1)` node to produce the counter-rotated value used by the upperChest and upper-arm branches.
 
-**Graph descriptor** (`breathing/graph.ts`): the older "fake `behavior_config` literal helpers" for bone names / mode / priority / blend mode have been dropped — those now live as per-port `defaultConfig` on the consuming nodes (see the engine auto-fallback note below). Only the two amplitude `behavior_config` nodes remain, because they need to track live user edits.
+**Graph descriptor** (`breathing/graph.ts`): the older "fake `behavior_config` (now `settings`) literal helpers" for bone names / mode / priority / blend mode have been dropped — those now live as per-port `defaultConfig` on the consuming nodes (see the engine auto-fallback note below). Only the two amplitude `settings` nodes remain, because they need to track live user edits.
 
-**Live config plumbing**: the manager injects `_behaviorConfig` into the graph runtime so the `behavior_config` nodes can resolve their dotted field paths against the current row.
+**Live config plumbing**: the manager injects `_settings` into the graph runtime so the `settings` nodes can resolve their dotted field paths against the current row.
 
 ---
 
@@ -151,7 +151,7 @@ capture+reset buttons in `PropertiesPanel.tsx`, dispatched by `POST /api/signal/
 
 **Config**: `useIk` (arm mode toggle), `enableFace`, `enablePose`, `enableHands`, plus head and
 IK calibration knobs (see PropertiesPanel `MediapipeTrackerProps`). All knobs are surfaced
-through `behavior_config` nodes wired into converter value ports — no `nodeConfig[nodeId]`
+through `settings` nodes wired into converter value ports — no `nodeConfig[nodeId]`
 side-channel.
 
 **Tracking loss**: only the silence path exists here (the camera pipeline simply stops sending;
@@ -201,10 +201,10 @@ Pose interceptor for manually fine-tuning an avatar's pose with a per-bone, per-
 **Graph descriptor** (`manual_calibration/graph.ts`): a minimal interceptor pipeline, with the per-bone map exposed as a wired input rather than read from config behind the node's back:
 ```
 on_pose_broadcast (priority 5) → pose_manual_calibration → pose_interceptor_broadcast
-behavior_config (field: calibrations) ──┘ (→ calibrations input)
+settings (field: calibrations) ──┘ (→ calibrations input)
 ```
 
-**Calibration map plumbing**: the per-bone map is exposed as a `behavior_config` (Behavior Settings) node (`field: 'calibrations'`) wired into the `pose_manual_calibration` node's `calibrations` value-input — visible on the graph, not a hidden config read. The manager injects `_behaviorConfig` via `_getNodeConfig` so the node resolves the field against the live behavior config. Because node `config` now resolves live per access (engine `_makeBindContext` exposes it as a getter — see [signal-graph.md](signal-graph.md)), UI edits hot-apply without a graph rebuild. Config shape: `{ calibrations: Record<boneName, { multiplier?: [x,y,z]; offset?: [x,y,z] }> }`.
+**Calibration map plumbing**: the per-bone map is exposed as a `settings` (Settings) node (`field: 'calibrations'`) wired into the `pose_manual_calibration` node's `calibrations` value-input — visible on the graph, not a hidden config read. The manager injects `_settings` via `_getNodeConfig` so the node resolves the field against the live behavior config. Because node `config` now resolves live per access (engine `_makeBindContext` exposes it as a getter — see [signal-graph.md](signal-graph.md)), UI edits hot-apply without a graph rebuild. Config shape: `{ calibrations: Record<boneName, { multiplier?: [x,y,z]; offset?: [x,y,z] }> }`.
 
 **Per-bone math** (`pose_manual_calibration` node): for each configured bone, decompose the quaternion to ZYX euler and apply per axis `angle' = angle * multiplier + offset` (offset stored in **degrees**, converted to radians in the node; multiplier unitless). Bones with no config entry, or at identity (mult `[1,1,1]` / offset `[0,0,0]`), pass through untouched. See the node entry in [signal-graph.md](signal-graph.md) and the euler conventions in [animation.md](animation.md).
 
@@ -225,7 +225,7 @@ only runs while some producer is broadcasting a pose for the avatar.
 **Output**: the reshaped pose re-broadcast through the chain (`pose_interceptor_broadcast`)
 
 **Lifecycle**: mirrors `ManualCalibrationManager` — per-behavior `SignalGraph`,
-hot-applied config via `_behaviorConfig`, registration through
+hot-applied config via `_settings`, registration through
 `OnPoseBroadcast.register` instead of a clock/socket.
 
 **Priority 8**, deliberately above manual calibration's 5: the pose is stylized
@@ -235,7 +235,7 @@ first, so a user's manual per-bone trim applies to the pose they can actually se
 ```
 on_pose_broadcast (priority 8) ─┬─→ pose_style_drivers ─→ pose_stylize ─→ pose_interceptor_broadcast
                                 └───────────────────────────↗ (pose, as blend base)
-behavior_config × 5 (response / amount / lag / rig / restUnmapped) ──┘
+settings × 5 (response / amount / lag / rig / restUnmapped) ──┘
 ```
 
 **The idea in one line**: instead of copying the tracked skeleton, read a handful
@@ -287,7 +287,7 @@ kept per behavior for teardown.
 **Graph descriptor** (`blendshape_limiter/graph.ts`):
 ```
 on_blendshapes_broadcast (priority 5) → blendshape_limits → blendshapes_interceptor_broadcast
-behavior_config (field: limits) ──────┘ (→ limits input)
+settings (field: limits) ──────┘ (→ limits input)
 ```
 
 **Rule model** — the whole rule set is one JSON document under behavior config

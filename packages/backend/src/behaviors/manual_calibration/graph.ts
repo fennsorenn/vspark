@@ -7,7 +7,7 @@ import type { GraphDescriptor } from '@vspark/shared/signal';
  *
  *   Intercept Pose → Manual Calibration → Send Intercepted Pose
  *
- * The per-bone calibration map is exposed as a `behavior_config` (Behavior
+ * The per-bone calibration map is exposed as a `settings` (Behavior
  * Settings) node reading the behavior's `calibrations` field and wired into the
  * Manual Calibration node — so the input is visible on the graph, not pulled
  * from config behind the node's back. The interceptor registration (scene-node
@@ -26,7 +26,7 @@ export const MANUAL_CALIBRATION_TEMPLATE: Omit<GraphDescriptor, 'id'> = {
     },
     {
       id: 'cfg_calibrations',
-      kind: 'behavior_config',
+      kind: 'settings',
       position: { x: -300, y: 160 },
       defaultConfig: { field: 'calibrations', defaultValue: {} },
     },

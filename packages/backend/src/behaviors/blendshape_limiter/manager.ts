@@ -87,10 +87,10 @@ export class BlendshapeLimiterManager {
     const overrides = ((
       cfg.nodeConfig as Record<string, unknown> | undefined
     )?.[nodeId] ?? {}) as Record<string, unknown>;
-    // `_behaviorConfig` is consumed by the `behavior_config` node to resolve the
+    // `_settings` is consumed by the `settings` node to resolve the
     // `limits` field against the live behavior config (read fresh per pull, so
     // rule edits hot-apply without a graph rebuild).
-    return { ...defaults, ...overrides, _behaviorConfig: cfg };
+    return { ...defaults, ...overrides, _settings: cfg };
   }
 
   private _persistNodeState(

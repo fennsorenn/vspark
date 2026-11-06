@@ -8,7 +8,7 @@ import { getPortMeta, type PortMeta } from '@vspark/shared/node';
 import { typeTagToResolved } from '@vspark/shared/signal_types';
 import { INFER_BY_KIND } from '@vspark/shared/infer_nodes';
 import { BehaviorId } from './nodes/behavior_id.js';
-import { BehaviorConfigNode } from './nodes/behavior_config.js';
+import { SettingsNode } from './nodes/settings.js';
 import { SceneEntity } from './nodes/scene_entity.js';
 import { ManualTrigger } from './nodes/manual_trigger.js';
 import { ArmIkCalibration } from './nodes/arm_ik_calibration.js';
@@ -137,7 +137,7 @@ import { ClientLifecycle } from './nodes/client_lifecycle.js';
 const ALL_NODE_CLASSES: SignalNodeClass[] = [
   // Context / value nodes (internal — hidden from user palette)
   BehaviorId,
-  BehaviorConfigNode,
+  SettingsNode,
   SceneEntity,
   ManualTrigger,
   ArmIkCalibration,

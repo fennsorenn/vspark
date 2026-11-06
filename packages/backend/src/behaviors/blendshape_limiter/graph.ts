@@ -7,7 +7,7 @@ import type { GraphDescriptor } from '@vspark/shared/signal';
  *
  *   Intercept Blendshapes → Expression Limits → Send Intercepted Blendshapes
  *
- * The rule set is exposed as a `behavior_config` (Behavior Settings) node
+ * The rule set is exposed as a `settings` (Settings) node
  * reading the behavior's `limits` field and wired into the Expression Limits
  * node — so the input is visible on the graph, not pulled from config behind the
  * node's back. The interceptor registration (scene-node binding + priority) is
@@ -30,7 +30,7 @@ export const BLENDSHAPE_LIMITER_TEMPLATE: Omit<GraphDescriptor, 'id'> = {
     },
     {
       id: 'cfg_limits',
-      kind: 'behavior_config',
+      kind: 'settings',
       position: { x: -300, y: 160 },
       defaultConfig: { field: 'limits', defaultValue: {} },
     },

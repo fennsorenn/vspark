@@ -108,10 +108,10 @@ export class PoseStylizerManager {
     const overrides = ((
       cfg.nodeConfig as Record<string, unknown> | undefined
     )?.[nodeId] ?? {}) as Record<string, unknown>;
-    // `_behaviorConfig` is consumed by the `behavior_config` nodes to resolve
+    // `_settings` is consumed by the `settings` nodes to resolve
     // amount / lag / response / rig against the live behavior config (read fresh
     // per pull, so edits hot-apply without a graph rebuild).
-    return { ...defaults, ...overrides, _behaviorConfig: cfg };
+    return { ...defaults, ...overrides, _settings: cfg };
   }
 
   // Only nodes declaring `static persistState` reach this callback — the engine

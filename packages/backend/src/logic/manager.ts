@@ -8,7 +8,7 @@
  * Context-node availability depends on owner_kind:
  *   - 'project'        — no context nodes at all.
  *   - 'scene_node'     — `scene_entity` is auto-fed the attached node's id and
- *                        outputs a `SceneNode`; behavior_config / behavior_id
+ *                        outputs a `SceneNode`; settings / behavior_id
  *                        are still forbidden.
  *   - 'compose_layer'  — `scene_entity` is auto-fed the layer's id and outputs a
  *                        `ComposeLayer` (its output type follows the scope via
@@ -31,11 +31,15 @@ import type {
 import type { LogicOwnerKind } from '@vspark/shared/types';
 
 /** Node kinds that depend on the behavior-context system. Always rejected
- *  in logic because there's no behavior to read config from. */
-const ALWAYS_FORBIDDEN_CONTEXT_KINDS = new Set([
-  'behavior_config',
-  'behavior_id',
-]);
+ *  in logic because there's no behavior to read an id from. */
+const ALWAYS_FORBIDDEN_CONTEXT_KINDS = new Set(['behavior_id']);
+
+/** The shared settings node (formerly `behavior_config`): it reads the owner's
+ *  settings, so it is only allowed where the owner has some — an Action. */
+const SETTINGS_KIND = 'settings';
+
+/** Owner kinds whose graphs have settings for the settings node to read. */
+const OWNERS_WITH_SETTINGS = new Set(['action']);
 
 export interface LogicRow {
   id: string;
@@ -334,8 +338,9 @@ function parseNodeStateMap(raw: string): Map<string, unknown> {
 
 /**
  * Reject descriptors that reference context nodes the owner kind can't
- * satisfy. behavior_config / behavior_id always need a behavior context
- * and so are forbidden in every logic; scene_entity is allowed in
+ * satisfy. behavior_id always needs a behavior context and so is forbidden in
+ * every logic; the settings node needs an owner with settings (an Action);
+ * scene_entity is allowed in
  * scene-node- and compose-layer-scoped graphs (where the manager auto-feeds its
  * nodeId config and its output type follows the scope), but not in
  * project-scoped graphs, which have no owner entity.
@@ -356,6 +361,12 @@ export function validateDescriptor(
       throw new Error(
         `Logic cannot use behavior-context node "${n.kind}". ` +
           `These nodes are only valid inside behavior graphs.`
+      );
+    }
+    if (n.kind === SETTINGS_KIND && !OWNERS_WITH_SETTINGS.has(ownerKind)) {
+      throw new Error(
+        `The settings node reads its owner's settings, so it is only valid ` +
+          `in Behavior and Action graphs, not '${ownerKind}' logic.`
       );
     }
     if (n.kind === 'scene_entity' && !sceneEntityAllowed) {

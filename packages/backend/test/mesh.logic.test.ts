@@ -185,7 +185,7 @@ describe('logic collection', () => {
       id: 'g1',
       label: 'G',
       readonly: false,
-      nodes: { n: { id: 'n', kind: 'behavior_config' } },
+      nodes: { n: { id: 'n', kind: 'settings' } },
       edges: {},
     };
 

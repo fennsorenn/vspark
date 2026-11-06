@@ -397,7 +397,7 @@ entirely — that is how the UI's "switch this bone off" round-trips.
 }
 ```
 
-Every field is surfaced through a `behavior_config` node wired into the graph
+Every field is surfaced through a `settings` node wired into the graph
 (visible on the canvas, not a hidden config read), and node config resolves live
 per access, so properties-panel edits hot-apply without a graph rebuild.
 

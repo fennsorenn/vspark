@@ -7,7 +7,7 @@ export const LIPSYNC_PIPELINE_TEMPLATE: Omit<GraphDescriptor, 'id'> = {
     // ── Config ──────────────────────────────────────────────────────────────
     {
       id: 'cfg_sensitivity',
-      kind: 'behavior_config',
+      kind: 'settings',
       position: { x: -280, y: 80 },
       defaultConfig: { field: 'sensitivity', defaultValue: 1.0 },
     },

@@ -138,7 +138,7 @@ The fix is a shared `eye_range_map` stage between `head_calib` and `pose_out`,
 inserted by `withEyeRangeStage` in
 [`behaviors/eyeRange.ts`](../../packages/backend/src/behaviors/eyeRange.ts):
 
-- Two `behavior_config` nodes feed it: `cfg_eye_range_en` (`eyeRange.enabled`,
+- Two `settings` nodes feed it: `cfg_eye_range_en` (`eyeRange.enabled`,
   default per receiver) and `cfg_eye_range_max` (`eyeRange.inputMaxDeg`,
   default 30); the avatar id comes from `scene_entity`.
 - The node (`signal/nodes/eye_range_map.ts`, `mapEyeRotation`) splits each

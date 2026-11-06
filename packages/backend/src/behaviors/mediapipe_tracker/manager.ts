@@ -141,11 +141,11 @@ export class TrackingManager {
     const nodeDef = descriptor?.nodes.find((n) => n.id === nodeId);
     const defaults = nodeDef?.defaultConfig ?? {};
 
-    // behavior_config nodes resolve dot-notation paths against the live component config.
+    // settings nodes resolve dot-notation paths against the live component config.
     // No other node type may reach into the component config — calibration values must flow
-    // through value-port edges from behavior_config nodes.
-    if (nodeDef?.kind === 'behavior_config') {
-      return { ...defaults, _behaviorConfig: cfg };
+    // through value-port edges from settings nodes.
+    if (nodeDef?.kind === 'settings') {
+      return { ...defaults, _settings: cfg };
     }
 
     return defaults;

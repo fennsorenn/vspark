@@ -225,7 +225,7 @@ export class SignalGraph {
     return {
       selfId: rt.id,
       // Live getter (not a snapshot): node config resolves on every access, so a
-      // `behavior_config` node — and any node reading `this.config` — picks up
+      // `settings` node — and any node reading `this.config` — picks up
       // hot-applied edits to the owning behavior's config without a graph rebuild.
       get config() {
         return (self._getConfig(rt.id) ?? {}) as Record<string, unknown>;
