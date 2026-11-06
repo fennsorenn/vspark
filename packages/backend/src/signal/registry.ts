@@ -136,6 +136,9 @@ import { Equals } from './nodes/equals.js';
 import { ChatRankNode } from './nodes/chat_rank.js';
 import { TextFormat } from './nodes/text_format.js';
 import { LogicId } from './nodes/logic_id.js';
+import { Cooldown } from './nodes/cooldown.js';
+import { ComboThreshold, ComboTimeout } from './nodes/combo.js';
+import { SendTrigger, OnTrigger } from './nodes/trigger.js';
 import {
   GetVariable,
   SetVariable,
@@ -275,6 +278,11 @@ const ALL_NODE_CLASSES: SignalNodeClass[] = [
   // Flow control
   Cycle,
   IfElse,
+  Cooldown,
+  ComboThreshold,
+  ComboTimeout,
+  SendTrigger,
+  OnTrigger,
   // Text / comparison helpers
   Regex,
   TextFormat,
