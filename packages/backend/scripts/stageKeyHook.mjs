@@ -21,7 +21,11 @@ import { createRequire } from 'node:module';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-const SERVER_FOR = { win: 'WinKeyServer.exe', linux: 'X11KeyServer', darwin: 'MacKeyServer' };
+const SERVER_FOR = {
+  win: 'WinKeyServer.exe',
+  linux: 'X11KeyServer',
+  darwin: 'MacKeyServer',
+};
 
 const [releaseDir, platform] = process.argv.slice(2);
 const os = platform?.split('-')[0];
@@ -34,7 +38,9 @@ if (!releaseDir || !(os in SERVER_FOR)) {
 
 const backendDir = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const pkgDir = (name, from) =>
-  dirname(createRequire(join(from, 'package.json')).resolve(`${name}/package.json`));
+  dirname(
+    createRequire(join(from, 'package.json')).resolve(`${name}/package.json`)
+  );
 
 const hookSrc = pkgDir('node-global-key-listener', backendDir);
 const sudoSrc = pkgDir('sudo-prompt', hookSrc);
