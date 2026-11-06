@@ -164,7 +164,11 @@ import {
   useLiveTransform,
   useSceneNodes,
 } from '../../mesh/nodes';
-import { useDataFields, useRuntimeOverrides } from '../../mesh/runtime';
+import {
+  useDataFields,
+  useRuntimeOverrides,
+  useSceneNodeVisibleOverrides,
+} from '../../mesh/runtime';
 
 type GizmoMode = 'translate' | 'rotate' | 'scale';
 
@@ -5733,13 +5737,18 @@ function ModelNode({
 
 function SceneInstanceContent({ sourceSceneId }: { sourceSceneId: string }) {
   const nodes = useSceneNodes();
+  const visibleOverrides = useSceneNodeVisibleOverrides();
   const sourceNodes = nodes.filter(
     (n) => n.rootSceneNodeId === sourceSceneId && n.kind !== 'scene'
   );
   const rootNodes = sourceNodes.filter((n) => !n.parentId);
+  const visibleOverride = (id: string): boolean | undefined =>
+    visibleOverrides[id];
   return (
     <group>
-      {rootNodes.map((node) => renderNodeElement(node, sourceNodes, true))}
+      {rootNodes.map((node) =>
+        renderNodeElement(node, sourceNodes, true, visibleOverride)
+      )}
     </group>
   );
 }
@@ -5747,7 +5756,8 @@ function SceneInstanceContent({ sourceSceneId }: { sourceSceneId: string }) {
 function renderNodeElement(
   node: StageObject,
   allNodes?: StageObject[],
-  viewerMode?: boolean
+  viewerMode?: boolean,
+  visibleOverride?: (id: string) => boolean | undefined
 ): React.ReactNode {
   const freeChildren = allNodes
     ? allNodes.filter((n) => n.parentId === node.id && !n.boneAttachment)
@@ -5756,13 +5766,13 @@ function renderNodeElement(
     ? allNodes.filter((n) => n.parentId === node.id && !!n.boneAttachment)
     : [];
   const childElements = freeChildren.map((c) =>
-    renderNodeElement(c, allNodes, viewerMode)
+    renderNodeElement(c, allNodes, viewerMode, visibleOverride)
   );
   // Bone-attached children render as normal top-level nodes; BoneAttacher
   // re-parents each one's group under the target bone, so its transform is
   // preserved as bone-local (translation/rotation relative to bone space).
   const boneFollowers = boneChildren.flatMap((c) => [
-    renderNodeElement(c, allNodes, viewerMode),
+    renderNodeElement(c, allNodes, viewerMode, visibleOverride),
     <BoneAttacher
       key={`ba-${c.id}`}
       avatarNodeId={node.id}
@@ -5771,7 +5781,10 @@ function renderNodeElement(
     />,
   ]);
 
-  const visible = !node.hidden;
+  // A graph-driven `visible` runtime override wins over the persisted `hidden`
+  // flag when present. R3F group nesting cascades this to descendants.
+  const ov = visibleOverride?.(node.id);
+  const visible = typeof ov === 'boolean' ? ov : !node.hidden;
   if (node.kind === 'avatar')
     return (
       <>
@@ -5881,6 +5894,7 @@ export function SceneNodes({
 } = {}) {
   const { activeSceneId } = useEditorStore();
   const nodes = useSceneNodes();
+  const visibleOverrides = useSceneNodeVisibleOverrides();
   const effectiveSceneId = sceneId ?? activeSceneId;
   const sceneNodes = nodes.filter(
     (n) =>
@@ -5905,6 +5919,15 @@ export function SceneNodes({
   // flat mounts (particles/billboards/text) are pulled out to the top level
   // so they break the chain. Recompute effective visibility by walking the
   // parentId chain in `nodes` (cycles guarded by a visited set).
+  // A graph-driven `visible` runtime override wins over a node's persisted
+  // `hidden` flag when present. Flat mounts break R3F's <group> nesting, so the
+  // override (like the hidden flag) has to be re-walked up the parent chain.
+  const nodeEffectiveVisible = (n: StageObject): boolean => {
+    return visibleOverrides[n.id] ?? !n.hidden;
+  };
+  const visibleOverride = (id: string): boolean | undefined =>
+    visibleOverrides[id];
+
   const byId = new Map(nodes.map((n) => [n.id, n] as const));
   const isAncestorHidden = (n: StageObject): boolean => {
     const seen = new Set<string>();
@@ -5912,18 +5935,20 @@ export function SceneNodes({
       ? byId.get(n.parentId)
       : undefined;
     while (cur && !seen.has(cur.id)) {
-      if (cur.hidden) return true;
+      if (!nodeEffectiveVisible(cur)) return true;
       seen.add(cur.id);
       cur = cur.parentId ? byId.get(cur.parentId) : undefined;
     }
     return false;
   };
   const effectiveVisible = (n: StageObject) =>
-    !n.hidden && !isAncestorHidden(n);
+    nodeEffectiveVisible(n) && !isAncestorHidden(n);
 
   return (
     <>
-      {rootNodes.map((node) => renderNodeElement(node, sceneNodes, viewerMode))}
+      {rootNodes.map((node) =>
+        renderNodeElement(node, sceneNodes, viewerMode, visibleOverride)
+      )}
       {flatParticles.map((node) => (
         <NodeActive key={node.id} visible={effectiveVisible(node)}>
           <group visible={effectiveVisible(node)}>

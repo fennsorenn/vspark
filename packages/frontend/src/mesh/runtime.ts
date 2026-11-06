@@ -4,6 +4,7 @@
  * (backend mesh/runtime.ts and mesh/status.ts). Only the server writes these.
  */
 import { useCollection, useMeshDoc, useMeshSelector } from '@vspark/mesh-react';
+import type { AppliedChange } from '@vspark/mesh';
 import type { RuntimeOverrideMap } from '../store/editorStore';
 
 interface OverrideDoc {
@@ -45,6 +46,38 @@ export function useRuntimeOverrides(
         ? Object.fromEntries(mine.map((d) => [d.paramPath, d.value]))
         : undefined;
     }
+  );
+}
+
+/** Only scene-node `visible` overrides matter to
+ *  {@link useSceneNodeVisibleOverrides}. Decided from the document id
+ *  (`${targetKind}:${targetId}:${paramPath}`) so removals — which carry no
+ *  doc — are classified too; every other override (a graph driving a
+ *  transform at frame rate) is skipped instead of re-rendering the scene tree. */
+const notSceneNodeVisible = (c: AppliedChange<OverrideDoc>) =>
+  !(c.id.startsWith('scene_node:') && c.id.endsWith(':visible'));
+const VISIBLE_OPTS = { skip: notSceneNodeVisible };
+
+/** Graph-driven `visible` overrides on scene nodes, by node id. Read as one
+ *  map rather than per node because the scene tree is rendered by a recursive
+ *  function (not a component per node) that needs every node's answer. */
+export function useSceneNodeVisibleOverrides(): Record<string, boolean> {
+  return useMeshSelector(
+    useCollection<OverrideDoc>('runtime_override'),
+    '**',
+    (c) => {
+      const out: Record<string, boolean> = {};
+      for (const d of c.all()) {
+        if (
+          d.targetKind === 'scene_node' &&
+          d.paramPath === 'visible' &&
+          typeof d.value === 'boolean'
+        )
+          out[d.targetId] = d.value;
+      }
+      return out;
+    },
+    VISIBLE_OPTS
   );
 }
 

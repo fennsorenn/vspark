@@ -2,7 +2,8 @@
   "tabs": {
     "stage": "Stage",
     "compose": "Compose",
-    "logic": "Logic"
+    "logic": "Logic",
+    "macros": "Macros"
   },
   "sections": {
     "behaviors": "Behaviors",
