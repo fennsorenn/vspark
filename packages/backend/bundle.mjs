@@ -31,6 +31,7 @@ const SHARED_ALIAS = {
   '@vspark/shared/blendshapeLimits': '../shared/src/blendshapeLimits.ts',
   '@vspark/shared/trackingMix':     '../shared/src/trackingMix.ts',
   '@vspark/shared/live2d':          '../shared/src/live2d.ts',
+  '@vspark/shared/actions':         '../shared/src/actions.ts',
   '@vspark/shared':                 '../shared/src/types.ts',
 };
 
