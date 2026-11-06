@@ -1,7 +1,10 @@
 # Plan: The mesh as a store
 
-> **Status:** in progress — steps 1 and 2 done (branches `feature/mesh-store-models`,
-> `feature/mesh-store-grants`, not merged). Open questions settled with the user 2026-10-04.
+> **Status:** steps 1–4 done and merged into `dev` (2026-10-04: merges 7f550ad for steps
+> 1–3 and 238864a for step 4; branches `feature/mesh-store-models`, `-grants`, `-replica`,
+> `-transport`). The follow-up below and the remaining moves of
+> [`mesh-sole-channel.md`](./mesh-sole-channel.md) are open. Open questions settled with the
+> user 2026-10-04.
 > **Sequences:** the remaining workstreams of [`mesh-sole-channel.md`](./mesh-sole-channel.md).
 > That plan still lists what has to move onto the mesh, and its principles 7–9 stand.
 > This plan decides what the mesh surface has to look like first, so that each later
