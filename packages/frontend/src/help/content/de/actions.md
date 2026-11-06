@@ -88,6 +88,22 @@ Kleinschreibung zu achten (`LUL` passt zu „haha lul!“, aber nicht zu „LULZ
   wählen) oder *Keine Reaktion*.
 - **Auslöser senden** (optional): siehe [Auslöser](#trigger).
 
+## Stichwort-Combo {#keyword_combo}
+
+Eine **Stichwort-Combo** reagiert, wenn ein Stichwort oder Emote gespammt wird:
+Sie zählt die Chat-Nachrichten, die es enthalten, und löst aus, sobald die Zahl
+die **Schwelle** erreicht — solange jede neue Nachricht **innerhalb** der
+angegebenen Sekunden nach der vorigen kommt. Kommt so lange keine Nachricht,
+endet die Combo, und das Zählen beginnt von vorn.
+
+- **Jeden Chatter nur einmal zählen**: Wer das Stichwort wiederholt, zählt weder
+  erneut, noch hält er die Combo am Leben. Ausschalten, um jede Nachricht zu
+  zählen.
+- **Bei Erreichen**: die Reaktion, die einmal pro Combo ausgeführt wird.
+- **Abschlussnachricht** (optional): eine Chat-Nachricht, die gesendet wird,
+  wenn eine Combo endet, die die Schwelle erreicht hat, mit `${count}` für die
+  Endzahl.
+
 ## Platzhalter {#placeholders}
 
 Antworten und Nachrichten können Platzhalter der Form `${name}` enthalten, die

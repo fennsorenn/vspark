@@ -11,7 +11,8 @@
     "counter": "Count how often the action ran and use the number in the reply",
     "placeholders": "Placeholders you can use in the text",
     "patterns": "How patterns (regular expressions) work",
-    "trigger": "Send a named trigger that other Logic can react to"
+    "trigger": "Send a named trigger that other Logic can react to",
+    "combo": "How a combo is counted"
   },
   "kinds": {
     "hotkey": {
@@ -29,6 +30,10 @@
     "chat_keyword": {
       "label": "Chat keyword",
       "description": "React when a keyword or emote shows up in chat: play a sound or clip, send a trigger …"
+    },
+    "keyword_combo": {
+      "label": "Keyword combo",
+      "description": "React when a keyword or emote is spammed by enough chatters in a short time"
     }
   },
   "row": {
@@ -87,7 +92,12 @@
     "keywordsHint": "Words or emote names, separated by commas. Whole words only, case is ignored.",
     "trigger": "Send trigger",
     "triggerHint": "Optional trigger name. Empty: no trigger.",
-    "noResponse": "No response"
+    "noResponse": "No response",
+    "threshold": "Threshold",
+    "within": "within",
+    "uniqueChatters": "Count each chatter once",
+    "onReached": "When reached",
+    "endMessage": "End message"
   },
   "mode": {
     "single": "Single",
@@ -120,7 +130,10 @@
     "counter": "# {{name}}",
     "counterOwn": "# counted",
     "argsPattern": "args:",
-    "trigger": "⚡ trigger {{name}}"
+    "trigger": "⚡ trigger {{name}}",
+    "combo": "{{n}}× within {{s}} s",
+    "unique": "unique chatters",
+    "endMessage": "at the end:"
   },
   "responses": {
     "play_clip": "Play clip",

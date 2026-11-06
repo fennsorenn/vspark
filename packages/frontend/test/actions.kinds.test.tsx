@@ -265,3 +265,37 @@ describe('Chat keyword', () => {
     expect(settingsOf('a1').trigger).toBe('laugh');
   });
 });
+
+describe('Keyword combo', () => {
+  it('previews threshold, window and unique chatters', () => {
+    seed('combo', 'keyword_combo', {
+      keywords: 'Pog',
+      threshold: 4,
+      window: 8,
+    });
+    const { container } = renderPanel();
+    const text = preview(container, 'keyword_combo');
+    for (const s of ['Pog', '4× within 8 s', 'unique chatters'])
+      expect(text).toContain(s);
+  });
+
+  it('threshold, window, unique chatters, end message', async () => {
+    seed('a1', 'keyword_combo');
+    const user = userEvent.setup();
+    const { container } = renderPanel();
+    const q = (cls: string) => container.querySelector(cls)!;
+    await user.click(q('.vs-action-settings'));
+    await commitText(user, q('.vs-action-threshold'), '7');
+    await commitText(user, q('.vs-action-window'), '12');
+    await user.click(q('.vs-action-unique'));
+    await commitText(user, q('.vs-action-end-message'), '${count}!');
+    const s = settingsOf('a1');
+    expect([s.threshold, s.window, s.uniqueChatters, s.endMessage]).toEqual([
+      7,
+      12,
+      false,
+      '${count}!',
+    ]);
+    expect(s.derived.comboKey).toBe('');
+  });
+});

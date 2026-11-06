@@ -379,3 +379,67 @@ describe('Chat keyword', () => {
     });
   });
 });
+
+describe('Keyword combo', () => {
+  it('normalizes threshold / window and derives the combo key', () => {
+    const combo = norm('keyword_combo', { threshold: 0, window: -1 });
+    expect([combo.threshold, combo.window, combo.uniqueChatters]).toEqual([
+      1,
+      0,
+      true,
+    ]);
+    expect(derived(combo).comboKey).toBe('${user}');
+    expect(
+      derived(norm('keyword_combo', { uniqueChatters: false })).comboKey
+    ).toBe('');
+  });
+
+  it('template: both combo nodes from the same hit; end message gated on "reached"', () => {
+    const g = graph('keyword_combo');
+    expect(edgeStrs(g)).toEqual(
+      expect.arrayContaining([
+        'keyword_gate.then>threshold.in',
+        'keyword_gate.then>timeout.in',
+        'combo_key.text>threshold.key',
+        'combo_key.text>timeout.key',
+        'trigger.username>combo_key.user',
+        'cfg_window.value>threshold.window',
+        'cfg_window.value>timeout.timeout',
+        'threshold.reached>response.fire',
+        'threshold.reached>reached_set.fire',
+        'timeout.ended>end_gate.in',
+        'reached.value>end_gate.condition',
+        'end_gate.then>reached_clear.fire',
+        'end_gate.then>end_send.fire',
+        'timeout.count>end_text.count',
+        'this_logic.id>reached.scope',
+      ])
+    );
+    expect(nodeOf(g, 'reached_set')?.defaultConfig).toEqual({
+      name: 'comboReached',
+      value: true,
+      persistent: false,
+    });
+  });
+
+  it('preview: keyword, threshold in window, unique; response and end message', () => {
+    const p = preview('keyword_combo', {
+      keywords: 'Pog',
+      threshold: 4,
+      window: 8,
+      endMessage: '${count}!',
+    });
+    expect(p.headline).toEqual([
+      { t: 'text', text: 'Pog' },
+      { t: 'msg', key: 'preview.combo', params: { n: 4, s: 8 } },
+      { t: 'msg', key: 'preview.unique' },
+    ]);
+    expect(p.lines[1]).toEqual([
+      { t: 'msg', key: 'preview.endMessage' },
+      { t: 'text', text: '“${count}!”' },
+    ]);
+    expect(
+      preview('keyword_combo', { uniqueChatters: false }).headline
+    ).toHaveLength(2);
+  });
+});

@@ -960,6 +960,120 @@ const chatKeyword: ActionKindDef = {
   },
 };
 
+// ── Keyword combo ────────────────────────────────────────────────────────────
+
+const keywordCombo: ActionKindDef = {
+  kind: 'keyword_combo',
+  label: 'Keyword combo',
+  icon: '🔥',
+  fields: [
+    { path: 'account', class: 'value' },
+    { path: 'keywords', class: 'value' },
+    { path: 'threshold', class: 'value' },
+    { path: 'window', class: 'value' },
+    { path: 'uniqueChatters', class: 'value' },
+    { path: 'endMessage', class: 'value' },
+    { path: 'derived', class: 'value' },
+    ...RESPONSE_FIELDS,
+  ],
+  defaults: () => keywordCombo.normalize({ response: { type: 'play_clip' } }),
+  normalize(raw) {
+    const src = isObj(raw) ? raw : {};
+    const keywords = strOf(src.keywords);
+    const uniqueChatters = boolOf(src.uniqueChatters, true);
+    return {
+      ...src,
+      account: strOf(src.account),
+      keywords,
+      threshold: Math.round(numOf(src.threshold, 5, 1)),
+      window: numOf(src.window, 10, 0),
+      uniqueChatters,
+      response: normalizeResponse(src.response ?? NO_RESPONSE()),
+      endMessage: strOf(src.endMessage),
+      derived: {
+        keywordPattern: keywordPattern(keywordList(keywords)),
+        // Rendered by a `text_format` whose `user` field is the chatter: the
+        // combo key is the username (unique chatters) or '' (every message).
+        comboKey: uniqueChatters ? '${user}' : '',
+      },
+    };
+  },
+  build(shape) {
+    const b = new Tpl();
+    b.node('trigger', 'overlive_chat_message', 0, 200);
+    b.setting('account', 'trigger', 'account', -280, 200);
+    b.node('keyword_match', 'regex', 280, 420, { flags: KEYWORD_FLAGS });
+    b.wire('trigger', 'text', 'keyword_match', 'text');
+    b.setting('derived.keywordPattern', 'keyword_match', 'pattern', 0, 500);
+    b.node('keyword_gate', 'if_else', 560, 200);
+    b.wire('trigger', 'event', 'keyword_gate', 'in');
+    b.wire('keyword_match', 'matched', 'keyword_gate', 'condition');
+    b.node('combo_key', 'text_format', 560, 600, { fields: ['user'] });
+    b.wire('trigger', 'username', 'combo_key', 'user');
+    b.setting('derived.comboKey', 'combo_key', 'template', 280, 680);
+    // Both combo nodes count the same hits with the same key and timing.
+    b.node('threshold', 'combo_threshold', 840, 0);
+    b.wire('keyword_gate', 'then', 'threshold', 'in');
+    b.setting('threshold', 'threshold', 'threshold', 560, -100);
+    b.setting('window', 'threshold', 'window', 560, -30);
+    b.wire('combo_key', 'text', 'threshold', 'key');
+    b.node('timeout', 'combo_timeout', 840, 400);
+    b.wire('keyword_gate', 'then', 'timeout', 'in');
+    b.setting('window', 'timeout', 'timeout', 0, 0);
+    b.wire('combo_key', 'text', 'timeout', 'key');
+    addSingleResponse(b, shape, ['threshold', 'reached'], 1400, -200);
+    // "Reached" is remembered in a graph-local short-lived variable so the end
+    // message goes out only for combos that reached the threshold (the
+    // timeout node ends every combo, however small).
+    b.node('this_logic', 'logic_id', 840, 760);
+    b.node('reached_set', 'set_variable', 1120, 200, {
+      name: 'comboReached',
+      value: true,
+      persistent: false,
+    });
+    b.wire('threshold', 'reached', 'reached_set', 'fire');
+    b.wire('this_logic', 'id', 'reached_set', 'scope');
+    b.node('reached', 'variable', 1120, 700, { name: 'comboReached' });
+    b.wire('this_logic', 'id', 'reached', 'scope');
+    b.node('end_gate', 'if_else', 1400, 400);
+    b.wire('timeout', 'ended', 'end_gate', 'in');
+    b.wire('reached', 'value', 'end_gate', 'condition');
+    b.node('reached_clear', 'set_variable', 1680, 560, {
+      name: 'comboReached',
+      value: false,
+      persistent: false,
+    });
+    b.wire('end_gate', 'then', 'reached_clear', 'fire');
+    b.wire('this_logic', 'id', 'reached_clear', 'scope');
+    b.node('end_text', 'text_format', 1400, 760, { fields: ['count'] });
+    b.wire('timeout', 'count', 'end_text', 'count');
+    b.setting('endMessage', 'end_text', 'template', 1120, 860);
+    // An empty end message sends nothing.
+    b.node('end_send', 'overlive_send_chat', 1680, 400);
+    b.wire('end_gate', 'then', 'end_send', 'fire');
+    b.wire('end_text', 'text', 'end_send', 'template');
+    b.setting('account', 'end_send', 'account', 0, 0);
+    return b.out();
+  },
+  preview(s) {
+    const headline = keywordsHeadline(s);
+    headline.push({
+      t: 'msg',
+      key: 'preview.combo',
+      params: { n: numOf(s.threshold, 5), s: numOf(s.window, 10) },
+    });
+    if (s.uniqueChatters !== false) headline.push({ t: 'msg', key: 'preview.unique' });
+    const lines = [responseLine(s)];
+    const end = strOf(s.endMessage).trim();
+    if (end)
+      lines.push([
+        { t: 'msg', key: 'preview.endMessage' },
+        { t: 'text', text: `“${end}”` },
+      ]);
+    return { headline, lines };
+  },
+};
+
 // ── registry ─────────────────────────────────────────────────────────────────
 
 export const ACTION_KINDS: readonly ActionKindDef[] = [
@@ -967,6 +1081,7 @@ export const ACTION_KINDS: readonly ActionKindDef[] = [
   chatCommand,
   chatPattern,
   chatKeyword,
+  keywordCombo,
 ];
 
 const BY_KIND = new Map(ACTION_KINDS.map((k) => [k.kind, k]));

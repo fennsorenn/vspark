@@ -83,6 +83,20 @@ anywhere in a chat message — as a whole word, ignoring upper and lower case
   audio object or layer and *Play*), or *No response*.
 - **Send trigger** (optional): see [Triggers](#trigger).
 
+## Keyword combo {#keyword_combo}
+
+A **Keyword combo** reacts when a keyword or emote is spammed: it counts the
+chat messages containing it, and fires once the count reaches the
+**Threshold** — as long as each new message arrives **within** the given number
+of seconds of the previous one. When no message arrives for that long, the
+combo ends and the count starts over.
+
+- **Count each chatter once**: a chatter who repeats the keyword neither counts
+  again nor keeps the combo alive. Turn it off to count every message.
+- **When reached**: the response that runs once per combo.
+- **End message** (optional): a chat message sent when a combo that reached the
+  threshold ends, with `${count}` for the final count.
+
 ## Placeholders {#placeholders}
 
 Replies and messages can contain placeholders in the form `${name}`, which are

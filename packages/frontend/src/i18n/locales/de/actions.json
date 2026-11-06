@@ -11,7 +11,8 @@
     "counter": "Zählen, wie oft die Aktion lief, und die Zahl in der Antwort verwenden",
     "placeholders": "Platzhalter, die du im Text verwenden kannst",
     "patterns": "Wie Muster (reguläre Ausdrücke) funktionieren",
-    "trigger": "Einen benannten Auslöser senden, auf den andere Logik reagieren kann"
+    "trigger": "Einen benannten Auslöser senden, auf den andere Logik reagieren kann",
+    "combo": "Wie eine Combo gezählt wird"
   },
   "kinds": {
     "hotkey": {
@@ -29,6 +30,10 @@
     "chat_keyword": {
       "label": "Chat-Stichwort",
       "description": "Reagieren, wenn ein Stichwort oder Emote im Chat auftaucht: Sound oder Clip abspielen, Auslöser senden …"
+    },
+    "keyword_combo": {
+      "label": "Stichwort-Combo",
+      "description": "Reagieren, wenn genug Chatter ein Stichwort oder Emote kurz hintereinander schreiben"
     }
   },
   "row": {
@@ -87,7 +92,12 @@
     "keywordsHint": "Wörter oder Emote-Namen, durch Kommas getrennt. Nur ganze Wörter, Groß-/Kleinschreibung egal.",
     "trigger": "Auslöser senden",
     "triggerHint": "Optionaler Name eines Auslösers. Leer: kein Auslöser.",
-    "noResponse": "Keine Reaktion"
+    "noResponse": "Keine Reaktion",
+    "threshold": "Schwelle",
+    "within": "innerhalb von",
+    "uniqueChatters": "Jeden Chatter nur einmal zählen",
+    "onReached": "Bei Erreichen",
+    "endMessage": "Abschlussnachricht"
   },
   "mode": {
     "single": "Einfach",
@@ -120,7 +130,10 @@
     "counter": "# {{name}}",
     "counterOwn": "# gezählt",
     "argsPattern": "Argumente:",
-    "trigger": "⚡ Auslöser {{name}}"
+    "trigger": "⚡ Auslöser {{name}}",
+    "combo": "{{n}}× innerhalb von {{s}} s",
+    "unique": "verschiedene Chatter",
+    "endMessage": "am Ende:"
   },
   "responses": {
     "play_clip": "Clip abspielen",

@@ -341,3 +341,46 @@ describe('Chat keyword', () => {
     expect(send).toHaveBeenCalledTimes(2);
   });
 });
+
+describe('Keyword combo', () => {
+  it('keyword combo: unique chatters reach the threshold; the end message has the final count', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    await create('keyword_combo', {
+      keywords: 'PogChamp',
+      threshold: 3,
+      window: 5,
+      response: { type: 'control_media', target: 'v1', action: 'play' },
+      endMessage: 'Combo over: ${count}×',
+    });
+    const hit = (user: string) => route(projectId, chatEvent('PogChamp', user));
+    hit('a');
+    hit('a'); // same chatter: not counted
+    hit('b');
+    expect(nodeIn('keyword_combo', 'response', 'fire')).toBeUndefined();
+    hit('c');
+    expect(nodeIn('keyword_combo', 'response', 'fire')).toBeDefined();
+    hit('d');
+    vi.advanceTimersByTime(5_100);
+    expect(replies()).toEqual(['Combo over: 4×']);
+
+    // A combo below the threshold ends without a message.
+    hit('e');
+    vi.advanceTimersByTime(5_100);
+    expect(replies()).toHaveLength(1);
+  });
+
+  it('keyword combo: without unique chatters every message counts', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    await create('keyword_combo', {
+      keywords: 'hype',
+      threshold: 2,
+      window: 5,
+      uniqueChatters: false,
+      endMessage: '${count} hype',
+    });
+    route(projectId, chatEvent('hype', 'a'));
+    route(projectId, chatEvent('HYPE', 'a'));
+    vi.advanceTimersByTime(5_100);
+    expect(replies()).toEqual(['2 hype']);
+  });
+});

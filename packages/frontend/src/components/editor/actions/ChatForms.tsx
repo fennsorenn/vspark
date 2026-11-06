@@ -6,7 +6,7 @@
  */
 import { useTranslation } from 'react-i18next';
 import type { ActionRecord } from '../../../mesh/actions';
-import { DraftText } from './draftInputs';
+import { SettingCheck, DraftNumber, DraftText } from './draftInputs';
 import {
   AccountField,
   CooldownField,
@@ -24,6 +24,7 @@ export interface KindFormProps {
 }
 
 const str = (v: unknown) => (typeof v === 'string' ? v : '');
+const num = (v: unknown, d: number) => (typeof v === 'number' ? v : d);
 
 const column = { display: 'flex', flexDirection: 'column', gap: 6 } as const;
 
@@ -165,9 +166,64 @@ export function ChatKeywordForm(props: KindFormProps) {
   );
 }
 
+export function KeywordComboForm(props: KindFormProps) {
+  const { t } = useTranslation('actions');
+  const { action, onSetting } = props;
+  const s = action.settings;
+  return (
+    <div style={column}>
+      <KeywordsField {...props} />
+      <Field
+        label={t('form.threshold')}
+        help={{ anchor: 'keyword_combo', tip: t('help.combo') }}
+      >
+        <DraftNumber
+          className="vs-action-threshold"
+          value={num(s.threshold, 5)}
+          min={1}
+          step={1}
+          onCommit={(v) => onSetting('threshold', v)}
+        />
+        <span>{t('form.within')}</span>
+        <DraftNumber
+          className="vs-action-window"
+          value={num(s.window, 10)}
+          min={0}
+          onCommit={(v) => onSetting('window', v)}
+        />
+        <span>{t('form.seconds')}</span>
+      </Field>
+      <Field label="">
+        <SettingCheck
+          className="vs-action-unique"
+          checked={s.uniqueChatters !== false}
+          label={t('form.uniqueChatters')}
+          onChange={(v) => onSetting('uniqueChatters', v)}
+        />
+      </Field>
+      <ResponseEditor
+        label={t('form.onReached')}
+        path="response"
+        slot={s.response}
+        allowNone
+        onSetting={onSetting}
+      />
+      <TemplateField label={t('form.endMessage')} placeholders="${count}">
+        <DraftText
+          className="vs-action-end-message"
+          value={str(s.endMessage)}
+          onCommit={(v) => onSetting('endMessage', v)}
+        />
+      </TemplateField>
+      <AccountField value={s.account} onSetting={onSetting} />
+    </div>
+  );
+}
+
 /** The settings form per kind (Hotkey's lives in HotkeyForm.tsx). */
 export const CHAT_FORMS: Record<string, (p: KindFormProps) => JSX.Element> = {
   chat_command: ChatCommandForm,
   chat_pattern: ChatPatternForm,
   chat_keyword: ChatKeywordForm,
+  keyword_combo: KeywordComboForm,
 };
