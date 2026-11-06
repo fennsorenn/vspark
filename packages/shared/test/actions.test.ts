@@ -33,6 +33,7 @@ describe('action kind registry', () => {
       'chat_pattern',
       'chat_keyword',
       'keyword_combo',
+      'redemption',
     ]);
     const def = actionKind('hotkey')!;
     expect(def.label).toBe('Hotkey');

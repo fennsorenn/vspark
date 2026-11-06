@@ -34,6 +34,10 @@
     "keyword_combo": {
       "label": "Stichwort-Combo",
       "description": "Reagieren, wenn genug Chatter ein Stichwort oder Emote kurz hintereinander schreiben"
+    },
+    "redemption": {
+      "label": "Einlösung",
+      "description": "Auf eine Kanalpunkte-Belohnung reagieren: Clip abspielen, im Chat antworten, zählen, als erledigt markieren …"
     }
   },
   "row": {
@@ -97,7 +101,10 @@
     "within": "innerhalb von",
     "uniqueChatters": "Jeden Chatter nur einmal zählen",
     "onReached": "Bei Erreichen",
-    "endMessage": "Abschlussnachricht"
+    "endMessage": "Abschlussnachricht",
+    "reward": "Belohnung",
+    "rewardHint": "Der Titel der Belohnung, genau wie auf Twitch (Groß-/Kleinschreibung egal).",
+    "markComplete": "Einlösung als erledigt markieren"
   },
   "mode": {
     "single": "Einfach",
@@ -119,6 +126,7 @@
     "noCommand": "Kein Befehl",
     "noPattern": "Kein Muster",
     "noKeywords": "Keine Stichwörter",
+    "noReward": "Keine Belohnung",
     "noReply": "Keine Antwort",
     "rank": {
       "sub": "ab Abos",
@@ -133,7 +141,8 @@
     "trigger": "⚡ Auslöser {{name}}",
     "combo": "{{n}}× innerhalb von {{s}} s",
     "unique": "verschiedene Chatter",
-    "endMessage": "am Ende:"
+    "endMessage": "am Ende:",
+    "markComplete": "✓ markiert als erledigt"
   },
   "responses": {
     "play_clip": "Clip abspielen",

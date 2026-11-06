@@ -2,8 +2,8 @@
 
 **Aktionen** sind fertige Automatisierungen für typische Stream-Momente — du
 richtest sie über ein Formular ein, statt Knoten zu verbinden. Ein Tastenkürzel,
-das einen Clip abspielt, oder eines, das ein Objekt ein- und ausblendet, ist
-jeweils eine Aktion.
+das einen Clip abspielt, ein Chat-Befehl, der mit einem Zähler antwortet, oder
+eine Emote-Combo, die eine Animation startet, ist jeweils eine Aktion.
 
 Aktionen gehören zum ganzen Projekt und liegen im Tab **Aktionen**. Hinter jeder
 Aktion steht ein normaler [Logik](topic:logic)-Graph, den vspark aus den
@@ -103,6 +103,24 @@ endet die Combo, und das Zählen beginnt von vorn.
 - **Abschlussnachricht** (optional): eine Chat-Nachricht, die gesendet wird,
   wenn eine Combo endet, die die Schwelle erreicht hat, mit `${count}` für die
   Endzahl.
+
+## Einlösung {#redemption}
+
+Eine **Einlösung** reagiert, wenn ein Zuschauer eine deiner
+Kanalpunkte-Belohnungen einlöst.
+
+- **Belohnung**: der Titel der Belohnung, genau wie auf Twitch (Groß- und
+  Kleinschreibung spielen keine Rolle).
+- **Reaktion**: was beim Einlösen passiert.
+- **Zähler** (optional): siehe [Zähler](#counter).
+- **Antwort** (optional): eine Chat-Nachricht mit `${user}`, `${message}` (dem
+  Text, den der Zuschauer eingegeben hat), `${reward}` und `${count}`.
+- **Auslöser senden** (optional): sendet einen Auslöser mit den Details der
+  Einlösung (Zuschauer, Belohnung, Nachricht, …) — siehe [Auslöser](#trigger).
+- **Einlösung als erledigt markieren**: markiert sie auf Twitch als erfüllt,
+  sodass sie aus deiner Belohnungs-Warteschlange verschwindet. Dafür braucht das
+  Konto die Berechtigung, Einlösungen zu verwalten, und es klappt nur bei
+  Belohnungen, die mit derselben App erstellt wurden.
 
 ## Platzhalter {#placeholders}
 

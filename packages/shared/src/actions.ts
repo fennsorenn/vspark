@@ -1074,6 +1074,101 @@ const keywordCombo: ActionKindDef = {
   },
 };
 
+// ── Redemption ───────────────────────────────────────────────────────────────
+
+/** Regex (flags `i`) matching a reward title exactly (surrounding spaces
+ *  ignored), or '' for none. */
+export function rewardPattern(reward: unknown): string {
+  const r = strOf(reward).trim();
+  return r ? `^\\s*${escapeRegExp(r)}\\s*$` : '';
+}
+
+const redemption: ActionKindDef = {
+  kind: 'redemption',
+  label: 'Redemption',
+  icon: '🎁',
+  fields: [
+    { path: 'account', class: 'value' },
+    { path: 'reward', class: 'value' },
+    { path: 'reply', class: 'value' },
+    { path: 'counter', class: 'value' },
+    { path: 'trigger', class: 'value' },
+    { path: 'markComplete', class: 'value' },
+    { path: 'derived', class: 'value' },
+    ...RESPONSE_FIELDS,
+  ],
+  defaults: () => redemption.normalize({ response: { type: 'play_clip' } }),
+  normalize(raw) {
+    const src = isObj(raw) ? raw : {};
+    const reward = strOf(src.reward);
+    const counter = normalizeCounter(src.counter);
+    return {
+      ...src,
+      account: strOf(src.account),
+      reward,
+      response: normalizeResponse(src.response ?? NO_RESPONSE()),
+      reply: strOf(src.reply),
+      counter,
+      trigger: strOf(src.trigger).trim(),
+      markComplete: boolOf(src.markComplete, false),
+      derived: { rewardPattern: rewardPattern(reward), ...counterDerived(counter) },
+    };
+  },
+  build(shape) {
+    const b = new Tpl();
+    b.node('trigger', 'overlive_redemption', 0, 200);
+    b.setting('account', 'trigger', 'account', -280, 200);
+    b.node('reward_match', 'regex', 280, 420, { flags: 'i' });
+    b.wire('trigger', 'rewardTitle', 'reward_match', 'text');
+    b.setting('derived.rewardPattern', 'reward_match', 'pattern', 0, 500);
+    b.node('reward_gate', 'if_else', 560, 200);
+    b.wire('trigger', 'event', 'reward_gate', 'in');
+    b.wire('reward_match', 'matched', 'reward_gate', 'condition');
+    const passed: Out = ['reward_gate', 'then'];
+    addSingleResponse(b, shape, passed, 1120, -300);
+    addCounterReply(
+      b,
+      passed,
+      {
+        user: ['trigger', 'displayName'],
+        message: ['trigger', 'message'],
+        reward: ['trigger', 'rewardTitle'],
+      },
+      null,
+      840
+    );
+    // Optional trigger (empty name sends nothing), payload = the redemption.
+    b.node('emit', 'send_trigger', 1120, 1100);
+    b.wire(passed[0], passed[1], 'emit', 'fire');
+    b.setting('trigger', 'emit', 'name', 840, 1180);
+    b.wire('trigger', 'data', 'emit', 'payload');
+    // Optional: mark the channel-point redemption complete.
+    b.node('complete_gate', 'if_else', 1120, 1300);
+    b.wire(passed[0], passed[1], 'complete_gate', 'in');
+    b.setting('markComplete', 'complete_gate', 'condition', 840, 1380);
+    b.node('complete', 'overlive_redemption_status', 1400, 1300, {
+      status: 'FULFILLED',
+    });
+    b.wire('complete_gate', 'then', 'complete', 'fire');
+    b.wire('trigger', 'rewardId', 'complete', 'rewardId');
+    b.wire('trigger', 'redemptionId', 'complete', 'redemptionId');
+    b.setting('account', 'complete', 'account', 0, 0);
+    return b.out();
+  },
+  preview(s) {
+    const reward = strOf(s.reward).trim();
+    const headline: PreviewToken[] = [
+      reward ? { t: 'text', text: reward } : { t: 'msg', key: 'preview.noReward' },
+      ...counterMeta(s),
+    ];
+    if (s.markComplete === true) headline.push({ t: 'msg', key: 'preview.markComplete' });
+    const lines = [responseLine(s)];
+    if (strOf(s.reply).trim()) lines.push(replyLine(s.reply));
+    lines.push(...triggerLine(s));
+    return { headline, lines };
+  },
+};
+
 // ── registry ─────────────────────────────────────────────────────────────────
 
 export const ACTION_KINDS: readonly ActionKindDef[] = [
@@ -1082,6 +1177,7 @@ export const ACTION_KINDS: readonly ActionKindDef[] = [
   chatPattern,
   chatKeyword,
   keywordCombo,
+  redemption,
 ];
 
 const BY_KIND = new Map(ACTION_KINDS.map((k) => [k.kind, k]));

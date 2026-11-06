@@ -34,6 +34,10 @@
     "keyword_combo": {
       "label": "Keyword combo",
       "description": "React when a keyword or emote is spammed by enough chatters in a short time"
+    },
+    "redemption": {
+      "label": "Redemption",
+      "description": "React to a channel-point reward: play a clip, reply in chat, count, mark it complete …"
     }
   },
   "row": {
@@ -97,7 +101,10 @@
     "within": "within",
     "uniqueChatters": "Count each chatter once",
     "onReached": "When reached",
-    "endMessage": "End message"
+    "endMessage": "End message",
+    "reward": "Reward",
+    "rewardHint": "The reward's title, exactly as on Twitch (case is ignored).",
+    "markComplete": "Mark the redemption as complete"
   },
   "mode": {
     "single": "Single",
@@ -119,6 +126,7 @@
     "noCommand": "No command",
     "noPattern": "No pattern",
     "noKeywords": "No keywords",
+    "noReward": "No reward",
     "noReply": "No reply",
     "rank": {
       "sub": "subs+",
@@ -133,7 +141,8 @@
     "trigger": "⚡ trigger {{name}}",
     "combo": "{{n}}× within {{s}} s",
     "unique": "unique chatters",
-    "endMessage": "at the end:"
+    "endMessage": "at the end:",
+    "markComplete": "✓ marks complete"
   },
   "responses": {
     "play_clip": "Play clip",

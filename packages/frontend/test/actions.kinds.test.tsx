@@ -299,3 +299,28 @@ describe('Keyword combo', () => {
     expect(s.derived.comboKey).toBe('');
   });
 });
+
+describe('Redemption', () => {
+  it('previews the reward and "marks complete"', () => {
+    seed('red', 'redemption', { reward: 'Hydrate', markComplete: true });
+    const { container } = renderPanel();
+    expect(preview(container, 'redemption')).toContain('Hydrate');
+    expect(preview(container, 'redemption')).toContain('✓ marks complete');
+  });
+
+  it('reward, reply, mark complete', async () => {
+    seed('a1', 'redemption');
+    const user = userEvent.setup();
+    const { container } = renderPanel();
+    const q = (cls: string) => container.querySelector(cls)!;
+    await user.click(q('.vs-action-settings'));
+    await commitText(user, q('.vs-action-reward'), 'Hydrate');
+    expect(settingsOf('a1').derived.rewardPattern).toContain('Hydrate');
+    await commitText(user, q('.vs-action-reply'), 'Drink, ${user}!');
+    await user.click(q('.vs-action-mark-complete'));
+    expect(settingsOf('a1')).toMatchObject({
+      reply: 'Drink, ${user}!',
+      markComplete: true,
+    });
+  });
+});

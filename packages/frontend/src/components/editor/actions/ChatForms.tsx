@@ -220,10 +220,56 @@ export function KeywordComboForm(props: KindFormProps) {
   );
 }
 
+export function RedemptionForm(props: KindFormProps) {
+  const { t } = useTranslation('actions');
+  const { action, onSetting } = props;
+  const s = action.settings;
+  return (
+    <div style={column}>
+      <Field label={t('form.reward')} hint={t('form.rewardHint')}>
+        <DraftText
+          className="vs-action-reward"
+          value={str(s.reward)}
+          onCommit={(v) => onSetting('reward', v)}
+        />
+      </Field>
+      <ResponseEditor
+        label={t('form.response')}
+        path="response"
+        slot={s.response}
+        allowNone
+        onSetting={onSetting}
+      />
+      <CounterField value={s.counter} onSetting={onSetting} />
+      <TemplateField
+        label={t('form.reply')}
+        placeholders="${user} ${message} ${reward} ${count}"
+      >
+        <DraftText
+          className="vs-action-reply"
+          value={str(s.reply)}
+          onCommit={(v) => onSetting('reply', v)}
+        />
+      </TemplateField>
+      <TriggerField {...props} />
+      <Field label="">
+        <SettingCheck
+          className="vs-action-mark-complete"
+          checked={s.markComplete === true}
+          label={t('form.markComplete')}
+          onChange={(v) => onSetting('markComplete', v)}
+        />
+      </Field>
+      <AccountField value={s.account} onSetting={onSetting} />
+    </div>
+  );
+}
+
 /** The settings form per kind (Hotkey's lives in HotkeyForm.tsx). */
 export const CHAT_FORMS: Record<string, (p: KindFormProps) => JSX.Element> = {
   chat_command: ChatCommandForm,
   chat_pattern: ChatPatternForm,
   chat_keyword: ChatKeywordForm,
   keyword_combo: KeywordComboForm,
+  redemption: RedemptionForm,
 };

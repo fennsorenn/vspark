@@ -1,8 +1,9 @@
 # Actions {#overview}
 
 **Actions** are ready-made automations for common stream moments — set one up
-by filling in a form instead of wiring nodes. A hotkey that plays a clip, or one
-that toggles an object on and off, is a single action.
+by filling in a form instead of wiring nodes. A hotkey that plays a clip, a
+chat command that replies with a counter, or an emote combo that triggers an
+animation is a single action.
 
 Actions belong to the whole project and live on the **Actions** tab. Each
 action is backed by a normal [Logic](topic:logic) graph that vspark builds for
@@ -96,6 +97,22 @@ combo ends and the count starts over.
 - **When reached**: the response that runs once per combo.
 - **End message** (optional): a chat message sent when a combo that reached the
   threshold ends, with `${count}` for the final count.
+
+## Redemption {#redemption}
+
+A **Redemption** reacts when a viewer redeems one of your channel-point rewards.
+
+- **Reward**: the reward's title, exactly as it is named on Twitch (upper and
+  lower case do not matter).
+- **Response**: what happens when it is redeemed.
+- **Counter** (optional): see [Counter](#counter).
+- **Reply** (optional): a chat message with `${user}`, `${message}` (the text
+  the viewer entered), `${reward}` and `${count}`.
+- **Send trigger** (optional): sends a trigger with the redemption's details
+  (viewer, reward, message, …) — see [Triggers](#trigger).
+- **Mark the redemption as complete**: marks it as fulfilled on Twitch, so it
+  leaves your reward queue. This needs the account's permission to manage
+  redemptions and only works for rewards created by the same app.
 
 ## Placeholders {#placeholders}
 

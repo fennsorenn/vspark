@@ -384,3 +384,43 @@ describe('Keyword combo', () => {
     expect(replies()).toEqual(['2 hype']);
   });
 });
+
+describe('Redemption', () => {
+  it('redemption: reward match, response, reply, counter, trigger payload, mark complete', async () => {
+    const send = vi.spyOn(triggerRouter, 'send');
+    await create('redemption', {
+      reward: 'Hydrate',
+      response: { type: 'play_clip', clipId: 'c1' },
+      reply: '${user} redeemed ${reward}: ${message} (#${count})',
+      counter: { enabled: true, name: 'hydrate' },
+      trigger: 'alert',
+      markComplete: true,
+    });
+    route(projectId, redemptionEvent('Something else'));
+    expect(sent).not.toHaveBeenCalled();
+    route(projectId, redemptionEvent(' hydrate ', 'drink up'));
+    expect(nodeIn('redemption', 'response', 'fire')).toBeDefined();
+    expect(replies()).toEqual(['Bob redeemed  hydrate : drink up (#1)']);
+    expect(readVariable({ projectId, scope: '', name: 'hydrate' })).toBe(1);
+    expect(send).toHaveBeenCalledWith(
+      projectId,
+      'alert',
+      expect.objectContaining({
+        username: 'bob',
+        rewardId: 'rw-1',
+        redemptionId: 'red-1',
+        message: 'drink up',
+      })
+    );
+    expect(status).toHaveBeenCalledWith(ACC, 'rw-1', 'red-1', 'FULFILLED');
+
+    await request(app)
+      .put('/api/actions/redemption')
+      .send({ settings: { markComplete: false, trigger: '', reply: '' } });
+    route(projectId, redemptionEvent('Hydrate'));
+    expect(status).toHaveBeenCalledTimes(1);
+    expect(send).toHaveBeenCalledTimes(1);
+    expect(sent).toHaveBeenCalledTimes(1); // empty reply: nothing sent
+    expect(readVariable({ projectId, scope: '', name: 'hydrate' })).toBe(2);
+  });
+});

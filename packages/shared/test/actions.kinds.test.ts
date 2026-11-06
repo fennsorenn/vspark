@@ -443,3 +443,63 @@ describe('Keyword combo', () => {
     ).toHaveLength(2);
   });
 });
+
+describe('Redemption', () => {
+  it('rewardPattern matches the title exactly, case-insensitively', () => {
+    const r = new RegExp(A.rewardPattern(' Hydrate! '), 'i');
+    expect(r.test('  hydrate! ')).toBe(true);
+    expect(r.test('hydrate!!')).toBe(false);
+    expect(A.rewardPattern('  ')).toBe('');
+    expect(
+      derived(norm('redemption', { reward: 'Hydrate' })).rewardPattern
+    ).toBe(A.rewardPattern('Hydrate'));
+  });
+
+  it('template: reward match → response, counter + reply, trigger, mark complete', () => {
+    const g = graph('redemption');
+    expect(nodeOf(g, 'complete')?.defaultConfig).toEqual({
+      status: 'FULFILLED',
+    });
+    expect(nodeOf(g, 'reply')?.defaultConfig).toEqual({
+      fields: ['user', 'message', 'reward', 'count'],
+    });
+    expect(edgeStrs(g)).toEqual(
+      expect.arrayContaining([
+        'trigger.rewardTitle>reward_match.text',
+        'reward_gate.then>response.fire',
+        'reward_gate.then>counter_gate.in',
+        'reward_gate.then>emit.fire',
+        'trigger.data>emit.payload',
+        'reward_gate.then>complete_gate.in',
+        'cfg_markComplete.value>complete_gate.condition',
+        'complete_gate.then>complete.fire',
+        'trigger.redemptionId>complete.redemptionId',
+        'trigger.rewardId>complete.rewardId',
+        'cfg_account.value>complete.account',
+      ])
+    );
+  });
+
+  it('preview: reward, counter, complete; response, reply, trigger', () => {
+    const p = preview('redemption', {
+      reward: 'Hydrate',
+      counter: { enabled: true, name: 'water' },
+      markComplete: true,
+      reply: 'Drink, ${user}!',
+      trigger: 'alert',
+    });
+    expect(p.headline).toEqual([
+      { t: 'text', text: 'Hydrate' },
+      { t: 'msg', key: 'preview.counter', params: { name: 'water' } },
+      { t: 'msg', key: 'preview.markComplete' },
+    ]);
+    expect(p.lines).toEqual([
+      [{ t: 'msg', key: 'responses.play_clip' }],
+      [{ t: 'text', text: '“Drink, ${user}!”' }],
+      [{ t: 'msg', key: 'preview.trigger', params: { name: 'alert' } }],
+    ]);
+    expect(preview('redemption').headline).toEqual([
+      { t: 'msg', key: 'preview.noReward' },
+    ]);
+  });
+});
