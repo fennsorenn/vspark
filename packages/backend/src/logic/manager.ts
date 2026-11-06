@@ -13,6 +13,10 @@
  *   - 'compose_layer'  — `scene_entity` is auto-fed the layer's id and outputs a
  *                        `ComposeLayer` (its output type follows the scope via
  *                        `inferSceneEntity`); behavior context still forbidden.
+ *   - 'action'         — an Action's graph (dev-notes/modules/actions.md): the
+ *                        `settings` node is allowed and reads the action's live
+ *                        settings, injected here as `_settings`; the graph runs
+ *                        only while the action is enabled.
  *
  * Per-graph node state is persisted on the logic row in a `node_state` JSON
  * column (mirroring the `_nodeState` convention used by behavior-owned
@@ -58,6 +62,35 @@ interface RunningGraph {
   descriptor: GraphDescriptor;
   nodeStates: Map<string, unknown>;
   cleanups: Array<() => void>;
+  ownerKind: string;
+  ownerId: string;
+  /** The owner's live settings (action-owned graphs), read by `settings`
+   *  nodes through the live config getter — replaced in place on every
+   *  settings change, so the running graph sees new values without a
+   *  restart. */
+  owner: { settings: Record<string, unknown> };
+}
+
+interface ActionOwnerRow {
+  enabled: number;
+  settings: string;
+  project_id: string;
+}
+
+const actionRow = (id: string): ActionOwnerRow | undefined =>
+  getDb()
+    .prepare('SELECT enabled, settings, project_id FROM actions WHERE id = ?')
+    .get(id) as unknown as ActionOwnerRow | undefined;
+
+function parseSettings(raw: string | undefined): Record<string, unknown> {
+  try {
+    const v = JSON.parse(raw || '{}') as unknown;
+    return v && typeof v === 'object' && !Array.isArray(v)
+      ? (v as Record<string, unknown>)
+      : {};
+  } catch {
+    return {};
+  }
 }
 
 export class LogicManager {
@@ -96,13 +129,13 @@ export class LogicManager {
 
   // ── lifecycle ─────────────────────────────────────────────────────────────
 
-  /** Start any logic (project / scene_node / compose_layer) that
+  /** Start any logic (project / scene_node / compose_layer / action) that
    *  are persisted as enabled. Called at server boot. Behavior-owned graphs
    *  are NOT in this set — those are started by their behavior managers. */
   startAllEnabled(): void {
     const rows = getDb()
       .prepare(
-        "SELECT id FROM logic WHERE owner_kind IN ('project', 'scene_node', 'compose_layer') AND enabled = 1"
+        "SELECT id FROM logic WHERE owner_kind IN ('project', 'scene_node', 'compose_layer', 'action') AND enabled = 1"
       )
       .all() as Array<{ id: string }>;
     for (const { id } of rows) this.start(id);
@@ -123,10 +156,39 @@ export class LogicManager {
     }
   }
 
+  /** Reconcile every graph an owner has (an action toggled on or off). */
+  reconcileOwnedBy(ownerKind: string, ownerId: string): void {
+    const rows = getDb()
+      .prepare('SELECT id FROM logic WHERE owner_kind = ? AND owner_id = ?')
+      .all(ownerKind, ownerId) as Array<{ id: string }>;
+    for (const { id } of rows) this.reconcile(id);
+  }
+
+  /** An action's settings changed: hand the new values to its running
+   *  graph(s). No restart — `settings` nodes resolve their config live. */
+  setActionSettings(actionId: string, settings: Record<string, unknown>): void {
+    for (const r of this.running.values())
+      if (r.ownerKind === 'action' && r.ownerId === actionId)
+        r.owner.settings = settings;
+  }
+
+  /** Resolve a value input of a node in a running graph (see
+   *  SignalGraph.pullInput). Undefined when the graph is not running. */
+  pullInput(graphId: string, nodeId: string, portName: string): unknown {
+    return this.running.get(graphId)?.graph.pullInput(nodeId, portName);
+  }
+
   private start(id: string): void {
     if (this.running.has(id)) return;
     const row = this.get(id);
     if (!row || row.enabled !== 1) return;
+    // An action's graph runs only while its action exists and is enabled.
+    const owner = { settings: {} as Record<string, unknown> };
+    if (row.owner_kind === 'action') {
+      const a = actionRow(row.owner_id);
+      if (!a || a.enabled !== 1) return;
+      owner.settings = parseSettings(a.settings);
+    }
     try {
       // The row stores the DOCUMENT form (nodes/edges keyed by id, so each is
       // its own mesh path); the engine wants lists. `toGraphDescriptor` also
@@ -142,7 +204,7 @@ export class LogicManager {
       const graph = SignalGraph.fromDescriptor(
         descriptor,
         NODE_REGISTRY,
-        (nodeId) => this._getNodeConfig(descriptor, nodeId, row),
+        (nodeId) => this._getNodeConfig(descriptor, nodeId, row, owner),
         (nodeId) => nodeStates.get(nodeId) ?? {},
         (nodeId, state) => {
           nodeStates.set(nodeId, state);
@@ -173,7 +235,15 @@ export class LogicManager {
         }
       }
 
-      this.running.set(id, { graph, descriptor, nodeStates, cleanups });
+      this.running.set(id, {
+        graph,
+        descriptor,
+        nodeStates,
+        cleanups,
+        ownerKind: row.owner_kind,
+        ownerId: row.owner_id,
+        owner,
+      });
       console.log(
         `[Logic] Started ${row.name} (${id}) — ${descriptor.nodes.length} nodes, ${descriptor.edges.length} edges`
       );
@@ -270,6 +340,8 @@ export class LogicManager {
         .get(row.owner_id) as { project_id?: string } | undefined;
       return r?.project_id ?? null;
     }
+    if (row.owner_kind === 'action')
+      return actionRow(row.owner_id)?.project_id ?? null;
     return null;
   }
 
@@ -282,7 +354,8 @@ export class LogicManager {
   private _getNodeConfig(
     descriptor: GraphDescriptor,
     nodeId: string,
-    row: LogicRow
+    row: LogicRow,
+    owner: { settings: Record<string, unknown> }
   ): unknown {
     const nodeDef = descriptor.nodes.find((n) => n.id === nodeId);
     const defaults = (nodeDef?.defaultConfig ?? {}) as Record<string, unknown>;
@@ -302,6 +375,10 @@ export class LogicManager {
     ) {
       return { ...defaults, nodeId: row.owner_id, _projectId };
     }
+    // An action's settings nodes read the action's live settings (read through
+    // `owner`, which setActionSettings replaces in place).
+    if (row.owner_kind === 'action' && nodeDef?.kind === SETTINGS_KIND)
+      return { ...defaults, _projectId, _settings: owner.settings };
     return { ...defaults, _projectId };
   }
 

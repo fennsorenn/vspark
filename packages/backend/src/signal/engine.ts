@@ -413,6 +413,16 @@ export class SignalGraph {
 
   // ── inspection ────────────────────────────────────────────────────────────
 
+  /** Resolve a node's value input NOW — the wired source if any, else the
+   *  config fallback — exactly as the node itself would pull it. For hosts that
+   *  match external events against a node's inputs (the HotkeyManager reads a
+   *  `system_hotkey`'s combo this way, so a combo wired from a `settings` node
+   *  matches like an inline one). */
+  pullInput(nodeId: string, portName: string): unknown {
+    if (!this._nodes.has(nodeId)) return undefined;
+    return this._valueThunk(nodeId, portName)();
+  }
+
   peekInput(nodeId: string, portName: string): unknown {
     return this._nodes.get(nodeId)?.lastInputs.get(portName);
   }

@@ -64,6 +64,7 @@ import m041 from './migrations/041_drop_track_clip_started_at.js';
 import m042 from './migrations/042_mesh_tombstone_ancestors.js';
 import m043 from './migrations/043_client_credentials.js';
 import m044 from './migrations/044_pose_source_to_tracking_mix.js';
+import m045 from './migrations/045_actions.js';
 
 const { Database } = nodeSqliteWasm as unknown as {
   Database: typeof DatabaseType;
@@ -131,6 +132,7 @@ const MIGRATIONS: Migration[] = [
   { name: '042_mesh_tombstone_ancestors.sql', sql: m042 },
   { name: '043_client_credentials.sql', sql: m043 },
   { name: '044_pose_source_to_tracking_mix.ts', run: m044 },
+  { name: '045_actions.sql', sql: m045 },
 ];
 
 // Thin wrapper so call sites can use .run(a, b, c) spread syntax.

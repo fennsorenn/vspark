@@ -8,8 +8,9 @@
  *    `node-global-key-listener` dependency) the first time a `system_hotkey`
  *    node appears in any running graph, and stop it once none remain.
  *  - On each key-DOWN, walk every running graph and fire the `event` port of
- *    any `system_hotkey` node whose configured key + modifiers match the
- *    keystroke. Mirrors OverliveManager.routeEvent — per-node config filters
+ *    any `system_hotkey` node whose key + modifiers match the keystroke. The
+ *    combo is resolved like any value input (wired port, else inline config),
+ *    so an Action's hotkey reads its shortcut from a `settings` node. Mirrors OverliveManager.routeEvent — per-node config filters
  *    are evaluated here, the node body just reacts.
  *
  * The dependency ships per-platform server binaries and needs OS-level access
@@ -147,15 +148,34 @@ export class HotkeyManager {
     this.dispatch(payload);
   }
 
-  /** Fire the keystroke into every matching system_hotkey node. */
-  private dispatch(payload: HotkeyEventPayload): void {
+  /** Fire the keystroke into every matching system_hotkey node. Exposed for
+   *  tests (the OS hook is not available there). */
+  dispatch(payload: HotkeyEventPayload): void {
     for (const { graphId, node } of logicManager.iterateNodes()) {
       if (node.kind !== HOTKEY_KIND) continue;
-      const cfg = (node.defaultConfig ?? {}) as Record<string, unknown>;
-      if (!nodeMatches(cfg, payload)) continue;
+      if (!nodeMatches(resolveCombo(graphId, node), payload)) continue;
       logicManager.fire(graphId, node.id, 'event', mkEvent(payload));
     }
   }
+}
+
+const COMBO_PORTS = ['key', 'ctrl', 'shift', 'alt', 'meta'] as const;
+
+/** A hotkey node's combo as the node would pull it: a wired combo port (e.g.
+ *  from a `settings` node reading an Action's shortcut) wins, an unwired one
+ *  falls back to the inline config — the engine's ordinary value-input
+ *  resolution. Falls back to the descriptor config when the graph is not
+ *  running. */
+function resolveCombo(
+  graphId: string,
+  node: { id: string; defaultConfig?: Record<string, unknown> }
+): Record<string, unknown> {
+  const cfg = { ...((node.defaultConfig ?? {}) as Record<string, unknown>) };
+  for (const port of COMBO_PORTS) {
+    const v = logicManager.pullInput(graphId, node.id, port);
+    if (v !== undefined) cfg[port] = v;
+  }
+  return cfg;
 }
 
 /**

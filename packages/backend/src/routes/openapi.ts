@@ -18,6 +18,8 @@ import {
   createAssetSchema,
   createAssetBundleSchema,
   createBehaviorSchema,
+  createActionSchema,
+  updateActionSchema,
   updateBehaviorSchema,
   createCameraEffectSchema,
   updateCameraEffectSchema,
@@ -54,6 +56,8 @@ function buildZodComponentSchemas(): Record<string, unknown> {
     createAssetSchema,
     createAssetBundleSchema,
     createBehaviorSchema,
+    createActionSchema,
+    updateActionSchema,
     updateBehaviorSchema,
     createCameraEffectSchema,
     updateCameraEffectSchema,
@@ -81,6 +85,8 @@ function buildZodComponentSchemas(): Record<string, unknown> {
     ['CreateAsset', createAssetSchema],
     ['CreateAssetBundle', createAssetBundleSchema],
     ['CreateBehavior', createBehaviorSchema],
+    ['CreateAction', createActionSchema],
+    ['UpdateAction', updateActionSchema],
     ['UpdateBehavior', updateBehaviorSchema],
     ['CreateCameraEffect', createCameraEffectSchema],
     ['UpdateCameraEffect', updateCameraEffectSchema],
@@ -151,6 +157,11 @@ export const openApiDoc = swaggerJSDoc({
       {
         name: 'signal',
         description: 'Signal graph introspection + event firing',
+      },
+      {
+        name: 'actions',
+        description:
+          'Project-level workflows configured by settings, each owning a generated Logic graph',
       },
       {
         name: 'meta',
