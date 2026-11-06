@@ -2,7 +2,7 @@
   "components/ConnectionsWindow.tsx": "3555ee8b8a73",
   "components/DialogProvider.tsx": "896fa9df2a91",
   "components/editor/actions/ActionsPanel.tsx": "cbf895f389b7",
-  "components/editor/actions/ChatForms.tsx": "8f839ab45836",
+  "components/editor/actions/ChatForms.tsx": "467050d2e9f9",
   "components/editor/actions/fields.tsx": "053d143bfba5",
   "components/editor/actions/HotkeyForm.tsx": "7d5607c14929",
   "components/editor/AssetManager.tsx": "d3548eeb1520",

@@ -77,7 +77,43 @@ export function ChatCommandForm({ action, onSetting }: KindFormProps) {
   );
 }
 
+export function ChatPatternForm({ action, onSetting }: KindFormProps) {
+  const { t } = useTranslation('actions');
+  const s = action.settings;
+  return (
+    <div style={column}>
+      <Field
+        label={t('form.pattern')}
+        hint={t('form.patternHint')}
+        help={{ anchor: 'patterns', tip: t('help.patterns') }}
+      >
+        <DraftText
+          className="vs-action-pattern"
+          value={str(s.pattern)}
+          placeholder={'"(?<quote>.+)" - (?<who>.+)'}
+          onCommit={(v) => onSetting('pattern', v)}
+        />
+      </Field>
+      <RankField value={s.minRank} onSetting={onSetting} />
+      <CooldownField value={s.cooldown} onSetting={onSetting} />
+      <CounterField value={s.counter} onSetting={onSetting} />
+      <TemplateField
+        label={t('form.reply')}
+        placeholders="${user} ${message} ${count}"
+      >
+        <DraftText
+          className="vs-action-reply"
+          value={str(s.reply)}
+          onCommit={(v) => onSetting('reply', v)}
+        />
+      </TemplateField>
+      <AccountField value={s.account} onSetting={onSetting} />
+    </div>
+  );
+}
+
 /** The settings form per kind (Hotkey's lives in HotkeyForm.tsx). */
 export const CHAT_FORMS: Record<string, (p: KindFormProps) => JSX.Element> = {
   chat_command: ChatCommandForm,
+  chat_pattern: ChatPatternForm,
 };

@@ -63,6 +63,17 @@ Chat (Twitch) schreibt.
 
 Beispiel: Befehl `!hug`, Antwort `${user} umarmt ${args}! (schon ${count} Umarmungen)`.
 
+## Chat-Muster {#chat_pattern}
+
+Ein **Chat-Muster** funktioniert wie ein Chat-Befehl, reagiert aber auf jede
+Chat-Nachricht, deren *gesamter* Text zu einem [Muster](#patterns) passt.
+Benannte Gruppen im Muster werden zu [Platzhaltern](#placeholders) für die
+Antwort, neben `${user}`, `${message}` und `${count}`.
+
+Beispiel: Das Muster `"(?<quote>.+)" - (?<who>[^.]+)\. (?<year>\d{4})` passt zu
+`"I'll be back" - Terminator. 1984`, und die Antwort kann `${quote}`, `${who}`
+und `${year}` verwenden.
+
 ## Platzhalter {#placeholders}
 
 Antworten und Nachrichten können Platzhalter der Form `${name}` enthalten, die

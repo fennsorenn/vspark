@@ -294,3 +294,22 @@ describe('Chat command', () => {
     expect(sent.mock.calls[1][0]).toBe(ACC);
   });
 });
+
+describe('Chat pattern', () => {
+  it('chat pattern: the whole message must match; named groups fill the reply', async () => {
+    await create('chat_pattern', {
+      pattern: '"(?<quote>.+)" - (?<character>[^.]+)\\. (?<year>\\d{4})',
+      cooldown: { seconds: 0 },
+      reply: '${user} quoted ${character} (${year}): ${quote}',
+      counter: { enabled: true, name: 'quotes', persistent: false },
+    });
+    route(projectId, chatEvent('"I am inevitable" - Thanos. 2019'));
+    route(projectId, chatEvent('so "I am inevitable" - Thanos. 2019 lol'));
+    expect(replies()).toEqual(['Alice quoted Thanos (2019): I am inevitable']);
+    expect(readVariable({ projectId, scope: '', name: 'quotes' })).toBe(1);
+    // Not persistent: no SQLite row.
+    expect(
+      getDb().prepare('SELECT 1 FROM variables WHERE name = ?').get('quotes')
+    ).toBeUndefined();
+  });
+});

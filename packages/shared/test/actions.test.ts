@@ -30,6 +30,7 @@ describe('action kind registry', () => {
     expect(ACTION_KINDS.map((k) => k.kind)).toEqual([
       'hotkey',
       'chat_command',
+      'chat_pattern',
     ]);
     const def = actionKind('hotkey')!;
     expect(def.label).toBe('Hotkey');

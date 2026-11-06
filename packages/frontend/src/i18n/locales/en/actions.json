@@ -20,6 +20,10 @@
     "chat_command": {
       "label": "Chat command",
       "description": "Reply to a chat command like !hug, with cooldown, minimum rank and an optional counter"
+    },
+    "chat_pattern": {
+      "label": "Chat pattern",
+      "description": "Reply to chat messages that match a pattern, using the parts it captures"
     }
   },
   "row": {
@@ -71,7 +75,9 @@
     "counterStep": "Step",
     "counterPersistent": "Keep after restart",
     "reply": "Reply",
-    "placeholders": "Placeholders: {{list}}. Empty: no reply."
+    "placeholders": "Placeholders: {{list}}. Empty: no reply.",
+    "pattern": "Pattern",
+    "patternHint": "The whole message must match (case is ignored). Named groups become placeholders."
   },
   "mode": {
     "single": "Single",
@@ -91,6 +97,7 @@
     "cycle": "cycle ×{{n}}",
     "position": "{{n}}.",
     "noCommand": "No command",
+    "noPattern": "No pattern",
     "noReply": "No reply",
     "rank": {
       "sub": "subs+",

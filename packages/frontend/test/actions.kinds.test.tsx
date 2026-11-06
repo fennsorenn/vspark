@@ -207,3 +207,20 @@ describe('Chat command', () => {
     expect(settingsOf('a1').cooldown.seconds).toBe(10);
   });
 });
+
+describe('Chat pattern', () => {
+  it('previews and edits the pattern', async () => {
+    seed('a1', 'chat_pattern', { pattern: 'a+b' });
+    const user = userEvent.setup();
+    const { container } = renderPanel();
+    expect(preview(container, 'chat_pattern')).toContain('/a+b/');
+    await user.click(container.querySelector('.vs-action-settings')!);
+    await commitText(
+      user,
+      container.querySelector('.vs-action-pattern')!,
+      'x+'
+    );
+    expect(settingsOf('a1').pattern).toBe('x+');
+    expect(settingsOf('a1').derived.fullPattern).toBe('^(?:x+)$');
+  });
+});

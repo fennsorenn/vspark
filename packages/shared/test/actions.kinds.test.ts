@@ -278,3 +278,38 @@ describe('Chat command', () => {
     ]);
   });
 });
+
+describe('Chat pattern', () => {
+  it('fullTextPattern anchors the pattern to the whole text', () => {
+    expect(A.fullTextPattern('ab')).toBe('^(?:ab)$');
+    expect(A.fullTextPattern('')).toBe('');
+    expect(derived(norm('chat_pattern', { pattern: 'a|b' })).fullPattern).toBe(
+      '^(?:a|b)$'
+    );
+  });
+
+  it('template: full-text match; message + groups reach the reply', () => {
+    const g = graph('chat_pattern');
+    expect(nodeOf(g, 'trigger')?.kind).toBe('overlive_chat_message');
+    expect(edgeStrs(g)).toEqual(
+      expect.arrayContaining([
+        'cfg_derived_fullPattern.value>pattern_match.pattern',
+        'pattern_gate.then>rank_gate.in',
+        'rank_gate.then>cooldown.in',
+        'trigger.text>reply.message',
+        'pattern_match.groups>reply.values',
+      ])
+    );
+  });
+
+  it('preview: the pattern, or "no pattern"', () => {
+    expect(preview('chat_pattern', { pattern: 'a+' }).headline[0]).toEqual({
+      t: 'text',
+      text: '/a+/',
+    });
+    expect(preview('chat_pattern').headline[0]).toEqual({
+      t: 'msg',
+      key: 'preview.noPattern',
+    });
+  });
+});

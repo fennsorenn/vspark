@@ -20,6 +20,10 @@
     "chat_command": {
       "label": "Chat-Befehl",
       "description": "Auf einen Chat-Befehl wie !hug antworten, mit Abklingzeit, Mindestrang und optionalem Zähler"
+    },
+    "chat_pattern": {
+      "label": "Chat-Muster",
+      "description": "Auf Chat-Nachrichten antworten, die zu einem Muster passen, mit den erfassten Teilen"
     }
   },
   "row": {
@@ -71,7 +75,9 @@
     "counterStep": "Schrittweite",
     "counterPersistent": "Nach Neustart behalten",
     "reply": "Antwort",
-    "placeholders": "Platzhalter: {{list}}. Leer: keine Antwort."
+    "placeholders": "Platzhalter: {{list}}. Leer: keine Antwort.",
+    "pattern": "Muster",
+    "patternHint": "Die ganze Nachricht muss passen (Groß-/Kleinschreibung egal). Benannte Gruppen werden zu Platzhaltern."
   },
   "mode": {
     "single": "Einfach",
@@ -91,6 +97,7 @@
     "cycle": "durchschalten ×{{n}}",
     "position": "{{n}}.",
     "noCommand": "Kein Befehl",
+    "noPattern": "Kein Muster",
     "noReply": "Keine Antwort",
     "rank": {
       "sub": "ab Abos",

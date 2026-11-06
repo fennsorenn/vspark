@@ -59,6 +59,17 @@ chat (Twitch).
 
 Example: command `!hug`, reply `${user} hugs ${args}! (${count} hugs so far)`.
 
+## Chat pattern {#chat_pattern}
+
+A **Chat pattern** works like a chat command, but reacts to any chat message
+whose *whole* text matches a [pattern](#patterns). Named groups in the pattern
+become [placeholders](#placeholders) for the reply, next to `${user}`,
+`${message}` and `${count}`.
+
+Example: the pattern `"(?<quote>.+)" - (?<who>[^.]+)\. (?<year>\d{4})` matches
+`"I'll be back" - Terminator. 1984` and the reply can use `${quote}`, `${who}`
+and `${year}`.
+
 ## Placeholders {#placeholders}
 
 Replies and messages can contain placeholders in the form `${name}`, which are

@@ -432,6 +432,12 @@ export function commandPattern(names: string[]): string {
     : '';
 }
 
+/** A user's pattern anchored to the whole text ('' stays ''). */
+export function fullTextPattern(pattern: unknown): string {
+  const p = strOf(pattern);
+  return p ? `^(?:${p})$` : '';
+}
+
 export interface CooldownSettings {
   seconds: number;
   group: string;
@@ -732,11 +738,65 @@ const chatCommand: ActionKindDef = {
   },
 };
 
+// ── Chat pattern ─────────────────────────────────────────────────────────────
+
+const chatPattern: ActionKindDef = {
+  kind: 'chat_pattern',
+  label: 'Chat pattern',
+  icon: '✱',
+  fields: [{ path: 'pattern', class: 'value' }, ...VALUE_FIELDS_CHAT],
+  defaults: () => chatPattern.normalize({}),
+  normalize(raw) {
+    const src = isObj(raw) ? raw : {};
+    const base = chatBase(src, DEFAULT_CHAT_COOLDOWN);
+    const pattern = strOf(src.pattern);
+    return {
+      ...src,
+      ...base,
+      pattern,
+      derived: {
+        fullPattern: fullTextPattern(pattern),
+        ...counterDerived(base.counter),
+      },
+    };
+  },
+  build() {
+    const b = new Tpl();
+    b.node('trigger', 'overlive_chat_message', 0, 200);
+    b.setting('account', 'trigger', 'account', -280, 200);
+    b.node('pattern_match', 'regex', 280, 420, { flags: 'i' });
+    b.wire('trigger', 'text', 'pattern_match', 'text');
+    b.setting('derived.fullPattern', 'pattern_match', 'pattern', 0, 500);
+    b.node('pattern_gate', 'if_else', 560, 200);
+    b.wire('trigger', 'event', 'pattern_gate', 'in');
+    b.wire('pattern_match', 'matched', 'pattern_gate', 'condition');
+    const ranked = addRankGate(b, 'trigger', ['pattern_gate', 'then'], 840);
+    const passed = addCooldown(b, [ranked], 1400);
+    addCounterReply(
+      b,
+      passed,
+      { user: ['trigger', 'displayName'], message: ['trigger', 'text'] },
+      ['pattern_match', 'groups'],
+      1680
+    );
+    return b.out();
+  },
+  preview(s) {
+    const p = strOf(s.pattern);
+    const headline: PreviewToken[] = [
+      p ? { t: 'text', text: `/${p}/` } : { t: 'msg', key: 'preview.noPattern' },
+      ...chatMeta(s),
+    ];
+    return { headline, lines: [replyLine(s.reply)] };
+  },
+};
+
 // ── registry ─────────────────────────────────────────────────────────────────
 
 export const ACTION_KINDS: readonly ActionKindDef[] = [
   hotkey,
   chatCommand,
+  chatPattern,
 ];
 
 const BY_KIND = new Map(ACTION_KINDS.map((k) => [k.kind, k]));
