@@ -6,6 +6,7 @@
   "components/editor/AssetManager.tsx": "d3548eeb1520",
   "components/editor/AssistantWindow.tsx": "d19dbbc96f5a",
   "components/editor/AttachOverlay.tsx": "ddc57671901f",
+  "components/editor/BehaviorGraphBar.tsx": "ef981ef2b5d7",
   "components/editor/ClipsSection.tsx": "098bbd7a3e62",
   "components/editor/ComposeLayerProperties.tsx": "de4eb3fa9807",
   "components/editor/ComposeSelectionOverlay.tsx": "51cafe40e419",

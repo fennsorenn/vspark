@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import { commitBehaviorPatch } from '../../mesh/behaviorWrites';
 import { useTranslation } from 'react-i18next';
 import { HelpButton } from '../../help/HelpButton';
+import { BehaviorGraphBar } from './BehaviorGraphBar';
 import {
   DEFAULT_POSE_DYNAMICS,
   type PoseDynamicsConfig,
@@ -10427,6 +10428,12 @@ export function PropertiesPanel() {
                   </div>
                 </div>
               </div>
+              {selectedCompType.hasGraph && (
+                <BehaviorGraphBar
+                  behavior={selectedBehavior}
+                  label={selectedCompType.label}
+                />
+              )}
               <BehaviorProps comp={selectedBehavior} />
             </div>
           </>

@@ -110,6 +110,8 @@ carried the original copy; this table is the durable source of truth.)
 | Variable | Variable |
 | Cooldown | Abklingzeit |
 | Trigger (event source) | Auslöser |
+| Modified (a graph that differs from its template) | Geändert |
+| Reset (rebuild a graph from its template) | Zurücksetzen |
 
 When you introduce a new recurring domain term, add it here so future
 translations stay consistent.

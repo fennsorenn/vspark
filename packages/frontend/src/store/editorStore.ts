@@ -251,6 +251,9 @@ export interface Behavior {
   kind: string;
   enabled: boolean;
   config: Record<string, unknown>;
+  /** Fingerprint of the template output its stored graph was generated from
+   *  (mesh/behaviorGraphs.ts); null when unknown. */
+  templateFingerprint?: string | null;
 }
 
 export interface PresetSummary {
