@@ -12,7 +12,7 @@ when vspark is not the focused window.
 | `system_hotkey` signal node | `packages/backend/src/signal/nodes/system_hotkey.ts` |
 | `HotkeyManager` | `packages/backend/src/hotkeys/manager.ts` (singleton `hotkeyManager`) |
 | Init + LogicManager hook | `packages/backend/src/index.ts` |
-| Global keyboard hook dep | `node-global-key-listener` (optional, externalized in `bundle.mjs`) |
+| Global keyboard hook dep | `node-global-key-listener` (a regular `dependencies` entry, loaded through a guarded dynamic import and externalized in `bundle.mjs`) |
 
 ## How it works
 
@@ -61,6 +61,14 @@ The dep resolves its server binaries relative to its own package dir, so it
 guarded import means an unbundled `node dist` / `pnpm dev` run gets full
 functionality while a stripped distribution that lacks the package degrades
 gracefully.
+
+**Known gap (observed 2026-11-06):** the release zip built by
+`.github/workflows/release.yml` is such a stripped distribution — it ships
+`bundle.cjs` and no `node_modules` — so in packaged releases the import fails
+and `system_hotkey` nodes never fire. Hotkeys work only from a source checkout
+(`pnpm dev` / unbundled) until the release packaging ships the package and its
+per-platform key-server binary. Platform support comes from the library: Windows,
+macOS, and Linux under **X11 only** (no Wayland).
 
 ## Security note
 
