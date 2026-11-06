@@ -20,6 +20,7 @@
 import { useEditorStore } from '../store/editorStore';
 import type { StageObject } from '../store/editorStore';
 import { compareHLC, type HLC, type SyncEnvelope } from '@vspark/shared/sync';
+import { sceneNodesNow } from '../mesh/nodes';
 
 export const REMOTE_OBJECT_KIND = 'remote_object';
 
@@ -92,14 +93,12 @@ export function findContainer(
   peerId: string,
   objectId: string
 ): StageObject | undefined {
-  return useEditorStore
-    .getState()
-    .nodes.find(
-      (n) =>
-        n.kind === REMOTE_OBJECT_KIND &&
-        refOf(n)?.ownerPeerId === peerId &&
-        refOf(n)?.remoteObjectId === objectId
-    );
+  return sceneNodesNow().find(
+    (n) =>
+      n.kind === REMOTE_OBJECT_KIND &&
+      refOf(n)?.ownerPeerId === peerId &&
+      refOf(n)?.remoteObjectId === objectId
+  );
 }
 
 /** Whether a given object from a peer is currently projected locally. */
@@ -135,7 +134,7 @@ export function applySnapshot(peerId: string, snapshot: ObjectSnapshot): void {
   removeProjection(peerId, snapshot.objectId);
   for (const raw of snapshot.nodes) {
     const node = projectNode(raw, peerId, snapshot.objectId, container);
-    store.addNode(node);
+    store.putProjectedNode(node);
     track(peerId, snapshot.objectId, node.id);
     authoritativeDtos.set(node.id, raw); // baseline for rollback
   }
@@ -152,7 +151,7 @@ export function addProjectedNode(
   const container = findContainer(peerId, objectId);
   if (!container) return;
   const node = projectNode(dto, peerId, objectId, container);
-  useEditorStore.getState().addNode(node);
+  useEditorStore.getState().putProjectedNode(node);
   track(peerId, objectId, node.id);
 }
 
@@ -179,7 +178,7 @@ export function applyUpdate(
   clearPending(env.key);
 
   if (env.op === 'remove') {
-    store.deleteNode(env.key);
+    store.dropProjectedNode(env.key);
     projected.get(peerId)?.get(objectId)?.delete(env.key);
     authoritativeDtos.delete(env.key);
     return;
@@ -192,10 +191,10 @@ export function applyUpdate(
       objectId,
       container
     );
-    if (store.nodes.some((x) => x.id === node.id)) {
-      store.updateNode(node.id, node);
+    if (store.projectedNodes.some((x) => x.id === node.id)) {
+      store.putProjectedNode(node);
     } else {
-      store.addNode(node);
+      store.putProjectedNode(node);
       track(peerId, objectId, node.id);
     }
   }
@@ -227,7 +226,7 @@ export function ancestorRoute(
   while (cur && ids?.has(cur) && !seen.has(cur)) {
     seen.add(cur);
     route.push(cur);
-    cur = store.nodes.find((x) => x.id === cur)?.parentId;
+    cur = store.projectedNodes.find((x) => x.id === cur)?.parentId;
   }
   if (!route.includes(objectId)) route.push(objectId);
   return route;
@@ -255,7 +254,7 @@ export function rollbackWrite(nodeId: string): void {
   clearPending(nodeId);
   const store = useEditorStore.getState();
   if (p.op === 'create') {
-    store.deleteNode(nodeId);
+    store.dropProjectedNode(nodeId);
     projected.get(p.peerId)?.get(p.objectId)?.delete(nodeId);
     return;
   }
@@ -264,9 +263,10 @@ export function rollbackWrite(nodeId: string): void {
   const container = findContainer(p.peerId, p.objectId);
   if (!dto || !container) return;
   const node = projectNode(dto, p.peerId, p.objectId, container);
-  if (store.nodes.some((x) => x.id === nodeId)) store.updateNode(nodeId, node);
+  if (store.projectedNodes.some((x) => x.id === nodeId))
+    store.putProjectedNode(node);
   else {
-    store.addNode(node);
+    store.putProjectedNode(node);
     track(p.peerId, p.objectId, nodeId);
   }
 }
@@ -277,7 +277,7 @@ export function removeProjection(peerId: string, objectId: string): void {
   const ids = projected.get(peerId)?.get(objectId);
   if (!ids) return;
   const store = useEditorStore.getState();
-  for (const id of ids) store.deleteNode(id);
+  for (const id of ids) store.dropProjectedNode(id);
   projected.get(peerId)?.delete(objectId);
   // Cancel any in-flight write timers for this object so they don't fire a
   // rollback against a projection that's already gone.
@@ -292,7 +292,7 @@ export function removePeerProjections(peerId: string): void {
   if (!byObject) return;
   const store = useEditorStore.getState();
   for (const ids of byObject.values())
-    for (const id of ids) store.deleteNode(id);
+    for (const id of ids) store.dropProjectedNode(id);
   projected.delete(peerId);
   for (const [nodeId, p] of pendingWrites)
     if (p.peerId === peerId) clearPending(nodeId);

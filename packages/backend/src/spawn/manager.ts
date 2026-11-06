@@ -21,10 +21,16 @@
  *
  * See dev-notes/modules/spawn.md.
  */
+import { byId } from '@vspark/shared/idMap';
 import { randomUUID } from 'crypto';
 import { getDb } from '../db/index.js';
 import type { WSSync } from '../ws/index.js';
-import type { TrackClipPlaybackManager } from '../track_clips/playback.js';
+import {
+  clearEphemeralDuration,
+  onClipFinished,
+  setEphemeralDuration,
+} from '../track_clips/lifecycle.js';
+import { triggerClip } from '../track_clips/playbackDoc.js';
 import { runtimeOverrideManager } from '../runtime_overrides/manager.js';
 import { nodeWorldTransform } from './worldTransform.js';
 
@@ -44,7 +50,6 @@ interface ActiveSpawn {
 
 export class SpawnManager {
   private _ws: WSSync | null = null;
-  private _playback: TrackClipPlaybackManager | null = null;
   private _unsubFinished: (() => void) | null = null;
   /** Active spawns keyed by tmpClipId — that's what the playback manager
    *  reports when a clip finishes. */
@@ -56,11 +61,12 @@ export class SpawnManager {
     return this._byClipId.has(clipId);
   }
 
-  init(ws: WSSync, playback: TrackClipPlaybackManager): void {
+  init(ws: WSSync): void {
     this._ws = ws;
-    this._playback = playback;
     this._unsubFinished?.();
-    this._unsubFinished = playback.onClipFinished((clipId) => {
+    // Finishing is derived from the clip_playback document now, not reported by
+    // an in-memory playhead — but the teardown hook is unchanged.
+    this._unsubFinished = onClipFinished((clipId) => {
       const active = this._byClipId.get(clipId);
       if (!active) return;
       this._cleanup(active);
@@ -70,7 +76,7 @@ export class SpawnManager {
   /** Spawn a tmp clone of the given clip's owner and play a tmp clip on it.
    *  Returns the SpawnRef payload (or null on lookup failure). */
   spawn(clipId: string): SpawnRef | null {
-    if (!this._ws || !this._playback) return null;
+    if (!this._ws) return null;
     const db = getDb();
     const clipRow = db
       .prepare(
@@ -162,16 +168,18 @@ export class SpawnManager {
         targetId: newTargetId,
         paramPath: lane.param_path,
         defaultValue: lane.default_value,
-        keyframes: kfRows.map((k) => ({
-          id: `__spawn:${randomUUID()}`,
-          t: k.t,
-          value: k.value,
-          easing: k.easing,
-          inHandleTFraction: k.in_handle_t_fraction,
-          inHandleVFraction: k.in_handle_v_fraction,
-          outHandleTFraction: k.out_handle_t_fraction,
-          outHandleVFraction: k.out_handle_v_fraction,
-        })),
+        keyframes: byId(
+          kfRows.map((k) => ({
+            id: `__spawn:${randomUUID()}`,
+            t: k.t,
+            value: k.value,
+            easing: k.easing,
+            inHandleTFraction: k.in_handle_t_fraction,
+            inHandleVFraction: k.in_handle_v_fraction,
+            outHandleTFraction: k.out_handle_t_fraction,
+            outHandleVFraction: k.out_handle_v_fraction,
+          }))
+        ),
       };
     });
 
@@ -217,9 +225,10 @@ export class SpawnManager {
       loop: clipRow.loop === 1,
       mode: clipRow.mode,
       autoplay: false,
-      startedAt: null,
-      lanes,
-      events,
+      // Keyed like any clip document (@vspark/shared/idMap) — the spawned clip
+      // is read by the same evaluator as a persisted one.
+      lanes: byId(lanes),
+      events: byId(events),
     };
 
     // Order matters: entity first (so the renderer can mount it), then clip
@@ -240,11 +249,11 @@ export class SpawnManager {
     const active: ActiveSpawn = { tmpId, tmpClipId, kind };
     this._byClipId.set(tmpClipId, active);
 
-    this._playback.triggerEphemeral(
-      tmpClipId,
-      clipRow.duration,
-      clipRow.loop === 1
-    );
+    // The clone has no track_clips row, so the lifecycle sweep cannot look its
+    // duration up — register it before starting, or the clip would play forever
+    // and never tear down.
+    setEphemeralDuration(tmpClipId, clipRow.duration);
+    triggerClip(tmpClipId, clipRow.loop === 1);
 
     return { tmpNodeId: tmpId, tmpClipId, kind };
   }
@@ -330,8 +339,7 @@ export class SpawnManager {
           rotation: number;
           anchor_h: string;
           anchor_v: string;
-          scene_order: number;
-          camera_order: number;
+          order_key: string;
           visible: number;
         }
       | undefined;
@@ -356,8 +364,9 @@ export class SpawnManager {
       rotation: row.rotation,
       anchorH: row.anchor_h,
       anchorV: row.anchor_v,
-      sceneOrder: row.scene_order,
-      cameraOrder: row.camera_order,
+      // Spawned copies sit exactly where their source does — an ephemeral tmp
+      // layer is a stand-in for it, not a new entry in the stack.
+      orderKey: row.order_key,
       // Always visible on spawn (matches the scene-node "always unhidden" rule).
       visible: true,
     };
@@ -369,6 +378,7 @@ export class SpawnManager {
   private _cleanup(active: ActiveSpawn): void {
     if (!this._ws) return;
     this._byClipId.delete(active.tmpClipId);
+    clearEphemeralDuration(active.tmpClipId);
     // Clear runtime overrides on the tmp entity first so the override-bus
     // snapshot doesn't replay them after entity removal on the next reconnect.
     runtimeOverrideManager.clearAllForTarget(active.kind, active.tmpId);

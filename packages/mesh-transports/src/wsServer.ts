@@ -3,27 +3,64 @@
  * mesh participants. Mount `upgrade()` on the HTTP server's 'upgrade' event
  * for a dedicated path (e.g. /mesh) — separate from the legacy /ws hub.
  *
- * Handshake: the tab's first frame is `{ t:'hello', participantId }`, where
- * the id is `${serverPeerId}#${tabUuid}` (see shared/sync participant ids —
- * the prefix is what lets a single grant cover all of a server's tabs).
- * Anything not namespaced under THIS server's peer id is refused.
+ * Handshake (principle 9: every participant authenticates):
+ *
+ *   tab → `{ t:'hello', participantId, token }`
+ *   server → `{ t:'welcome', ...welcome() }`, or closes with code 4401
+ *
+ * After the welcome the server may push `{ t:'info', ... }` frames (see
+ * `push`): data for the tab's transports rather than for the mesh, such as
+ * ICE servers with short-lived TURN credentials. They go only to tabs that
+ * authenticated.
+ *
+ * The id is `${serverPeerId}#${tabUuid}` (see shared/sync participant ids —
+ * the prefix is what lets a single grant cover all of a server's tabs);
+ * anything not namespaced under THIS server's peer id is refused, and so is a
+ * hello whose token `authenticate` doesn't accept. No mesh message is handled
+ * before the welcome.
+ *
+ * One socket per participant: a hello for an id that is already connected
+ * replaces the older socket, which is closed with code 4409. That is a tab
+ * reconnecting while its old socket is not yet known to be dead; refusing the
+ * newcomer instead would lock the tab out until the old one timed out.
  */
 import { WebSocketServer, type WebSocket } from 'ws';
 import type { IncomingMessage } from 'http';
 import type { Duplex } from 'stream';
 import { isClientParticipant, participantServer } from '@vspark/shared/sync';
-import type {
-  MeshMessage,
-  MeshTransport,
-  PeerLink,
-  TransportHandlers,
+import {
+  encode,
+  type MeshMessage,
+  type MeshTransport,
+  type PeerLink,
+  type TransportHandlers,
 } from '@vspark/mesh';
+
+/** Close code for a refused hello (unknown or missing credentials). */
+export const UNAUTHENTICATED = 4401;
+/** Close code for a socket replaced by a newer one under the same id. */
+export const REPLACED = 4409;
+
+export interface WsServerTransportOptions {
+  /** Accept or refuse a tab's credentials. Required: there is no
+   *  unauthenticated mode. */
+  authenticate: (hello: { participantId: string; token: string }) => boolean;
+  /** Extra fields for the welcome (current transport info for the tab). */
+  welcome?: () => Record<string, unknown>;
+}
 
 export class WsServerTransport implements MeshTransport {
   private readonly wss = new WebSocketServer({ noServer: true });
   private handlers: TransportHandlers | null = null;
+  /** Sockets that completed the handshake. */
+  private readonly authed = new Set<WebSocket>();
+  /** The current socket of each connected participant. */
+  private readonly current = new Map<string, WebSocket>();
 
-  constructor(private readonly serverPeerId: string) {}
+  constructor(
+    private readonly serverPeerId: string,
+    private readonly opts: WsServerTransportOptions
+  ) {}
 
   start(h: TransportHandlers): void {
     this.handlers = h;
@@ -34,6 +71,12 @@ export class WsServerTransport implements MeshTransport {
     this.handlers = null;
   }
 
+  /** Send transport info to every authenticated tab (see the header). */
+  push(info: Record<string, unknown>): void {
+    const frame = JSON.stringify({ ...info, t: 'info' });
+    for (const ws of this.authed) if (ws.readyState === ws.OPEN) ws.send(frame);
+  }
+
   /** Wire into `server.on('upgrade')` for the mesh path. */
   upgrade(req: IncomingMessage, socket: Duplex, head: Buffer): void {
     this.wss.handleUpgrade(req, socket, head, (ws) => this.attach(ws));
@@ -42,37 +85,58 @@ export class WsServerTransport implements MeshTransport {
   private attach(ws: WebSocket): void {
     let pid: string | null = null;
     ws.on('message', (data) => {
-      let msg: { t?: string; participantId?: unknown };
+      let msg: { t?: string; participantId?: unknown; token?: unknown };
       try {
         msg = JSON.parse(data.toString());
       } catch {
         return;
       }
-      if (msg?.t === 'hello') {
+      if (pid === null) {
+        if (msg?.t !== 'hello') return; // nothing before the handshake
         const requested = msg.participantId;
+        const token = msg.token;
         if (
-          pid !== null ||
           typeof requested !== 'string' ||
           !isClientParticipant(requested) ||
-          participantServer(requested) !== this.serverPeerId
+          participantServer(requested) !== this.serverPeerId ||
+          typeof token !== 'string' ||
+          !this.opts.authenticate({ participantId: requested, token })
         ) {
-          ws.close();
+          ws.close(UNAUTHENTICATED, 'unauthenticated');
           return;
         }
         pid = requested;
+        const older = this.current.get(pid);
+        if (older) {
+          // Its link goes first, so the newcomer's link is the one that stays.
+          this.current.delete(pid);
+          this.authed.delete(older);
+          this.handlers?.peerDisconnected(pid);
+          older.close(REPLACED, 'replaced');
+        }
+        this.current.set(pid, ws);
+        this.authed.add(ws);
+        ws.send(JSON.stringify({ ...this.opts.welcome?.(), t: 'welcome' }));
         const link: PeerLink = {
           send: (m) => {
-            if (ws.readyState === ws.OPEN) ws.send(JSON.stringify(m));
+            if (ws.readyState === ws.OPEN) ws.send(encode(m));
           },
         };
         this.handlers?.peerConnected(pid, link);
         return;
       }
-      if (pid !== null && typeof msg?.t === 'string')
+      if (msg?.t === 'hello') return; // one handshake per socket
+      if (this.current.get(pid) !== ws) return; // replaced
+      if (typeof msg?.t === 'string')
         this.handlers?.message(pid, msg as MeshMessage);
     });
     ws.on('close', () => {
-      if (pid !== null) this.handlers?.peerDisconnected(pid);
+      this.authed.delete(ws);
+      // A replaced socket's link is already gone; only the current one's goes.
+      if (pid !== null && this.current.get(pid) === ws) {
+        this.current.delete(pid);
+        this.handlers?.peerDisconnected(pid);
+      }
     });
     ws.on('error', () => {
       /* 'close' follows */

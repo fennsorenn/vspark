@@ -4,8 +4,9 @@ import { MicCapture, type VowelTemplates } from '../media/MicCapture';
 import { CameraCapture } from '../media/CameraCapture';
 import { useLipsyncUplink } from '../hooks/useLipsyncUplink';
 import { editorWsRef } from '../hooks/useWsSync';
-import { useEditorStore } from '../store/editorStore';
 import { HelpButton } from '../help/HelpButton';
+import { useAllBehaviors } from '../mesh/hooks';
+import { useSceneNodes } from '../mesh/nodes';
 
 // ── Styles ───────────────────────────────────────────────────────────────────
 
@@ -274,7 +275,11 @@ export function MediaInputWindow({
   // WS connection — use prop if provided (standalone page), else use the shared editor socket
 
   // Resolve component IDs from store if not provided as props
-  const behaviors = useEditorStore((s) => s.behaviors);
+  const allBehaviors = useAllBehaviors();
+  const projectNodes = useSceneNodes();
+  const behaviors = allBehaviors.filter((b) =>
+    projectNodes.some((n) => n.id === b.nodeId)
+  );
   const resolvedLipsyncId =
     lipsyncBehaviorId ??
     behaviors.find((c) => c.kind === 'lipsync_processor' && c.enabled)?.id ??

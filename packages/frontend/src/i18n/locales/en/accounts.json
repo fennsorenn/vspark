@@ -113,7 +113,8 @@
       "label": "Label",
       "host": "Host",
       "port": "Port",
-      "password": "Password"
+      "password": "Password",
+      "passwordUnchanged": "Unchanged (leave empty to keep)"
     },
     "allRequired": "Label and host are required.",
     "saveFailed": "Failed to save connection",

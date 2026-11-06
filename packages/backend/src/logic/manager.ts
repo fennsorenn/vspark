@@ -22,8 +22,10 @@ import { SignalGraph } from '../signal/engine.js';
 import { NODE_REGISTRY } from '../signal/registry.js';
 import { Clock } from '../signal/nodes/clock.js';
 import { getDb } from '../db/index.js';
+import { toGraphDescriptor } from '@vspark/shared/signal';
 import type {
   GraphDescriptor,
+  GraphDescriptorDoc,
   GraphStateSnapshot,
 } from '@vspark/shared/signal';
 import type { LogicOwnerKind } from '@vspark/shared/types';
@@ -47,8 +49,6 @@ export interface LogicRow {
   updated_at: string;
 }
 
-export type ProjectLogicRow = LogicRow;
-
 interface RunningGraph {
   graph: SignalGraph;
   descriptor: GraphDescriptor;
@@ -59,62 +59,14 @@ interface RunningGraph {
 export class LogicManager {
   private readonly running = new Map<string, RunningGraph>();
 
-  // ── REST API entry points ─────────────────────────────────────────────────
+  // ── row access ────────────────────────────────────────────────────────────
 
-  /** List all graphs for a project. */
-  list(projectId: string): LogicRow[] {
-    return getDb()
-      .prepare(
-        "SELECT * FROM logic WHERE owner_kind = 'project' AND owner_id = ? ORDER BY created_at"
-      )
-      .all(projectId) as unknown as LogicRow[];
-  }
-
+  /** One row by id. The document itself lives in the mesh `logic` collection —
+   *  this is the running graph's own read of what it should be executing. */
   get(id: string): LogicRow | undefined {
     return getDb()
       .prepare('SELECT * FROM logic WHERE id = ?')
       .get(id) as unknown as LogicRow | undefined;
-  }
-
-  create(input: { id: string; projectId: string; name: string }): LogicRow {
-    const db = getDb();
-    db.prepare(
-      "INSERT INTO logic (id, owner_kind, owner_id, name) VALUES (?, 'project', ?, ?)"
-    ).run(input.id, input.projectId, input.name);
-    return this.get(input.id)!;
-  }
-
-  update(
-    id: string,
-    patch: { name?: string; enabled?: boolean; descriptor?: GraphDescriptor }
-  ): ProjectLogicRow | undefined {
-    const existing = this.get(id);
-    if (!existing) return undefined;
-    const db = getDb();
-    if (patch.name !== undefined) {
-      db.prepare(
-        "UPDATE logic SET name = ?, updated_at = datetime('now') WHERE id = ?"
-      ).run(patch.name, id);
-    }
-    if (patch.enabled !== undefined) {
-      db.prepare(
-        "UPDATE logic SET enabled = ?, updated_at = datetime('now') WHERE id = ?"
-      ).run(patch.enabled ? 1 : 0, id);
-    }
-    if (patch.descriptor !== undefined) {
-      validateDescriptor(patch.descriptor, existing.owner_kind);
-      db.prepare(
-        "UPDATE logic SET descriptor = ?, updated_at = datetime('now') WHERE id = ?"
-      ).run(JSON.stringify(patch.descriptor), id);
-    }
-    // Reconcile the running instance with the new state.
-    this.reconcile(id);
-    return this.get(id);
-  }
-
-  remove(id: string): void {
-    this.stop(id);
-    getDb().prepare('DELETE FROM logic WHERE id = ?').run(id);
   }
 
   // ── lifecycle ─────────────────────────────────────────────────────────────
@@ -151,7 +103,13 @@ export class LogicManager {
     const row = this.get(id);
     if (!row || row.enabled !== 1) return;
     try {
-      const descriptor = JSON.parse(row.descriptor) as GraphDescriptor;
+      // The row stores the DOCUMENT form (nodes/edges keyed by id, so each is
+      // its own mesh path); the engine wants lists. `toGraphDescriptor` also
+      // accepts the old list form, so a graph stored before the keying still
+      // runs — and is rewritten on its next save.
+      const descriptor = toGraphDescriptor(
+        JSON.parse(row.descriptor) as GraphDescriptorDoc
+      );
       validateDescriptor(descriptor, row.owner_kind);
 
       const nodeStates = parseNodeStateMap(row.node_state);
@@ -359,7 +317,15 @@ function parseNodeStateMap(raw: string): Map<string, unknown> {
  * nodeId config and its output type follows the scope), but not in
  * project-scoped graphs, which have no owner entity.
  */
-function validateDescriptor(d: GraphDescriptor, ownerKind: string): void {
+/** Reject a descriptor a logic graph cannot run.
+ *
+ *  Exported because the mesh `validate` hook applies it to every incoming
+ *  write, so a tab-authored graph is checked on the same terms as one PUT over
+ *  REST — the check has to live somewhere both paths reach. */
+export function validateDescriptor(
+  d: GraphDescriptor,
+  ownerKind: string
+): void {
   const sceneEntityAllowed =
     ownerKind === 'scene_node' || ownerKind === 'compose_layer';
   for (const n of d.nodes) {

@@ -6,6 +6,7 @@ import { ViewerPage } from './pages/ViewerPage';
 import { MediaInputPage } from './pages/MediaInputPage';
 import { DocsPage } from './pages/DocsPage';
 import { DialogProvider } from './components/DialogProvider';
+import { Toasts } from './components/Toasts';
 
 export default function App() {
   return (
@@ -23,6 +24,9 @@ export default function App() {
           <Route path="/docs" element={<DocsPage />} />
           <Route path="/docs/:topic" element={<DocsPage />} />
         </Routes>
+        {/* One stack for every route — a refused write can land on any of
+            them, and the notice must not be scoped to the editor. */}
+        <Toasts />
       </DialogProvider>
     </BrowserRouter>
   );

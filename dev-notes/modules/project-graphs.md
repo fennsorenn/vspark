@@ -25,7 +25,7 @@ Behavior graphs (one per `behaviors` row, hardcoded shape) are a separate concep
 | `owner_id` | TEXT | Project / scene-node / compose-layer id |
 | `name` | TEXT | |
 | `enabled` | INTEGER 0/1, default 1 | |
-| `descriptor` | TEXT (JSON `GraphDescriptor`), default `{"nodes":[],"edges":[]}` | |
+| `descriptor` | TEXT (JSON `GraphDescriptorDoc`), default `{"nodes":[],"edges":[]}` | Nodes and edges keyed by id — see [signal-graph.md](signal-graph.md). Rows written before the keying hold the list form and are converted on read. |
 | `node_state` | TEXT (JSON, keyed by node id), default `{}` | Per-node persisted state. Mirrors the `_nodeState` convention used by behavior managers, but lives on the row directly. |
 | `created_at` / `updated_at` | TEXT | |
 
@@ -36,24 +36,38 @@ A single generic router serves all three owner kinds.
 | Method + path | Purpose |
 |---|---|
 | `GET  /api/projects/:projectId/logic` | List project-scope logic. |
-| `POST /api/projects/:projectId/logic` | Create project-scope logic (body: `{ name }`). Routes through `logicManager.create` + `reconcile`. |
+| `POST /api/projects/:projectId/logic` | Create project-scope logic (body: `{ name, id? }`). Commits the doc; the tap persists + starts it. |
 | `GET  /api/projects/:projectId/scoped-logic` | List **all** scene-node- and compose-layer-scoped logic for the project in one query, each tagged with its owner's display name (`ownerName`) and kind (`ownerNodeKind`). Powers the Logic panel's "Scoped Logic" section. |
 | `GET  /api/scene-nodes/:nodeId/logic` | List scene-node-scope logic. |
 | `POST /api/scene-nodes/:nodeId/logic` | Create scene-node-scope logic; manager auto-injects `scene_entity` bound to the node. |
 | `GET  /api/compose-layers/:layerId/logic` | List compose-layer-scope logic. |
 | `POST /api/compose-layers/:layerId/logic` | Create compose-layer-scope logic; manager auto-injects `scene_entity` bound to the layer. |
-| `PUT  /api/logic/:id` | Patch `name` / `enabled` / `descriptor`. Goes through `logicManager.update` (validates + `reconcile`s). |
-| `DELETE /api/logic/:id` | `logicManager.remove` (stops runtime + deletes). |
+| `PUT  /api/logic/:id` | Patch `name` / `enabled` / `descriptor`. Commits the doc; the tap persists + reconciles. `400` on a descriptor the graph cannot run. |
+| `DELETE /api/logic/:id` | Removes the doc; the tap stops the runtime and deletes the row. |
 
 `mapLogicRow` returns the unified `LogicRecord` shape: `{ id, ownerKind, ownerId, name, enabled, descriptor, createdAt, updatedAt }`.
+
+Every `POST` accepts an optional client-supplied `id`, and every mutation writes
+through the `logic` mesh collection rather than straight to SQLite — the routes
+stay available to outside services, but the mesh is the single write path (see
+[mesh.md](mesh.md), principle 5). The id matters for the editor: a server-minted
+one would make the create server-authored, which puts it on nobody's undo stack.
+A route answers `500 store not ready` when the mesh is not up (tests that boot
+the app without it); persisting behind the replica's back would leave every
+connected tab stale, which is the bug the write-through exists to prevent.
+
+`LogicManager` no longer has `create` / `update` / `remove` / `list`: with the
+routes writing through the collection, those had no callers. Descriptor
+validation moved out of `update` into the collection `guard` below, which is
+why it is exported.
 
 ## Backend lifecycle — `logic/manager.ts`
 
 `LogicManager` (singleton `logicManager`, mounted via `routes/shared.ts`) owns the runtime instances for all three scopes.
 
 - **`startAllEnabled()`** — called at server boot. Hydrates and starts every `enabled = 1` row across all owner kinds.
-- **`reconcile(id)`** — called on every create/update. If `enabled` it stops then re-starts the instance (picks up descriptor + node_state changes); if disabled, stops only.
-- **Descriptor validation** — `validateDescriptor()` always rejects the behavior-context kinds `{ behavior_config, behavior_id }` (no behavior to read from). `scene_entity` is allowed in **scene-node- and compose-layer-scoped** logic and rejected only in **project**-scoped logic (no owner entity). Thrown errors surface as `400` from the PUT handler. For the allowed scopes the user authors a `scene_entity` node directly; the manager feeds its `config.nodeId` = `owner_id` at start time, and the node's **output type follows the scope** — `SceneNode` for scene-node-scoped, `ComposeLayer` for compose-layer-scoped — via `inferSceneEntity` (the scope reaches inference through `SignalGraph.fromDescriptor(..., ownerKind)` → `InferGraph` → `InferCtx.ownerKind`).
+- **`reconcile(id)`** — called from the mesh `onCommitted` tap (`logic/lifecycle.ts`) on every committed write, whoever authored it. If `enabled` it stops then re-starts the instance (picks up descriptor + node_state changes); if disabled, stops only.
+- **Descriptor validation** — `validateDescriptor()` (exported; run from the `logic` binding's `guard` in `mesh/index.ts`, so a tab-authored descriptor is checked on the same terms as one PUT over REST — a throw nacks the write and rolls the author back) always rejects the behavior-context kinds `{ behavior_config, behavior_id }` (no behavior to read from). `scene_entity` is allowed in **scene-node- and compose-layer-scoped** logic and rejected only in **project**-scoped logic (no owner entity). Thrown errors surface as `400` from the PUT handler. For the allowed scopes the user authors a `scene_entity` node directly; the manager feeds its `config.nodeId` = `owner_id` at start time, and the node's **output type follows the scope** — `SceneNode` for scene-node-scoped, `ComposeLayer` for compose-layer-scoped — via `inferSceneEntity` (the scope reaches inference through `SignalGraph.fromDescriptor(..., ownerKind)` → `InferGraph` → `InferCtx.ownerKind`).
 - **State persistence** — a `setState(nodeId, state)` from a node declaring `static persistState` writes the JSON map back to the row's `node_state` column; every other node's state stays in the graph's scratch map and never touches the row (see [signal-graph.md](signal-graph.md) → *Scratch vs durable state*).
 - **Clock self-tick** — for each `clock` node in the descriptor, the manager calls `Clock.attach(...)` and stashes the cleanup; defaults to 30Hz or `defaultConfig.hz`.
 
@@ -75,15 +89,30 @@ for (const { graphId, node, projectId } of logicManager.iterateNodes()) { ... }
 
 ### `components/editor/LogicSection.tsx` (renamed from `GraphsSection.tsx`)
 
-Inline expandable list of logic attached to a single scene node ("object") or compose layer. Polls `api.getNodeLogic(ownerId)` / `api.getLayerLogic(ownerId)` every 3s, supports add / rename / toggle / delete via right-click `ContextMenu`. Selecting a logic sets `activeLogicId` in the store.
+Inline expandable list of logic attached to a single scene node ("object") or compose layer. Reads the store's `logic` slice, fed from the mesh replica (see [mesh.md](mesh.md)); supports add / rename / toggle / delete via right-click `ContextMenu`, each authored on the tab peer through `mesh/logicWrites.ts` and so undoable. Selecting a logic sets `activeLogicId` in the store.
 
 `setActiveLogic(id)` (store) does double duty: when `id != null` it also flips `leftTab` to `'graphs'` (the tab-id string is unchanged; the tab's UI label is "Logic"), so opening any logic — including a scoped one from the scene/compose trees — switches the main view to the writable `SignalGraphCanvas` (the substrate editor). Clearing the active logic (`null`) leaves the current tab alone. This is the mechanism behind "the main view is bound to the active tab" (see [frontend.md](frontend.md)).
 
-The Logic panel (`LogicListPanel` in `SceneGraph.tsx`) lists three groups: **Global Logic** (project scope), **Scoped Logic** (scene-node + compose-layer owned, via `GET /api/projects/:id/scoped-logic`, each row labelled with its owner name + scope), and **Behavior Logic** (read-only). The Scoped Logic section exists so the active scoped logic shows as selected and can be switched without leaving the Logic tab — the inline per-owner lists in the scene/compose trees remain the place to create them.
+The Logic panel (`LogicListPanel` in `SceneGraph.tsx`) lists three groups: **Global Logic** (project scope), **Scoped Logic** (scene-node + compose-layer owned, each row labelled with its owner name + scope), and **Behavior Logic** (read-only). All three come from the store rather than the 3-second REST poll they used to. The scoped rows are the one hybrid: the documents come from the mesh, but the owner NAME is a join the store cannot do (the panel is project-wide, while only the open scene's nodes are loaded), so `GET /api/projects/:id/scoped-logic` is still fetched for the names — re-fetched when the mesh reports an owned graph whose name is unknown, not on a timer. Behavior Logic is runtime state (`GET /api/signal/graphs`, built by the behavior managers), so it is re-fetched when a behavior or graph document changes. The Scoped Logic section exists so the active scoped logic shows as selected and can be switched without leaving the Logic tab — the inline per-owner lists in the scene/compose trees remain the place to create them.
 
 ### `SignalGraphCanvas` — writable
 
-The canvas (the signal-graph substrate editor, name kept) is writable for all logic: node add / move / connect / disconnect / edit dispatches a `PUT /api/logic/:id` with the updated descriptor, and the manager's `reconcile()` rehydrates the running instance. The 500ms state poll preserves React Flow selection across reloads (see `4a72b34`); noodles are independently selectable + deletable (`61af21c`).
+The canvas (the signal-graph substrate editor, name kept) is writable for all logic, and it reads the graph FROM THE STORE — the mesh feeder keeps it current, so another tab's edit appears without a refetch. Every edit commits the ELEMENT it changes through `mesh/logicWrites.ts`:
+
+| Edit | Path written |
+|---|---|
+| move a node (on release) | `descriptor.nodes.<nodeId>` |
+| drag a node (in flight) | same path, `preview` channel — no persistence, no undo entry |
+| edit an inline literal | `descriptor.nodes.<nodeId>.defaultConfig.<port>` |
+| connect / disconnect | `descriptor.edges.<fromId:fromPort:toId:toPort>` |
+| delete a node | its path, plus every edge touching it, in one batch |
+| paste | one batch of node + edge writes |
+
+So two people can work on one graph at once: moving a node and wiring an edge elsewhere no longer collide, and each settled edit is one undo step. The backend's `onCommitted` tap reconciles the running instance on every write.
+
+There is no local descriptor copy and no debounced PUT any more — that shape is what made concurrent edits overwrite each other, and it needed a flush-on-unmount so the last edit was not lost. Behavior-owned graphs are not documents (their descriptors are built by the managers), so those are still fetched, and read-only.
+
+The 500ms state poll preserves React Flow selection across reloads (see `4a72b34`); noodles are independently selectable + deletable (`61af21c`).
 
 ### `api/client.ts` — unified `LogicRecord`
 

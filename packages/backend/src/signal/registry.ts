@@ -17,6 +17,7 @@ import { IFacialMocapPacketSource } from './nodes/ifacialmocap_packet_source.js'
 import { RhyliveBoneMapper } from './nodes/rhylive_bone_mapper.js';
 import { ArkitVrmMapper } from './nodes/arkit_vrm_mapper.js';
 import { BodyCalibration } from './nodes/body_calibration.js';
+import { EyeRangeMap } from './nodes/eye_range_map.js';
 import { PoseManualCalibration } from './nodes/pose_manual_calibration.js';
 import { PoseStyleDrivers } from './nodes/pose_style_drivers.js';
 import { PoseStylize } from './nodes/pose_stylize.js';
@@ -142,6 +143,7 @@ const ALL_NODE_CLASSES: SignalNodeClass[] = [
   RhyliveBoneMapper,
   ArkitVrmMapper,
   BodyCalibration,
+  EyeRangeMap,
   PoseManualCalibration,
   PoseStyleDrivers,
   PoseStylize,

@@ -22,7 +22,8 @@ import { vi, beforeEach, afterEach, describe, it, expect } from 'vitest';
 vi.mock('@vspark/shared/sync', () => ({
   SYNC_MESSAGE_KIND: '__sync__',
   compareHLC: () => 0,
-  makeClientParticipantId: (peerId: string, tabId: string) => `${peerId}#${tabId}`,
+  makeClientParticipantId: (peerId: string, tabId: string) =>
+    `${peerId}#${tabId}`,
   isClientParticipant: (id: string) => id.includes('#'),
 }));
 
@@ -57,6 +58,9 @@ vi.mock('../src/sync/shareDirect', () => ({
 }));
 
 // clientMesh pulls in @vspark/shared/sync transitively.
+// useClientMesh shares the mesh peer's tab id (mesh/peer meshTabUuid).
+vi.mock('../src/mesh/peer', () => ({ meshTabUuid: () => 'tab-uuid' }));
+
 vi.mock('../src/mesh/clientMesh', () => ({
   clientMesh: {
     configure: vi.fn(),
@@ -99,7 +103,12 @@ vi.mock('../src/api/client', () => ({
   mapTrackClipLane: (p: unknown) => p,
   mapTrackClipKeyframe: (p: unknown) => p,
   mapTrackClipEvent: (p: unknown) => p,
-  getScenes: vi.fn().mockResolvedValue({ scenes: [], nodes: [], behaviors: [], cameraEffects: [] }),
+  getScenes: vi.fn().mockResolvedValue({
+    scenes: [],
+    nodes: [],
+    behaviors: [],
+    cameraEffects: [],
+  }),
   getCollabScenes: vi.fn().mockResolvedValue([]),
   peerSubscribe: vi.fn().mockResolvedValue(undefined),
   getConnectionIdentity: vi.fn().mockResolvedValue({ peerId: 'server-peer-1' }),
@@ -293,12 +302,19 @@ describe('useLipsyncUplink', () => {
   it('sends lipsync_input when mic is active and ws is open (throttle bypassed)', () => {
     // Control performance.now so the throttle gate is always passed.
     let mockNow = 0;
-    vi.stubGlobal('performance', { now: () => { mockNow += 100; return mockNow; } });
+    vi.stubGlobal('performance', {
+      now: () => {
+        mockNow += 100;
+        return mockNow;
+      },
+    });
 
     const sent: string[] = [];
     const fakeWs = {
       readyState: WebSocket.OPEN,
-      send: (data: string) => { sent.push(data); },
+      send: (data: string) => {
+        sent.push(data);
+      },
     } as unknown as WebSocket;
     const wsRef = { current: fakeWs };
 
@@ -318,7 +334,9 @@ describe('useLipsyncUplink', () => {
       )
     );
 
-    act(() => { flushRaf(); });
+    act(() => {
+      flushRaf();
+    });
 
     expect(sent.length).toBeGreaterThan(0);
     const msg = JSON.parse(sent[0]);
@@ -331,12 +349,19 @@ describe('useLipsyncUplink', () => {
 
   it('does not send when mic is inactive', () => {
     let mockNow = 0;
-    vi.stubGlobal('performance', { now: () => { mockNow += 100; return mockNow; } });
+    vi.stubGlobal('performance', {
+      now: () => {
+        mockNow += 100;
+        return mockNow;
+      },
+    });
 
     const sent: string[] = [];
     const fakeWs = {
       readyState: WebSocket.OPEN,
-      send: (data: string) => { sent.push(data); },
+      send: (data: string) => {
+        sent.push(data);
+      },
     } as unknown as WebSocket;
     const wsRef = { current: fakeWs };
 
@@ -355,7 +380,9 @@ describe('useLipsyncUplink', () => {
       )
     );
 
-    act(() => { flushRaf(); });
+    act(() => {
+      flushRaf();
+    });
 
     expect(sent.length).toBe(0);
     unmount();
@@ -363,12 +390,19 @@ describe('useLipsyncUplink', () => {
 
   it('does not send when ws is not open', () => {
     let mockNow = 0;
-    vi.stubGlobal('performance', { now: () => { mockNow += 100; return mockNow; } });
+    vi.stubGlobal('performance', {
+      now: () => {
+        mockNow += 100;
+        return mockNow;
+      },
+    });
 
     const sent: string[] = [];
     const fakeWs = {
       readyState: WebSocket.CONNECTING,
-      send: (data: string) => { sent.push(data); },
+      send: (data: string) => {
+        sent.push(data);
+      },
     } as unknown as WebSocket;
     const wsRef = { current: fakeWs };
 
@@ -387,7 +421,9 @@ describe('useLipsyncUplink', () => {
       )
     );
 
-    act(() => { flushRaf(); });
+    act(() => {
+      flushRaf();
+    });
 
     expect(sent.length).toBe(0);
     unmount();
@@ -440,14 +476,19 @@ describe('useTrackingUplink', () => {
 
   it('does not wire callback when camera is null', () => {
     const ws = {} as WebSocket;
-    const { unmount } = renderHook(() => useTrackingUplink(ws, 'beh-1', null, true));
+    const { unmount } = renderHook(() =>
+      useTrackingUplink(ws, 'beh-1', null, true)
+    );
     // No throw — passes by not crashing.
     unmount();
   });
 
   it('wires camera.onResult when active, ws, behaviorId, and camera are set', () => {
     const camera: FakeCameraCapture = { onResult: null };
-    const ws = { readyState: WebSocket.OPEN, send: vi.fn() } as unknown as WebSocket;
+    const ws = {
+      readyState: WebSocket.OPEN,
+      send: vi.fn(),
+    } as unknown as WebSocket;
 
     const { unmount } = renderHook(() =>
       useTrackingUplink(ws, 'beh-tracking', camera as unknown as null, true)
@@ -459,7 +500,10 @@ describe('useTrackingUplink', () => {
 
   it('clears camera.onResult on unmount', () => {
     const camera: FakeCameraCapture = { onResult: null };
-    const ws = { readyState: WebSocket.OPEN, send: vi.fn() } as unknown as WebSocket;
+    const ws = {
+      readyState: WebSocket.OPEN,
+      send: vi.fn(),
+    } as unknown as WebSocket;
 
     const { unmount } = renderHook(() =>
       useTrackingUplink(ws, 'beh-tracking', camera as unknown as null, true)
@@ -474,7 +518,9 @@ describe('useTrackingUplink', () => {
     const sent: string[] = [];
     const ws = {
       readyState: WebSocket.OPEN,
-      send: (data: string) => { sent.push(data); },
+      send: (data: string) => {
+        sent.push(data);
+      },
     } as unknown as WebSocket;
     const camera: FakeCameraCapture = { onResult: null };
 
@@ -499,7 +545,9 @@ describe('useTrackingUplink', () => {
     const sent: string[] = [];
     const ws = {
       readyState: WebSocket.CONNECTING,
-      send: (data: string) => { sent.push(data); },
+      send: (data: string) => {
+        sent.push(data);
+      },
     } as unknown as WebSocket;
     const camera: FakeCameraCapture = { onResult: null };
 
@@ -517,8 +565,14 @@ describe('useTrackingUplink', () => {
 
   it('re-wires camera.onResult when ws changes', () => {
     const camera: FakeCameraCapture = { onResult: null };
-    const ws1 = { readyState: WebSocket.OPEN, send: vi.fn() } as unknown as WebSocket;
-    const ws2 = { readyState: WebSocket.OPEN, send: vi.fn() } as unknown as WebSocket;
+    const ws1 = {
+      readyState: WebSocket.OPEN,
+      send: vi.fn(),
+    } as unknown as WebSocket;
+    const ws2 = {
+      readyState: WebSocket.OPEN,
+      send: vi.fn(),
+    } as unknown as WebSocket;
     let ws: WebSocket = ws1;
 
     const { rerender, unmount } = renderHook(() =>
@@ -544,6 +598,9 @@ describe('useTrackingUplink', () => {
 import { useSharedSubscriptions } from '../src/hooks/useSharedSubscriptions';
 import { peerSubscribe } from '../src/api/client';
 
+const meshWrapper = ({ children }: { children: React.ReactNode }) =>
+  createElement(MeshProvider, { peer: testPeer() }, children);
+
 describe('useSharedSubscriptions', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -554,66 +611,92 @@ describe('useSharedSubscriptions', () => {
   });
 
   it('mounts and unmounts without throwing when no nodes', () => {
-    const { unmount } = renderHook(() => useSharedSubscriptions());
+    const { unmount } = renderHook(() => useSharedSubscriptions(), {
+      wrapper: meshWrapper,
+    });
     unmount();
   });
 
   it('does not call peerSubscribe when no remote_object nodes', () => {
     act(() => {
-      useEditorStore.getState().addNode({
-        id: 'plain-node',
-        rootSceneNodeId: 'scene-1',
+      seedEditor({
         projectId: 'proj-1',
-        parentId: null,
-        name: 'VRM',
-        kind: 'vrm',
-        components: {},
+        nodes: [
+          {
+            id: 'plain-node',
+            rootSceneNodeId: 'scene-1',
+            projectId: 'proj-1',
+            parentId: null,
+            name: 'VRM',
+            kind: 'vrm',
+            components: {},
+          },
+        ],
       });
     });
 
-    const { unmount } = renderHook(() => useSharedSubscriptions());
+    const { unmount } = renderHook(() => useSharedSubscriptions(), {
+      wrapper: meshWrapper,
+    });
     expect(peerSubscribe).not.toHaveBeenCalled();
     unmount();
   });
 
   it('does not subscribe when owner is not connected', () => {
     act(() => {
-      useEditorStore.getState().addNode({
-        id: 'remote-1',
-        rootSceneNodeId: 'scene-1',
+      seedEditor({
         projectId: 'proj-1',
-        parentId: null,
-        name: 'Remote',
-        kind: 'remote_object',
-        components: {
-          remoteRef: { ownerPeerId: 'peer-x', remoteObjectId: 'obj-y' },
-        },
+        nodes: [
+          {
+            id: 'remote-1',
+            rootSceneNodeId: 'scene-1',
+            projectId: 'proj-1',
+            parentId: null,
+            name: 'Remote',
+            kind: 'remote_object',
+            components: {
+              remoteRef: { ownerPeerId: 'peer-x', remoteObjectId: 'obj-y' },
+            },
+          },
+        ],
       });
     });
     // connectedIds is empty — peer-x is not connected.
 
-    const { unmount } = renderHook(() => useSharedSubscriptions());
+    const { unmount } = renderHook(() => useSharedSubscriptions(), {
+      wrapper: meshWrapper,
+    });
     expect(peerSubscribe).not.toHaveBeenCalled();
     unmount();
   });
 
   it('subscribes when remote_object owner is connected and not yet subscribed', async () => {
     act(() => {
-      useEditorStore.getState().addNode({
-        id: 'remote-2',
-        rootSceneNodeId: 'scene-1',
+      seedEditor({
         projectId: 'proj-1',
-        parentId: null,
-        name: 'Remote',
-        kind: 'remote_object',
-        components: {
-          remoteRef: { ownerPeerId: 'peer-connected', remoteObjectId: 'obj-abc' },
-        },
+        nodes: [
+          {
+            id: 'remote-2',
+            rootSceneNodeId: 'scene-1',
+            projectId: 'proj-1',
+            parentId: null,
+            name: 'Remote',
+            kind: 'remote_object',
+            components: {
+              remoteRef: {
+                ownerPeerId: 'peer-connected',
+                remoteObjectId: 'obj-abc',
+              },
+            },
+          },
+        ],
       });
       useConnectionsStore.setState({ connectedIds: ['peer-connected'] });
     });
 
-    const { unmount } = renderHook(() => useSharedSubscriptions());
+    const { unmount } = renderHook(() => useSharedSubscriptions(), {
+      wrapper: meshWrapper,
+    });
 
     // peerSubscribe is async (void promise), give it a tick.
     await act(async () => {
@@ -630,16 +713,24 @@ describe('useSharedSubscriptions', () => {
 
   it('does not subscribe again when already subscribed', async () => {
     act(() => {
-      useEditorStore.getState().addNode({
-        id: 'remote-3',
-        rootSceneNodeId: 'scene-1',
+      seedEditor({
         projectId: 'proj-1',
-        parentId: null,
-        name: 'Remote',
-        kind: 'remote_object',
-        components: {
-          remoteRef: { ownerPeerId: 'peer-sub', remoteObjectId: 'obj-already' },
-        },
+        nodes: [
+          {
+            id: 'remote-3',
+            rootSceneNodeId: 'scene-1',
+            projectId: 'proj-1',
+            parentId: null,
+            name: 'Remote',
+            kind: 'remote_object',
+            components: {
+              remoteRef: {
+                ownerPeerId: 'peer-sub',
+                remoteObjectId: 'obj-already',
+              },
+            },
+          },
+        ],
       });
       useConnectionsStore.setState({
         connectedIds: ['peer-sub'],
@@ -647,7 +738,9 @@ describe('useSharedSubscriptions', () => {
       });
     });
 
-    const { unmount } = renderHook(() => useSharedSubscriptions());
+    const { unmount } = renderHook(() => useSharedSubscriptions(), {
+      wrapper: meshWrapper,
+    });
 
     await act(async () => {
       await Promise.resolve();
@@ -659,21 +752,28 @@ describe('useSharedSubscriptions', () => {
 
   it('skips nodes without remoteRef ownerPeerId', () => {
     act(() => {
-      useEditorStore.getState().addNode({
-        id: 'remote-4',
-        rootSceneNodeId: 'scene-1',
+      seedEditor({
         projectId: 'proj-1',
-        parentId: null,
-        name: 'Orphan',
-        kind: 'remote_object',
-        components: {
-          remoteRef: { remoteObjectId: 'obj-z' }, // no ownerPeerId
-        },
+        nodes: [
+          {
+            id: 'remote-4',
+            rootSceneNodeId: 'scene-1',
+            projectId: 'proj-1',
+            parentId: null,
+            name: 'Orphan',
+            kind: 'remote_object',
+            components: {
+              remoteRef: { remoteObjectId: 'obj-z' }, // no ownerPeerId
+            },
+          },
+        ],
       });
       useConnectionsStore.setState({ connectedIds: ['anyone'] });
     });
 
-    const { unmount } = renderHook(() => useSharedSubscriptions());
+    const { unmount } = renderHook(() => useSharedSubscriptions(), {
+      wrapper: meshWrapper,
+    });
     expect(peerSubscribe).not.toHaveBeenCalled();
     unmount();
   });
@@ -686,30 +786,42 @@ describe('useSharedSubscriptions', () => {
 import { useClientMesh } from '../src/hooks/useClientMesh';
 import { clientMesh } from '../src/mesh/clientMesh';
 import { getConnectionIdentity } from '../src/api/client';
+import { createElement } from 'react';
+import type React from 'react';
+import { MeshProvider } from '@vspark/mesh-react';
+import { seedEditor, testPeer } from './helpers/mesh';
 
 describe('useClientMesh', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     // Restore default mock for getConnectionIdentity.
-    vi.mocked(getConnectionIdentity).mockResolvedValue({ peerId: 'server-peer-1' });
+    vi.mocked(getConnectionIdentity).mockResolvedValue({
+      peerId: 'server-peer-1',
+    });
   });
 
   it('mounts and unmounts without throwing', async () => {
     const { unmount } = renderHook(() => useClientMesh());
-    await act(async () => { await Promise.resolve(); });
+    await act(async () => {
+      await Promise.resolve();
+    });
     unmount();
   });
 
   it('calls getConnectionIdentity on mount', async () => {
     const { unmount } = renderHook(() => useClientMesh());
-    await act(async () => { await Promise.resolve(); });
+    await act(async () => {
+      await Promise.resolve();
+    });
     expect(getConnectionIdentity).toHaveBeenCalled();
     unmount();
   });
 
   it('calls clientMesh.configure after identity resolves', async () => {
     const { unmount } = renderHook(() => useClientMesh());
-    await act(async () => { await Promise.resolve(); });
+    await act(async () => {
+      await Promise.resolve();
+    });
     expect(clientMesh.configure).toHaveBeenCalledWith(
       expect.objectContaining({
         selfId: expect.stringContaining('server-peer-1'),
@@ -723,14 +835,18 @@ describe('useClientMesh', () => {
 
   it('calls clientMesh.sendHello after configure', async () => {
     const { unmount } = renderHook(() => useClientMesh());
-    await act(async () => { await Promise.resolve(); });
+    await act(async () => {
+      await Promise.resolve();
+    });
     expect(clientMesh.sendHello).toHaveBeenCalled();
     unmount();
   });
 
   it('calls clientMesh.reset on unmount', async () => {
     const { unmount } = renderHook(() => useClientMesh());
-    await act(async () => { await Promise.resolve(); });
+    await act(async () => {
+      await Promise.resolve();
+    });
     unmount();
     expect(clientMesh.reset).toHaveBeenCalled();
   });
@@ -741,18 +857,24 @@ describe('useClientMesh', () => {
     );
 
     const { unmount } = renderHook(() => useClientMesh());
-    await act(async () => { await Promise.resolve(); });
+    await act(async () => {
+      await Promise.resolve();
+    });
     expect(clientMesh.configure).not.toHaveBeenCalled();
     unmount();
   });
 
   it('handles getConnectionIdentity rejection gracefully', async () => {
-    vi.mocked(getConnectionIdentity).mockRejectedValueOnce(new Error('offline'));
+    vi.mocked(getConnectionIdentity).mockRejectedValueOnce(
+      new Error('offline')
+    );
 
     let error: Error | null = null;
     try {
       const { unmount } = renderHook(() => useClientMesh());
-      await act(async () => { await Promise.resolve(); });
+      await act(async () => {
+        await Promise.resolve();
+      });
       unmount();
     } catch (e) {
       error = e as Error;
@@ -764,7 +886,9 @@ describe('useClientMesh', () => {
 
   it('onChange calls setMeshConnected with current peer ids', async () => {
     const { unmount } = renderHook(() => useClientMesh());
-    await act(async () => { await Promise.resolve(); });
+    await act(async () => {
+      await Promise.resolve();
+    });
 
     // Extract onChange from the configure call.
     const configureCall = vi.mocked(clientMesh.configure).mock.calls[0][0];
@@ -774,7 +898,10 @@ describe('useClientMesh', () => {
       configureCall.onChange(['peer-a', 'peer-b']);
     });
 
-    expect(useConnectionsStore.getState().meshConnected).toEqual(['peer-a', 'peer-b']);
+    expect(useConnectionsStore.getState().meshConnected).toEqual([
+      'peer-a',
+      'peer-b',
+    ]);
     unmount();
   });
 
@@ -782,15 +909,21 @@ describe('useClientMesh', () => {
     // Make getConnectionIdentity not resolve immediately.
     let resolveIdentity!: (v: { peerId: string }) => void;
     vi.mocked(getConnectionIdentity).mockReturnValueOnce(
-      new Promise((r) => { resolveIdentity = r; })
+      new Promise((r) => {
+        resolveIdentity = r;
+      })
     );
 
     const { unmount } = renderHook(() => useClientMesh());
     // Unmount before the promise resolves.
     unmount();
     // Now resolve the identity.
-    act(() => { resolveIdentity({ peerId: 'late-peer' }); });
-    await act(async () => { await Promise.resolve(); });
+    act(() => {
+      resolveIdentity({ peerId: 'late-peer' });
+    });
+    await act(async () => {
+      await Promise.resolve();
+    });
 
     expect(clientMesh.configure).not.toHaveBeenCalled();
   });

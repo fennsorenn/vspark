@@ -167,3 +167,159 @@ describe('BroadcastBus tick isolation', () => {
     expect(wsStub.sent.some((m) => m.kind === 'vmc_blendshapes')).toBe(true);
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Tracking Mix — per-source weights and order on the bus composition
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('BroadcastBus Tracking Mix', () => {
+  const axisAngle = (ax: [number, number, number], deg: number) => {
+    const h = (deg * Math.PI) / 360;
+    return new Quaternion(
+      ax[0] * Math.sin(h),
+      ax[1] * Math.sin(h),
+      ax[2] * Math.sin(h),
+      Math.cos(h)
+    );
+  };
+  const yaw = (deg: number) => axisAngle([0, 1, 0], deg);
+  const pitch = (deg: number) => axisAngle([1, 0, 0], deg);
+  const angleOf = (q: { w: number }) =>
+    (2 * Math.acos(Math.min(1, Math.abs(q.w))) * 180) / Math.PI;
+  const lastPose = () => {
+    const rec = [...wsStub.sent].reverse().find((m) => m.kind === 'vmc_pose')!
+      .payload.bones as Record<string, [number, number, number, number]>;
+    return Object.fromEntries(
+      Object.entries(rec).map(([b, [x, y, z, w]]) => [b, { x, y, z, w }])
+    ) as Record<string, { x: number; y: number; z: number; w: number }>;
+  };
+  const lastShapes = () =>
+    [...wsStub.sent].reverse().find((m) => m.kind === 'vmc_blendshapes')!
+      .payload.blendshapes as Record<string, number>;
+  const pub = (id: string, q: Quaternion, priority = 0) =>
+    bus.publishBones(
+      NODE,
+      id,
+      new NormalizedPose([['head', q]]),
+      priority,
+      'override'
+    );
+
+  it('without a mix stacks every source at full weight (legacy)', () => {
+    pub('a', yaw(20));
+    pub('b', yaw(10));
+    tick();
+    expect(angleOf(lastPose().head)).toBeCloseTo(30, 3);
+  });
+
+  it('scales each source by its bone weight', () => {
+    bus.setTrackingMixReader(() => ({
+      sources: { a: { bones: { head: 0.5 } }, b: { bones: { head: 0.5 } } },
+    }));
+    pub('a', yaw(20));
+    pub('b', yaw(40));
+    tick();
+    // Weights summing to 1 on a shared axis = an exact blend: 10° + 20°.
+    expect(angleOf(lastPose().head)).toBeCloseTo(30, 3);
+  });
+
+  it('allows weights above 1 to amplify', () => {
+    bus.setTrackingMixReader(() => ({
+      sources: { a: { bones: { head: 2 } } },
+    }));
+    pub('a', yaw(15));
+    tick();
+    expect(angleOf(lastPose().head)).toBeCloseTo(30, 3);
+  });
+
+  it('omits a bone whose every source has weight 0', () => {
+    bus.setTrackingMixReader(() => ({
+      sources: { a: { bones: { head: 0 } } },
+    }));
+    bus.publishBones(
+      NODE,
+      'a',
+      new NormalizedPose([
+        ['head', yaw(20)],
+        ['neck', yaw(5)],
+      ]),
+      0,
+      'override'
+    );
+    tick();
+    expect(lastPose().head).toBeUndefined();
+    expect(lastPose().neck).toBeDefined();
+  });
+
+  it('applies sources in mix order, overriding priority', () => {
+    // Non-commuting rotations: the product depends on order.
+    const compose = (order: string[]) => {
+      bus.setTrackingMixReader(() => ({ order }));
+      pub('a', yaw(90), 5);
+      pub('b', pitch(90), 0);
+      tick();
+      return lastPose().head;
+    };
+    const ab = compose(['a', 'b']);
+    const ba = compose(['b', 'a']);
+    // Later-applied source multiplies on the left: order [a, b] → b·a.
+    const expectAB = pitch(90).multiply(yaw(90));
+    expect(ab.x).toBeCloseTo(expectAB.x, 5);
+    expect(ab.w).toBeCloseTo(expectAB.w, 5);
+    expect(Math.abs(ab.x - ba.x) + Math.abs(ab.z - ba.z)).toBeGreaterThan(0.1);
+  });
+
+  it('weights blendshapes per source', () => {
+    bus.setTrackingMixReader(() => ({
+      sources: {
+        a: { blendshapes: { aa: 0.5 } },
+        b: { blendshapes: { aa: 0 } },
+      },
+    }));
+    bus.publishBlendshapes(
+      NODE,
+      'a',
+      Blendshapes.fromRecord({ aa: 0.8, blink: 0.4 })
+    );
+    bus.publishBlendshapes(NODE, 'b', Blendshapes.fromRecord({ aa: 1 }));
+    tick();
+    expect(lastShapes().aa).toBeCloseTo(0.4, 6);
+    expect(lastShapes().blink).toBeCloseTo(0.4, 6);
+  });
+
+  it('omits a blendshape whose only source has weight 0', () => {
+    bus.setTrackingMixReader(() => ({
+      sources: { a: { blendshapes: { aa: 0 } } },
+    }));
+    bus.publishBlendshapes(
+      NODE,
+      'a',
+      Blendshapes.fromRecord({ aa: 0.8, oh: 0.2 })
+    );
+    tick();
+    expect(lastShapes().aa).toBeUndefined();
+    expect(lastShapes().oh).toBeCloseTo(0.2, 6);
+  });
+
+  it('keeps ticking with weight 1 when the reader throws', () => {
+    bus.setTrackingMixReader(() => {
+      throw new Error('boom');
+    });
+    pub('a', yaw(20));
+    tick();
+    expect(angleOf(lastPose().head)).toBeCloseTo(20, 3);
+  });
+
+  it('reads the mix live each tick', () => {
+    let w = 1;
+    bus.setTrackingMixReader(() => ({
+      sources: { a: { bones: { head: w } } },
+    }));
+    pub('a', yaw(20));
+    tick();
+    expect(angleOf(lastPose().head)).toBeCloseTo(20, 3);
+    w = 0.5;
+    tick();
+    expect(angleOf(lastPose().head)).toBeCloseTo(10, 3);
+  });
+});

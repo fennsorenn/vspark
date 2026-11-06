@@ -6,6 +6,8 @@ import {
   useContext,
   useCallback,
 } from 'react';
+import { NodeActive, useNodeActive } from './nodeActive';
+import { FrameBudget } from '../frameBudget';
 import { useTranslation } from 'react-i18next';
 import {
   Move,
@@ -75,7 +77,13 @@ import type {
   ScheduledAnimation,
   AnimationClipMeta,
 } from '../../store/editorStore';
-import { editorWsRef, sendNodeTransformPreview } from '../../hooks/useWsSync';
+import { editorWsRef } from '../../hooks/useWsSync';
+import {
+  commitNodePatch,
+  commitNodePath,
+  previewNodeTransform,
+} from '../../mesh/writes';
+import { mergedTransform } from './transformMerge';
 import { useSceneFadeIn } from '../../hooks/useSceneFadeIn';
 
 import type { AnimEntry } from '../../animRegistry';
@@ -111,11 +119,8 @@ import {
 } from '../../calibration';
 import type { VmcCalibration } from '../../calibration';
 import { VRM_BONE_NAMES } from '@vspark/shared/signal';
-import type {
-  PoseSection,
-  PoseSectionInfluence,
-  PoseSource,
-} from '@vspark/shared';
+import type { TrackingMix } from '@vspark/shared';
+import { ANIMATION_SOURCE, boneWeight } from '@vspark/shared/trackingMix';
 import { registerMedia } from './mediaRegistry';
 import {
   stackBoneRotation,
@@ -135,7 +140,6 @@ import {
   readChroma,
   type VideoBlend3D,
 } from './videoFx';
-import { api } from '../../api/client';
 import { BoneFilterBank } from '../../oneEuroFilter';
 import {
   BoneDynamicsBank,
@@ -148,6 +152,19 @@ import {
 } from '../../particleUtils';
 import type { ParticlePool } from '../../particleUtils';
 import { resolveParticleTextureUrl } from '../../particleTextures';
+import {
+  useAnimationClips,
+  useCameraEffects,
+  useNodeBehaviors,
+  useNodeSchedule,
+} from '../../mesh/hooks';
+import { collectionOf } from '../../mesh/docs';
+import {
+  sceneNodesNow,
+  useLiveTransform,
+  useSceneNodes,
+} from '../../mesh/nodes';
+import { useDataFields, useRuntimeOverrides } from '../../mesh/runtime';
 
 type GizmoMode = 'translate' | 'rotate' | 'scale';
 
@@ -552,65 +569,14 @@ const FBX_BONE_TO_VRM: Record<string, VRMHumanBoneName> = {
 // Hips bone names across all supported rigs (used for root position track).
 const HIPS_BONE_NAMES = new Set(['mixamorigHips', 'pelvis']);
 
-// ── Partial tracking: map every VRM humanoid bone to a body section so each
-//    section can independently blend animation vs. live tracking. ────────────
-const POSE_SECTION_BONES: Record<PoseSection, string[]> = {
-  body: ['spine', 'chest', 'upperChest'],
-  head: ['neck', 'head', 'jaw'],
-  gaze: ['leftEye', 'rightEye'],
-  arms: [
-    'leftShoulder',
-    'leftUpperArm',
-    'leftLowerArm',
-    'leftHand',
-    'rightShoulder',
-    'rightUpperArm',
-    'rightLowerArm',
-    'rightHand',
-  ],
-  // The hips lead the lower body, so both its rotation (here) and its root
-  // position (see composeHipsPosition) follow the legs section.
-  legs: [
-    'hips',
-    'leftUpperLeg',
-    'leftLowerLeg',
-    'leftFoot',
-    'leftToes',
-    'rightUpperLeg',
-    'rightLowerLeg',
-    'rightFoot',
-    'rightToes',
-  ],
-  // Every remaining bone (all finger bones) belongs to 'hands'.
-  hands: [],
-};
-
-/** boneName → section. Bones not explicitly listed fall under 'hands' (fingers). */
-const BONE_TO_SECTION: Record<string, PoseSection> = (() => {
-  const m: Record<string, PoseSection> = {};
-  for (const [section, bones] of Object.entries(POSE_SECTION_BONES) as [
-    PoseSection,
-    string[],
-  ][]) {
-    for (const b of bones) m[b] = section;
-  }
-  for (const name of VRM_BONE_NAMES as unknown as string[]) {
-    if (!(name in m)) m[name] = 'hands';
-  }
-  return m;
-})();
-
-const DEFAULT_SECTION_INFLUENCE: PoseSectionInfluence = { anim: 1, track: 1 };
-
-/** Resolve a bone's { anim, track } influence from a node's poseSource map,
- *  defaulting absent sections to { anim: 1, track: 1 } (legacy behaviour). */
-function sectionInfluenceForBone(
+/** A bone's animation-layer weight from the avatar's Tracking Mix (absent → 1).
+ *  Tracking-source weights are applied by the backend bus, so the tracked pose
+ *  that arrives here is already weighted. */
+function animWeightForBone(
   boneName: string,
-  poseSource: PoseSource | undefined
-): PoseSectionInfluence {
-  if (!poseSource) return DEFAULT_SECTION_INFLUENCE;
-  const section = BONE_TO_SECTION[boneName];
-  return poseSource[section] ?? DEFAULT_SECTION_INFLUENCE;
+  mix: TrackingMix | undefined
+): number {
+  return boneWeight(mix, ANIMATION_SOURCE, boneName);
 }
 
 // Hips root-motion scratch (captured pre/post resetNormalizedPose, fed to
@@ -911,8 +877,12 @@ interface Transform {
   receiveShadow: boolean;
 }
 
-function getTransform(node: StageObject): Transform {
-  const t = node.components?.transform as Partial<Transform> | undefined;
+function getTransform(
+  node: StageObject,
+  transform: Record<string, unknown> | undefined = node.components
+    ?.transform as Record<string, unknown> | undefined
+): Transform {
+  const t = transform as Partial<Transform> | undefined;
   return {
     x: t?.x ?? 0,
     y: t?.y ?? 0,
@@ -938,10 +908,9 @@ function getTransform(node: StageObject): Transform {
  *  wins). See dev-notes/plans/unified-sync-layer.md. */
 function useTransformWithOverride(node: StageObject): Transform {
   const clipOverride = useEditorStore((s) => s.nodeTransformOverrides[node.id]);
-  const runtimeOverride = useEditorStore(
-    (s) => s.runtimeNodeOverrides[node.id]
-  );
-  const base = getTransform(node);
+  const runtimeOverride = useRuntimeOverrides('scene_node', node.id);
+  // A running gesture or another tab's drag tween (liveNodes), per node.
+  const base = getTransform(node, useLiveTransform(node));
   if (!clipOverride && !runtimeOverride) return base;
   // Base + both override layers keyed by paramPath, folded low → high.
   const baseMap = {
@@ -1005,9 +974,10 @@ function useApplyOpacity(
       { lastOpacity: number; origTransparent: boolean }
     >()
   );
+  const active = useNodeActive();
   useFrame(() => {
     const root = groupRef.current;
-    if (!root) return;
+    if (!root || !active) return;
     const cache = cacheRef.current;
     root.traverse((obj) => {
       const m = (obj as THREE.Mesh).material as
@@ -1057,9 +1027,10 @@ function useApplyMeshFlags(
       { lastOpacity: number; origTransparent: boolean }
     >()
   );
+  const active = useNodeActive();
   useFrame(() => {
     const root = groupRef.current;
-    if (!root) return;
+    if (!root || !active) return;
     const cache = cacheRef.current;
     root.traverse((obj) => {
       const mesh = obj as THREE.Mesh;
@@ -2113,6 +2084,12 @@ function AvatarNode({
   const vmcRetargetRef = useRef<VmcRetarget | null>(null);
   const boneFiltersRef = useRef(new BoneFilterBank());
   const boneDynamicsRef = useRef(new BoneDynamicsBank());
+  /** Last raw broadcast rotation per bone, so the dynamics can tell a new
+   *  tracking sample from the bus re-sending (or the frame re-reading) the same
+   *  one. */
+  const lastRawRef = useRef(
+    new Map<string, [number, number, number, number]>()
+  );
   const poseWasActiveRef = useRef(false);
   // Mirrors `trackingActive` state for the useFrame loop (avoids a stale closure
   // read); the loop calls setTrackingActive only when this flips.
@@ -2120,6 +2097,7 @@ function AvatarNode({
   // Active animation layer driving the clock-anchored playhead (read in useFrame).
   const activeLayerRef = useRef<ActiveAnimLayer | null>(null);
   const [vrmLoaded, setVrmLoaded] = useState(false);
+  const active = useNodeActive();
   const t = useTransformWithOverride(node);
   useApplyMeshFlags(outerRef, t.opacity, t.castShadow, t.receiveShadow);
 
@@ -2145,32 +2123,24 @@ function AvatarNode({
   }, [showFbxDebug]);
 
   // Track active pose-driving component without causing useFrame re-subscription
-  const vmcComp = useEditorStore(
-    (s) =>
-      s
-        .behaviorsFor(node.id)
-        .find(
-          (c) =>
-            (c.kind === 'vmc_receiver' || c.kind === 'mediapipe_tracker') &&
-            c.enabled
-        ) ?? null
-  );
+  const nodeBehaviors = useNodeBehaviors(node.id);
+  const vmcComp =
+    nodeBehaviors.find(
+      (c) =>
+        (c.kind === 'vmc_receiver' || c.kind === 'mediapipe_tracker') &&
+        c.enabled
+    ) ?? null;
   useEffect(() => {
     vmcCompRef.current = vmcComp;
   }, [vmcComp]);
 
   // Track active blendshape-driving component (lipsync, face tracking)
-  const lipsyncComp = useEditorStore(
-    (s) =>
-      s
-        .behaviorsFor(node.id)
-        .find(
-          (c) =>
-            (c.kind === 'lipsync_processor' ||
-              c.kind === 'mediapipe_tracker') &&
-            c.enabled
-        ) ?? null
-  );
+  const lipsyncComp =
+    nodeBehaviors.find(
+      (c) =>
+        (c.kind === 'lipsync_processor' || c.kind === 'mediapipe_tracker') &&
+        c.enabled
+    ) ?? null;
   useEffect(() => {
     lipsyncCompRef.current = lipsyncComp;
   }, [lipsyncComp]);
@@ -2209,12 +2179,8 @@ function AvatarNode({
   const legacyAnim = node.components?.animation as
     | { idleUrl?: string; speed?: number }
     | undefined;
-  const scheduledMap = useEditorStore((s) => s.scheduledAnimations);
-  const animationClips = useEditorStore((s) => s.animationClips);
-  const scheduledForNode = useMemo(
-    () => Object.values(scheduledMap).filter((e) => e.avatarNodeId === node.id),
-    [scheduledMap, node.id]
-  );
+  const scheduledForNode = useNodeSchedule(node.id);
+  const animationClips = useAnimationClips();
   const idleClip = animIdle?.clipId
     ? animationClips[animIdle.clipId]
     : undefined;
@@ -2337,9 +2303,12 @@ function AvatarNode({
       ...prevProps,
       animation: { ...prevAnim, idle: { clipId: clip.id, speed } },
     };
-    const components = { ...node.components, animation: undefined };
-    useEditorStore.getState().updateNode(node.id, { properties, components });
-    api.updateNode(node.id, { properties, components }).catch(() => {});
+    // Both fields in one op: migrating the legacy components.animation slot
+    // onto properties.animation.idle is one edit, so one undo step.
+    commitNodePatch(node.id, {
+      properties,
+      components: { animation: undefined },
+    } as Partial<StageObject>);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [legacyIdleUrl, animIdle?.clipId, animationClips, node.id, node.remote]);
 
@@ -2920,6 +2889,7 @@ function AvatarNode({
   const _q = useRef(new THREE.Quaternion()).current;
 
   useFrame((_, delta) => {
+    if (!active) return;
     const vrm = vrmRef.current;
     const cyl = boneCylRef.current;
     if (cyl) {
@@ -2991,12 +2961,12 @@ function AvatarNode({
     // producers like breathing keep publishing a pose forever, so `poseActive`
     // stays true even after real tracking drops — using it here would pin the
     // avatar to the base loop and never fall back to idle. Tracking sources
-    // emit `vmc_tracking_state` (→ store.vmcTracking); ambient ones don't, so
+    // publish a `tracking` status (→ store.vmcTracking); ambient ones don't, so
     // they can't mask a loss.
-    const store = useEditorStore.getState();
-    const trackingLive = store.behaviors.some(
-      (b) => b.nodeId === node.id && store.vmcTracking[b.id] === true
-    );
+    const statuses = collectionOf<{ tracking?: boolean }>('server_status');
+    const trackingLive = collectionOf<{ id: string }>('behavior')
+      .children(node.id)
+      .some((b) => statuses.get(`tracking:${b.id}`)?.tracking === true);
 
     // Transition detection: reset filters + clear the applied pose when the
     // composition leaves the tracked path. Keyed on `trackingLive`, matching the
@@ -3231,8 +3201,21 @@ function AvatarNode({
                 [number, number, number, number],
               ];
             });
+      const lastRaw = lastRawRef.current;
       for (const [boneName, q] of sourceEntries) {
         _q.set(q[0], q[1], q[2], q[3]);
+        // A new tracking sample for this bone, vs. the same values again (the
+        // bus re-emits every tick; the render loop can outpace the bus). Latch
+        // replays are never new.
+        const prevRaw = lastRaw.get(boneName);
+        const newSample =
+          posePopulated &&
+          (!prevRaw ||
+            prevRaw[0] !== q[0] ||
+            prevRaw[1] !== q[1] ||
+            prevRaw[2] !== q[2] ||
+            prevRaw[3] !== q[3]);
+        if (newSample) lastRaw.set(boneName, [q[0], q[1], q[2], q[3]]);
         // Skip the One Euro filter when replaying the latch: it is a held constant,
         // and re-filtering it would drift the pose while the fade runs.
         let s = posePopulated ? filters.filter(boneName, _q, delta) : _q;
@@ -3243,7 +3226,8 @@ function AvatarNode({
             delta,
             dyn.frequency,
             dyn.damping,
-            dyn.response
+            dyn.response,
+            newSample
           );
         }
         normalizedPose[boneName as VRMHumanBoneName] = {
@@ -3309,13 +3293,14 @@ function AvatarNode({
         // "Tracking stacks on animation" — the single composition path for BOTH
         // override producers (VMC/camera, which replace) and additive producers
         // (e.g. Breathing, which stacks). For every bone, stackBoneRotation
-        // stacks the (scaled) broadcast delta on top of the (scaled) base
-        // animation, per body section independently. Default sections
-        // ({anim:1,track:1}) → base animation with the broadcast fully stacked
-        // once ramped in; the partial-tracking sliders scale each layer. The
+        // stacks the broadcast delta on top of the (scaled) base animation, per
+        // bone. The Tracking Mix's animation weight scales the base animation
+        // here; the per-source tracking weights were already applied by the
+        // bus, so the broadcast delta arrives weighted. At default weights →
+        // base animation with the broadcast fully stacked once ramped in. The
         // poseMode flag no longer selects a separate composition — an additive
         // producer used to route here into a slider-ignoring branch, which is
-        // exactly why Breathing made the Anim/Track sliders appear inert.
+        // exactly why Breathing once made the influence sliders appear inert.
         const allBones = VRM_BONE_NAMES as unknown as VRMHumanBoneName[];
         // Animation baseline comes from the SHADOW skeleton — a buffer only the
         // clip mixer writes. Reading `bone.quaternion` here would alias the buffer
@@ -3335,11 +3320,11 @@ function AvatarNode({
         const hipsBone = vrm.humanoid.getRawBoneNode('hips');
 
         // Rest raw quats (all bones), then broadcast-posed raw quats. Compose
-        // per section with stackBoneRotation, exactly like the override branch:
-        // the additive delta is stacked (scaled by the section Track weight) on
-        // the base animation (scaled by the section Anim weight). At default
-        // weights ({anim:1,track:1}) this equals the old `animQ · delta`, but
-        // the partial-tracking sliders now bite in additive mode too. This
+        // per bone with stackBoneRotation, exactly like the override branch:
+        // the additive delta (already weighted per source by the bus) is
+        // stacked on the base animation (scaled by the Tracking Mix animation
+        // weight). At default weights this equals the old `animQ · delta`, but
+        // the animation weights bite in additive mode too. This
         // matters because Breathing always publishes *additively* (an always-on
         // producer), which pins poseMode to additive — so the old additive-only
         // composition made the sliders appear to do nothing whenever Breathing
@@ -3363,12 +3348,10 @@ function AvatarNode({
             trackedRaw.set(name, bone.quaternion.clone());
         }
 
-        const poseSourceLive = node.properties?.poseSource as
-          | PoseSource
-          | undefined;
+        const mixLive = node.properties?.trackingMix as TrackingMix | undefined;
         const animActive = !!((animSource || fading) && layer);
         for (const [name, bone] of animQuats) {
-          const inf = sectionInfluenceForBone(name, poseSourceLive);
+          const animInf = animWeightForBone(name, mixLive);
           const restQ = restRaw.get(name)!;
           const animQ = animRotationFor(name, restQ);
           // No source for this bone (clip not loaded / not animated) ⇒ rest.
@@ -3379,14 +3362,17 @@ function AvatarNode({
           // targets/speed/clamp), so multiplying by both faded tracking as
           // modeWeight² — a quadratic that collapses in its final third and reads
           // as a late snap. Linear is what the ramp is meant to be.
-          const tw = tracked ? Math.max(0, Math.min(1, inf.track)) : 0;
-          // modeWeight ramps the levers in (1 → inf.anim) and the tracking term
+          // Per-source tracking weights were applied by the bus; a bone every
+          // source weighs 0 arrives absent (tracked = null) and follows the
+          // animation.
+          const tw = tracked ? 1 : 0;
+          // modeWeight ramps the levers in (1 → animInf) and the tracking term
           // with them, so modeWeight=0 equals the straight-animation path exactly.
           composeBonePose(
             restQ,
             animContribution,
             tracked,
-            inf.anim,
+            animInf,
             tw,
             modeWeight,
             bone.quaternion
@@ -3396,7 +3382,7 @@ function AvatarNode({
           composeHipsPositionBlended(
             _hipsAnimPos,
             _hipsRestPos,
-            sectionInfluenceForBone('leftUpperLeg', poseSourceLive).anim,
+            animWeightForBone('hips', mixLive),
             animActive,
             modeWeight,
             hipsBone.position
@@ -3449,7 +3435,7 @@ function AvatarNode({
         const restQ = restRaw.get(name)!;
         const animQ = animRotationFor(name, restQ);
         const animContribution = animActive && animQ ? animQ : restQ;
-        // animInf = 1: straight idle, unscaled by the partial-tracking sliders.
+        // animInf = 1: straight idle, unscaled by the Tracking Mix weights.
         stackBoneRotation(restQ, animContribution, null, 1, 0, bone.quaternion);
       }
       // Root motion plays at full strength too — same reasoning as the
@@ -4248,16 +4234,17 @@ function Live2DNode({
 }) {
   const outerRef = useRef<THREE.Group>(null);
   const facingRef = useRef<THREE.Group>(null);
+  const active = useNodeActive();
   const t = useTransformWithOverride(node);
   useApplyOpacity(outerRef, t.opacity);
   const cfg: Live2DConfig = {
     ...LIVE2D_NODE_DEFAULTS,
     ...((node.components?.live2d ?? {}) as Partial<Live2DConfig>),
   };
-  const rawMap = (node.components?.live2d as Record<string, unknown> | undefined)
-    ?.paramMap as Live2dParamMap | undefined;
-  const userMap =
-    rawMap && Object.keys(rawMap).length > 0 ? rawMap : undefined;
+  const rawMap = (
+    node.components?.live2d as Record<string, unknown> | undefined
+  )?.paramMap as Live2dParamMap | undefined;
+  const userMap = rawMap && Object.keys(rawMap).length > 0 ? rawMap : undefined;
 
   const runtimeRef = useRef<Live2DRuntime | null>(null);
   const [texture, setTexture] = useState<THREE.Texture | null>(null);
@@ -4325,7 +4312,7 @@ function Live2DNode({
       }
     }
     const rt = runtimeRef.current;
-    if (!rt || !texture) return;
+    if (!rt || !texture || !active) return;
     // Drive Live2D parameters from this node's tracking feed (same per-node
     // blendshape + head-pose data a VRM avatar consumes), then advance + redraw.
     const bs = getVmcBlendshapes(node.id);
@@ -4895,10 +4882,8 @@ function makeInstancedParticleMaterial(
 /** Read the live text content for a text scene node, preferring the runtime
  *  override on `text.content` over the persisted `components.text.content`. */
 function useTextContent(node: StageObject): string {
-  const override = useEditorStore((s) => {
-    const v = s.runtimeNodeOverrides[node.id]?.['text.content'];
-    return typeof v === 'string' ? v : undefined;
-  });
+  const v = useRuntimeOverrides('scene_node', node.id)?.['text.content'];
+  const override = typeof v === 'string' ? v : undefined;
   if (override !== undefined) return override;
   const tc = (node.components?.text as { content?: string } | undefined)
     ?.content;
@@ -5192,8 +5177,8 @@ function FeedCanvasNode({
 
   // Fields visible to this node: GLOBAL ∪ its own id (own wins), mirroring the
   // 2D feed layer's consumer-by-identity model.
-  const globalFields = useEditorStore((s) => s.dataChannels['']);
-  const ownFields = useEditorStore((s) => s.dataChannels[node.id]);
+  const globalFields = useDataFields('');
+  const ownFields = useDataFields(node.id);
   const channels = useMemo(
     () => ({ ...(globalFields ?? {}), ...(ownFields ?? {}) }),
     [globalFields, ownFields]
@@ -5515,8 +5500,9 @@ function ParticleNode({ node }: { node: StageObject }) {
   const geoCountRef = useRef<number>(-1);
   const emitterWorld = useRef(new THREE.Vector3());
 
+  const active = useNodeActive();
   useFrame(({ camera }, delta) => {
-    if (!pool.current || !outerRef.current) return;
+    if (!pool.current || !outerRef.current || !active) return;
 
     // First frame after local-space mount: initialize instanceColor and shader on the R3F mesh
     if (
@@ -5746,7 +5732,7 @@ function ModelNode({
 }
 
 function SceneInstanceContent({ sourceSceneId }: { sourceSceneId: string }) {
-  const nodes = useEditorStore((s) => s.nodes);
+  const nodes = useSceneNodes();
   const sourceNodes = nodes.filter(
     (n) => n.rootSceneNodeId === sourceSceneId && n.kind !== 'scene'
   );
@@ -5789,44 +5775,56 @@ function renderNodeElement(
   if (node.kind === 'avatar')
     return (
       <>
-        <group key={node.id} visible={visible}>
-          <AvatarNode node={node}>{childElements}</AvatarNode>
-        </group>
+        <NodeActive key={node.id} visible={visible}>
+          <group visible={visible}>
+            <AvatarNode node={node}>{childElements}</AvatarNode>
+          </group>
+        </NodeActive>
         {boneFollowers}
       </>
     );
   if (node.kind === 'light')
     return (
-      <group key={node.id} visible={visible}>
-        <LightNode node={node} viewerMode={viewerMode} />
-      </group>
+      <NodeActive key={node.id} visible={visible}>
+        <group visible={visible}>
+          <LightNode node={node} viewerMode={viewerMode} />
+        </group>
+      </NodeActive>
     );
   if (node.kind === 'audio')
     return (
-      <group key={node.id} visible={visible}>
-        <AudioNode node={node} viewerMode={viewerMode} />
-      </group>
+      <NodeActive key={node.id} visible={visible}>
+        <group visible={visible}>
+          <AudioNode node={node} viewerMode={viewerMode} />
+        </group>
+      </NodeActive>
     );
   if (node.kind === 'camera')
     return (
-      <group key={node.id} visible={visible}>
-        <CameraNode node={node} />
-      </group>
+      <NodeActive key={node.id} visible={visible}>
+        <group visible={visible}>
+          <CameraNode node={node} />
+        </group>
+      </NodeActive>
     );
   if (node.kind === 'godray_caster')
     return (
-      <group key={node.id} visible={visible}>
-        <GodrayCasterNode node={node} />
-      </group>
+      <NodeActive key={node.id} visible={visible}>
+        <group visible={visible}>
+          <GodrayCasterNode node={node} />
+        </group>
+      </NodeActive>
     );
   // Group nodes are invisible transform containers — children inherit their
   // position. remote_object (a placed peer share) is the same: an opaque, empty
   // container whose transform drives the projected shared subtree below it.
   if (node.kind === 'group' || node.kind === 'remote_object')
     return (
-      <group key={node.id} visible={visible}>
-        <ModelNode node={node}>{childElements}</ModelNode>
-      </group>
+      <NodeActive key={node.id} visible={visible}>
+        <group visible={visible}>
+          <ModelNode node={node}>{childElements}</ModelNode>
+        </group>
+      </NodeActive>
     );
   // Scene instance: render the source scene's nodes inside this node's transform (read-only)
   if (node.kind === 'scene_instance') {
@@ -5835,11 +5833,13 @@ function renderNodeElement(
     )?.sourceSceneId as string | undefined;
     if (!sourceSceneId) return null;
     return (
-      <group key={node.id} visible={visible}>
-        <ModelNode node={node}>
-          <SceneInstanceContent sourceSceneId={sourceSceneId} />
-        </ModelNode>
-      </group>
+      <NodeActive key={node.id} visible={visible}>
+        <group visible={visible}>
+          <ModelNode node={node}>
+            <SceneInstanceContent sourceSceneId={sourceSceneId} />
+          </ModelNode>
+        </group>
+      </NodeActive>
     );
   }
   // Scene-root nodes (kind 'scene') ride the mesh so their properties reach the
@@ -5859,9 +5859,11 @@ function renderNodeElement(
   if (node.kind === 'feed') return null;
   if (node.kind === 'live2d') return null;
   return (
-    <group key={node.id} visible={visible}>
-      <ModelNode node={node}>{childElements}</ModelNode>
-    </group>
+    <NodeActive key={node.id} visible={visible}>
+      <group visible={visible}>
+        <ModelNode node={node}>{childElements}</ModelNode>
+      </group>
+    </NodeActive>
   );
 }
 
@@ -5877,7 +5879,8 @@ export function SceneNodes({
   /** Scene whose nodes to render. Defaults to the store's active scene. */
   sceneId?: string;
 } = {}) {
-  const { nodes, activeSceneId } = useEditorStore();
+  const { activeSceneId } = useEditorStore();
+  const nodes = useSceneNodes();
   const effectiveSceneId = sceneId ?? activeSceneId;
   const sceneNodes = nodes.filter(
     (n) =>
@@ -5922,39 +5925,53 @@ export function SceneNodes({
     <>
       {rootNodes.map((node) => renderNodeElement(node, sceneNodes, viewerMode))}
       {flatParticles.map((node) => (
-        <group key={node.id} visible={effectiveVisible(node)}>
-          <ParticleNode node={node} />
-        </group>
+        <NodeActive key={node.id} visible={effectiveVisible(node)}>
+          <group visible={effectiveVisible(node)}>
+            <ParticleNode node={node} />
+          </group>
+        </NodeActive>
       ))}
       {flatBillboards.map((node) => (
-        <group key={node.id} visible={effectiveVisible(node)}>
-          <BillboardNode node={node} />
-        </group>
+        <NodeActive key={node.id} visible={effectiveVisible(node)}>
+          <group visible={effectiveVisible(node)}>
+            <BillboardNode node={node} />
+          </group>
+        </NodeActive>
       ))}
       {flatVideos.map((node) => (
-        <group key={node.id} visible={effectiveVisible(node)}>
-          <VideoNode node={node} viewerMode={viewerMode} />
-        </group>
+        <NodeActive key={node.id} visible={effectiveVisible(node)}>
+          <group visible={effectiveVisible(node)}>
+            <VideoNode node={node} viewerMode={viewerMode} />
+          </group>
+        </NodeActive>
       ))}
       {flatTextTroika.map((node) => (
-        <group key={node.id} visible={effectiveVisible(node)}>
-          <TextTroikaNode node={node} />
-        </group>
+        <NodeActive key={node.id} visible={effectiveVisible(node)}>
+          <group visible={effectiveVisible(node)}>
+            <TextTroikaNode node={node} />
+          </group>
+        </NodeActive>
       ))}
       {flatTextCanvas.map((node) => (
-        <group key={node.id} visible={effectiveVisible(node)}>
-          <TextCanvasNode node={node} />
-        </group>
+        <NodeActive key={node.id} visible={effectiveVisible(node)}>
+          <group visible={effectiveVisible(node)}>
+            <TextCanvasNode node={node} />
+          </group>
+        </NodeActive>
       ))}
       {flatFeed.map((node) => (
-        <group key={node.id} visible={effectiveVisible(node)}>
-          <FeedCanvasNode node={node} viewerMode={viewerMode} />
-        </group>
+        <NodeActive key={node.id} visible={effectiveVisible(node)}>
+          <group visible={effectiveVisible(node)}>
+            <FeedCanvasNode node={node} viewerMode={viewerMode} />
+          </group>
+        </NodeActive>
       ))}
       {flatLive2d.map((node) => (
-        <group key={node.id} visible={effectiveVisible(node)}>
-          <Live2DNode node={node} viewerMode={viewerMode} />
-        </group>
+        <NodeActive key={node.id} visible={effectiveVisible(node)}>
+          <group visible={effectiveVisible(node)}>
+            <Live2DNode node={node} viewerMode={viewerMode} />
+          </group>
+        </NodeActive>
       ))}
     </>
   );
@@ -5967,7 +5984,7 @@ function TransformGizmo({
   mode: GizmoMode;
   orbitRef: React.RefObject<any>;
 }) {
-  const { selectedNodeId, updateNode: storeUpdateNode } = useEditorStore();
+  const { selectedNodeId } = useEditorStore();
   const group = selectedNodeId ? getNodeGroup(selectedNodeId) : null;
   // Throttle outgoing live previews to ~30 Hz; the gizmo fires onObjectChange
   // on every animation frame while dragging, which would otherwise spam the WS.
@@ -5996,22 +6013,24 @@ function TransformGizmo({
     const now = performance.now();
     if (now - lastPreviewAtRef.current < 33) return;
     lastPreviewAtRef.current = now;
-    sendNodeTransformPreview(selectedNodeId, buildTransform());
+    const t = buildTransform();
+    // One write, every audience: local tabs and object-share subscribers both
+    // read the gesture off the mesh preview channel now.
+    previewNodeTransform(selectedNodeId, t);
   };
 
   const onEnd = () => {
     if (orbitRef.current) orbitRef.current.enabled = true;
-    const node = useEditorStore
-      .getState()
-      .nodes.find((n) => n.id === selectedNodeId);
+    const node = sceneNodesNow().find((n) => n.id === selectedNodeId);
     if (!node) return;
-    const transform = buildTransform();
-    const components = {
-      ...node.components,
-      transform: { type: 'transform', ...transform },
-    };
-    storeUpdateNode(node.id, { components });
-    api.updateNode(node.id, { components }).catch(() => {});
+    // Gizmo drag settles: one committed write, so one undo step for the drag.
+    // Merged, not replaced — see mergedTransform: this write REPLACES the whole
+    // component, and a drag must not delete opacity / shadow flags it never drove.
+    commitNodePath(
+      node.id,
+      'components.transform',
+      mergedTransform(node, buildTransform())
+    );
   };
 
   return (
@@ -6280,14 +6299,14 @@ export function CameraEffects({
   forceNodeId,
   sceneId,
 }: { forceNodeId?: string; sceneId?: string } = {}) {
-  const { previewEffectsCamera, cameraEffects, nodes, activeSceneId } =
-    useEditorStore();
+  const { previewEffectsCamera, activeSceneId } = useEditorStore();
+  const nodes = useSceneNodes();
   const effectiveSceneId = sceneId ?? activeSceneId;
 
   const effectsNodeId = forceNodeId ?? previewEffectsCamera;
-  const activeEffects = effectsNodeId
-    ? cameraEffects.filter((e) => e.nodeId === effectsNodeId && e.enabled)
-    : [];
+  const activeEffects = useCameraEffects(effectsNodeId).filter(
+    (e) => e.enabled
+  );
 
   const get = <T,>(kind: string, key: string, fallback: T): T => {
     const e = activeEffects.find((e) => e.kind === kind);
@@ -6610,12 +6629,13 @@ export function ViewportCapture() {
  *  free authoring view (not a camera), so it previews shadows whenever any
  *  camera does, picking the highest requested quality. */
 function useEditorShadowQuality(): ShadowQuality | null {
-  return useEditorStore((s) => {
+  const nodes = useSceneNodes();
+  const activeSceneId = useEditorStore((s) => s.activeSceneId);
+  return useMemo(() => {
     let best: ShadowQuality | null = null;
     const rank = { low: 1, medium: 2, high: 3 } as const;
-    for (const n of s.nodes) {
-      if (n.kind !== 'camera' || n.rootSceneNodeId !== s.activeSceneId)
-        continue;
+    for (const n of nodes) {
+      if (n.kind !== 'camera' || n.rootSceneNodeId !== activeSceneId) continue;
       const cam = n.components?.camera as
         | { shadowsEnabled?: boolean; shadowQuality?: ShadowQuality }
         | undefined;
@@ -6624,7 +6644,7 @@ function useEditorShadowQuality(): ShadowQuality | null {
       if (!best || rank[q] > rank[best]) best = q;
     }
     return best;
-  });
+  }, [nodes, activeSceneId]);
 }
 
 export function Viewport() {
@@ -6652,7 +6672,9 @@ export function Viewport() {
         gl={{ toneMapping: THREE.NoToneMapping }}
         shadows={canvasShadowsProp(shadowsEnabled, shadowQuality ?? undefined)}
         style={fadeIn}
+        frameloop="never"
       >
+        <FrameBudget />
         <ambientLight intensity={0.4} />
         <directionalLight
           position={[5, 10, 5]}

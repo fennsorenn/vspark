@@ -40,13 +40,14 @@ Manages VMC/RhyLive motion capture receivers. Each behavior owns a `SignalGraph`
 
 **Graph descriptor**: `makeVmcGraphDescriptor(behaviorId)` wires:
 ```
-vmc_packet_source → rhylive_bone_mapper → body_calibration → arm_ik_calibration → pose_broadcast
+vmc_packet_source → rhylive_bone_mapper → body_calibration → arm_ik_calibration → eye_range_map → pose_broadcast
                   → arkit_vrm_mapper (×3) → blendshapes_sum → blendshapes_broadcast
 ```
+`eye_range_map` is inserted after `arm_ik_calib` by `withEyeRangeStage` (`behaviors/eyeRange.ts`), default **off** for VMC (`eyeRange.enabled` / `eyeRange.inputMaxDeg` behavior config; "Gaze" section in `VmcReceiverProps`). The Live2D `VMC_2D_PIPELINE_TEMPLATE` derives from `VMC_BASE_TEMPLATE` and has no eye range stage (the Gaze section is hidden for `vmc_receiver_2d`). See [ifacialmocap.md](ifacialmocap.md#gaze--eye-range).
 
 **Tracking detection** (two loss paths, one grace period): the `/Body` handler sums the frame-to-frame delta over the RhyLive float array against `TRACKING_THRESHOLD` — motion clears `Receiver.quietSince` and re-latches tracking, going still only *stamps* `quietSince`. Packets going away is the second path, detected off `lastSeen`. The 250ms `checkTimeouts()` sweep resolves both from `Math.min(quietSince ?? now, lastSeen)` against the avatar node's grace period, so whichever dropout started first drives the window. Connection status (the grey dot) keeps its own fixed 3s window — reachability is a separate question from tracking. See [animation.md](animation.md) (Tracking-loss grace period).
 
-**`setTracking(behaviorId, tracking)`** is the single transition point: collapses no-op repeats, broadcasts `vmc_tracking_state`, and on loss calls `broadcastBus.removeBehavior(behaviorId)` — which (if it leaves the nodeMap empty) emits a final fallback frame so the frontend ramps back to pure animation. Resume is automatic: the next `publishBones` re-creates the per-behavior slot. Add new transition triggers by calling this, not by mutating `trackingActive` directly.
+**`setTracking(behaviorId, tracking)`** is the single transition point: collapses no-op repeats, publishes the `tracking` field of the behavior's `server_status` document (`publishTracking`, see [mesh.md](mesh.md#runtime-state-the-runtime-channel)), and on loss calls `broadcastBus.removeBehavior(behaviorId)` — which (if it leaves the nodeMap empty) emits a final fallback frame so the frontend ramps back to pure animation. Resume is automatic: the next `publishBones` re-creates the per-behavior slot. Add new transition triggers by calling this, not by mutating `trackingActive` directly.
 
 **Grace period** is read per-sweep via `trackingGraceMs(sceneNodeId, fallbackMs)` from [`behaviors/tracking_grace.ts`](../../packages/backend/src/behaviors/tracking_grace.ts) — the avatar node's `properties.trackingGracePeriod`, shared with `mediapipe_tracker` and the extension point for any future tracking source. The old per-behavior `poseTimeout` config field is gone (migration 035).
 
@@ -60,17 +61,17 @@ vmc_packet_source → rhylive_bone_mapper → body_calibration → arm_ik_calibr
 
 ## IFacialMocapManager — `ifacialmocap_receiver/manager.ts`
 
-ARKit face tracking from the iFacialMocap iOS app. Built deliberately parallel to `VmcManager` — same graph lifecycle, same `_nodeState` persistence, same interceptor registration, same `vmc_status` / `vmc_tracking_state` WS surface, same broadcast-bus slot semantics, same shared UDP socket pool.
+ARKit face tracking from the iFacialMocap iOS app. Built deliberately parallel to `VmcManager` — same graph lifecycle, same `_nodeState` persistence, same interceptor registration, same `server_status` tracking documents (`connected` / `tracking`, via `publishTracking`), same broadcast-bus slot semantics, same shared UDP socket pool.
 
 **Input**: plain-text UDP datagrams on a configurable port (default 49983)
 **Output**: `vmc_pose` and `vmc_blendshapes` WebSocket broadcasts
 
 **Graph descriptor**: `makeIFacialMocapGraphDescriptor(behaviorId)` wires:
 ```
-ifacialmocap_packet_source → rhylive_bone_mapper → body_calibration → pose_broadcast
+ifacialmocap_packet_source → rhylive_bone_mapper → body_calibration → eye_range_map → pose_broadcast
                            → arkit_vrm_mapper (×3) → blendshapes_sum → blendshapes_broadcast
 ```
-Everything except the source node is shared verbatim with the VMC pipeline.
+Everything except the source node is shared verbatim with the VMC pipeline. The eye range stage defaults **on** here.
 
 **Differences from `VmcManager`** (full detail in [ifacialmocap.md](ifacialmocap.md)):
 
@@ -363,6 +364,8 @@ Shared sink that merges per-behavior pose/blendshape outputs into the single `vm
   - `vmc_pose` with empty `bones` and `animationBlendMode: 'additive'`
   - `vmc_blendshapes` with empty `{}` record
 - The frontend Viewport sees the empty-bones frame, trips off pose application, and ramps back to pure animation. While *any* producer is still active (e.g. breathing) the fallback does not fire and other producers continue uninterrupted.
+
+**Tracking Mix weighting**: each slot carries its `behaviorId`, and the composers weight slots by the avatar node's `properties.trackingMix` (see [animation.md](animation.md) (Tracking Mix)). `_composeBones` orders slots with `orderSources(mix, …)` (`mix.order` first, the rest by ascending priority as before) and multiplies `scaleRotation(q, w)` per bone; offsets (which sum across slots) are scaled by `w`; a bone with weight 0 in every slot is omitted, leaving it to the frontend's animation. `_composeBlendshapes` sums `w × value` and clamps to `0..1`. Weights are not normalised. The mix comes from an injected reader, `broadcastBus.setTrackingMixReader(fn)`, installed in `index.ts` to read `getMeshCollection('scene_node').get(id).properties.trackingMix` — the mesh view is overlay-aware, so preview-channel slider drags reweight live tracking before commit. A throwing reader falls back to weight 1; with no mix the output is identical to the old priority-ordered stacking.
 
 **Two interceptor chains**: after composing a scene node's slots the bus offers
 the merged frame to a registry before emitting — `poseInterceptorRegistry` for

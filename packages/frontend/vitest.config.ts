@@ -23,6 +23,15 @@ export default defineConfig({
   resolve: {
     // More-specific aliases must come before less-specific ones.
     alias: [
+      { find: '@vspark/shared/fracIndex', replacement: shared('fracIndex.ts') },
+      {
+        find: '@vspark/shared/clipPlayback',
+        replacement: shared('clipPlayback.ts'),
+      },
+      {
+        find: '@vspark/shared/idMap',
+        replacement: shared('idMap.ts'),
+      },
       { find: /^@cubism\/framework\/(.*)/, replacement: cubism('$1') },
       { find: '@vspark/shared/signal_types', replacement: shared('signal_types.ts') },
       { find: '@vspark/shared/signal', replacement: shared('signal.ts') },
@@ -40,7 +49,12 @@ export default defineConfig({
         find: '@vspark/shared/blendshapeLimits',
         replacement: shared('blendshapeLimits.ts'),
       },
+      {
+        find: '@vspark/shared/trackingMix',
+        replacement: shared('trackingMix.ts'),
+      },
       { find: '@vspark/shared/sync', replacement: shared('sync.ts') },
+      { find: '@vspark/shared/models', replacement: shared('models.ts') },
       { find: '@vspark/shared/live2d', replacement: shared('live2d.ts') },
       { find: '@vspark/shared', replacement: shared('types.ts') },
     ],

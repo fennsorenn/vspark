@@ -1,8 +1,14 @@
 import { useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useEditorStore } from '../store/editorStore';
-import { api } from '../api/client';
 import { useConfirm, useChoose } from '../components/DialogProvider';
+import { commitNodeDelete, commitNodeDeleteKeepChildren } from '../mesh/writes';
+import {
+  commitLayerDelete,
+  commitLayerDeleteKeepChildren,
+} from '../mesh/layerWrites';
+import { composeLayersNow } from '../mesh/compose';
+import { sceneNodesNow } from '../mesh/nodes';
 
 /**
  * Shared "delete this element" flow used by the scene tree, the compose tree and
@@ -18,16 +24,11 @@ export function useDeleteElement() {
 
   const deleteComposeLayer = useCallback(
     async (id: string) => {
-      const store = useEditorStore.getState();
-      const layer = store.composeLayers.find((l) => l.id === id);
+      const layer = composeLayersNow().find((l) => l.id === id);
       if (!layer) return;
       const childrenOf = (pid: string) =>
-        store.composeLayers.filter((l) => l.parentId === pid);
+        composeLayersNow().filter((l) => l.parentId === pid);
       const directChildren = childrenOf(id);
-      const delOne = async (lid: string) => {
-        store.removeComposeLayer(lid);
-        await api.deleteComposeLayer(lid).catch(() => {});
-      };
 
       if (directChildren.length === 0) {
         if (
@@ -37,7 +38,7 @@ export function useDeleteElement() {
           }))
         )
           return;
-        await delOne(id);
+        await commitLayerDelete(id);
         return;
       }
 
@@ -58,21 +59,10 @@ export function useDeleteElement() {
       if (!choice) return;
 
       if (choice === 'with') {
-        const subtree: string[] = [];
-        const stack = [id];
-        while (stack.length) {
-          const cur = stack.pop()!;
-          subtree.push(cur);
-          for (const c of childrenOf(cur)) stack.push(c.id);
-        }
-        for (const sid of subtree.reverse()) await delOne(sid);
+        // Subtree removed explicitly, children before parents, as one action.
+        await commitLayerDelete(id);
       } else {
-        for (const c of directChildren) {
-          const patch = { parentId: layer.parentId ?? null };
-          store.updateComposeLayerLocal(c.id, patch);
-          await api.updateComposeLayer(c.id, patch).catch(() => {});
-        }
-        await delOne(id);
+        await commitLayerDeleteKeepChildren(id, layer.parentId ?? null);
       }
     },
     [confirm, choose, t]
@@ -80,11 +70,10 @@ export function useDeleteElement() {
 
   const deleteSceneNode = useCallback(
     async (id: string) => {
-      const store = useEditorStore.getState();
-      const node = store.nodes.find((n) => n.id === id);
+      const node = sceneNodesNow().find((n) => n.id === id);
       if (!node) return;
       const childrenOf = (pid: string) =>
-        store.nodes.filter((n) => n.parentId === pid);
+        sceneNodesNow().filter((n) => n.parentId === pid);
       const directChildren = childrenOf(id);
 
       try {
@@ -97,8 +86,7 @@ export function useDeleteElement() {
             }))
           )
             return;
-          await api.deleteNode(id);
-          store.deleteNode(id);
+          await commitNodeDelete(id);
           return;
         }
 
@@ -122,25 +110,13 @@ export function useDeleteElement() {
         if (!choice) return;
 
         if (choice === 'with') {
-          // Backend cascades on parent_id; mirror it in the store so the subtree
-          // doesn't linger in the UI until reload.
-          const subtree: string[] = [];
-          const stack = [id];
-          while (stack.length) {
-            const cur = stack.pop()!;
-            subtree.push(cur);
-            for (const c of childrenOf(cur)) stack.push(c.id);
-          }
-          await api.deleteNode(id);
-          for (const sid of subtree) store.deleteNode(sid);
+          // Removes the subtree explicitly (deepest first) as one undo action —
+          // see mesh/writes.ts on why the FK cascade alone isn't enough.
+          await commitNodeDelete(id);
         } else {
-          for (const c of directChildren) {
-            const patch = { parentId: node.parentId ?? null };
-            store.updateNode(c.id, patch);
-            await api.updateNode(c.id, patch).catch(() => {});
-          }
-          await api.deleteNode(id);
-          store.deleteNode(id);
+          // Detach the children onto this node's parent, then remove it — also
+          // one undo action, so the reparents don't unwind separately.
+          await commitNodeDeleteKeepChildren(id, node.parentId ?? null);
         }
       } catch (e: unknown) {
         alert(
