@@ -62,13 +62,28 @@ guarded import means an unbundled `node dist` / `pnpm dev` run gets full
 functionality while a stripped distribution that lacks the package degrades
 gracefully.
 
-**Known gap (observed 2026-11-06):** the release zip built by
-`.github/workflows/release.yml` is such a stripped distribution — it ships
-`bundle.cjs` and no `node_modules` — so in packaged releases the import fails
-and `system_hotkey` nodes never fire. Hotkeys work only from a source checkout
-(`pnpm dev` / unbundled) until the release packaging ships the package and its
-per-platform key-server binary. Platform support comes from the library: Windows,
-macOS, and Linux under **X11 only** (no Wayland).
+**Release zips ship it beside the bundle.** Node resolves the bundle's
+`import()` from `bundle.cjs`'s directory, so the release step in
+`.github/workflows/release.yml` runs
+[`scripts/stageKeyHook.mjs`](../../packages/backend/scripts/stageKeyHook.mjs)
+`<releaseDir> <platform>`, which copies the package and its one dependency
+(`sudo-prompt`) into `<releaseDir>/node_modules/`, keeps only that platform's
+key server (`WinKeyServer.exe` 2.3 MB / `X11KeyServer` 1.1 MB / `MacKeyServer`)
+and marks it executable. The executable bit matters: the library only falls
+back to a `sudo-prompt` password dialog (to `chmod +x` the binary) when
+spawning it fails, so a binary shipped executable never prompts. `zip -r` /
+`unzip -o` (the self-update path in `start.sh`) preserve the bit. Before
+2026-11-06 the zip carried no `node_modules`, so hotkeys silently never fired in
+packaged releases.
+
+### Platform support
+
+From the library: Windows, macOS, and Linux under **X11 only**. Under Wayland
+the X11 key server only sees keys typed into XWayland windows, so global
+hotkeys effectively do not work there.
+
+**Decided (user, 2026-11-06):** X11 only for now; Wayland support is a
+**low-priority todo**, see below.
 
 ## Security note
 
@@ -83,3 +98,23 @@ acceptable under the same single-user assumption documented in
   `nodeMatches` + the node config.
 - The node currently exposes the fired `key`; richer outputs (modifier flags as
   value-outs) would mirror the payload already delivered in `HotkeyEventPayload`.
+
+## Open work
+
+- **Wayland support (low priority).** Researched 2026-11-06, not started. Two
+  routes, neither a drop-in replacement for `node-global-key-listener`:
+  - *Reading `/dev/input/event*` directly (evdev)* — works under Wayland, X11
+    and without a desktop, and keeps vspark's model (the backend sees keys and
+    matches combos itself), so it would slot into `HotkeyManager` as a second
+    backend picked at runtime. Cost: the backend user needs read access to the
+    input devices (`input` group or a udev rule) — a one-time setup step for
+    users. Candidates: `linux-evdev-wayland-helper` (small, new, maturity
+    unknown), the unmaintained `evdev` npm package, or an own reader (evdev
+    events are a fixed binary struct).
+  - *The XDG GlobalShortcuts portal* — the sanctioned Wayland way (KDE Plasma
+    5.27+, GNOME 48+). The app registers *named* shortcuts and the user confirms
+    the key binding in a system dialog, which doesn't match vspark's "record any
+    combo in our UI" flow; no maintained Node wrapper (would be D-Bus directly);
+    reported reliability issues (GNOME 50 app-id registration, KDE portal
+    startup race).
+  - Inferred, not decided: evdev is the better fit for the existing design.
