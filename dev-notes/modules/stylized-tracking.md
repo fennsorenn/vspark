@@ -457,8 +457,10 @@ the drivers edge is typed rather than `Any`. Both nodes are ordinary static node
 
 ## Known limitations
 
-- **The behavior graph is `readonly: true`** — it cannot be rewired in the
-  substrate editor. Everything user-facing goes through the behavior config.
+- ~~The behavior graph is `readonly: true`~~ — no longer: since migration 047
+  a behavior's graph is stored and editable on the canvas (see
+  [component-managers.md](component-managers.md#stored-editable-graphs)).
+  Everything in the panel still goes through the behavior config.
 - **`energy` cannot leave the behavior.** There is no `set_data` node in the
   template and no other bridge, so it cannot currently drive a Logic graph,
   expressions, or particles — only bones, via a rig entry. Adding a `set_data`
