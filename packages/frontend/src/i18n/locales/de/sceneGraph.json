@@ -127,7 +127,6 @@
     "noBehaviorGraphs": "Keine aktiven Komponentengraphen.",
     "nodes": "{{count}} Knoten",
     "disabled": "· deaktiviert",
-    "readOnly": "nur lesen",
     "layer": "Ebene",
     "node": "Knoten",
     "action": "Aktion",

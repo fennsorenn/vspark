@@ -127,7 +127,6 @@
     "noBehaviorGraphs": "No active component graphs.",
     "nodes": "{{count}} nodes",
     "disabled": "· disabled",
-    "readOnly": "read-only",
     "layer": "layer",
     "node": "node",
     "action": "action",
