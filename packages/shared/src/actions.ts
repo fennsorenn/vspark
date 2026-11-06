@@ -160,6 +160,51 @@ export const RESPONSE_TYPES: Readonly<Record<string, ResponseTypeDef>> = {
 
 export const RESPONSE_TYPE_IDS = Object.keys(RESPONSE_TYPES);
 
+/**
+ * Add one response sink (by the slot's `type`) fired from `from`, its value
+ * fields fed by settings nodes reading `<fieldPrefix><field>`. Nothing is
+ * added when the slot has no known type. Returns whether a sink was added.
+ */
+function addResponse(
+  nodes: GraphNodeDescriptor[],
+  edges: GraphEdgeDescriptor[],
+  o: {
+    slot: unknown;
+    sinkId: string;
+    cfgPrefix: string;
+    fieldPrefix: string;
+    from: { nodeId: string; port: string };
+    x: number;
+    y: number;
+  }
+): boolean {
+  const type =
+    isObj(o.slot) && typeof o.slot.type === 'string' ? o.slot.type : '';
+  const def = RESPONSE_TYPES[type];
+  if (!def) return false;
+  nodes.push({ id: o.sinkId, kind: def.nodeKind, position: { x: o.x, y: o.y } });
+  edges.push({
+    fromNodeId: o.from.nodeId,
+    fromPort: o.from.port,
+    toNodeId: o.sinkId,
+    toPort: def.entryPort,
+  });
+  def.fields.forEach((f, j) => {
+    const id = `${o.cfgPrefix}${f}`;
+    nodes.push(settingsNode(id, `${o.fieldPrefix}${f}`, o.x - 280, o.y + j * 70));
+    edges.push(valueEdge(id, o.sinkId, f));
+  });
+  return true;
+}
+
+/** A response slot with a known `type` kept, an unknown one dropped. */
+function normalizeResponse(v: unknown): Record<string, unknown> {
+  if (!isObj(v)) return {};
+  const r = { ...v };
+  if (typeof r.type !== 'string' || !RESPONSE_TYPES[r.type]) delete r.type;
+  return r;
+}
+
 /** Preview tokens for one configured response. */
 function responsePreview(resp: Record<string, unknown>): PreviewToken[] {
   const type = typeof resp.type === 'string' ? resp.type : '';
@@ -320,23 +365,15 @@ const hotkey: ActionKindDef = {
     }
     const responses = isObj(shape.responses) ? shape.responses : {};
     for (let i = 0; i < n; i++) {
-      const slot = responses[String(i)];
-      const type = isObj(slot) && typeof slot.type === 'string' ? slot.type : '';
-      const def = RESPONSE_TYPES[type];
-      if (!def) continue; // unset position: that output stays unconnected
-      const sinkId = `response_${i}`;
-      const y = i * 260;
-      nodes.push({ id: sinkId, kind: def.nodeKind, position: { x: 820, y } });
-      edges.push({
-        fromNodeId: source.nodeId,
-        fromPort: source.port(i),
-        toNodeId: sinkId,
-        toPort: def.entryPort,
-      });
-      def.fields.forEach((f, j) => {
-        const id = `cfg_response_${i}_${f}`;
-        nodes.push(settingsNode(id, `responses.${i}.${f}`, 540, y + j * 70));
-        edges.push(valueEdge(id, sinkId, f));
+      // An unset position leaves that output unconnected.
+      addResponse(nodes, edges, {
+        slot: responses[String(i)],
+        sinkId: `response_${i}`,
+        cfgPrefix: `cfg_response_${i}_`,
+        fieldPrefix: `responses.${i}.`,
+        from: { nodeId: source.nodeId, port: source.port(i) },
+        x: 820,
+        y: i * 260,
       });
     }
     return { nodes, edges };
@@ -424,6 +461,20 @@ export function commandNames(command: unknown, aliases: unknown): string[] {
   return out;
 }
 
+/** Keywords / emote names from a comma- or newline-separated list. A keyword
+ *  may be a phrase (spaces are kept). */
+export function keywordList(keywords: unknown): string[] {
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const raw of strOf(keywords).split(/[,\n]/)) {
+    const k = raw.trim().replace(/\s+/g, ' ');
+    if (!k || seen.has(k.toLowerCase())) continue;
+    seen.add(k.toLowerCase());
+    out.push(k);
+  }
+  return out;
+}
+
 /** Regex (flags `i`) matching exactly one of the command names, or '' (which
  *  the regex node treats as "never matches") when there are none. */
 export function commandPattern(names: string[]): string {
@@ -431,6 +482,20 @@ export function commandPattern(names: string[]): string {
     ? `^(?:${names.map(escapeRegExp).join('|')})$`
     : '';
 }
+
+/** Regex (flags `iu`) finding any keyword as a whole word: not preceded or
+ *  followed by a letter, digit or underscore, so emotes such as `:)` work
+ *  too. '' when there are none. */
+export function keywordPattern(words: string[]): string {
+  if (!words.length) return '';
+  const alts = words
+    .map((w) => w.split(' ').map(escapeRegExp).join('\\s+'))
+    .join('|');
+  return `(?<![\\p{L}\\p{N}_])(?:${alts})(?![\\p{L}\\p{N}_])`;
+}
+
+/** The regex flags the keyword templates use with {@link keywordPattern}. */
+export const KEYWORD_FLAGS = 'iu';
 
 /** A user's pattern anchored to the whole text ('' stays ''). */
 export function fullTextPattern(pattern: unknown): string {
@@ -627,6 +692,11 @@ function replyLine(reply: unknown): PreviewToken[] {
     : [{ t: 'msg', key: 'preview.noReply' }];
 }
 
+function triggerLine(s: ActionSettings): PreviewToken[][] {
+  const name = strOf(s.trigger).trim();
+  return name ? [[{ t: 'msg', key: 'preview.trigger', params: { name } }]] : [];
+}
+
 /** Fields every chat-reply kind shares, normalized. */
 function chatBase(src: Record<string, unknown>, cooldownSeconds: number) {
   const counter = normalizeCounter(src.counter);
@@ -791,12 +861,112 @@ const chatPattern: ActionKindDef = {
   },
 };
 
+// ── responses for the single-response kinds ─────────────────────────────────
+
+const RESPONSE_FIELDS: ActionSettingField[] = [
+  { path: 'response.type', class: 'shape' },
+  { path: 'response', class: 'value' },
+];
+
+/** The kind's one response sink, fired from `from` (`response.<field>`). */
+function addSingleResponse(
+  b: Tpl,
+  shape: ActionSettings,
+  from: Out,
+  x: number,
+  y: number
+): void {
+  addResponse(b.nodes, b.edges, {
+    slot: shape.response,
+    sinkId: 'response',
+    cfgPrefix: 'cfg_response_',
+    fieldPrefix: 'response.',
+    from: { nodeId: from[0], port: from[1] },
+    x,
+    y,
+  });
+}
+
+/** Default response of the single-response kinds: none chosen yet. */
+const NO_RESPONSE = (): Record<string, unknown> => ({});
+
+const keywordsHeadline = (s: ActionSettings): PreviewToken[] => {
+  const words = keywordList(s.keywords);
+  return words.length
+    ? [{ t: 'text', text: words.join(', ') }]
+    : [{ t: 'msg', key: 'preview.noKeywords' }];
+};
+
+const responseLine = (s: ActionSettings): PreviewToken[] =>
+  responsePreview(isObj(s.response) ? s.response : {});
+
+// ── Chat keyword ─────────────────────────────────────────────────────────────
+
+const chatKeyword: ActionKindDef = {
+  kind: 'chat_keyword',
+  label: 'Chat keyword',
+  icon: '💬',
+  fields: [
+    { path: 'account', class: 'value' },
+    { path: 'keywords', class: 'value' },
+    { path: 'cooldown', class: 'value' },
+    { path: 'trigger', class: 'value' },
+    { path: 'derived', class: 'value' },
+    ...RESPONSE_FIELDS,
+  ],
+  defaults: () => chatKeyword.normalize({ response: { type: 'play_clip' } }),
+  normalize(raw) {
+    const src = isObj(raw) ? raw : {};
+    const keywords = strOf(src.keywords);
+    return {
+      ...src,
+      account: strOf(src.account),
+      keywords,
+      cooldown: normalizeCooldown(src.cooldown, DEFAULT_CHAT_COOLDOWN),
+      response: normalizeResponse(src.response ?? NO_RESPONSE()),
+      trigger: strOf(src.trigger).trim(),
+      derived: { keywordPattern: keywordPattern(keywordList(keywords)) },
+    };
+  },
+  build(shape) {
+    const b = new Tpl();
+    b.node('trigger', 'overlive_chat_message', 0, 200);
+    b.setting('account', 'trigger', 'account', -280, 200);
+    b.node('keyword_match', 'regex', 280, 420, { flags: KEYWORD_FLAGS });
+    b.wire('trigger', 'text', 'keyword_match', 'text');
+    b.setting('derived.keywordPattern', 'keyword_match', 'pattern', 0, 500);
+    b.node('keyword_gate', 'if_else', 560, 200);
+    b.wire('trigger', 'event', 'keyword_gate', 'in');
+    b.wire('keyword_match', 'matched', 'keyword_gate', 'condition');
+    const passed = addCooldown(b, [['keyword_gate', 'then']], 840);
+    addSingleResponse(b, shape, passed, 1400, 0);
+    // Optional trigger: an empty name sends nothing.
+    b.node('emit', 'send_trigger', 1400, 560);
+    b.wire(passed[0], passed[1], 'emit', 'fire');
+    b.setting('trigger', 'emit', 'name', 1120, 640);
+    b.wire('trigger', 'data', 'emit', 'payload');
+    return b.out();
+  },
+  preview(s) {
+    const headline = keywordsHeadline(s);
+    const cd = normalizeCooldown(s.cooldown, 0);
+    if (cd.seconds > 0)
+      headline.push(
+        cd.group
+          ? { t: 'msg', key: 'preview.cooldownGroup', params: { s: cd.seconds, group: cd.group } }
+          : { t: 'msg', key: 'preview.cooldown', params: { s: cd.seconds } }
+      );
+    return { headline, lines: [responseLine(s), ...triggerLine(s)] };
+  },
+};
+
 // ── registry ─────────────────────────────────────────────────────────────────
 
 export const ACTION_KINDS: readonly ActionKindDef[] = [
   hotkey,
   chatCommand,
   chatPattern,
+  chatKeyword,
 ];
 
 const BY_KIND = new Map(ACTION_KINDS.map((k) => [k.kind, k]));

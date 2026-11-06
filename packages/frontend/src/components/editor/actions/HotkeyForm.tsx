@@ -9,29 +9,14 @@ import {
   HOTKEY_MODES,
   MAX_CYCLE_POSITIONS,
   MIN_CYCLE_POSITIONS,
-  RESPONSE_TYPE_IDS,
   hotkeyPositionCount,
 } from '@vspark/shared/actions';
 import type { ActionRecord } from '../../../mesh/actions';
-import {
-  FieldEditor,
-  ShortcutRecorder,
-  effectiveFields,
-} from '../macros/MacrosPanel';
-import type { HotkeyCombo, MacroFieldValue } from '../macros/types';
+import { ShortcutRecorder } from '../macros/MacrosPanel';
+import type { HotkeyCombo } from '../macros/types';
 import { HelpButton } from '../../../help/HelpButton';
-import { inputStyle } from './styles';
-
-const isObj = (v: unknown): v is Record<string, unknown> =>
-  typeof v === 'object' && v !== null && !Array.isArray(v);
-
-const labelStyle = {
-  display: 'flex',
-  alignItems: 'center',
-  gap: 4,
-  fontSize: 10,
-  color: '#888',
-} as const;
+import { inputStyle, labelStyle } from './styles';
+import { ResponseEditor, isObj } from './fields';
 
 const EMPTY_COMBO: HotkeyCombo = {
   key: '',
@@ -100,56 +85,15 @@ export function HotkeyForm({
           </select>
         </label>
       )}
-      {Array.from({ length: n }, (_, i) => {
-        const slot = isObj(responses[String(i)]) ? (responses[String(i)] as Record<string, unknown>) : {};
-        const type = typeof slot.type === 'string' ? slot.type : '';
-        const values = slot as Record<string, MacroFieldValue>;
-        return (
-          <div
-            key={i}
-            className="vs-action-response"
-            style={{
-              display: 'flex',
-              flexWrap: 'wrap',
-              gap: 6,
-              alignItems: 'center',
-              padding: 6,
-              borderRadius: 4,
-              background: '#10101a',
-            }}
-          >
-            <span style={{ fontSize: 10, color: '#888', minWidth: 52 }}>
-              {n > 1 ? t('form.position', { n: i + 1 }) : t('form.response')}
-            </span>
-            <select
-              className="vs-action-response-type"
-              value={type}
-              onChange={(e) => onSetting(`responses.${i}.type`, e.target.value)}
-              style={inputStyle}
-            >
-              <option value="" disabled>
-                {t('form.chooseResponse')}
-              </option>
-              {RESPONSE_TYPE_IDS.map((id) => (
-                <option key={id} value={id}>
-                  {t(`responses.${id}`)}
-                </option>
-              ))}
-            </select>
-            {type &&
-              effectiveFields({ defId: type, values }).map((f) => (
-                <FieldEditor
-                  key={f.key}
-                  field={f}
-                  value={values[f.key]}
-                  values={values}
-                  className="vs-action-field"
-                  onChange={(v) => onSetting(`responses.${i}.${f.key}`, v ?? null)}
-                />
-              ))}
-          </div>
-        );
-      })}
+      {Array.from({ length: n }, (_, i) => (
+        <ResponseEditor
+          key={i}
+          label={n > 1 ? t('form.position', { n: i + 1 }) : t('form.response')}
+          path={`responses.${i}`}
+          slot={responses[String(i)]}
+          onSetting={onSetting}
+        />
+      ))}
     </div>
   );
 }

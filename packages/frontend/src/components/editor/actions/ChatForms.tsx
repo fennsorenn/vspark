@@ -13,6 +13,7 @@ import {
   CounterField,
   Field,
   RankField,
+  ResponseEditor,
   TemplateField,
   type OnSetting,
 } from './fields';
@@ -112,8 +113,61 @@ export function ChatPatternForm({ action, onSetting }: KindFormProps) {
   );
 }
 
+function KeywordsField({ action, onSetting }: KindFormProps) {
+  const { t } = useTranslation('actions');
+  return (
+    <Field label={t('form.keywords')} hint={t('form.keywordsHint')}>
+      <DraftText
+        className="vs-action-keywords"
+        value={str(action.settings.keywords)}
+        placeholder="LUL, KEKW"
+        onCommit={(v) => onSetting('keywords', v)}
+      />
+    </Field>
+  );
+}
+
+function TriggerField({ action, onSetting }: KindFormProps) {
+  const { t } = useTranslation('actions');
+  return (
+    <Field
+      label={t('form.trigger')}
+      hint={t('form.triggerHint')}
+      help={{ anchor: 'trigger', tip: t('help.trigger') }}
+    >
+      <DraftText
+        className="vs-action-trigger"
+        value={str(action.settings.trigger)}
+        onCommit={(v) => onSetting('trigger', v)}
+      />
+    </Field>
+  );
+}
+
+export function ChatKeywordForm(props: KindFormProps) {
+  const { t } = useTranslation('actions');
+  const { action, onSetting } = props;
+  const s = action.settings;
+  return (
+    <div style={column}>
+      <KeywordsField {...props} />
+      <CooldownField value={s.cooldown} onSetting={onSetting} />
+      <ResponseEditor
+        label={t('form.response')}
+        path="response"
+        slot={s.response}
+        allowNone
+        onSetting={onSetting}
+      />
+      <TriggerField {...props} />
+      <AccountField value={s.account} onSetting={onSetting} />
+    </div>
+  );
+}
+
 /** The settings form per kind (Hotkey's lives in HotkeyForm.tsx). */
 export const CHAT_FORMS: Record<string, (p: KindFormProps) => JSX.Element> = {
   chat_command: ChatCommandForm,
   chat_pattern: ChatPatternForm,
+  chat_keyword: ChatKeywordForm,
 };

@@ -6,9 +6,11 @@
  */
 import type { CSSProperties, ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
-import { CHAT_RANKS } from '@vspark/shared/actions';
+import { CHAT_RANKS, RESPONSE_TYPE_IDS } from '@vspark/shared/actions';
 import { useEditorStore } from '../../../store/editorStore';
 import { HelpButton } from '../../../help/HelpButton';
+import { FieldEditor, effectiveFields } from '../macros/MacrosPanel';
+import type { MacroFieldValue } from '../macros/types';
 import { inputStyle, labelStyle } from './styles';
 import { SettingCheck, DraftNumber, DraftText } from './draftInputs';
 
@@ -219,5 +221,72 @@ export function TemplateField({
     >
       {children}
     </Field>
+  );
+}
+
+/**
+ * A response picker (type = shape setting) with the type's typed value
+ * controls (the Macros panel's field editors, incl. the paramPath-typed
+ * property value). `path` is the slot's settings path (`responses.0`,
+ * `response`). With `allowNone` the empty choice ("no response") is
+ * selectable; otherwise it is only a prompt.
+ */
+export function ResponseEditor({
+  label,
+  path,
+  slot,
+  allowNone,
+  onSetting,
+}: {
+  label: string;
+  path: string;
+  slot: unknown;
+  allowNone?: boolean;
+  onSetting: OnSetting;
+}) {
+  const { t } = useTranslation('actions');
+  const values = (isObj(slot) ? slot : {}) as Record<string, MacroFieldValue>;
+  const type = typeof values.type === 'string' ? values.type : '';
+  return (
+    <div
+      className="vs-action-response"
+      style={{
+        display: 'flex',
+        flexWrap: 'wrap',
+        gap: 6,
+        alignItems: 'center',
+        padding: 6,
+        borderRadius: 4,
+        background: '#10101a',
+      }}
+    >
+      <span style={{ fontSize: 10, color: '#888', minWidth: 52 }}>{label}</span>
+      <select
+        className="vs-action-response-type"
+        value={type}
+        onChange={(e) => onSetting(`${path}.type`, e.target.value)}
+        style={inputStyle}
+      >
+        <option value="" disabled={!allowNone}>
+          {allowNone ? t('form.noResponse') : t('form.chooseResponse')}
+        </option>
+        {RESPONSE_TYPE_IDS.map((id) => (
+          <option key={id} value={id}>
+            {t(`responses.${id}`)}
+          </option>
+        ))}
+      </select>
+      {type &&
+        effectiveFields({ defId: type, values }).map((f) => (
+          <FieldEditor
+            key={f.key}
+            field={f}
+            value={values[f.key]}
+            values={values}
+            className="vs-action-field"
+            onChange={(v) => onSetting(`${path}.${f.key}`, v ?? null)}
+          />
+        ))}
+    </div>
   );
 }

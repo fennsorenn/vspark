@@ -224,3 +224,44 @@ describe('Chat pattern', () => {
     expect(settingsOf('a1').derived.fullPattern).toBe('^(?:x+)$');
   });
 });
+
+describe('Chat keyword', () => {
+  it('previews keywords, response and trigger', () => {
+    seed('kw', 'chat_keyword', { keywords: 'LUL, KEKW', trigger: 'laugh' });
+    const { container } = renderPanel();
+    const text = preview(container, 'chat_keyword');
+    for (const s of ['LUL, KEKW', '⚡ trigger laugh', 'Play clip'])
+      expect(text).toContain(s);
+  });
+
+  it('response type is a shape edit (incl. none); keywords and trigger are values', async () => {
+    seed('a1', 'chat_keyword');
+    const user = userEvent.setup();
+    const { container } = renderPanel();
+    const q = (cls: string) => container.querySelector(cls)!;
+    await user.click(q('.vs-action-settings'));
+    await commitText(user, q('.vs-action-keywords'), 'LUL');
+    expect(settingsOf('a1').derived.keywordPattern).toContain('LUL');
+    await user.selectOptions(
+      q('.vs-action-response-type') as HTMLSelectElement,
+      'control_media'
+    );
+    expect(graphOf('a1').nodes.find((n) => n.id === 'response')?.kind).toBe(
+      'media_control'
+    );
+    await user.selectOptions(
+      q('.vs-action-field-action') as HTMLSelectElement,
+      'play'
+    );
+    expect(settingsOf('a1').response.action).toBe('play');
+    await user.selectOptions(
+      q('.vs-action-response-type') as HTMLSelectElement,
+      ''
+    );
+    expect(
+      graphOf('a1').nodes.find((n) => n.id === 'response')
+    ).toBeUndefined();
+    await commitText(user, q('.vs-action-trigger'), 'laugh');
+    expect(settingsOf('a1').trigger).toBe('laugh');
+  });
+});

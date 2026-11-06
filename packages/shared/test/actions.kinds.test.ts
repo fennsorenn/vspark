@@ -313,3 +313,69 @@ describe('Chat pattern', () => {
     });
   });
 });
+
+describe('Chat keyword', () => {
+  it('keywordPattern finds whole words / phrases / emotes, case-insensitively', () => {
+    const re = new RegExp(
+      A.keywordPattern(A.keywordList('LUL, :), good night, Kappa')),
+      A.KEYWORD_FLAGS
+    );
+    expect(re.test('haha lul')).toBe(true);
+    expect(re.test('LUL!')).toBe(true);
+    expect(re.test('LULZ')).toBe(false);
+    expect(re.test('xLUL')).toBe(false);
+    expect(re.test('bye :)')).toBe(true);
+    expect(re.test('good   night')).toBe(true);
+    expect(re.test('ÜLUL')).toBe(false); // letters beyond ASCII count as word chars
+    expect(A.keywordPattern([])).toBe('');
+    expect(A.keywordList(' a ,\nb\n, A ,')).toEqual(['a', 'b']);
+    expect(
+      derived(norm('chat_keyword', { keywords: 'LUL' })).keywordPattern
+    ).toBe(A.keywordPattern(['LUL']));
+  });
+
+  it('template: keyword match → cooldown → response + trigger', () => {
+    const g = graph('chat_keyword', { response: { type: 'control_media' } });
+    expect(nodeOf(g, 'keyword_match')?.defaultConfig).toEqual({
+      flags: A.KEYWORD_FLAGS,
+    });
+    expect(nodeOf(g, 'response')?.kind).toBe('media_control');
+    expect(edgeStrs(g)).toEqual(
+      expect.arrayContaining([
+        'keyword_gate.then>cooldown.in',
+        'cooldown.out>response.fire',
+        'cfg_response_target.value>response.target',
+        'cfg_response_action.value>response.action',
+        'cooldown.out>emit.fire',
+        'cfg_trigger.value>emit.name',
+        'trigger.data>emit.payload',
+      ])
+    );
+    expect(
+      nodeOf(graph('chat_keyword', { response: {} }), 'response')
+    ).toBeUndefined();
+  });
+
+  it('preview: keywords + cooldown; response and trigger lines', () => {
+    const p = preview('chat_keyword', {
+      keywords: 'LUL, KEKW',
+      trigger: 'laugh',
+      response: { type: 'play_clip', clipId: 'c1' },
+    });
+    expect(p.headline).toEqual([
+      { t: 'text', text: 'LUL, KEKW' },
+      { t: 'msg', key: 'preview.cooldown', params: { s: 10 } },
+    ]);
+    expect(p.lines).toEqual([
+      [
+        { t: 'msg', key: 'responses.play_clip' },
+        { t: 'ref', ref: 'clip', id: 'c1' },
+      ],
+      [{ t: 'msg', key: 'preview.trigger', params: { name: 'laugh' } }],
+    ]);
+    expect(preview('chat_keyword').headline[0]).toEqual({
+      t: 'msg',
+      key: 'preview.noKeywords',
+    });
+  });
+});

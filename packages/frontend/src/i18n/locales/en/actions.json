@@ -10,7 +10,8 @@
     "cooldown": "How often the action may run, optionally shared with other actions",
     "counter": "Count how often the action ran and use the number in the reply",
     "placeholders": "Placeholders you can use in the text",
-    "patterns": "How patterns (regular expressions) work"
+    "patterns": "How patterns (regular expressions) work",
+    "trigger": "Send a named trigger that other Logic can react to"
   },
   "kinds": {
     "hotkey": {
@@ -24,6 +25,10 @@
     "chat_pattern": {
       "label": "Chat pattern",
       "description": "Reply to chat messages that match a pattern, using the parts it captures"
+    },
+    "chat_keyword": {
+      "label": "Chat keyword",
+      "description": "React when a keyword or emote shows up in chat: play a sound or clip, send a trigger …"
     }
   },
   "row": {
@@ -77,7 +82,12 @@
     "reply": "Reply",
     "placeholders": "Placeholders: {{list}}. Empty: no reply.",
     "pattern": "Pattern",
-    "patternHint": "The whole message must match (case is ignored). Named groups become placeholders."
+    "patternHint": "The whole message must match (case is ignored). Named groups become placeholders.",
+    "keywords": "Keywords",
+    "keywordsHint": "Words or emote names, separated by commas. Whole words only, case is ignored.",
+    "trigger": "Send trigger",
+    "triggerHint": "Optional trigger name. Empty: no trigger.",
+    "noResponse": "No response"
   },
   "mode": {
     "single": "Single",
@@ -98,6 +108,7 @@
     "position": "{{n}}.",
     "noCommand": "No command",
     "noPattern": "No pattern",
+    "noKeywords": "No keywords",
     "noReply": "No reply",
     "rank": {
       "sub": "subs+",
@@ -108,7 +119,8 @@
     "cooldownGroup": "⏱ {{s}} s ({{group}})",
     "counter": "# {{name}}",
     "counterOwn": "# counted",
-    "argsPattern": "args:"
+    "argsPattern": "args:",
+    "trigger": "⚡ trigger {{name}}"
   },
   "responses": {
     "play_clip": "Play clip",

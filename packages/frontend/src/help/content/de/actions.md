@@ -74,6 +74,20 @@ Beispiel: Das Muster `"(?<quote>.+)" - (?<who>[^.]+)\. (?<year>\d{4})` passt zu
 `"I'll be back" - Terminator. 1984`, und die Antwort kann `${quote}`, `${who}`
 und `${year}` verwenden.
 
+## Chat-Stichwort {#chat_keyword}
+
+Ein **Chat-Stichwort** reagiert, wenn eines seiner Stichwörter oder Emote-Namen
+irgendwo in einer Chat-Nachricht vorkommt — als ganzes Wort, ohne auf Groß- und
+Kleinschreibung zu achten (`LUL` passt zu „haha lul!“, aber nicht zu „LULZ“).
+
+- **Stichwörter**: Wörter, Wortgruppen oder Emote-Namen, durch Kommas getrennt.
+- **Abklingzeit**: siehe [Abklingzeit](#cooldown).
+- **Reaktion**: was passiert — einen Clip abspielen, einen Ausdruck oder eine
+  Eigenschaft setzen, ein Video oder eine Audiodatei steuern (für einen
+  Soundeffekt *Medien steuern*, das Audio-Objekt bzw. die Ebene und *Abspielen*
+  wählen) oder *Keine Reaktion*.
+- **Auslöser senden** (optional): siehe [Auslöser](#trigger).
+
 ## Platzhalter {#placeholders}
 
 Antworten und Nachrichten können Platzhalter der Form `${name}` enthalten, die
@@ -133,14 +147,22 @@ Streaming-**Konto** aus den Konten des Projekts (**Konten** in der
 Werkzeugleiste). *Standardkonto* ist das Standardkonto des Projekts; wähle ein
 anderes, wenn du mehrere hast.
 
+## Auslöser {#trigger}
+
+**Auslöser senden** sendet bei jedem Auslösen der Aktion einen benannten
+*Auslöser*. Jeder [Logik](topic:logic)-Graph im Projekt kann mit einem
+**On Trigger**-Knoten desselben Namens darauf reagieren — zum Beispiel, um einen
+Alert anzuzeigen. Leer lassen, um nichts zu senden.
+
 ## Einstellungen, die den Graphen neu aufbauen {#value-shape}
 
 Die meisten Einstellungen — das Kürzel, welcher Clip abgespielt wird, ein zu
 setzender Wert — liest der Graph, während er läuft. Änderungen wirken sofort und
 verändern den Graphen selbst nie.
 
-Einige Einstellungen bestimmen, wie der Graph *aufgebaut* ist: der **Modus**, die
-Anzahl der **Positionen** und die **Art** jeder Reaktion. Änderst du eine davon,
+Einige Einstellungen bestimmen, wie der Graph *aufgebaut* ist: der **Modus** und
+die Anzahl der **Positionen** eines Tastenkürzels sowie die **Art** jeder
+Reaktion (bei jeder Art von Aktion, die eine hat). Änderst du eine davon,
 wird der Graph neu aufgebaut. Hast du den Graphen selbst bearbeitet, fragt
 vspark vorher nach, denn der Neuaufbau verwirft diese Änderungen.
 

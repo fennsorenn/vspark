@@ -313,3 +313,31 @@ describe('Chat pattern', () => {
     ).toBeUndefined();
   });
 });
+
+describe('Chat keyword', () => {
+  it('chat keyword: whole word, case-insensitive; response + trigger with payload; cooldown', async () => {
+    let now = 5_000_000;
+    vi.spyOn(Date, 'now').mockImplementation(() => now);
+    const send = vi.spyOn(triggerRouter, 'send');
+    await create('chat_keyword', {
+      keywords: 'LUL, :), good night',
+      cooldown: { seconds: 10 },
+      response: { type: 'play_clip', clipId: 'clip-1' },
+      trigger: 'laugh',
+    });
+    route(projectId, chatEvent('that was LULZ'));
+    expect(nodeIn('chat_keyword', 'response', 'fire')).toBeUndefined();
+    route(projectId, chatEvent('haha lul!'));
+    expect(nodeIn('chat_keyword', 'response', 'fire')).toBeDefined();
+    expect(send).toHaveBeenCalledWith(
+      projectId,
+      'laugh',
+      expect.objectContaining({ username: 'alice', text: 'haha lul!' })
+    );
+    route(projectId, chatEvent('good   night all')); // cooldown
+    expect(send).toHaveBeenCalledTimes(1);
+    now += 11_000;
+    route(projectId, chatEvent('bye :)'));
+    expect(send).toHaveBeenCalledTimes(2);
+  });
+});

@@ -70,6 +70,19 @@ Example: the pattern `"(?<quote>.+)" - (?<who>[^.]+)\. (?<year>\d{4})` matches
 `"I'll be back" - Terminator. 1984` and the reply can use `${quote}`, `${who}`
 and `${year}`.
 
+## Chat keyword {#chat_keyword}
+
+A **Chat keyword** reacts when one of its keywords or emote names shows up
+anywhere in a chat message — as a whole word, ignoring upper and lower case
+(`LUL` matches "haha lul!" but not "LULZ").
+
+- **Keywords**: words, phrases or emote names, separated by commas.
+- **Cooldown**: see [Cooldown](#cooldown).
+- **Response**: what happens — play a clip, set an expression or property,
+  control a video or audio file (for a sound effect, pick *Control media*, the
+  audio object or layer and *Play*), or *No response*.
+- **Send trigger** (optional): see [Triggers](#trigger).
+
 ## Placeholders {#placeholders}
 
 Replies and messages can contain placeholders in the form `${name}`, which are
@@ -125,14 +138,22 @@ Chat and redemption actions listen on — and reply with — a streaming
 **account** from the project's accounts (**Accounts** in the toolbar). *Default
 account* is the project's default; pick another one if you have several.
 
+## Triggers {#trigger}
+
+**Send trigger** sends a named *trigger* each time the action runs. Any
+[Logic](topic:logic) graph in the project can react to it with an **On Trigger**
+node of the same name — for example to show an alert. Leave the name empty to
+send nothing.
+
 ## Settings that rebuild the graph {#value-shape}
 
 Most settings — the shortcut, which clip to play, a value to set — are read by
 the graph while it runs. Changing them takes effect right away and never touches
 the graph itself.
 
-A few settings decide what the graph *looks like*: the **mode**, the number of
-**positions**, and the **type** of each response. Changing one of these rebuilds
+A few settings decide what the graph *looks like*: a hotkey's **mode** and
+number of **positions**, and the **type** of each response (in every kind that
+has one). Changing one of these rebuilds
 the graph. If you have edited the graph yourself, vspark asks first, because
 the rebuild discards those edits.
 

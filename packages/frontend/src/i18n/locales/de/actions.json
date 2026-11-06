@@ -10,7 +10,8 @@
     "cooldown": "Wie oft die Aktion laufen darf, optional geteilt mit anderen Aktionen",
     "counter": "Zählen, wie oft die Aktion lief, und die Zahl in der Antwort verwenden",
     "placeholders": "Platzhalter, die du im Text verwenden kannst",
-    "patterns": "Wie Muster (reguläre Ausdrücke) funktionieren"
+    "patterns": "Wie Muster (reguläre Ausdrücke) funktionieren",
+    "trigger": "Einen benannten Auslöser senden, auf den andere Logik reagieren kann"
   },
   "kinds": {
     "hotkey": {
@@ -24,6 +25,10 @@
     "chat_pattern": {
       "label": "Chat-Muster",
       "description": "Auf Chat-Nachrichten antworten, die zu einem Muster passen, mit den erfassten Teilen"
+    },
+    "chat_keyword": {
+      "label": "Chat-Stichwort",
+      "description": "Reagieren, wenn ein Stichwort oder Emote im Chat auftaucht: Sound oder Clip abspielen, Auslöser senden …"
     }
   },
   "row": {
@@ -77,7 +82,12 @@
     "reply": "Antwort",
     "placeholders": "Platzhalter: {{list}}. Leer: keine Antwort.",
     "pattern": "Muster",
-    "patternHint": "Die ganze Nachricht muss passen (Groß-/Kleinschreibung egal). Benannte Gruppen werden zu Platzhaltern."
+    "patternHint": "Die ganze Nachricht muss passen (Groß-/Kleinschreibung egal). Benannte Gruppen werden zu Platzhaltern.",
+    "keywords": "Stichwörter",
+    "keywordsHint": "Wörter oder Emote-Namen, durch Kommas getrennt. Nur ganze Wörter, Groß-/Kleinschreibung egal.",
+    "trigger": "Auslöser senden",
+    "triggerHint": "Optionaler Name eines Auslösers. Leer: kein Auslöser.",
+    "noResponse": "Keine Reaktion"
   },
   "mode": {
     "single": "Einfach",
@@ -98,6 +108,7 @@
     "position": "{{n}}.",
     "noCommand": "Kein Befehl",
     "noPattern": "Kein Muster",
+    "noKeywords": "Keine Stichwörter",
     "noReply": "Keine Antwort",
     "rank": {
       "sub": "ab Abos",
@@ -108,7 +119,8 @@
     "cooldownGroup": "⏱ {{s}} s ({{group}})",
     "counter": "# {{name}}",
     "counterOwn": "# gezählt",
-    "argsPattern": "Argumente:"
+    "argsPattern": "Argumente:",
+    "trigger": "⚡ Auslöser {{name}}"
   },
   "responses": {
     "play_clip": "Clip abspielen",
