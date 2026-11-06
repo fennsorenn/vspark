@@ -30,7 +30,10 @@
   keycode → OS-hook key name + `formatCombo`, 8 tests), `edit.ts` (pure
   descriptor transforms: insert / removeMacro with exclusive-ownership guard /
   patchNodeConfig / setSingleAction, 6 tests), `useMacros.ts` (data layer:
-  read all project logic → project rows → write back via `api.updateLogic`; new
+  read all project logic → project rows → write back via `api.updateLogic` —
+  superseded when `dev` was merged in (2026-11-06): reads now come from the mesh
+  replica (`useLogicRecords`) and an edit writes only the nodes/edges it changed
+  via `mesh/logicWrites.commitGraphDiff`, one undo action, no polling; new
   macros in an auto-created "Macros" project graph; per-macro enable via the
   hotkey node's `enabled` gate), `MacrosPanel.tsx` (left-dock "Macros" tab: row
   list, ShortcutRecorder, action picker + field editors reusing store

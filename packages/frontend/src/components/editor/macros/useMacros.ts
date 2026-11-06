@@ -1,16 +1,24 @@
 /**
  * useMacros — the Macros panel's data layer.
  *
- * Reads every project-scoped logic graph, projects their descriptors into macro
- * rows (so macros authored on the canvas show up too), and exposes CRUD that
- * writes back through the same descriptors (api.updateLogic). New macros land in
- * a single auto-created "Macros" logic graph; per-macro enable rides the hotkey
- * node's `enabled` config gate. See dev-notes/plans/macro-ui.md.
+ * Reads every project-scoped logic graph from the mesh replica, projects their
+ * descriptors into macro rows (so macros authored on the canvas show up too),
+ * and exposes CRUD that writes back through the same descriptors on the mesh
+ * (mesh/logicWrites — only the nodes and edges an edit changes, as one undo
+ * action). New macros land in a single auto-created "Macros" logic graph;
+ * per-macro enable rides the hotkey node's `enabled` config gate. See
+ * dev-notes/plans/macro-ui.md.
  */
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useMemo } from 'react';
 import type { GraphDescriptor } from '@vspark/shared/signal';
-import { api, type LogicRecord } from '../../../api/client';
+import type { LogicRecord } from '../../../api/client';
+import { useLogicRecords } from '../../../mesh/hooks';
+import {
+  commitGraphDiff,
+  commitLogicCreate,
+  logicFor,
+} from '../../../mesh/logicWrites';
 import { projectMacros } from './projection';
 import { assembleSingleMacro, buildHotkeyNode } from './build';
 import {
@@ -32,7 +40,13 @@ function newId(): string {
 }
 
 function emptyDescriptor(id: string): GraphDescriptor {
-  return { id, label: MACROS_GRAPH_NAME, readonly: false, nodes: [], edges: [] };
+  return {
+    id,
+    label: MACROS_GRAPH_NAME,
+    readonly: false,
+    nodes: [],
+    edges: [],
+  };
 }
 
 function descriptorOf(rec: LogicRecord): GraphDescriptor {
@@ -41,39 +55,31 @@ function descriptorOf(rec: LogicRecord): GraphDescriptor {
 
 export interface UseMacros {
   rows: MacroRow[];
+  /** The replica is loaded before the editor renders, so this is always false;
+   *  kept so the panel's empty state reads the same. */
   loading: boolean;
-  addMacro: (shortcut: HotkeyCombo, action: MacroActionInstance | null) => Promise<void>;
+  addMacro: (
+    shortcut: HotkeyCombo,
+    action: MacroActionInstance | null
+  ) => Promise<void>;
   setShortcut: (row: MacroRow, shortcut: HotkeyCombo) => Promise<void>;
   setEnabled: (row: MacroRow, enabled: boolean) => Promise<void>;
-  setAction: (row: MacroRow, action: MacroActionInstance | null) => Promise<void>;
+  setAction: (
+    row: MacroRow,
+    action: MacroActionInstance | null
+  ) => Promise<void>;
   removeRow: (row: MacroRow) => Promise<void>;
-  refresh: () => Promise<void>;
 }
 
 export function useMacros(projectId: string | undefined): UseMacros {
-  const [logics, setLogics] = useState<LogicRecord[]>([]);
-  const [loading, setLoading] = useState(true);
-  const logicsRef = useRef<LogicRecord[]>([]);
-  logicsRef.current = logics;
-  // Suppress the background poll while our own write is in flight so it can't
-  // clobber the optimistic descriptor with a pre-write server snapshot.
-  const writing = useRef(0);
-
-  const refresh = useCallback(async () => {
-    if (!projectId) return;
-    try {
-      const list = await api.getProjectLogic(projectId);
-      if (writing.current === 0) setLogics(list);
-    } finally {
-      setLoading(false);
-    }
-  }, [projectId]);
-
-  useEffect(() => {
-    void refresh();
-    const t = setInterval(() => void refresh(), 3000);
-    return () => clearInterval(t);
-  }, [refresh]);
+  const all = useLogicRecords();
+  const logics = useMemo(
+    () =>
+      Object.values(all)
+        .filter((l) => l.ownerKind === 'project' && l.ownerId === projectId)
+        .sort((a, b) => (a.createdAt ?? '').localeCompare(b.createdAt ?? '')),
+    [all, projectId]
+  );
 
   const rows = useMemo(
     () =>
@@ -83,48 +89,43 @@ export function useMacros(projectId: string | undefined): UseMacros {
     [logics]
   );
 
-  const persist = useCallback(
-    async (logicId: string, next: GraphDescriptor) => {
-      writing.current += 1;
-      setLogics((ls) =>
-        ls.map((l) => (l.id === logicId ? { ...l, descriptor: next } : l))
-      );
-      try {
-        await api.updateLogic(logicId, { descriptor: next });
-      } finally {
-        writing.current -= 1;
-      }
-    },
-    []
-  );
-
+  /** Apply a whole-descriptor transform, writing only what it changed. Reads the
+   *  graph fresh from the replica so a stale render can't undo a newer edit. */
   const mutate = useCallback(
-    (logicId: string, fn: (d: GraphDescriptor) => GraphDescriptor) => {
-      const rec = logicsRef.current.find((l) => l.id === logicId);
-      if (!rec) return Promise.resolve();
-      return persist(logicId, fn(descriptorOf(rec)));
+    async (logicId: string, fn: (d: GraphDescriptor) => GraphDescriptor) => {
+      if (!projectId) return;
+      const rec = logicFor({ kind: 'project', id: projectId }).find(
+        (l) => l.id === logicId
+      );
+      if (!rec) return;
+      const before = descriptorOf(rec);
+      commitGraphDiff(logicId, before, fn(before));
     },
-    [persist]
+    [projectId]
   );
-
-  const ensureMacrosGraph = useCallback(async (): Promise<LogicRecord> => {
-    const existing = logicsRef.current.find((l) => l.name === MACROS_GRAPH_NAME);
-    if (existing) return existing;
-    const created = await api.createProjectLogic(projectId!, MACROS_GRAPH_NAME);
-    setLogics((ls) => [...ls, created]);
-    return created;
-  }, [projectId]);
 
   const addMacro = useCallback(
     async (shortcut: HotkeyCombo, action: MacroActionInstance | null) => {
       if (!projectId) return;
-      const graph = await ensureMacrosGraph();
       const sub = action
         ? assembleSingleMacro(shortcut, action, newId)
         : { nodes: [buildHotkeyNode(shortcut, newId)], edges: [] };
-      await persist(graph.id, insertSubgraph(descriptorOf(graph), sub));
+      const existing = logicFor({ kind: 'project', id: projectId }).find(
+        (l) => l.name === MACROS_GRAPH_NAME
+      );
+      if (existing) {
+        await mutate(existing.id, (d) => insertSubgraph(d, sub));
+        return;
+      }
+      // First macro: create the graph with it in place — one committed write.
+      const id = newId();
+      await commitLogicCreate(
+        { kind: 'project', id: projectId },
+        MACROS_GRAPH_NAME,
+        insertSubgraph(emptyDescriptor(id), sub)
+      );
     },
-    [projectId, ensureMacrosGraph, persist]
+    [projectId, mutate]
   );
 
   const setShortcut = useCallback(
@@ -158,18 +159,18 @@ export function useMacros(projectId: string | undefined): UseMacros {
   );
 
   const removeRow = useCallback(
-    (row: MacroRow) => mutate(row.logicId, (d) => removeMacro(d, row.hotkeyNodeId)),
+    (row: MacroRow) =>
+      mutate(row.logicId, (d) => removeMacro(d, row.hotkeyNodeId)),
     [mutate]
   );
 
   return {
     rows,
-    loading,
+    loading: false,
     addMacro,
     setShortcut,
     setEnabled,
     setAction,
     removeRow,
-    refresh,
   };
 }
