@@ -32,6 +32,7 @@ import {
 } from '../../mesh/writes';
 import { ComposeTree } from './ComposeTree';
 import { MacrosPanel } from './macros/MacrosPanel';
+import { ActionsPanel } from './actions/ActionsPanel';
 import { ClipsSection } from './ClipsSection';
 import { LogicSection } from './LogicSection';
 import { ContextMenu, type ContextMenuItem } from './ContextMenu';
@@ -1729,6 +1730,7 @@ import {
   useTrackingStatuses,
 } from '../../mesh/hooks';
 import { useSceneNode, useSceneNodes, useScenes } from '../../mesh/nodes';
+import { useProjectActions } from '../../mesh/actions';
 
 function LogicListPanel() {
   const { t } = useTranslation('sceneGraph');
@@ -1774,9 +1776,15 @@ function LogicListPanel() {
   >({});
   const triedOwnerNames = useRef(new Set<string>());
   const ownedLogic = useMemo(
-    () => Object.values(storeLogic).filter((g) => g.ownerKind !== 'project'),
+    () =>
+      Object.values(storeLogic).filter(
+        (g) => g.ownerKind === 'scene_node' || g.ownerKind === 'compose_layer'
+      ),
     [storeLogic]
   );
+  // Action graphs are listed here too, so one opened from the Actions panel
+  // shows as selected. Their owner's name is in the replica (no join needed).
+  const projectActions = useProjectActions(projectId);
   useEffect(() => {
     if (!projectId) return;
     const unknown = ownedLogic.filter(
@@ -1799,14 +1807,18 @@ function LogicListPanel() {
       )
       .catch(() => {});
   }, [ownedLogic, ownerNames, projectId]);
-  const scopedLogic: ScopedLogicRecord[] = useMemo(
-    () =>
-      ownedLogic
+  const scopedLogic: ScopedLogicRecord[] = useMemo(() => {
+    const actionNames = new Map(projectActions.map((a) => [a.id, a.name]));
+    const actionLogic = Object.values(storeLogic)
+      .filter((g) => g.ownerKind === 'action' && actionNames.has(g.ownerId))
+      .map((g) => ({ ...g, ownerName: actionNames.get(g.ownerId) ?? '' }));
+    return [
+      ...ownedLogic
         .filter((g) => ownerNames[g.id])
-        .map((g) => ({ ...g, ...ownerNames[g.id] }))
-        .sort((a, b) => (a.createdAt ?? '').localeCompare(b.createdAt ?? '')),
-    [ownedLogic, ownerNames]
-  );
+        .map((g) => ({ ...g, ...ownerNames[g.id] })),
+      ...actionLogic,
+    ].sort((a, b) => (a.createdAt ?? '').localeCompare(b.createdAt ?? ''));
+  }, [ownedLogic, ownerNames, storeLogic, projectActions]);
 
   const handleToggleScopedEnabled = (g: ScopedLogicRecord) => {
     commitLogicPatch(g.id, { enabled: !g.enabled });
@@ -2113,7 +2125,9 @@ function LogicListPanel() {
                     {g.ownerName} ·{' '}
                     {g.ownerKind === 'compose_layer'
                       ? t('logic.layer')
-                      : t('logic.node')}
+                      : g.ownerKind === 'action'
+                        ? t('logic.action')
+                        : t('logic.node')}
                     {g.enabled ? '' : ' ' + t('logic.disabled')}
                   </div>
                 </div>
@@ -3383,6 +3397,10 @@ export function SceneGraph() {
 
   const tabStyle = (active: boolean): React.CSSProperties => ({
     flex: 1,
+    minWidth: 0,
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+    whiteSpace: 'nowrap',
     padding: '7px 0',
     fontSize: 11,
     fontWeight: 600,
@@ -3445,10 +3463,19 @@ export function SceneGraph() {
         >
           {t('tabs.macros')}
         </button>
+        <button
+          className="vs-tab-actions"
+          style={tabStyle(dockTab === 'actions')}
+          onClick={() => setDockTab('actions')}
+          title={t('tabs.actions')}
+        >
+          {t('tabs.actions')}
+        </button>
       </div>
 
       {dockTab === 'graphs' && <LogicListPanel />}
       {dockTab === 'macros' && <MacrosPanel />}
+      {dockTab === 'actions' && <ActionsPanel />}
       {dockTab === 'compose' && <ComposeTree />}
 
       {dockTab === 'scene' && (

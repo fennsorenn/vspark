@@ -49,6 +49,7 @@ const TOPIC_ORDER = [
   'compose',
   'behaviors',
   'logic',
+  'actions',
   'assets',
   'presets',
   'streaming',

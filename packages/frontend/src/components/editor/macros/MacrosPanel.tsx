@@ -49,13 +49,17 @@ const inputStyle: React.CSSProperties = {
 };
 
 // ── Shortcut recorder ─────────────────────────────────────────────────────────
+// Exported for reuse by the Actions panel (Hotkey kind); `className` carries
+// the caller's `vs-` handle.
 
-function ShortcutRecorder({
+export function ShortcutRecorder({
   combo,
   onChange,
+  className,
 }: {
   combo: HotkeyCombo;
   onChange: (c: HotkeyCombo) => void;
+  className?: string;
 }) {
   const { t } = useTranslation('macros');
   const [recording, setRecording] = useState(false);
@@ -87,7 +91,7 @@ function ShortcutRecorder({
 
   return (
     <button
-      className="vs-macro-shortcut"
+      className={className ?? 'vs-macro-shortcut'}
       onClick={() => setRecording((r) => !r)}
       style={{
         ...inputStyle,
@@ -106,24 +110,28 @@ function ShortcutRecorder({
 }
 
 // ── Field editors ─────────────────────────────────────────────────────────────
+// Exported for reuse by the Actions panel; `className` + '-' + field key forms
+// the control's `vs-` handle (default `vs-macro-field-<key>`).
 
-function FieldEditor({
+export function FieldEditor({
   field,
   value,
   values,
   onChange,
+  className,
 }: {
   field: MacroField;
   value: MacroFieldValue;
   values: Record<string, MacroFieldValue>;
   onChange: (v: MacroFieldValue) => void;
+  className?: string;
 }) {
   const { t } = useTranslation('macros');
   const nodes = useSceneNodes();
   const composeLayers = useComposeLayers();
   const trackClips = useTrackClips();
   const expressionsByNode = useEditorStore((s) => s.vrmExpressionsByNode);
-  const cls = `vs-macro-field-${field.key}`;
+  const cls = `${className ?? 'vs-macro-field'}-${field.key}`;
   const cur = value === undefined ? '' : String(value);
 
   const wrap = (el: React.ReactNode) => (
@@ -222,7 +230,7 @@ function FieldEditor({
 
 /** For set-property actions, derive the value field's control from the chosen
  *  paramPath's type (so "visible" is a checkbox, "opacity" a number, etc.). */
-function effectiveFields(instance: MacroActionInstance): MacroField[] {
+export function effectiveFields(instance: MacroActionInstance): MacroField[] {
   const def = macroActionById(instance.defId);
   if (!def) return [];
   const valueField = def.fields.find((f) => f.key === 'value' && f.control === 'string' && f.port === 'value');
