@@ -18,7 +18,7 @@ import type { GraphDescriptor } from '@vspark/shared/signal';
  */
 export const BREATHING_PIPELINE_TEMPLATE: Omit<GraphDescriptor, 'id'> = {
   label: 'Breathing',
-  readonly: true,
+  readonly: false,
   nodes: [
     // ── Context ──────────────────────────────────────────────────────────────
     { id: 'scene_entity', kind: 'scene_entity', position: { x: 960, y: -120 } },

@@ -427,6 +427,14 @@ async function start() {
     };
   }
 
+  // Behaviors' stored graphs first: create missing ones and regenerate
+  // unmodified ones whose template changed, so the managers below start from
+  // current graphs. See dev-notes/modules/component-managers.md.
+  const { behaviorGraphLifecycle } = await import(
+    './behaviors/graphLifecycle.js'
+  );
+  behaviorGraphLifecycle.bootSync();
+
   // Start receivers for any components that were persisted
   const vmcRows = getDb()
     .prepare(

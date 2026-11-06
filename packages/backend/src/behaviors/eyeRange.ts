@@ -1,5 +1,5 @@
 import type { GraphDescriptor } from '@vspark/shared/signal';
-import { DEFAULT_EYE_INPUT_MAX_DEG } from '../signal/nodes/eye_range_map.js';
+import { DEFAULT_EYE_INPUT_MAX_DEG } from '../signal/eyeRangeDefaults.js';
 
 /** Behavior-config fields of the eye range stage (shared by every receiver). */
 export const EYE_RANGE_ENABLED_FIELD = 'eyeRange.enabled';

@@ -10,8 +10,11 @@ import { initBlendshapesBroadcast } from '../../signal/nodes/blendshapes_broadca
 import { OnPoseBroadcast } from '../../signal/nodes/on_pose_broadcast.js';
 import { broadcastBus } from '../../broadcast/bus.js';
 import {
-  makeVmcGraphDescriptor,
-  makeVmcGraphDescriptor2d,
+  behaviorContextConfig,
+  behaviorDescriptorToRun,
+  programChanged,
+} from '../storedGraph.js';
+import {
   HEAD_CALIB_BONES,
 } from './graph.js';
 import { loadVrmSkeleton } from '../../vrm/skeleton.js';
@@ -249,10 +252,13 @@ export class VmcManager {
   // ── graph management ───────────────────────────────────────────────────────
 
   private createGraph(behaviorId: string): SignalGraph {
-    const descriptor =
-      this.behaviorKinds.get(behaviorId) === 'vmc_receiver_2d'
-        ? makeVmcGraphDescriptor2d(behaviorId)
-        : makeVmcGraphDescriptor(behaviorId);
+    // The behavior's stored (editable) graph; the kind's template (3D or 2D)
+    // if none is stored.
+    const descriptor = behaviorDescriptorToRun(
+      this.behaviorKinds.get(behaviorId) ?? 'vmc_receiver',
+      behaviorId,
+      this.behaviorConfigs.get(behaviorId)
+    );
     this.descriptors.set(behaviorId, descriptor);
     if (!this.nodeStates.has(behaviorId))
       this.nodeStates.set(behaviorId, new Map());
@@ -322,14 +328,9 @@ export class VmcManager {
 
   private getNodeConfig(behaviorId: string, nodeId: string): unknown {
     const cfg = this.behaviorConfigs.get(behaviorId) ?? {};
-    const nodeId_ = this.behaviorNodeIds.get(behaviorId) ?? '';
 
-    // Infrastructure nodes with non-config-derived values.
+    // Template nodes with non-config-derived values.
     switch (nodeId) {
-      case 'comp_id':
-        return { behaviorId };
-      case 'scene_entity':
-        return { nodeId: nodeId_ };
       case 'head_calib':
         return { boneFilter: HEAD_CALIB_BONES };
       case 'arm_ik_calib':
@@ -345,13 +346,39 @@ export class VmcManager {
       cfg.nodeConfig as Record<string, unknown> | undefined
     )?.[nodeId] ?? {}) as Record<string, unknown>;
 
-    // settings nodes get the full live component config injected so they
-    // can resolve arbitrary dot-notation field paths.
-    if (nodeDef?.kind === 'settings') {
-      return { ...defaults, ...overrides, _settings: cfg };
-    }
+    // By node kind: settings nodes get the full live component config
+    // (`_settings`) to resolve arbitrary dot-notation field paths;
+    // scene_entity / behavior_id get this behavior's ids — so the context
+    // nodes a user adds on the canvas are fed like the template's.
+    return {
+      ...defaults,
+      ...overrides,
+      ...behaviorContextConfig(nodeDef?.kind, {
+        behaviorId,
+        sceneNodeId: this.behaviorNodeIds.get(behaviorId) ?? '',
+        settings: cfg,
+      }),
+    };
+  }
 
-    return { ...defaults, ...overrides };
+  /** Tear the running graph down: interceptor registrations, then the nodes'
+   *  own resources (timers etc.). */
+  private disposeGraph(behaviorId: string): void {
+    for (const cleanup of this.interceptorCleanups.get(behaviorId) ?? [])
+      cleanup();
+    this.interceptorCleanups.delete(behaviorId);
+    this.graphs.get(behaviorId)?.dispose();
+    this.graphs.delete(behaviorId);
+  }
+
+  /** Swap the running graph for one built from the current stored graph,
+   *  keeping the receiver (socket, connection and tracking state): the packet
+   *  handler fires into whatever graph is current. */
+  private rebuildGraph(behaviorId: string): void {
+    if (!this.graphs.has(behaviorId)) return;
+    this.disposeGraph(behaviorId);
+    this.graphs.set(behaviorId, this.createGraph(behaviorId));
+    console.log(`[VMC] Rebuilt graph of component ${behaviorId}`);
   }
 
   fireGraphEvent(behaviorId: string, nodeId: string, port: string): void {
@@ -415,8 +442,7 @@ export class VmcManager {
     if (existing?.port === port) return;
     if (existing) this.stopReceiver(behaviorId);
 
-    const graph = this.createGraph(behaviorId);
-    this.graphs.set(behaviorId, graph);
+    this.graphs.set(behaviorId, this.createGraph(behaviorId));
 
     // Listener is captured here so we can store the unsubscribe handle on `info`
     // before defining the handler — info itself is referenced inside the handler.
@@ -500,14 +526,14 @@ export class VmcManager {
       const ts = Date.now();
 
       if (Object.keys(rawBones).length > 0) {
-        graph.fire(
+        this.graphs.get(behaviorId)?.fire(
           'vmc',
           'bones',
           mkEvent(BoneRotations.fromRecord(rawBones), ts)
         );
       }
       if (Object.keys(rawArkit).length > 0) {
-        graph.fire(
+        this.graphs.get(behaviorId)?.fire(
           'vmc',
           'arkit',
           mkEvent(Blendshapes.fromRecord(rawArkit), ts)
@@ -527,10 +553,7 @@ export class VmcManager {
     if (!info) return;
     info.unsubscribe();
     this.receivers.delete(behaviorId);
-    this.graphs.delete(behaviorId);
-    for (const cleanup of this.interceptorCleanups.get(behaviorId) ?? [])
-      cleanup();
-    this.interceptorCleanups.delete(behaviorId);
+    this.disposeGraph(behaviorId);
     broadcastBus.removeBehavior(behaviorId);
     if (info.connected)
       publishTracking({ behaviorId, connected: false });
@@ -583,6 +606,14 @@ export class VmcManager {
       else this._loadSkeletonForBehavior(c.id, c.nodeId);
       const port = (c.config.port as number) ?? 39539;
       this.startReceiver(c.id, port);
+      // Its stored graph was edited (or reset): rebuild the running one.
+      if (
+        programChanged(
+          this.descriptors.get(c.id),
+          behaviorDescriptorToRun(c.kind, c.id, liveConfig)
+        )
+      )
+        this.rebuildGraph(c.id);
       active.add(c.id);
     }
     for (const id of this.receivers.keys()) {

@@ -1,7 +1,11 @@
 import { SignalGraph } from '../../signal/engine.js';
 import { NODE_REGISTRY } from '../../signal/registry.js';
 import { OnPoseBroadcast } from '../../signal/nodes/on_pose_broadcast.js';
-import { makePoseStylizerGraphDescriptor } from './graph.js';
+import {
+  behaviorContextConfig,
+  behaviorDescriptorToRun,
+  programChanged,
+} from '../storedGraph.js';
 import { broadcastBus } from '../../broadcast/bus.js';
 import type { GraphDescriptor } from '@vspark/shared/signal';
 import {
@@ -60,7 +64,12 @@ export class PoseStylizerManager {
   // ── graph management ───────────────────────────────────────────────────────
 
   private createGraph(behaviorId: string): SignalGraph {
-    const descriptor = makePoseStylizerGraphDescriptor(behaviorId);
+    // The behavior's stored (editable) graph; the template if none is stored.
+    const descriptor = behaviorDescriptorToRun(
+      'pose_stylizer',
+      behaviorId,
+      this.behaviorConfigs.get(behaviorId)
+    );
     this.descriptors.set(behaviorId, descriptor);
     if (!this.nodeStates.has(behaviorId))
       this.nodeStates.set(behaviorId, new Map());
@@ -111,7 +120,16 @@ export class PoseStylizerManager {
     // `_settings` is consumed by the `settings` nodes to resolve
     // amount / lag / response / rig against the live behavior config (read fresh
     // per pull, so edits hot-apply without a graph rebuild).
-    return { ...defaults, ...overrides, _settings: cfg };
+    // By node kind, so context nodes added on the canvas are fed too.
+    return {
+      ...defaults,
+      ...overrides,
+      ...behaviorContextConfig(nodeDef?.kind, {
+        behaviorId,
+        sceneNodeId: this.behaviorNodeIds.get(behaviorId) ?? '',
+        settings: cfg,
+      }),
+    };
   }
 
   // Only nodes declaring `static persistState` reach this callback — the engine
@@ -158,6 +176,8 @@ export class PoseStylizerManager {
     if (!this.graphs.has(behaviorId)) return;
     for (const fn of this.cleanups.get(behaviorId) ?? []) fn();
     this.cleanups.delete(behaviorId);
+    // Release the nodes' own resources (timers etc.) before dropping it.
+    this.graphs.get(behaviorId)?.dispose();
     this.graphs.delete(behaviorId);
     broadcastBus.removeBehavior(behaviorId);
     console.log(`[PoseStylizer] Stopped behavior ${behaviorId}`);
@@ -186,6 +206,15 @@ export class PoseStylizerManager {
       this.nodeStates.set(c.id, stateMap);
       this.behaviorConfigs.set(c.id, liveConfig);
       this.behaviorNodeIds.set(c.id, c.nodeId);
+      // Its stored graph was edited (or reset): rebuild the running one.
+      if (
+        this.graphs.has(c.id) &&
+        programChanged(
+          this.descriptors.get(c.id),
+          behaviorDescriptorToRun('pose_stylizer', c.id, liveConfig)
+        )
+      )
+        this.stop(c.id);
       this.start(c.id);
       active.add(c.id);
     }

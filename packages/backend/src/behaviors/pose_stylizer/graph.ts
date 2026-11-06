@@ -28,7 +28,7 @@ import type { GraphDescriptor } from '@vspark/shared/signal';
  */
 export const POSE_STYLIZER_TEMPLATE: Omit<GraphDescriptor, 'id'> = {
   label: 'Stylized Tracking',
-  readonly: true,
+  readonly: false,
   nodes: [
     {
       id: 'intercept',

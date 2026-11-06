@@ -138,7 +138,7 @@ function cfgNode(
 
 export const MEDIAPIPE_PIPELINE_TEMPLATE: Omit<GraphDescriptor, 'id'> = {
   label: 'MediaPipe Tracker',
-  readonly: true,
+  readonly: false,
   nodes: [
     // ── Infrastructure ───────────────────────────────────────────────────────
     { id: 'scene_entity', kind: 'scene_entity', position: { x: 1400, y: 0 } },

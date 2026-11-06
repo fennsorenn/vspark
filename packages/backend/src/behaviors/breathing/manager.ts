@@ -1,7 +1,11 @@
 import { SignalGraph } from '../../signal/engine.js';
 import { NODE_REGISTRY } from '../../signal/registry.js';
 import { Clock } from '../../signal/nodes/clock.js';
-import { makeBreathingGraphDescriptor } from './graph.js';
+import {
+  behaviorContextConfig,
+  behaviorDescriptorToRun,
+  programChanged,
+} from '../storedGraph.js';
 import { broadcastBus } from '../../broadcast/bus.js';
 import type { GraphDescriptor } from '@vspark/shared/signal';
 import { getDb } from '../../db/index.js';
@@ -30,7 +34,12 @@ export class BreathingManager {
   // ── graph management ───────────────────────────────────────────────────────
 
   private createGraph(behaviorId: string): SignalGraph {
-    const descriptor = makeBreathingGraphDescriptor(behaviorId);
+    // The behavior's stored (editable) graph; the template if none is stored.
+    const descriptor = behaviorDescriptorToRun(
+      'breathing',
+      behaviorId,
+      this.behaviorConfigs.get(behaviorId)
+    );
     this.descriptors.set(behaviorId, descriptor);
     if (!this.nodeStates.has(behaviorId))
       this.nodeStates.set(behaviorId, new Map());
@@ -77,20 +86,24 @@ export class BreathingManager {
 
   private _getNodeConfig(behaviorId: string, nodeId: string): unknown {
     const cfg = this.behaviorConfigs.get(behaviorId) ?? {};
-    const nodeId_ = this.behaviorNodeIds.get(behaviorId) ?? '';
-
-    if (nodeId === 'scene_entity') return { nodeId: nodeId_ };
-    if (nodeId === 'comp_id') return { behaviorId };
-
     const descriptor = this.descriptors.get(behaviorId);
     const nodeDef = descriptor?.nodes.find((n) => n.id === nodeId);
     const defaults = nodeDef?.defaultConfig ?? {};
     const overrides = ((
       cfg.nodeConfig as Record<string, unknown> | undefined
     )?.[nodeId] ?? {}) as Record<string, unknown>;
-    // _settings is consumed by `settings` nodes to resolve dotted
-    // field paths against the live component config.
-    return { ...defaults, ...overrides, _settings: cfg };
+    // By node kind: scene_entity / behavior_id get this behavior's ids, and
+    // `settings` nodes get `_settings` to resolve dotted field paths against
+    // the live component config.
+    return {
+      ...defaults,
+      ...overrides,
+      ...behaviorContextConfig(nodeDef?.kind, {
+        behaviorId,
+        sceneNodeId: this.behaviorNodeIds.get(behaviorId) ?? '',
+        settings: cfg,
+      }),
+    };
   }
 
   private _persistNodeState(
@@ -133,6 +146,8 @@ export class BreathingManager {
     if (!this.graphs.has(behaviorId)) return;
     for (const fn of this.cleanups.get(behaviorId) ?? []) fn();
     this.cleanups.delete(behaviorId);
+    // Release the nodes' own resources (timers etc.) before dropping it.
+    this.graphs.get(behaviorId)?.dispose();
     this.graphs.delete(behaviorId);
     broadcastBus.removeBehavior(behaviorId);
     console.log(`[Breathing] Stopped component ${behaviorId}`);
@@ -161,6 +176,15 @@ export class BreathingManager {
       this.nodeStates.set(c.id, stateMap);
       this.behaviorConfigs.set(c.id, liveConfig);
       this.behaviorNodeIds.set(c.id, c.nodeId);
+      // Its stored graph was edited (or reset): rebuild the running one.
+      if (
+        this.graphs.has(c.id) &&
+        programChanged(
+          this.descriptors.get(c.id),
+          behaviorDescriptorToRun('breathing', c.id, liveConfig)
+        )
+      )
+        this.stop(c.id);
       this.start(c.id);
       active.add(c.id);
     }

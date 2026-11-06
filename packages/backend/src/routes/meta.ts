@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { networkInterfaces } from 'os';
 import { getAllBehaviorKindMeta } from '../behaviors/registry.js';
+import { behaviorTemplate } from '../behaviors/templates.js';
 import { _vmc } from './shared.js';
 
 const router: ReturnType<typeof Router> = Router();
@@ -67,7 +68,15 @@ router.get('/behaviors/:id/body-calib-state', (req, res) => {
  *       200: { description: Array of component-kind metadata objects }
  */
 router.get('/behavior-kinds', (_req, res) => {
-  res.json({ ok: true, data: getAllBehaviorKindMeta() });
+  // `hasGraph`: the kind runs a stored, editable signal graph (every kind but
+  // api_controller) — the editor shows the graph controls only for those.
+  res.json({
+    ok: true,
+    data: getAllBehaviorKindMeta().map((m) => ({
+      ...m,
+      hasGraph: !!behaviorTemplate(m.kind),
+    })),
+  });
 });
 
 /**

@@ -1,7 +1,11 @@
 import { SignalGraph } from '../../signal/engine.js';
 import { NODE_REGISTRY } from '../../signal/registry.js';
 import { OnPoseBroadcast } from '../../signal/nodes/on_pose_broadcast.js';
-import { makeManualCalibrationGraphDescriptor } from './graph.js';
+import {
+  behaviorContextConfig,
+  behaviorDescriptorToRun,
+  programChanged,
+} from '../storedGraph.js';
 import { broadcastBus } from '../../broadcast/bus.js';
 import type { GraphDescriptor } from '@vspark/shared/signal';
 import { getDb } from '../../db/index.js';
@@ -37,7 +41,12 @@ export class ManualCalibrationManager {
   // ── graph management ───────────────────────────────────────────────────────
 
   private createGraph(behaviorId: string): SignalGraph {
-    const descriptor = makeManualCalibrationGraphDescriptor(behaviorId);
+    // The behavior's stored (editable) graph; the template if none is stored.
+    const descriptor = behaviorDescriptorToRun(
+      'manual_calibration',
+      behaviorId,
+      this.behaviorConfigs.get(behaviorId)
+    );
     this.descriptors.set(behaviorId, descriptor);
     if (!this.nodeStates.has(behaviorId))
       this.nodeStates.set(behaviorId, new Map());
@@ -87,8 +96,17 @@ export class ManualCalibrationManager {
     )?.[nodeId] ?? {}) as Record<string, unknown>;
     // `_settings` is consumed by the `settings` node to resolve the
     // `calibrations` field against the live behavior config (read fresh per pull,
-    // so edits hot-apply without a graph rebuild).
-    return { ...defaults, ...overrides, _settings: cfg };
+    // so edits hot-apply without a graph rebuild). By node kind, so context
+    // nodes added on the canvas are fed too.
+    return {
+      ...defaults,
+      ...overrides,
+      ...behaviorContextConfig(nodeDef?.kind, {
+        behaviorId,
+        sceneNodeId: this.behaviorNodeIds.get(behaviorId) ?? '',
+        settings: cfg,
+      }),
+    };
   }
 
   private _persistNodeState(
@@ -131,6 +149,8 @@ export class ManualCalibrationManager {
     if (!this.graphs.has(behaviorId)) return;
     for (const fn of this.cleanups.get(behaviorId) ?? []) fn();
     this.cleanups.delete(behaviorId);
+    // Release the nodes' own resources (timers etc.) before dropping it.
+    this.graphs.get(behaviorId)?.dispose();
     this.graphs.delete(behaviorId);
     broadcastBus.removeBehavior(behaviorId);
     console.log(`[ManualCalibration] Stopped component ${behaviorId}`);
@@ -159,6 +179,15 @@ export class ManualCalibrationManager {
       this.nodeStates.set(c.id, stateMap);
       this.behaviorConfigs.set(c.id, liveConfig);
       this.behaviorNodeIds.set(c.id, c.nodeId);
+      // Its stored graph was edited (or reset): rebuild the running one.
+      if (
+        this.graphs.has(c.id) &&
+        programChanged(
+          this.descriptors.get(c.id),
+          behaviorDescriptorToRun('manual_calibration', c.id, liveConfig)
+        )
+      )
+        this.stop(c.id);
       this.start(c.id);
       active.add(c.id);
     }

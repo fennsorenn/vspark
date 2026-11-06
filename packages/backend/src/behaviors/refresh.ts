@@ -90,7 +90,11 @@ export function _mapBehaviorRow(r: Record<string, unknown>) {
 export function refreshVmc() {
   if (!_vmc) return;
   const rows = getDb()
-    .prepare("SELECT * FROM behaviors WHERE kind = 'vmc_receiver'")
+    // Both kinds: VmcManager runs the 3D and the 2D receiver, and syncBehaviors
+    // stops every receiver missing from the set it is handed.
+    .prepare(
+      "SELECT * FROM behaviors WHERE kind IN ('vmc_receiver', 'vmc_receiver_2d')"
+    )
     .all() as Record<string, unknown>[];
   _vmc.syncBehaviors(rows.map(_mapBehaviorRow));
 }

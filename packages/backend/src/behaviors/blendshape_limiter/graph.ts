@@ -20,7 +20,7 @@ import type { GraphDescriptor } from '@vspark/shared/signal';
  */
 export const BLENDSHAPE_LIMITER_TEMPLATE: Omit<GraphDescriptor, 'id'> = {
   label: 'Expression Limits',
-  readonly: true,
+  readonly: false,
   nodes: [
     {
       id: 'intercept',

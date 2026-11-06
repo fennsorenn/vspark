@@ -26,7 +26,7 @@ export const HEAD_CALIB_BONES = ['head', 'leftEye', 'rightEye'] as const;
  */
 const IFACIALMOCAP_BASE_TEMPLATE: Omit<GraphDescriptor, 'id'> = {
   label: 'iFacialMocap Receiver Pipeline',
-  readonly: true,
+  readonly: false,
   nodes: [
     // ── Behavior config value sources ─────────────────────────────────────────
     // Each exposes ONE field from the behavior config via its `value` output port.

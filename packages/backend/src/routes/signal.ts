@@ -30,6 +30,9 @@ function _allGraphDescriptors() {
 function _stripPrefix(graphId: string): string {
   const prefixes = [
     'vmc-pipeline:',
+    // The 2D receiver's graphs (VmcManager); without it their node states
+    // and calibration fires looked up the wrong behavior id.
+    'vmc-pipeline-2d:',
     'ifacialmocap-pipeline:',
     'breathing:',
     'manual_calibration:',
