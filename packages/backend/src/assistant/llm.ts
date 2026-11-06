@@ -43,6 +43,14 @@ export interface ChatResult {
   finishReason: string | null;
 }
 
+/** `<baseUrl>/v1/<path>`. Accepts the base URL with or without its `/v1` — both
+ *  conventions are common (the OpenAI SDK includes it, many server docs don't),
+ *  so a trailing `/v1` is stripped rather than doubled. */
+export function apiUrl(baseUrl: string, path: string): string {
+  const root = baseUrl.trim().replace(/\/+$/, '').replace(/\/v1$/, '');
+  return `${root}/v1/${path}`;
+}
+
 /** Ask an OpenAI-compatible endpoint for its model list and return the first id.
  *  Lets the assistant work with no model configured against a single-model
  *  server (vLLM, llama.cpp, Ollama) — returns '' if it can't be determined. */
@@ -51,7 +59,7 @@ export async function fetchFirstModel(
   apiKey?: string
 ): Promise<string> {
   try {
-    const url = baseUrl.replace(/\/$/, '') + '/v1/models';
+    const url = apiUrl(baseUrl, 'models');
     const res = await fetch(url, {
       headers: apiKey ? { Authorization: `Bearer ${apiKey}` } : {},
     });
@@ -70,7 +78,7 @@ export async function chatCompletion(
   tools: ChatTool[],
   opts: { signal?: AbortSignal; maxTokens?: number } = {}
 ): Promise<ChatResult> {
-  const url = cfg.baseUrl.replace(/\/$/, '') + '/v1/chat/completions';
+  const url = apiUrl(cfg.baseUrl, 'chat/completions');
   const res = await fetch(url, {
     method: 'POST',
     headers: {
