@@ -28,6 +28,9 @@ const m = {
   startRaid: vi.fn(async () => {}),
   cancelRaid: vi.fn(async () => {}),
   sendWhisper: vi.fn(async () => {}),
+  getDefaultAccountId: vi.fn((projectId: string) =>
+    projectId === 'p1' ? 'acc-default' : null
+  ),
 };
 vi.mock('../src/overlive/manager.js', () => ({
   getOverliveManager: () => m,
@@ -86,6 +89,21 @@ describe('overlive action nodes', () => {
       redemptionId: 'd1',
     }).deliver('fire', undefined);
     expect(m.updateRedemptionStatus).toHaveBeenCalledWith('a1', 'r1', 'd1', 'FULFILLED');
+  });
+
+  it('redemption status: an empty account uses the project default account', () => {
+    const ids = { rewardId: 'r1', redemptionId: 'd1' };
+    loneNode('overlive_redemption_status', { ...ids, _projectId: 'p1' }).deliver('fire', undefined);
+    expect(m.updateRedemptionStatus).toHaveBeenCalledWith('acc-default', 'r1', 'd1', 'FULFILLED');
+    // No default account (or no project): nothing is sent.
+    loneNode('overlive_redemption_status', { ...ids, _projectId: 'p2' }).deliver('fire', undefined);
+    loneNode('overlive_redemption_status', ids).deliver('fire', undefined);
+    expect(m.updateRedemptionStatus).toHaveBeenCalledTimes(1);
+  });
+
+  it('other action nodes keep "no account → do nothing" (no default fallback)', () => {
+    loneNode('overlive_ban_user', { userId: 'u1', _projectId: 'p1' }).deliver('fire', undefined);
+    expect(m.banUser).not.toHaveBeenCalled();
   });
 
   it('ban forwards seconds + reason; guards on missing user', () => {

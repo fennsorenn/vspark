@@ -1,9 +1,11 @@
 # Actions
 
-**Status: Implemented (core + Hotkey kind).** Other kinds (Chat command, Chat
-pattern, Chat keyword, Keyword combo, Redemption) are planned — see
-[plans/actions.md](../plans/actions.md) Phase 3. Behaviors getting the same
-stored-graph treatment (Phase 4) is implemented — see
+**Status: Implemented (core + all six kinds: Hotkey, Chat command, Chat
+pattern, Chat keyword, Keyword combo, Redemption).** See
+[plans/actions.md](../plans/actions.md). The Macros panel is still present
+(retiring it awaits the user trying the Actions panel; the parity additions
+are under "Panel" below). Behaviors getting the same stored-graph treatment
+(Phase 4) is implemented — see
 [component-managers.md](component-managers.md#stored-editable-graphs).
 
 An **Action** is a project-level, preauthored workflow configured by a settings
@@ -50,7 +52,7 @@ it is implemented as proposed (below).
 | `packages/backend/src/routes/actions.ts` | REST CRUD + reset + kinds. |
 | `packages/backend/src/logic/manager.ts` | Runs action-owned graphs; injects the action's settings into `settings` nodes. |
 | `packages/frontend/src/mesh/actions.ts` | Read hooks + tab-authored writes. |
-| `packages/frontend/src/components/editor/actions/` | `ActionsPanel` (left-dock tab) and the per-kind form (`HotkeyForm`). |
+| `packages/frontend/src/components/editor/actions/` | `ActionsPanel` (left-dock tab), the per-kind forms (`HotkeyForm`, `ChatForms` for the chat / redemption kinds) their shared fields (`fields.tsx`: account / rank / cooldown / counter / template fields, `ResponseEditor`) and input primitives (`draftInputs.tsx`: `DraftText` / `DraftNumber` commit on blur / Enter, `SettingCheck`). |
 | `packages/frontend/src/help/content/{en,de}/actions.md` | Help page. |
 
 ## Data
@@ -146,6 +148,42 @@ aligned; a modified graph is left alone.
   `behavior_id` stays forbidden in all Logic; `scene_entity` is not allowed in
   action graphs (no owner entity).
 
+## Kinds
+
+### Derived settings (`settings.derived`)
+
+Some values a graph needs are functions of what the form edits: a regex built
+from a command and its aliases, a counter's scope that depends on whether it is
+named. A kind's `normalize` computes them into `settings.derived`, where
+`settings` nodes read them like any other value setting (they are value
+settings — `derived` is declared `value`). Because the backend normalizes every
+action write (`guardAction`), they are always consistent with the edited
+fields; the editor's `commitActionSetting` also writes `settings.derived` next
+to a value edit when it changes (same batch, one undo step), so the running
+graph does not wait for the server's correction. The form never edits them.
+(Implementation choice of Phase 3, not a user decision: it keeps every typical
+edit a value edit without adding node kinds.)
+
+Two derived values are *templates* rendered by a `text_format` node, which is
+how a fixed graph picks between two values without a select node:
+`derived.counterScope` (`''` = shared, `'${id}'` with `logic_id` wired into the
+`id` field = graph-local) and `derived.comboKey` (`'${user}'` with the
+chatter's username = unique chatters, `''` = every message).
+
+### Account
+
+The chat / redemption kinds have an `account` value setting (empty = the
+project's default overlive account), wired into the trigger node's `account`
+port and the outbound nodes' `account` ports. Two supporting changes make that
+work through ports (see [overlive.md](overlive.md)):
+
+- `OverliveManager` resolves a trigger node's `account` / `channel` with
+  `logicManager.pullInput` (wired port, else inline config), like the
+  HotkeyManager does for combos.
+- `overlive_send_chat` and `overlive_redemption_status` fall back to the
+  project's default account when their account is empty (`acctOrDefault`).
+  The other outbound overlive nodes are unchanged.
+
 ### Hotkey kind
 
 Settings: `shortcut {key, ctrl, shift, alt, meta}` (value), `mode`
@@ -176,6 +214,55 @@ Two supporting changes make the template work through ports only:
 - `media_control` has an `action` value input (falls back to `config.action`,
   so existing graphs are unchanged).
 
+
+### Shared pieces of the chat / redemption kinds
+
+Every optional part sits in a **fixed** structure switched by a value setting,
+so no typical edit rebuilds the graph; the only shape setting in these kinds is
+a response's `type`.
+
+- **Rank gate** (`addRankGate`): `chat_rank(isSub, isMod, isBroadcaster ←
+  trigger; minRank ← settings)` → `if_else`.
+- **Cooldown** (`addCooldown`): `cooldown(seconds, group ← settings
+  cooldown.*)`. An empty group is private to the node; a named group is
+  shared across graphs (the cooldown node's `__cooldown/<group>` variable).
+- **Counter + reply** (`addCounterReply`):
+  `if_else(counter.enabled)` → then `increment_variable` → `done` → send;
+  else → send. The counter variable is `derived.counterName` (`name` or
+  `count`) in the scope rendered from `derived.counterScope` — an unnamed
+  counter is graph-local (scope = graph id, cleaned up with the graph), a
+  named one shared (scope `''`). The reply is a `text_format` (template ←
+  `reply`; fields per kind + `count` ← a `variable` read of the counter;
+  `values` ← the regex `groups` record, so named groups are placeholders)
+  feeding `overlive_send_chat.template`; an empty reply sends nothing.
+  Placeholders use the existing `${name}` syntax of `text_format` /
+  `overlive_send_chat` (the plan wrote `{user}`; inferred to mean the
+  placeholder names).
+- **Single response** (`addSingleResponse`): the Hotkey response set at
+  `response.<field>` (`response.type` = shape), sink id `response`.
+- **Trigger**: `send_trigger(name ← settings trigger)`; an empty name sends
+  nothing.
+
+Settings normalization: `minRank` ∈ `everyone|sub|mod|broadcaster`;
+`cooldown {seconds ≥ 0, group}` (default 10 s for the chat kinds);
+`counter {enabled=false, name='', step=1, persistent=true}`.
+
+| Kind | Settings (all value unless marked) | Template | Preview |
+|---|---|---|---|
+| `chat_command` | `account`, `command`, `aliases` (space/comma list), `minRank`, `cooldown`, `argsPattern`, `counter`, `reply`; derived `commandPattern`, `counterName`, `counterScope` | `overlive_chat_command` (command filter empty) → `regex(command, derived.commandPattern, i)` gate → rank gate → args: `equals(argsPattern, '')` skips, else `regex(args, argsPattern, i)` gate → cooldown → counter + reply (fields `user` ← displayName, `args`; `values` ← args groups) | headline `!hug !cuddle` + rank / cooldown / counter tokens; lines: quoted reply, args pattern |
+| `chat_pattern` | `account`, `pattern`, `minRank`, `cooldown`, `counter`, `reply`; derived `fullPattern` (`^(?:pattern)$`), counter values | `overlive_chat_message` → `regex(text, fullPattern, i)` gate → rank gate → cooldown → counter + reply (fields `user`, `message`; `values` ← groups) | `/pattern/` + meta; reply |
+| `chat_keyword` | `account`, `keywords` (comma list), `cooldown`, `response` (**`response.type` shape**), `trigger`; derived `keywordPattern` | `overlive_chat_message` → `regex(text, keywordPattern, iu)` gate → cooldown → response + `send_trigger` (payload ← the message's `data` record) | keywords + cooldown; response line, trigger line |
+| `keyword_combo` | `account`, `keywords`, `threshold` (≥ 1), `window` (s), `uniqueChatters`, `response` (**type shape**), `endMessage`; derived `keywordPattern`, `comboKey` | keyword gate → `combo_threshold` + `combo_timeout` from the same hit (same `window`, key ← `text_format(derived.comboKey, user ← username)`); `reached` → response and `set_variable(comboReached = true)` (graph-local, short-lived); `ended` → `if_else(variable comboReached)` → clear + `overlive_send_chat(text_format(endMessage, count ← final count))` | keywords + `N× within S s` + unique; response, end message |
+| `redemption` | `account`, `reward` (title), `response` (**type shape**), `counter`, `reply`, `trigger`, `markComplete`; derived `rewardPattern`, counter values | `overlive_redemption` → `regex(rewardTitle, rewardPattern, i)` gate → response; counter + reply (fields `user`, `message`, `reward`); `send_trigger` (payload ← the redemption's `data` record); `if_else(markComplete)` → `overlive_redemption_status(rewardId, redemptionId, status FULFILLED)` | reward + counter + complete; response, reply, trigger |
+
+Matching details (in `@vspark/shared/actions`): command names drop a leading
+`!` and duplicates; keywords match as whole words (`(?<![\p{L}\p{N}_])` …
+`(?![\p{L}\p{N}_])`, flags `iu`, so emotes such as `:)` work and phrases match
+across any whitespace); a reward matches its title exactly, case-insensitive,
+surrounding spaces ignored; an empty command / keyword list / pattern / reward
+never matches (the regex node treats `''` as no match). The Chat pattern
+anchors the user's pattern to the whole message.
+
 ## REST (`routes/actions.ts`)
 
 | Method + path | Purpose |
@@ -197,7 +284,8 @@ Actions do not exist yet.
 
 - `commitActionCreate(projectId, kind, name)`: action + graph in one batch
   (one undo step), action first so the graph's owner exists when it lands.
-- `commitActionSetting(action, path, value)`: a value edit is one field write.
+- `commitActionSetting(action, path, value)`: a value edit is one field write
+  (plus `settings.derived` when the edit changes it, in the same batch).
   A shape edit writes `settings` + `templateFingerprint` and then the rebuilt
   graph, in one batch. Undo replays in reverse (graph first), so the server
   sees the restored graph before the restored settings and — the graph not
@@ -224,13 +312,37 @@ home when Macros is retired.
 The Logic panel lists action graphs under *Scoped Logic*, labelled with the
 action's name, so a graph opened from the Actions panel shows as selected.
 
+Other row / panel behaviour (added for Hotkey parity with Macros): a Hotkey
+row's headline is an inline `ShortcutRecorder` (record without opening the
+form); each group header has a `+` that adds another action of that kind in
+one click; a newly added action opens its form.
+
+The chat / redemption forms (`ChatForms.tsx`) commit text and number fields on
+blur / Enter (`DraftText` / `DraftNumber`), so typing a reply is one write and
+one undo step. The primitives take the caller's `vs-` handle as `className`;
+like the numeric inputs they are registered in `COMPONENTS` of
+`e2e/scripts/controls.mjs` (their call sites count as controls) and their file
+is excluded in `e2e/coverage-ignore.json`. The account select lists the editor store's `overliveAccounts`
+with "Default account" (empty) first.
+
 `vs-` handles: `vs-tab-actions`, `vs-action-add`, `vs-action-add-kind`
-(`-hotkey`), `vs-action-enable`, `vs-action-settings`, `vs-action-name`,
-`vs-action-shortcut`, `vs-action-mode`, `vs-action-positions`,
-`vs-action-response-type`, `vs-action-field` (+ `-<field>`), `vs-action-reset`,
-`vs-action-open-graph`, `vs-action-delete`; non-interactive markers
-`vs-action-row`, `vs-action-group-<kind>`, `vs-action-preview`,
-`vs-action-badge-{modified,template,missing}`. e2e: `e2e/tests/cov-actions.spec.ts`.
+(`-<kind>`), `vs-action-group-add`, `vs-action-enable`, `vs-action-settings`,
+`vs-action-name`, `vs-action-shortcut`, `vs-action-row-shortcut`,
+`vs-action-mode`, `vs-action-positions`, `vs-action-response-type`,
+`vs-action-field` (+ `-<field>`), `vs-action-account`, `vs-action-command`,
+`vs-action-aliases`, `vs-action-min-rank`, `vs-action-cooldown-seconds`,
+`vs-action-cooldown-group`, `vs-action-args-pattern`,
+`vs-action-counter-enabled`, `vs-action-counter-name`,
+`vs-action-counter-step`, `vs-action-counter-persistent`, `vs-action-reply`,
+`vs-action-pattern`, `vs-action-keywords`, `vs-action-trigger`,
+`vs-action-threshold`, `vs-action-window`, `vs-action-unique`,
+`vs-action-end-message`, `vs-action-reward`, `vs-action-mark-complete`,
+`vs-action-reset`, `vs-action-open-graph`, `vs-action-delete`; non-interactive
+markers `vs-action-row`, `vs-action-group-<kind>`, `vs-action-preview`,
+`vs-action-form`, `vs-action-response`,
+`vs-action-badge-{modified,template,missing}`. e2e:
+`e2e/tests/cov-actions.spec.ts` (core + Hotkey) and
+`e2e/tests/cov-actions-kinds.spec.ts` (the other kinds + parity additions).
 
 ## Extending: a new kind
 
@@ -239,18 +351,34 @@ action's name, so a graph opened from the Actions panel shows as selected.
    `build` (read value settings ONLY through `settings` nodes; use stable node
    ids — they are part of the fingerprint), and `preview` (i18n keys under the
    `actions` namespace).
+   Values the graph needs that are computed from edited fields go into
+   `settings.derived` from `normalize`; optional parts are gated with
+   `if_else` on a value setting rather than made shape settings. The `Tpl`
+   builder and the `add*` helpers cover the chat / redemption pieces.
 2. Add `kinds.<kind>.label` / `.description` and any preview keys to
    `i18n/locales/{en,de}/actions.json`, a `{#<kind>}` section to
    `help/content/{en,de}/actions.md` (the group header's `HelpButton` points at
-   it), and a form component rendered from `ActionRow`.
-3. Tests: shared build/preview tests, a lifecycle case in
-   `backend/test/api.actions.test.ts`, panel coverage in
-   `frontend/test/actions.test.tsx`, handles in `cov-actions.spec.ts`.
+   it), and a form component (register chat-like forms in `CHAT_FORMS`).
+3. Tests: shared build/preview tests (`shared/test/actions*.test.ts`), a run
+   through the engine with simulated events (`backend/test/actions.kinds.test.ts`
+   delivers overlive events through `OverliveManager`'s routing), panel coverage
+   in `frontend/test/actions*.test.tsx`, handles in `cov-actions*.spec.ts`.
 
 Changing a template is safe: unmodified graphs are regenerated at the next
 boot; modified ones show "Template update".
 
 ## Known gaps (observed, not decided)
+
+- Row previews show a counter's name, not its live value (tabs do not open the
+  variable collections yet — see [variables.md](variables.md)).
+- The Redemption reward is matched by title only (not by reward id) and the
+  form has no reward picker; "mark complete" only works for rewards created by
+  the same Twitch app (a Twitch API rule).
+- A Chat keyword / Redemption trigger payload is the trigger node's `data`
+  record; the Keyword combo emits no trigger.
+- `overlive_send_chat` renders `${name}` placeholders again in the already
+  formatted reply, so a `${word}` typed by a chatter (e.g. in `${args}`) is
+  blanked.
 
 - Presets and project export do not include Actions.
 - Deleting a project (`DELETE /api/projects/:id`, a raw SQL delete) removes

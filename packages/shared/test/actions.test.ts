@@ -26,8 +26,15 @@ const edgeStrs = (g: GraphDescriptor) =>
   g.edges.map((e) => `${e.fromNodeId}.${e.fromPort}>${e.toNodeId}.${e.toPort}`);
 
 describe('action kind registry', () => {
-  it('registers the Hotkey kind with label, icon and fields', () => {
-    expect(ACTION_KINDS.map((k) => k.kind)).toEqual(['hotkey']);
+  it('registers the kinds; Hotkey with label, icon and fields', () => {
+    expect(ACTION_KINDS.map((k) => k.kind)).toEqual([
+      'hotkey',
+      'chat_command',
+      'chat_pattern',
+      'chat_keyword',
+      'keyword_combo',
+      'redemption',
+    ]);
     const def = actionKind('hotkey')!;
     expect(def.label).toBe('Hotkey');
     expect(def.icon).toBeTruthy();

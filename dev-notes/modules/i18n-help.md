@@ -27,7 +27,7 @@ One namespace per component area. Namespace names match the component area they 
 
 `common`, `help`, `topbar`, `update`, `editor`, `home`, `sceneGraph`, `assets`, `properties`, `compose`, `signalGraph`, `clips`, `accounts`, `presets`, `media`, `assistant`, `misc`, `actions`.
 
-The `actions` namespace covers the Actions panel (left-dock tab, `components/editor/actions/`); its help page is `help/content/{en,de}/actions.md` (anchors `{#overview}` `{#add}` `{#hotkey}` `{#value-shape}` `{#modified}` `{#reset}` `{#graph}`, `'actions'` in `TOPIC_ORDER` after `logic`). See [actions.md](actions.md).
+The `actions` namespace covers the Actions panel (left-dock tab, `components/editor/actions/`); its help page is `help/content/{en,de}/actions.md` (anchors `{#overview}` `{#add}` `{#hotkey}` `{#chat_command}` `{#chat_pattern}` `{#chat_keyword}` `{#keyword_combo}` `{#redemption}` `{#placeholders}` `{#patterns}` `{#cooldown}` `{#counter}` `{#account}` `{#trigger}` `{#value-shape}` `{#modified}` `{#reset}` `{#graph}` — the kind anchors equal the kind ids because each group header's `HelpButton` targets `anchor={kind}`, `'actions'` in `TOPIC_ORDER` after `logic`). See [actions.md](actions.md).
 
 The `assistant` namespace covers the in-app AI Assistant window; its help page (`help/content/{en,de}/assistant.md`, anchors `{#how-to-use}` `{#setup}` `{#capabilities}` `{#attach}` `{#limits}`, `'assistant'` in `TOPIC_ORDER`) documents the agent for end users; `{#attach}` covers the 📎 attach picker (attach editor elements so "this/that" resolves to a concrete id/url). See [mcp-assistant.md](mcp-assistant.md).
 
@@ -91,6 +91,15 @@ carried the original copy; this table is the durable source of truth.)
 | Logic | Logik |
 | Action (project-level workflow, Actions tab) | Aktion |
 | Response (what an Action does, e.g. play a clip) | Reaktion |
+| Chat command (Action kind) | Chat-Befehl |
+| Chat pattern (Action kind) | Chat-Muster |
+| Keyword (chat) | Stichwort |
+| Keyword combo (Action kind) | Stichwort-Combo |
+| Redemption (channel points) | Einlösung |
+| Reward (channel points) | Belohnung |
+| Counter | Zähler |
+| Pattern (regular expression) | Muster |
+| Placeholder (`${user}` in a text) | Platzhalter |
 | Automation | Automatisierung |
 | Compose | Compose |
 | Layer | Ebene |

@@ -1,8 +1,10 @@
 {
   "components/ConnectionsWindow.tsx": "3555ee8b8a73",
   "components/DialogProvider.tsx": "896fa9df2a91",
-  "components/editor/actions/ActionsPanel.tsx": "cbf895f389b7",
-  "components/editor/actions/HotkeyForm.tsx": "7d5607c14929",
+  "components/editor/actions/ActionsPanel.tsx": "0eefcd9bd868",
+  "components/editor/actions/ChatForms.tsx": "3c3f22588138",
+  "components/editor/actions/fields.tsx": "60de9b2fed03",
+  "components/editor/actions/HotkeyForm.tsx": "2e5306e29f9b",
   "components/editor/AssetManager.tsx": "d3548eeb1520",
   "components/editor/AssistantWindow.tsx": "d19dbbc96f5a",
   "components/editor/AttachOverlay.tsx": "ddc57671901f",

@@ -73,7 +73,10 @@ test('Actions panel: add, configure, badges, reset, open graph, delete (REST-ver
   await page.locator('.vs-action-enable').click();
   await expect.poll(async () => (await first(request, projectId))?.enabled).toBe(true);
 
-  // ── settings form ──────────────────────────────────────────────────────────
+  // ── settings form (a new action opens it; Settings closes / reopens) ───────
+  await expect(page.locator('.vs-action-form')).toBeVisible();
+  await page.locator('.vs-action-settings').click();
+  await expect(page.locator('.vs-action-form')).toHaveCount(0);
   await page.locator('.vs-action-settings').click();
   await page.locator('.vs-action-name').fill('Show sign');
   await page.locator('.vs-action-name').press('Enter');

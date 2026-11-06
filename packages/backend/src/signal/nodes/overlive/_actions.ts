@@ -3,12 +3,31 @@
 // ports into the shapes OverliveManager expects. All nodes fire-and-forget; the
 // manager swallows + logs errors.
 
+import { getOverliveManager } from '../../../overlive/manager.js';
+
 /** Resolve the destination account: `account` port value, else config fallback.
  *  Takes the thunk + config value (not the node) because `Node.config` is
  *  protected and can't be read through a structural type. */
 export function acct(getter: () => unknown, cfgAccount?: string): string | undefined {
   const v = getter() as string | undefined;
   return v && v.length > 0 ? v : cfgAccount;
+}
+
+/** Like {@link acct}, but an empty account (port and config) falls back to the
+ *  project's default account — the same fallback the inbound trigger nodes get
+ *  in `OverliveManager.nodeAcceptsEvent`. Used by the nodes the Actions
+ *  templates send through (`overlive_send_chat`, `overlive_redemption_status`),
+ *  whose account setting is empty unless the user picks one. The other action
+ *  nodes keep "no account → do nothing". */
+export function acctOrDefault(
+  getter: () => unknown,
+  cfg: { account?: string; _projectId?: unknown } | undefined
+): string | undefined {
+  const a = acct(getter, cfg?.account);
+  if (a) return a;
+  const projectId = cfg?._projectId;
+  if (typeof projectId !== 'string' || projectId === '') return undefined;
+  return getOverliveManager().getDefaultAccountId(projectId) ?? undefined;
 }
 
 /** Port value (string) with a config fallback; trimmed-empty stays as ''. */
