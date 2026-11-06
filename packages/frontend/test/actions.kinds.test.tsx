@@ -324,3 +324,42 @@ describe('Redemption', () => {
     });
   });
 });
+
+describe('Hotkey parity', () => {
+  it('the shortcut is recorded inline in the row, without opening the form', async () => {
+    seed('a1', 'hotkey');
+    const user = userEvent.setup();
+    const { container } = renderPanel();
+    expect(container.querySelector('.vs-action-form')).toBeNull();
+    await user.click(container.querySelector('.vs-action-row-shortcut')!);
+    fireEvent.keyDown(window, { key: 'F9', code: 'F9', ctrlKey: true });
+    await waitFor(() =>
+      expect(settingsOf('a1').shortcut).toMatchObject({ key: 'F9', ctrl: true })
+    );
+  });
+
+  it('the group "+" adds another action of that kind in one click, with its form open', async () => {
+    seed('a1', 'chat_command');
+    const user = userEvent.setup();
+    const { container } = renderPanel();
+    await user.click(
+      container.querySelector(
+        '.vs-action-group-chat_command .vs-action-group-add'
+      )!
+    );
+    await waitFor(() => expect(actions().all()).toHaveLength(2));
+    const added = actions()
+      .all()
+      .find((a) => a.id !== 'a1')!;
+    expect(added).toMatchObject({
+      kind: 'chat_command',
+      name: 'Chat command 2',
+    });
+    await waitFor(() =>
+      expect(container.querySelectorAll('.vs-action-form')).toHaveLength(1)
+    );
+    expect(
+      container.querySelector('.vs-action-form .vs-action-command')
+    ).toBeTruthy();
+  });
+});

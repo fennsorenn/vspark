@@ -18,7 +18,12 @@ settings at a glance — for a hotkey, the key combination and what it does.
 
 - The checkbox at the start of a row turns the action on or off without deleting
   it.
-- **Settings** opens the form for that action.
+- **Settings** opens the form for that action (a new action opens it right
+  away).
+- The **+** next to a group's name adds another action of that kind in one
+  click.
+- A hotkey row shows its shortcut as a button: click it and press the new keys
+  to change the shortcut without opening the settings.
 - **✕** deletes the action and its graph (**Undo** brings both back).
 
 ## Hotkey {#hotkey}

@@ -1,6 +1,7 @@
 {
   "title": "Actions",
   "add": "Add",
+  "addOfKind": "Add another {{kind}}",
   "empty": "No actions yet. Add one to set up a hotkey, a chat command and more without building a graph.",
   "rowError": "This action couldn't be shown here — open its graph instead.",
   "help": {

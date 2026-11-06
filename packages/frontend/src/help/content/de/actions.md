@@ -19,7 +19,13 @@ Tastenkombination und was sie auslöst.
 
 - Das Kästchen am Anfang einer Zeile schaltet die Aktion ein oder aus, ohne sie
   zu löschen.
-- **Einstellungen** öffnet das Formular der Aktion.
+- **Einstellungen** öffnet das Formular der Aktion (bei einer neuen Aktion
+  öffnet es sich sofort).
+- Das **+** neben dem Namen einer Gruppe fügt mit einem Klick eine weitere
+  Aktion dieser Art hinzu.
+- Eine Tastenkürzel-Zeile zeigt ihr Kürzel als Schaltfläche: Klicke darauf und
+  drücke die neuen Tasten, um das Kürzel zu ändern, ohne die Einstellungen zu
+  öffnen.
 - **✕** löscht die Aktion samt Graph (**Rückgängig** holt beides zurück).
 
 ## Tastenkürzel {#hotkey}

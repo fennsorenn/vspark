@@ -113,7 +113,10 @@ describe('Actions panel', () => {
     // The entity reference resolves to its name.
     expect(smile.textContent).toContain('Avatar');
     expect(smile.textContent).toContain('happy');
-    expect(wave.textContent).toContain('No shortcut');
+    // A Hotkey row's headline is its shortcut recorder (Macros parity).
+    expect(
+      wave.querySelector('.vs-action-row-shortcut')?.textContent
+    ).toMatch(/Set shortcut/);
     expect(wave.textContent).toContain('toggle');
     expect(wave.textContent).toContain('2.');
   });

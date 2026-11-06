@@ -36,6 +36,8 @@ import { HelpButton } from '../../../help/HelpButton';
 import { useConfirm } from '../../DialogProvider';
 import { HotkeyForm } from './HotkeyForm';
 import { CHAT_FORMS } from './ChatForms';
+import { ShortcutRecorder } from '../macros/MacrosPanel';
+import type { HotkeyCombo } from '../macros/types';
 import { buttonStyle, inputStyle } from './styles';
 
 // ── preview ──────────────────────────────────────────────────────────────────
@@ -83,11 +85,18 @@ function Tokens({ tokens }: { tokens: PreviewToken[] }) {
   );
 }
 
-export function PreviewView({ preview }: { preview: ActionPreview }) {
+export function PreviewView({
+  preview,
+  headline,
+}: {
+  preview: ActionPreview;
+  /** Replaces the headline tokens (a Hotkey row shows its inline recorder). */
+  headline?: ReactNode;
+}) {
   return (
     <div className="vs-action-preview" style={{ fontSize: 11, color: '#999' }}>
       <div style={{ fontFamily: 'monospace', color: '#ddd' }}>
-        <Tokens tokens={preview.headline} />
+        {headline ?? <Tokens tokens={preview.headline} />}
       </div>
       {preview.lines.map((line, i) => (
         <div key={i} style={{ marginTop: 2 }}>
@@ -172,17 +181,60 @@ function NameField({ action }: { action: ActionRecord }) {
   );
 }
 
+const EMPTY_COMBO: HotkeyCombo = {
+  key: '',
+  ctrl: false,
+  shift: false,
+  alt: false,
+  meta: false,
+};
+
+/** A Hotkey row's headline: the shortcut, recordable in place (as in the
+ *  Macros panel), plus the mode tokens of the preview. */
+function InlineShortcut({
+  action,
+  preview,
+  onSetting,
+}: {
+  action: ActionRecord;
+  preview: ActionPreview;
+  onSetting: (path: string, value: unknown) => void;
+}) {
+  const sc = action.settings.shortcut;
+  const combo = (
+    sc && typeof sc === 'object' ? { ...EMPTY_COMBO, ...sc } : EMPTY_COMBO
+  ) as HotkeyCombo;
+  return (
+    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+      <ShortcutRecorder
+        className="vs-action-row-shortcut"
+        combo={combo}
+        onChange={(c) => onSetting('shortcut', c)}
+      />
+      <Tokens tokens={preview.headline.slice(1)} />
+    </span>
+  );
+}
+
 function ActionRow({
   action,
   graph,
+  defaultOpen = false,
 }: {
   action: ActionRecord;
   graph: ReturnType<typeof useActionGraphs>[string] | undefined;
+  /** Open the settings form on mount (a freshly added action). */
+  defaultOpen?: boolean;
 }) {
   const { t } = useTranslation('actions');
   const confirm = useConfirm();
   const setActiveLogic = useEditorStore((s) => s.setActiveLogic);
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(defaultOpen);
+  // The row usually mounts (optimistic create) before the panel learns it is
+  // the new one, so follow the flag rather than only reading it at mount.
+  useEffect(() => {
+    if (defaultOpen) setOpen(true);
+  }, [defaultOpen]);
   const def = actionKind(action.kind);
   const status = statusOf(action, graph);
 
@@ -271,7 +323,23 @@ function ActionRow({
         )}
       </div>
 
-      {def && <PreviewView preview={def.preview(action.settings)} />}
+      {def && (() => {
+        const preview = def.preview(action.settings);
+        return (
+          <PreviewView
+            preview={preview}
+            headline={
+              action.kind === 'hotkey' ? (
+                <InlineShortcut
+                  action={action}
+                  preview={preview}
+                  onSetting={(p, v) => void setSetting(p, v)}
+                />
+              ) : undefined
+            }
+          />
+        );
+      })()}
 
       <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexWrap: 'wrap' }}>
         <button
@@ -352,6 +420,8 @@ export function ActionsPanel({ projectId: propProjectId }: { projectId?: string 
   const actions = useProjectActions(projectId);
   const graphs = useActionGraphs();
   const [adding, setAdding] = useState(false);
+  // The action added last opens its settings right away.
+  const [createdId, setCreatedId] = useState<string | null>(null);
   const busy = useRef(false);
 
   const onAdd = async (kind: string) => {
@@ -360,11 +430,12 @@ export function ActionsPanel({ projectId: propProjectId }: { projectId?: string 
     setAdding(false);
     try {
       const sameKind = actions.filter((a) => a.kind === kind).length;
-      await commitActionCreate(
+      const created = await commitActionCreate(
         projectId,
         kind,
         `${t(`kinds.${kind}.label`)} ${sameKind + 1}`
       );
+      if (created) setCreatedId(created.id);
     } finally {
       busy.current = false;
     }
@@ -459,6 +530,16 @@ export function ActionsPanel({ projectId: propProjectId }: { projectId?: string 
               <span>{t(`kinds.${def.kind}.label`)}</span>
               <span style={{ color: '#555' }}>({items.length})</span>
               <HelpButton topic="actions" anchor={def.kind} tip={t(`kinds.${def.kind}.description`)} size={11} />
+              <div style={{ flex: 1 }} />
+              <button
+                className="vs-action-group-add"
+                onClick={() => void onAdd(def.kind)}
+                title={t('addOfKind', { kind: t(`kinds.${def.kind}.label`) })}
+                aria-label={t('addOfKind', { kind: t(`kinds.${def.kind}.label`) })}
+                style={{ ...buttonStyle, color: '#8ac', padding: '0 6px', textTransform: 'none' }}
+              >
+                +
+              </button>
             </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
               {items.map((a) => (
@@ -470,7 +551,11 @@ export function ActionsPanel({ projectId: propProjectId }: { projectId?: string 
                     </div>
                   }
                 >
-                  <ActionRow action={a} graph={graphs[a.id]} />
+                  <ActionRow
+                    action={a}
+                    graph={graphs[a.id]}
+                    defaultOpen={a.id === createdId}
+                  />
                 </RowBoundary>
               ))}
             </div>

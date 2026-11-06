@@ -1,6 +1,7 @@
 {
   "title": "Aktionen",
   "add": "Hinzufügen",
+  "addOfKind": "Weitere Aktion „{{kind}}“ hinzufügen",
   "empty": "Noch keine Aktionen. Füge eine hinzu, um ein Tastenkürzel, einen Chat-Befehl und mehr einzurichten, ohne einen Graphen zu bauen.",
   "rowError": "Diese Aktion konnte hier nicht angezeigt werden — öffne stattdessen ihren Graphen.",
   "help": {
