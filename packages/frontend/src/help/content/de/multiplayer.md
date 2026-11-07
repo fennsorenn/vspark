@@ -38,6 +38,12 @@ So öffnest du vspark auf einem **anderen Gerät** (Laptop, Tablet):
    von vspark und oben unter **Verbindungen** auf dem vspark-Computer.
 3. Gib ihn ein. Der Browser bleibt danach verbunden.
 
+Im eigenen Netzwerk geht es auch ohne Code: Starte vspark mit
+`VSPARK_ALLOW_LAN=1`, dann verbinden sich Browser aus deinem lokalen Netzwerk
+sofort. Um weitere Netzwerke zu vertrauen, liste sie stattdessen mit Kommas
+getrennt auf, zum Beispiel `VSPARK_ALLOW_LAN=lan,tailscale`. Geräte außerhalb
+der genannten Netzwerke brauchen weiterhin den Code.
+
 Jeder Code gilt einmal; nach einigen falschen Versuchen wählt vspark einen neuen.
 Das ist nicht der **Kopplungscode** für Multiplayer weiter oben, der zwei
 vspark-Server verbindet.
