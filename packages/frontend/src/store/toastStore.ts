@@ -15,6 +15,7 @@
  */
 import { create } from 'zustand';
 
+import { randomUUID } from '@vspark/shared/sync';
 export type ToastKind = 'error' | 'info';
 
 export interface Toast {
@@ -45,7 +46,7 @@ interface ToastState {
 export const useToastStore = create<ToastState>((set) => ({
   toasts: [],
   push: (kind, message) => {
-    const id = crypto.randomUUID();
+    const id = randomUUID();
     set((s) => {
       // Collapse an identical message already on screen rather than stacking
       // duplicates: one failing gesture often produces several writes, and the
