@@ -31,6 +31,7 @@ import type {
   TrackClipEventRecord,
 } from '../api/client';
 
+import { randomUUID } from '@vspark/shared/sync';
 const RTYPE = 'track_clip';
 const col = () => collectionOf(RTYPE);
 const subject = () => actionLabel(RTYPE);
@@ -61,7 +62,7 @@ export async function commitLaneCreate(
   }
 ): Promise<TrackClipLaneRecord> {
   const lane: TrackClipLaneRecord = {
-    id: crypto.randomUUID(),
+    id: randomUUID(),
     clipId,
     ...spec,
     keyframes: [],
@@ -147,7 +148,7 @@ export async function commitClipCreate(
   spec: { name: string; duration?: number; loop?: boolean; mode?: string }
 ): Promise<TrackClipRecord> {
   const clip: TrackClipRecord = {
-    id: crypto.randomUUID(),
+    id: randomUUID(),
     ownerNodeId: owner.kind === 'scene_node' ? owner.id : null,
     ownerLayerId: owner.kind === 'compose_layer' ? owner.id : null,
     name: spec.name,

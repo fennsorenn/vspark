@@ -19,6 +19,7 @@ import { composeAllNow, composeScenesNow } from './compose';
 import { useEditorStore, type StageObject } from '../store/editorStore';
 import type { ComposeLayerRecord } from '../api/client';
 
+import { randomUUID } from '@vspark/shared/sync';
 const RTYPE = 'compose_layer';
 const all = composeAllNow;
 
@@ -117,7 +118,7 @@ export function commitLayerCreate(
     parentId,
   });
   const doc = {
-    id: crypto.randomUUID(),
+    id: randomUUID(),
     projectId: useEditorStore.getState().projectId ?? '',
     rootComposeSceneId: composeSceneId,
     cameraNodeId: spec.cameraNodeId ?? null,
@@ -182,7 +183,7 @@ export async function commitComposeSceneCreate(name: string): Promise<string> {
     .filter((k): k is string => typeof k === 'string')
     .sort();
   const last = keys[keys.length - 1];
-  const id = crypto.randomUUID();
+  const id = randomUUID();
   await createDoc(RTYPE, {
     id,
     projectId,

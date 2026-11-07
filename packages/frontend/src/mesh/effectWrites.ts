@@ -8,6 +8,7 @@
 import { createDoc, patchDoc, removeDoc, setField } from './docs';
 import type { CameraEffectRecord } from '../api/client';
 
+import { randomUUID } from '@vspark/shared/sync';
 const RTYPE = 'camera_effect';
 
 export const commitEffectPath = (
@@ -35,7 +36,7 @@ export function commitEffectCreate(
   }
 ): Promise<CameraEffectRecord> {
   return createDoc<CameraEffectRecord>(RTYPE, {
-    id: spec.id ?? crypto.randomUUID(),
+    id: spec.id ?? randomUUID(),
     nodeId,
     kind: spec.kind,
     enabled: spec.enabled !== false,

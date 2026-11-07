@@ -10,6 +10,7 @@
 import { createDoc, patchDoc, removeDoc, setField } from './docs';
 import type { Behavior } from '../store/editorStore';
 
+import { randomUUID } from '@vspark/shared/sync';
 const RTYPE = 'behavior';
 
 export const commitBehaviorPath = (
@@ -37,7 +38,7 @@ export function commitBehaviorCreate(
   }
 ): Promise<Behavior> {
   return createDoc<Behavior>(RTYPE, {
-    id: spec.id ?? crypto.randomUUID(),
+    id: spec.id ?? randomUUID(),
     nodeId,
     kind: spec.kind,
     enabled: spec.enabled !== false,

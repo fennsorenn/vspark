@@ -24,6 +24,7 @@ import {
 } from '@vspark/shared/signal';
 import type { LogicRecord, RawLogic } from '../api/client';
 
+import { randomUUID } from '@vspark/shared/sync';
 export type LogicOwner =
   | { kind: 'project'; id: string }
   | { kind: 'scene_node'; id: string }
@@ -174,7 +175,7 @@ export function commitLogicCreate(
   name: string,
   descriptor?: LogicRecord['descriptor']
 ): Promise<LogicRecord> {
-  const id = crypto.randomUUID();
+  const id = randomUUID();
   const doc: LogicRecord = {
     id,
     ownerKind: owner.kind,
