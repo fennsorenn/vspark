@@ -858,8 +858,15 @@ Every tab authenticates before it joins its server's mesh (principle 9).
   `revokeClient` locks a browser out at its next connection).
 - **Enrollment** (`packages/backend/src/auth/routes.ts`):
   `POST /api/mesh/enroll { label?, code? }` issues a token directly to a
-  loopback caller; any other caller must send the current pairing code or gets
-  403 `PAIRING_REQUIRED`. `GET /api/mesh/pairing-code` answers loopback callers
+  loopback caller, or to one on a network `VSPARK_ALLOW_LAN` trusts; any other
+  caller must send the current pairing code or gets 403 `PAIRING_REQUIRED`.
+  `VSPARK_ALLOW_LAN` (`packages/backend/src/localAccess.ts`): unset or `0`
+  trusts this machine only; any other value also lets other machines reach the
+  server at all. `1` / `lan` trusts private and link-local ranges (RFC 1918,
+  169.254/16, fc00::/7, fe80::/10); a comma list may combine `lan`,
+  `tailscale` (100.64/10, fd7a:115c:a1e0::/48), CIDRs, single addresses and
+  `any`. Unknown entries are ignored with a startup warning. **Decided** (the
+  user): one switch for "reach" and "trust", defaulting to the local network. `GET /api/mesh/pairing-code` answers loopback callers
   only. The code is six digits, single-use, rotates after five wrong guesses,
   and is printed to the server log at start and on every rotation. `browserAddress` reads
   `X-Forwarded-For` only when the socket itself is loopback (the Vite proxy,

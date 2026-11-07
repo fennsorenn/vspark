@@ -37,6 +37,12 @@ To open vspark from **another device** (a laptop, a tablet):
    window, and shown at the top of **Connections** on the vspark computer.
 3. Enter it. The browser stays connected from then on.
 
+On your own network you can skip the code: start vspark with
+`VSPARK_ALLOW_LAN=1` and browsers on your local network connect straight away.
+To trust other networks too, list them instead, separated by commas, for example
+`VSPARK_ALLOW_LAN=lan,tailscale`. Devices outside the listed networks still need
+the code.
+
 Each code works once; after a few wrong tries vspark picks a new one. This is not
 the same as the multiplayer **pairing code** above, which links two vspark
 servers.
