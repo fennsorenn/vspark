@@ -10,6 +10,7 @@ import { DEFAULT_COMPOSE_WIDTH, DEFAULT_COMPOSE_HEIGHT } from './ComposeView';
 import { composeLayersNow, composeScenesNow } from '../../mesh/compose';
 import { sceneNodesNow } from '../../mesh/nodes';
 
+import { randomUUID } from '@vspark/shared/sync';
 /** Placement for a node sent from a 2D compose layer into a camera's 3D scene:
  *  a world position + the billboard/video quad size (world units) chosen so the
  *  node projects to the same rect the 2D layer occupies in the camera's view. */
@@ -196,7 +197,7 @@ export async function sendComposeLayerTo3D(
   // Build the node doc here rather than creating it: the create and the
   // layer removal have to be issued together so "send to 3D" is one undo step.
   const draft = (spec: Partial<StageObject>): StageObject => ({
-    id: crypto.randomUUID(),
+    id: randomUUID(),
     rootSceneNodeId: sceneId,
     projectId: store.projectId ?? '',
     parentId: null,

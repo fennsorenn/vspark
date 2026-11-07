@@ -15,6 +15,7 @@ import { copyToClipboard, pasteFromClipboard } from '../../clipboard';
 import { HelpButton } from '../../help/HelpButton';
 import { useClipPlaybacks, useTrackClips } from '../../mesh/hooks';
 
+import { randomUUID } from '@vspark/shared/sync';
 /** Inline, expandable list of track clips owned by a single scene node or
  *  compose layer — mirrors the components/effects sub-sections in the scene
  *  tree. Selecting a clip opens it in the bottom-dock timeline editor.
@@ -149,7 +150,7 @@ export function ClipsSection({
         for (const kf of lane.keyframes)
           commitKeyframe(created.id, newLane.id, {
             ...kf,
-            id: crypto.randomUUID(),
+            id: randomUUID(),
           });
       }
       // 2b. Recreate event markers, retargeting owner-pointed markers like lanes.
@@ -157,7 +158,7 @@ export function ClipsSection({
         const isOwner = e.targetId === payload.sourceOwnerId;
         commitEvent(created.id, {
           ...e,
-          id: crypto.randomUUID(),
+          id: randomUUID(),
           targetKind: isOwner ? destOwnerKind : e.targetKind,
           targetId: isOwner ? owner.id : e.targetId,
         });

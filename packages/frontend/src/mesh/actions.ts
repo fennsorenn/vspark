@@ -30,6 +30,7 @@ import { actionLabel, watch } from './writeFeedback';
 import { logicRecordOf } from './hooks';
 import type { LogicRecord, RawLogic } from '../api/client';
 
+import { randomUUID } from '@vspark/shared/sync';
 export interface ActionRecord {
   id: string;
   projectId: string;
@@ -123,7 +124,7 @@ export async function commitActionCreate(
 ): Promise<ActionRecord | undefined> {
   const def = actionKind(kind);
   if (!def) return undefined;
-  const id = crypto.randomUUID();
+  const id = randomUUID();
   const settings = def.normalize(def.defaults());
   const action: ActionRecord = {
     id,

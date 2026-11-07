@@ -54,6 +54,7 @@ import { copyToClipboard, pasteFromClipboard } from '../../../clipboard';
 import { HelpButton } from '../../../help/HelpButton';
 import { useLogicRecord } from '../../../mesh/hooks';
 
+import { randomUUID } from '@vspark/shared/sync';
 /** Mint a short, unique-enough node id for pasted nodes. Graph descriptor
  *  node ids are arbitrary strings (not constrained to UUIDs); using a
  *  short random keeps the canvas readable when inspecting via dev tools. */
@@ -981,7 +982,7 @@ function SignalGraphCanvasInner({ graphId, kindMeta }: Props) {
 
 function cryptoRandom(): string {
   try {
-    return globalThis.crypto.randomUUID().slice(0, 8);
+    return randomUUID().slice(0, 8);
   } catch {
     return Math.random().toString(36).slice(2, 10);
   }

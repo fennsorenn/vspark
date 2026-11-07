@@ -36,6 +36,7 @@ import { sceneNodesNow } from './nodes';
 import { useEditorStore, type StageObject } from '../store/editorStore';
 import { api } from '../api/client';
 
+import { randomUUID } from '@vspark/shared/sync';
 const RTYPE = 'scene_node';
 
 const projected = (id: string): StageObject | undefined =>
@@ -154,7 +155,7 @@ export function commitNodeCreate(
   }
 ): Promise<StageObject> {
   return createDoc<StageObject>(RTYPE, {
-    id: crypto.randomUUID(),
+    id: randomUUID(),
     rootSceneNodeId: sceneId,
     projectId: useEditorStore.getState().projectId ?? '',
     parentId: spec.parentId ?? null,
@@ -173,7 +174,7 @@ export function commitNodeCreate(
 /** Create an empty scene (a `kind: 'scene'` root node) in the open project.
  *  Resolves the new scene's id. */
 export async function commitSceneCreate(name: string): Promise<string> {
-  const id = crypto.randomUUID();
+  const id = randomUUID();
   await createDoc<StageObject>(RTYPE, {
     id,
     rootSceneNodeId: id,
