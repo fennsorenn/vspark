@@ -311,7 +311,10 @@ function VideoLayer({
           objectFit,
           // While keying, the <video> is the off-screen source for the canvas.
           display: chroma.enabled ? 'none' : 'block',
-          visibility: hidden ? 'hidden' : 'visible',
+          // 'inherit', not 'visible': an explicit `visible` on a child
+          // overrides the layer's own `visibility: hidden`, so a hidden layer
+          // would still show its video's first frame.
+          visibility: hidden ? 'hidden' : 'inherit',
           pointerEvents: 'none',
         }}
       />
