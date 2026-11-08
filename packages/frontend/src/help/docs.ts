@@ -52,6 +52,7 @@ const TOPIC_ORDER = [
   'actions',
   'assets',
   'presets',
+  'composites',
   'streaming',
   'obs',
   'multiplayer',

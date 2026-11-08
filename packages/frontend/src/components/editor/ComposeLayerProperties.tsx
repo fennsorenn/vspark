@@ -24,6 +24,10 @@ import {
 import { useComposeLayers, useComposeScenes } from '../../mesh/compose';
 import { useSceneNodes } from '../../mesh/nodes';
 import { useServerStatus } from '../../mesh/runtime';
+import {
+  CompositePartNote,
+  CompositeSettings,
+} from './composites/CompositeSettings';
 
 // The old `numInput` / `NumberField` / `KfBtn` helpers were removed when the
 // numeric controls were unified — see ./numericInputs.tsx.
@@ -339,6 +343,9 @@ export function ComposeLayerProperties({
           </div>
         </div>
       </div>
+
+      <CompositePartNote rtype="compose_layer" id={layer.id} />
+      <CompositeSettings rtype="compose_layer" rootId={layer.id} />
 
       <div style={sectionHeader}>{t('properties.sectionLock')}</div>
       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>

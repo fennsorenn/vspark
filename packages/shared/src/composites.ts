@@ -107,7 +107,6 @@ export const PART_DELETE_REFUSED =
 
 export type SettingControl =
   | 'text'
-  | 'textarea'
   | 'number'
   | 'slider'
   | 'select'

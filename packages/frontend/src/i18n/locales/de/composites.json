@@ -1,0 +1,93 @@
+{
+  "section": "Einstellungen",
+  "tag": "Baugruppe",
+  "tagTip": "Eine Baugruppe: ein Objekt mit eigenen Einstellungen. Ihre Teile bleiben an ihrem Platz, bis du sie auflöst.",
+  "type": {
+    "alert": "Alert",
+    "chat_overlay": "Chat-Overlay",
+    "chat_overlay_3d": "Chat-Overlay (3D)",
+    "scrolling_chat": "Laufender Chat (3D)"
+  },
+  "group": {
+    "trigger": "Auslöser",
+    "text": "Text",
+    "badge": "Bild",
+    "sound": "Ton",
+    "timing": "Zeitablauf",
+    "chat": "Chat",
+    "look": "Aussehen",
+    "motion": "Bewegung"
+  },
+  "setting": {
+    "trigger": "Auslöser",
+    "triggerName": "Name des Auslösers",
+    "account": "Konto",
+    "currency": "Währung",
+    "rewardId": "Belohnungs-ID",
+    "tier": "Stufe",
+    "gift": "Geschenkt",
+    "message": "Nachricht",
+    "fontFamily": "Schriftart",
+    "fontSize": "Schriftgröße",
+    "textColor": "Textfarbe",
+    "badgeType": "Bildart",
+    "image": "Bild",
+    "video": "Video",
+    "sound": "Ton",
+    "volume": "Lautstärke",
+    "showFor": "Anzeigedauer (s)",
+    "gap": "Abstand (s)",
+    "maxMessages": "Angezeigte Nachrichten",
+    "bubbleColor": "Blasenfarbe",
+    "crossTime": "Durchlaufzeit (s)",
+    "heightMin": "Niedrigste Höhe",
+    "heightMax": "Höchste Höhe",
+    "depthMin": "Geringste Tiefe",
+    "depthMax": "Größte Tiefe"
+  },
+  "option": {
+    "trigger": {
+      "donation": "Spende",
+      "tip": "Trinkgeld",
+      "sub": "Abo",
+      "raid": "Raid",
+      "named": "Benannter Auslöser"
+    },
+    "currency": {
+      "any": "Beliebig",
+      "bits": "Bits",
+      "channel_points": "Kanalpunkte",
+      "superchat": "Super Chat"
+    },
+    "tier": {
+      "any": "Beliebig",
+      "tier1": "Stufe 1",
+      "tier2": "Stufe 2",
+      "tier3": "Stufe 3",
+      "prime": "Prime"
+    },
+    "gift": {
+      "any": "Egal",
+      "true": "Nur geschenkte",
+      "false": "Nur nicht geschenkte"
+    },
+    "badgeType": {
+      "image": "Bild",
+      "video": "Video"
+    }
+  },
+  "unavailable": "nicht verfügbar (Teil entfernt)",
+  "noAsset": "— keins —",
+  "defaultAccount": "Standardkonto",
+  "missingAccount": "Unbekanntes Konto",
+  "dissolve": "Baugruppe auflösen",
+  "dissolveTip": "Macht daraus eine normale Gruppe: Ihre Teile lassen sich dann frei verschieben und löschen, und die Einstellungen verschwinden.",
+  "partNote": "Teil von „{{name}}“ – bleibt an seinem Platz, bis diese Baugruppe aufgelöst wird.",
+  "partMoveRefused": "Das ist ein Teil einer Baugruppe und bleibt, wo es ist. Löse die Baugruppe auf, um es zu verschieben.",
+  "partDeleteRefused": "Das ist ein Teil einer Baugruppe und lässt sich nicht einzeln löschen. Lösche die ganze Baugruppe oder löse sie zuerst auf.",
+  "help": {
+    "settings": "Diese Einstellungen schreiben direkt in die Teile der Baugruppe.",
+    "dissolve": "Was das Auflösen bewirkt.",
+    "parts": "Warum die Teile einer Baugruppe an ihrem Platz bleiben."
+  }
+}

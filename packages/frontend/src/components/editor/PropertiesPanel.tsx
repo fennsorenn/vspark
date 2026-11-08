@@ -118,6 +118,10 @@ import { useCollection, useMeshDoc } from '@vspark/mesh-react';
 import { useAnimationClips, useCameraEffects } from '../../mesh/hooks';
 import { useComposeLayers, useComposeScenes } from '../../mesh/compose';
 import { useSceneNode, useSceneNodes, useScenes } from '../../mesh/nodes';
+import {
+  CompositePartNote,
+  CompositeSettings,
+} from './composites/CompositeSettings';
 
 interface Transform {
   x: number;
@@ -6750,6 +6754,11 @@ export function PropertiesPanel() {
           >
             {node.kind}
           </span>
+        </div>
+
+        <div style={{ marginTop: 10 }}>
+          <CompositePartNote rtype="scene_node" id={node.id} />
+          <CompositeSettings rtype="scene_node" rootId={node.id} />
         </div>
 
         {/* Transform */}

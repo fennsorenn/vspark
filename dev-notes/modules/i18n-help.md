@@ -111,6 +111,10 @@ carried the original copy; this table is the durable source of truth.)
 | Track clip | Track-Clip |
 | Keyframe | Keyframe |
 | Preset | Vorlage |
+| Composite (one object with its own settings) | Baugruppe |
+| Part (of a composite) | Teil |
+| Dissolve (a composite) | Auflösen |
+| Named trigger | Benannter Auslöser |
 | Account | Konto |
 | Project | Projekt |
 | Properties | Eigenschaften |

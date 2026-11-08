@@ -13,6 +13,12 @@ import { DND_CREATE_NODE, DND_CREATE_LAYER } from './dnd';
 import { HelpButton } from '../../help/HelpButton';
 import type { LucideIcon } from 'lucide-react';
 import { useComposeScenes } from '../../mesh/compose';
+import {
+  COMPOSITE_DEFS,
+  placeComposite,
+  type CompositeDef,
+} from './composites/compositeModel';
+import { CompositeTag } from './composites/CompositeTag';
 import { useScenes } from '../../mesh/nodes';
 
 const grid: React.CSSProperties = {
@@ -48,15 +54,21 @@ function Tile({
   onClick,
   onDragStart,
   tileTitle,
+  className,
+  tag,
 }: {
   icon: LucideIcon;
   label: string;
   onClick: () => void;
   onDragStart?: (e: React.DragEvent) => void;
   tileTitle: string;
+  className?: string;
+  /** Small marker after the label (the composite tag). */
+  tag?: React.ReactNode;
 }) {
   return (
     <button
+      className={className}
       style={tile}
       draggable={!!onDragStart}
       onDragStart={onDragStart}
@@ -76,6 +88,7 @@ function Tile({
         <Icon size={20} strokeWidth={1.75} />
       </span>
       <span style={{ fontWeight: 500 }}>{label}</span>
+      {tag}
     </button>
   );
 }
@@ -96,6 +109,39 @@ export function CreatePalette() {
   const requestFocusName = useEditorStore((s) => s.requestFocusName);
 
   const composeMode = leftTab === 'compose';
+  const projectId = useEditorStore((s) => s.projectId);
+  const selectComposeLayer = useEditorStore((s) => s.selectComposeLayer);
+
+  const handleAddComposite = async (def: CompositeDef) => {
+    if (!projectId) return;
+    try {
+      const rootId = await placeComposite(def, {
+        projectId,
+        sceneId: activeSceneId,
+        composeSceneId: activeComposeSceneId,
+      });
+      if (def.rootRtype === 'compose_layer') selectComposeLayer(rootId);
+      else {
+        selectNode(rootId);
+        setSceneSelected(false);
+      }
+    } catch (e) {
+      alert(e instanceof Error ? e.message : t('palette.failCreate'));
+    }
+  };
+
+  const compositeTiles = (rtype: CompositeDef['rootRtype']) =>
+    COMPOSITE_DEFS.filter((d) => d.rootRtype === rtype).map((def) => (
+      <Tile
+        key={def.type}
+        className="vs-palette-composite"
+        icon={def.icon}
+        label={t(`composites:type.${def.type}`, { defaultValue: def.label })}
+        tileTitle={t('palette.tileTitle')}
+        tag={<CompositeTag />}
+        onClick={() => void handleAddComposite(def)}
+      />
+    ));
 
   const handleAddNode = async (def: NodeKindDef) => {
     if (!activeSceneId) return;
@@ -148,6 +194,7 @@ export function CreatePalette() {
                   }}
                 />
               ))}
+              {compositeTiles('compose_layer')}
             </div>
           </>
         )}
@@ -219,6 +266,7 @@ export function CreatePalette() {
                 </div>
               );
             })}
+            {compositeTiles('scene_node')}
           </div>
         </>
       )}

@@ -9,6 +9,7 @@ import {
 } from '../mesh/layerWrites';
 import { composeLayersNow } from '../mesh/compose';
 import { sceneNodesNow } from '../mesh/nodes';
+import { partDeleteBlocked } from '../mesh/composites';
 
 /**
  * Shared "delete this element" flow used by the scene tree, the compose tree and
@@ -26,6 +27,9 @@ export function useDeleteElement() {
     async (id: string) => {
       const layer = composeLayersNow().find((l) => l.id === id);
       if (!layer) return;
+      // A composite's part goes only with the composite — say so before
+      // asking to confirm.
+      if (partDeleteBlocked('compose_layer', id)) return;
       const childrenOf = (pid: string) =>
         composeLayersNow().filter((l) => l.parentId === pid);
       const directChildren = childrenOf(id);
@@ -72,6 +76,7 @@ export function useDeleteElement() {
     async (id: string) => {
       const node = sceneNodesNow().find((n) => n.id === id);
       if (!node) return;
+      if (partDeleteBlocked('scene_node', id)) return;
       const childrenOf = (pid: string) =>
         sceneNodesNow().filter((n) => n.parentId === pid);
       const directChildren = childrenOf(id);

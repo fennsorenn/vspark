@@ -33,6 +33,12 @@ import {
 import { actionLabel, reportRejected } from './writeFeedback';
 import { composeLayersNow } from './compose';
 import { sceneNodesNow } from './nodes';
+import {
+  isCompositeRoot,
+  markerPath,
+  partDeleteBlocked,
+  partMoveBlocked,
+} from './composites';
 import { useEditorStore, type StageObject } from '../store/editorStore';
 import { api } from '../api/client';
 
@@ -90,6 +96,12 @@ export function commitNodePath(
   path: string,
   value: unknown
 ): void {
+  // A composite's part stays in its container (mesh/composites.ts).
+  if (
+    path === 'parentId' &&
+    partMoveBlocked(RTYPE, nodeId, (value as string | null) ?? null)
+  )
+    return;
   const remote = projected(nodeId);
   if (remote) {
     void api.updateNode(nodeId, restPatch(remote, path, value));
@@ -104,6 +116,11 @@ export function commitNodePatch(
   nodeId: string,
   patch: Partial<StageObject>
 ): void {
+  if (
+    'parentId' in patch &&
+    partMoveBlocked(RTYPE, nodeId, patch.parentId ?? null)
+  )
+    return;
   if (projected(nodeId)) {
     void api.updateNode(nodeId, patch);
     return;
@@ -113,6 +130,8 @@ export function commitNodePatch(
 
 /** Delete a node and everything contained in it, as one undo action. */
 export function commitNodeDelete(nodeId: string): Promise<boolean> {
+  // A composite's part goes only with the composite (mesh/composites.ts).
+  if (partDeleteBlocked(RTYPE, nodeId)) return Promise.resolve(false);
   if (projected(nodeId))
     return api
       .deleteNode(nodeId)
@@ -129,8 +148,13 @@ export async function commitNodeDeleteKeepChildren(
 ): Promise<boolean> {
   const col = collectionOf(RTYPE);
   if (!col.get(nodeId)) return false;
+  if (partDeleteBlocked(RTYPE, nodeId)) return false;
   const children = sceneNodesNow().filter((n) => n.parentId === nodeId);
+  // Keeping a composite's parts means dissolving it first, in the same undo
+  // action — otherwise its parts couldn't leave it.
+  const composite = isCompositeRoot(RTYPE, nodeId);
   const acks = meshBatch(() => [
+    ...(composite ? [col.set(nodeId, markerPath(RTYPE), null).ack] : []),
     ...children.map((c) => col.set(c.id, 'parentId', newParentId).ack),
     col.remove(nodeId).ack,
   ]);
