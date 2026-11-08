@@ -13,7 +13,8 @@
     "placeholders": "Platzhalter, die du im Text verwenden kannst",
     "patterns": "Wie Muster (reguläre Ausdrücke) funktionieren",
     "trigger": "Einen benannten Auslöser senden, auf den andere Logik reagieren kann",
-    "combo": "Wie eine Combo gezählt wird"
+    "combo": "Wie eine Combo gezählt wird",
+    "media": "Sounds und Videos aus deiner Sammlung abspielen"
   },
   "kinds": {
     "hotkey": {
@@ -152,6 +153,8 @@
   "responses": {
     "play_clip": "Clip abspielen",
     "spawn_clip": "Clip erzeugen",
+    "play_sound": "Sound abspielen",
+    "play_video": "Video abspielen",
     "set_expression": "Ausdruck setzen",
     "set_property": "Eigenschaft setzen",
     "set_layer_property": "Ebenen-Eigenschaft setzen",

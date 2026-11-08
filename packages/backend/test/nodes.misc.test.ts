@@ -382,6 +382,29 @@ describe('spawn_clip', () => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
+// play_sound
+// ─────────────────────────────────────────────────────────────────────────────
+describe('play_sound', () => {
+  let playSpy: ReturnType<typeof vi.spyOn>;
+  beforeEach(() => {
+    playSpy = vi.spyOn(mediaControlManager, 'playSound').mockImplementation(() => {});
+  });
+  afterEach(() => playSpy.mockRestore());
+
+  it('plays the asset in the graph\'s project', () => {
+    const n = loneNode('play_sound', { assetId: 'snd', volume: 0.5, _projectId: 'p1' });
+    n.deliver('fire', undefined);
+    expect(playSpy).toHaveBeenCalledWith('p1', 'snd', 0.5);
+  });
+
+  it('does nothing without a sound or a project', () => {
+    loneNode('play_sound', { _projectId: 'p1' }).deliver('fire', undefined);
+    loneNode('play_sound', { assetId: 'snd' }).deliver('fire', undefined);
+    expect(playSpy).not.toHaveBeenCalled();
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
 // media_control
 // ─────────────────────────────────────────────────────────────────────────────
 describe('media_control', () => {
@@ -402,6 +425,24 @@ describe('media_control', () => {
     });
     n.deliver('fire', undefined);
     expect(dispatchSpy).toHaveBeenCalledWith('scene_node', 'node-vid-1', { action: 'play' });
+  });
+
+  it('carries a collection video on play / restart only', () => {
+    const n = loneNode('media_control', { targetId: 'vid-1', assetId: 'clip-a' });
+    n.deliver('fire', undefined);
+    expect(dispatchSpy).toHaveBeenLastCalledWith('scene_node', 'vid-1', {
+      action: 'play',
+      assetId: 'clip-a',
+    });
+    const p = loneNode('media_control', {
+      targetId: 'vid-1',
+      assetId: 'clip-a',
+      action: 'pause',
+    });
+    p.deliver('fire', undefined);
+    expect(dispatchSpy).toHaveBeenLastCalledWith('scene_node', 'vid-1', {
+      action: 'pause',
+    });
   });
 
   it('is a no-op when targetId is missing', () => {

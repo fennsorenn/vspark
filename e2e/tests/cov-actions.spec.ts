@@ -109,6 +109,19 @@ test('Actions panel: add, configure, badges, reset, open graph, delete (REST-ver
     .poll(async () => (await first(request, projectId))?.settings.responses['0'].value)
     .toBe(true);
 
+  // Play sound / play video: collection media without placing an entity.
+  await page.locator('.vs-action-response-type').first().selectOption('play_sound');
+  await expect.poll(() => graphKinds(request, graphId)).toContain('play_sound');
+  await page.locator('.vs-action-field-volume').first().fill('0.5');
+  await expect
+    .poll(async () => (await first(request, projectId))?.settings.responses['0'].volume)
+    .toBe(0.5);
+  await expect(page.locator('.vs-action-field-assetId').first()).toBeVisible();
+  await page.locator('.vs-action-response-type').first().selectOption('play_video');
+  await expect.poll(() => graphKinds(request, graphId)).toContain('media_control');
+  await expect(page.locator('.vs-action-field-target').first()).toBeVisible();
+  await expect(page.locator('.vs-action-field-assetId').first()).toBeVisible();
+
   // Mode + positions (shape).
   await page.locator('.vs-action-mode').selectOption('cycle');
   await expect.poll(() => graphKinds(request, graphId)).toContain('cycle');

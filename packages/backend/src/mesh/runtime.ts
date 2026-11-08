@@ -47,6 +47,7 @@
 import type { Collection, MeshPeer } from '@vspark/mesh';
 import type { ParamTargetKind } from '@vspark/shared/paramPaths';
 import { MODELS } from '@vspark/shared/models';
+import type { SoundCue } from '@vspark/shared/types';
 
 /** Built-in mesh channel: retained state that must reach late joiners, without
  *  an ack (and so without an undo entry). */
@@ -164,9 +165,16 @@ export interface MediaControlDoc {
 
 export const mediaControlParent = MODELS.media_control.parent;
 
+/** One-shot sounds for a whole project, on the same unretained `control`
+ *  channel as media commands. Keyed by project (one live slot per project, so
+ *  cues stay in order); a fresh `cueId` makes a repeat still a change. */
+export const SOUND_CUE_RTYPE = 'sound_cue';
+export type SoundCueDoc = SoundCue & { [k: string]: unknown };
+
 let _overrides: Collection<RuntimeOverrideDoc> | null = null;
 let _dataFields: Collection<DataFieldDoc> | null = null;
 let _media: Collection<MediaControlDoc> | null = null;
+let _sounds: Collection<SoundCueDoc> | null = null;
 
 /** Register the runtime channel + collections. Idempotent. */
 export function initMeshRuntime(peer: MeshPeer): void {
@@ -176,10 +184,12 @@ export function initMeshRuntime(peer: MeshPeer): void {
   _overrides = peer.collection<RuntimeOverrideDoc>(RUNTIME_OVERRIDE_RTYPE);
   _dataFields = peer.collection<DataFieldDoc>(DATA_FIELD_RTYPE);
   _media = peer.collection<MediaControlDoc>(MEDIA_CONTROL_RTYPE);
+  _sounds = peer.collection<SoundCueDoc>(SOUND_CUE_RTYPE);
   for (const rtype of [
     RUNTIME_OVERRIDE_RTYPE,
     DATA_FIELD_RTYPE,
     MEDIA_CONTROL_RTYPE,
+    SOUND_CUE_RTYPE,
   ])
     peer.grants.grant({
       grantee: peer.id, // our tabs: they display these, only we write them
@@ -210,10 +220,16 @@ export function mediaControlCollection(): Collection<MediaControlDoc> | null {
   return _media;
 }
 
+/** The sound-cue collection, or null before the mesh is up. */
+export function soundCueCollection(): Collection<SoundCueDoc> | null {
+  return _sounds;
+}
+
 /** Test seam — drops the registered collections so the next init rebuilds
  *  them against a fresh peer. */
 export function resetMeshRuntime(): void {
   _overrides = null;
   _dataFields = null;
   _media = null;
+  _sounds = null;
 }

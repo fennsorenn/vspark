@@ -134,6 +134,9 @@ export const MODELS = {
     channels: [CONTROL],
     parent: scopedTo('targetKind', 'targetId'),
   },
+  // A one-shot sound for a whole project (no entity to hang off; there is no
+  // `project` rtype).
+  sound_cue: { channels: [CONTROL] },
   // A status about a document hangs off it.
   server_status: {
     channels: [RUNTIME],
@@ -176,5 +179,6 @@ export const TAB_MODELS: readonly ModelName[] = [
   'runtime_override',
   'data_field',
   'media_control',
+  'sound_cue',
   'server_status',
 ];

@@ -33,6 +33,7 @@ import {
   mediaControlCollection,
   mediaControlParent,
   overrideCollection,
+  soundCueCollection,
   overrideParent,
   resetMeshRuntime,
 } from '../src/mesh/runtime.js';
@@ -382,6 +383,48 @@ describe('DataChannelManager', () => {
       expect(() => m.clear('s')).not.toThrow();
       expect(() => m.clearAll()).not.toThrow();
     });
+  });
+});
+
+describe('MediaControlManager.playSound', () => {
+  let cues: Record<string, unknown>[];
+  beforeEach(() => {
+    resetMeshRuntime();
+    initMeshRuntime(
+      createMeshPeer({
+        identity: { peerId: 'test-peer' },
+        models: MODELS,
+        transports: [],
+      })
+    );
+    cues = [];
+    soundCueCollection()!.observe('**', (c) => {
+      if (c.doc) cues.push(c.doc as Record<string, unknown>);
+    });
+  });
+
+  it('publishes one cue per play, addressed to the project, unretained', () => {
+    const manager = new MediaControlManager();
+    manager.playSound('p1', 'a1', 2);
+    manager.playSound('p1', 'a1');
+    expect(cues).toHaveLength(2);
+    expect(cues[0]).toMatchObject({
+      id: 'p1',
+      projectId: 'p1',
+      assetId: 'a1',
+      volume: 1,
+    });
+    expect(cues[1]).not.toHaveProperty('volume');
+    // Same sound twice is still two changes.
+    expect(cues[0].cueId).not.toBe(cues[1].cueId);
+    expect(soundCueCollection()!.retainedChannel).toBeUndefined();
+  });
+
+  it('is a no-op without a project or asset', () => {
+    const manager = new MediaControlManager();
+    manager.playSound('', 'a1');
+    manager.playSound('p1', '');
+    expect(cues).toHaveLength(0);
   });
 });
 

@@ -6,6 +6,7 @@ import { SafeEnvironment } from '../components/SafeEnvironment';
 import { FittedOrthoCamera } from '../components/editor/FittedOrthoCamera';
 import * as THREE from 'three';
 import { useEditorStore } from '../store/editorStore';
+import { useSoundCues } from '../mesh/soundCues';
 import { api } from '../api/client';
 import { useWsSync } from '../hooks/useWsSync';
 import { useTrackClipEvaluator } from '../hooks/useTrackClipEvaluator';
@@ -76,6 +77,8 @@ function ViewerContent() {
   }>();
   const { setProject, setActiveScene, selectComposeScene, assets } =
     useEditorStore();
+  // One-shot sounds (Play sound): the viewer is always audible.
+  useSoundCues(projectId, true);
   const nodes = useSceneNodes();
   // The camera with its live transform, so the output follows a camera drag.
   const liveCamNode = useSceneNode(nodeId);

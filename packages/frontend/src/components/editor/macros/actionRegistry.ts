@@ -151,7 +151,35 @@ export const MACRO_ACTION_DEFS: readonly MacroActionDef[] = [
   controlMedia,
 ];
 
-const BY_ID = new Map(MACRO_ACTION_DEFS.map((d) => [d.id, d]));
+/** Play a collection sound without an entity in the scene. */
+const playSound = singleNodeAction({
+  id: 'play_sound',
+  nodeKind: 'play_sound',
+  fields: [
+    { key: 'assetId', labelKey: 'field.sound', control: 'asset', assetKind: 'audio', port: 'assetId' },
+    { key: 'volume', labelKey: 'field.volume', control: 'number', port: 'volume', min: 0, max: 1, step: 0.05 },
+  ],
+});
+
+/** Play a collection video on an existing video node / layer, temporarily. */
+const playVideo = singleNodeAction({
+  id: 'play_video',
+  nodeKind: 'media_control',
+  fields: [
+    { key: 'target', labelKey: 'field.videoTarget', control: 'videoEntity', port: 'target' },
+    { key: 'assetId', labelKey: 'field.video', control: 'asset', assetKind: 'video', port: 'assetId' },
+  ],
+});
+
+/** Response types the Actions panel offers that the Macros panel does not:
+ *  their field editors are looked up here, but they take no part in the Macros
+ *  projection (`play_video` shares Media Control with `control_media`, so the
+ *  projection could not tell them apart). */
+const RESPONSE_ONLY_DEFS: readonly MacroActionDef[] = [playSound, playVideo];
+
+const BY_ID = new Map(
+  [...MACRO_ACTION_DEFS, ...RESPONSE_ONLY_DEFS].map((d) => [d.id, d])
+);
 
 export function macroActionById(id: string): MacroActionDef | undefined {
   return BY_ID.get(id);

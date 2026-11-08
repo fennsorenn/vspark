@@ -7,6 +7,7 @@ import {
   instantiatePreset as instantiatePresetApi,
 } from '../api/client';
 import { useEditorStore } from '../store/editorStore';
+import { useSoundCues } from '../mesh/soundCues';
 import { setLive2dConsent } from '../lib/puppet2d/live2d/coreLoader';
 import { useWsSync } from '../hooks/useWsSync';
 import { useDeleteElement } from '../hooks/useDeleteElement';
@@ -70,6 +71,10 @@ export function Editor() {
   const { t } = useTranslation('editor');
   const { deleteSelected } = useDeleteElement();
   const { projectId } = useParams<{ projectId: string }>();
+  // One-shot sounds (Play sound): audible in the editor only with audio preview
+  // on, like video and audio entities.
+  const audioPreview = useEditorStore((s) => s.editorAudioPreviewEnabled);
+  useSoundCues(projectId, audioPreview);
   const {
     setProject,
     setActiveScene,

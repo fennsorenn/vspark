@@ -19,7 +19,9 @@
     "set_expression": "Ausdruck setzen",
     "set_property": "Eigenschaft setzen",
     "set_layer_property": "Ebenen-Eigenschaft setzen",
-    "control_media": "Medien steuern"
+    "control_media": "Medien steuern",
+    "play_sound": "Sound abspielen",
+    "play_video": "Video abspielen"
   },
   "field": {
     "clip": "Clip",
@@ -30,7 +32,11 @@
     "layer": "Ebene",
     "property": "Eigenschaft",
     "value": "Wert",
-    "action": "Aktion"
+    "action": "Aktion",
+    "sound": "Sound",
+    "volume": "Lautstärke",
+    "video": "Video",
+    "videoTarget": "Auf"
   },
   "mediaAction": {
     "play": "Abspielen",

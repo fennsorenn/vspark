@@ -14,6 +14,7 @@ import {
   statusOf,
   type ActionRecord,
 } from '../../../mesh/actions';
+import { useEditorStore } from '../../../store/editorStore';
 import { inputStyle } from './styles';
 
 // ── preview ──────────────────────────────────────────────────────────────────
@@ -23,8 +24,10 @@ function useRefName(): (ref: string, id: string) => string {
   const nodes = useSceneNodes();
   const layers = useComposeLayers();
   const clips = useTrackClips();
+  const assets = useEditorStore((s) => s.assets);
   return (ref, id) => {
     if (ref === 'clip') return clips.find((c) => c.id === id)?.name || id;
+    if (ref === 'asset') return assets.find((a) => a.id === id)?.name || id;
     const node = nodes.find((n) => n.id === id);
     if (node && ref !== 'composeLayer') return node.name || id;
     const layer = layers.find((l) => l.id === id);

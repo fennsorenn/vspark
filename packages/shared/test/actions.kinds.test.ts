@@ -334,6 +334,26 @@ describe('Chat keyword', () => {
     ).toBe(A.keywordPattern(['LUL']));
   });
 
+  it('play sound / play video responses feed their fields from settings', () => {
+    const snd = edgeStrs(
+      graph('chat_keyword', { response: { type: 'play_sound' } })
+    );
+    expect(snd).toEqual(
+      expect.arrayContaining([
+        'cfg_response_assetId.value>response.assetId',
+        'cfg_response_volume.value>response.volume',
+      ])
+    );
+    const vg = graph('chat_keyword', { response: { type: 'play_video' } });
+    expect(nodeOf(vg, 'response')?.kind).toBe('media_control');
+    expect(edgeStrs(vg)).toEqual(
+      expect.arrayContaining([
+        'cfg_response_target.value>response.target',
+        'cfg_response_assetId.value>response.assetId',
+      ])
+    );
+  });
+
   it('template: keyword match → cooldown → response + trigger', () => {
     const g = graph('chat_keyword', { response: { type: 'control_media' } });
     expect(nodeOf(g, 'keyword_match')?.defaultConfig).toEqual({

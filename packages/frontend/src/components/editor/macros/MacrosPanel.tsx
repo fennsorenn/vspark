@@ -131,6 +131,7 @@ export function FieldEditor({
   const composeLayers = useComposeLayers();
   const trackClips = useTrackClips();
   const expressionsByNode = useEditorStore((s) => s.vrmExpressionsByNode);
+  const assets = useEditorStore((s) => s.assets);
   // The shared handle first (what a caller's `className` names), then the
   // per-field one.
   const base = className ?? 'vs-macro-field';
@@ -196,6 +197,15 @@ export function FieldEditor({
       ...nodes.filter((n) => n.kind !== 'scene').map((n) => ({ value: n.id, label: n.name || n.id })),
       ...composeLayers.map((l) => ({ value: l.id, label: l.name || l.id })),
     ];
+  } else if (field.control === 'videoEntity') {
+    options = [
+      ...nodes.filter((n) => n.kind === 'video').map((n) => ({ value: n.id, label: n.name || n.id })),
+      ...composeLayers.filter((l) => l.kind === 'video').map((l) => ({ value: l.id, label: l.name || l.id })),
+    ];
+  } else if (field.control === 'asset') {
+    options = assets
+      .filter((a) => !field.assetKind || a.kind === field.assetKind)
+      .map((a) => ({ value: a.id, label: a.name || a.id }));
   } else if (field.control === 'expression') {
     const nodeId = typeof values.nodeId === 'string' ? values.nodeId : '';
     options = (expressionsByNode[nodeId] ?? []).map((name) => ({ value: name, label: name }));

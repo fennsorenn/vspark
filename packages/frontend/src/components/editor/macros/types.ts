@@ -30,6 +30,8 @@ export type MacroFieldControl =
   | 'sceneNode'
   | 'composeLayer'
   | 'sceneEntity'
+  | 'videoEntity'
+  | 'asset'
   | 'expression'
   | 'paramPath'
   | 'string'
@@ -61,6 +63,8 @@ export interface MacroField {
   /** For `control: 'paramPath'` (and the value field that follows it): which
    *  paramPath registry to list / type against. Defaults to 'scene_node'. */
   paramTargetKind?: 'scene_node' | 'compose_layer';
+  /** For `control: 'asset'`: which collection assets to list. */
+  assetKind?: 'audio' | 'video';
   min?: number;
   max?: number;
   step?: number;

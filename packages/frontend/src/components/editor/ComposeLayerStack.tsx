@@ -239,13 +239,28 @@ function VideoLayer({
   const muted = cfg.muted !== false;
   const volume = typeof cfg.volume === 'number' ? cfg.volume : 1;
   const [hidden, setHidden] = useState(false);
+  // A collection video swapped in by a media command (`playSource`): played
+  // once, not saved. `stop` and a change of the layer's own source end it.
+  const [swapUrl, setSwapUrl] = useState<string | null>(null);
+  const src = swapUrl ?? url;
+  const playsLoop = swapUrl ? false : loop;
+  /** Play the next source (the swapped-in video). */
+  const playNextRef = useRef(false);
+  /** Don't autoplay the next source (the own video, after a `stop`). */
+  const holdNextRef = useRef(false);
+  useEffect(() => setSwapUrl(null), [url]);
 
-  // Reset hidden + apply autoplay when the source changes.
+  // Reset hidden + apply autoplay when the source changes; a swapped-in video
+  // always plays, and the own video coming back after a `stop` stays stopped.
   useEffect(() => {
-    setHidden(false);
+    const hold = holdNextRef.current;
+    const play = playNextRef.current || (autoplay && !hold);
+    playNextRef.current = false;
+    holdNextRef.current = false;
+    if (!hold) setHidden(false);
     const el = ref.current;
-    if (el && autoplay) void el.play().catch(() => {});
-  }, [url, autoplay]);
+    if (el && play) void el.play().catch(() => {});
+  }, [src, autoplay]);
 
   // Audibility + volume.
   useEffect(() => {
@@ -254,7 +269,7 @@ function VideoLayer({
     const audible = (mode === 'viewer' || audioPreview) && !muted;
     el.muted = !audible;
     el.volume = Math.max(0, Math.min(1, volume));
-  }, [mode, audioPreview, muted, volume, url]);
+  }, [mode, audioPreview, muted, volume, src]);
 
   // Media handle for command bus / clip events.
   useEffect(() => {
@@ -266,7 +281,24 @@ function VideoLayer({
         if (!el) return;
         el.pause();
         el.currentTime = 0;
+        // A swapped-in video ends here: back to the layer's own, not playing.
+        setSwapUrl((cur) => {
+          if (cur !== null) holdNextRef.current = true;
+          return null;
+        });
         if (onEnd === 'hide') setHidden(true);
+      },
+      playSource: (src: string) => {
+        setHidden(false);
+        const el = ref.current;
+        if (el && el.src === new URL(src, location.href).href) {
+          // Already loaded: play it again from the start.
+          el.currentTime = 0;
+          void el.play().catch(() => {});
+          return;
+        }
+        playNextRef.current = true;
+        setSwapUrl(src);
       },
       restart: () => {
         const el = ref.current;
@@ -296,14 +328,15 @@ function VideoLayer({
     <>
       <video
         ref={ref}
-        src={url}
-        autoPlay={autoplay}
-        loop={loop}
+        src={src}
+        // Autoplay is the effect above (it must skip the own video coming
+        // back after a stop), not the attribute.
+        loop={playsLoop}
         muted
         playsInline
         crossOrigin="anonymous"
         onEnded={() => {
-          if (!loop && onEnd === 'hide') setHidden(true);
+          if (!playsLoop && onEnd === 'hide') setHidden(true);
         }}
         style={{
           width: '100%',

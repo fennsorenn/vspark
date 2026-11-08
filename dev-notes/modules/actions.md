@@ -199,7 +199,19 @@ Responses are the Macros panel's set (`RESPONSE_TYPES`, same ids, sinks and
 fields as `macros/actionRegistry.ts`): `play_clip` → `start_clip`, `spawn_clip`,
 `set_expression`, `set_property` → `set_scene_node_param`,
 `set_layer_property` → `set_compose_layer_param`, `control_media` →
-`media_control`.
+`media_control`, plus two response types the Macros panel does not offer:
+`play_sound` → `play_sound` (fields `assetId`, `volume`) and `play_video` →
+`media_control` (fields `target`, `assetId`; the node's action defaults to
+`play`). Their field editors are response-only defs in
+`macros/actionRegistry.ts` (`RESPONSE_ONLY_DEFS`): looked up by
+`macroActionById` but not part of the Macros projection, because `play_video`
+shares the `media_control` node with `control_media` and the projection could
+not tell them apart. They use two new `FieldEditor` controls: `asset`
+(collection assets, filtered by the field's `assetKind` `audio` / `video`) and
+`videoEntity` (video scene nodes + video compose layers). Their preview uses
+the `asset` ref kind (`ResponseRefKind`), resolved to the asset name. A
+`HelpButton` next to the response-type select, shown for these two, points at
+help anchor `actions#media`. See [media.md](media.md#media-one-shots).
 
 Template:
 
