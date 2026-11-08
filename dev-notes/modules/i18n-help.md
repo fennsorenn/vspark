@@ -113,12 +113,12 @@ carried the original copy; this table is the durable source of truth.)
 | Track clip | Track-Clip |
 | Keyframe | Keyframe |
 | Preset | Vorlage |
-| Composite (one object with its own settings) | Baugruppe |
+| Composite (one object with its own settings) | Widget |
 | Part (of a composite) | Teil |
 | Dissolve (a composite) | Auflösen |
 | Named trigger | Benannter Auslöser |
 
-The four composite rows above (Baugruppe, Teil, Auflösen, Benannter Auslöser) were chosen by Claude on `feature/composites` and are not yet confirmed by the user.
+**Decided (user):** a composite is a *Widget* in German (neuter: *das Widget*, *eines Widgets*) — the term German streamers know from alert/chat widgets, chosen over the literal *Baugruppe*. The other three composite rows (Teil, Auflösen, Benannter Auslöser) were chosen by Claude on `feature/composites` and are not yet confirmed by the user.
 
 | Account | Konto |
 | Project | Projekt |

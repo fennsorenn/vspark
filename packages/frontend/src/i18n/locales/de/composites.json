@@ -1,7 +1,7 @@
 {
   "section": "Einstellungen",
-  "tag": "Baugruppe",
-  "tagTip": "Eine Baugruppe: ein Objekt mit eigenen Einstellungen. Ihre Teile bleiben an ihrem Platz, bis du sie auflöst.",
+  "tag": "Widget",
+  "tagTip": "Ein Widget: ein Objekt mit eigenen Einstellungen. Seine Teile bleiben an ihrem Platz, bis du es auflöst.",
   "type": {
     "alert": "Alert",
     "chat_overlay": "Chat-Overlay",
@@ -80,14 +80,14 @@
   "noAsset": "— keins —",
   "defaultAccount": "Standardkonto",
   "missingAccount": "Unbekanntes Konto",
-  "dissolve": "Baugruppe auflösen",
+  "dissolve": "Widget auflösen",
   "dissolveTip": "Macht daraus eine normale Gruppe: Ihre Teile lassen sich dann frei verschieben und löschen, und die Einstellungen verschwinden.",
-  "partNote": "Teil von „{{name}}“ – bleibt an seinem Platz, bis diese Baugruppe aufgelöst wird.",
-  "partMoveRefused": "Das ist ein Teil einer Baugruppe und bleibt, wo es ist. Löse die Baugruppe auf, um es zu verschieben.",
-  "partDeleteRefused": "Das ist ein Teil einer Baugruppe und lässt sich nicht einzeln löschen. Lösche die ganze Baugruppe oder löse sie zuerst auf.",
+  "partNote": "Teil von „{{name}}“ – bleibt an seinem Platz, bis dieses Widget aufgelöst wird.",
+  "partMoveRefused": "Das ist ein Teil eines Widgets und bleibt, wo es ist. Löse das Widget auf, um es zu verschieben.",
+  "partDeleteRefused": "Das ist ein Teil eines Widgets und lässt sich nicht einzeln löschen. Lösche das ganze Widget oder löse es zuerst auf.",
   "help": {
-    "settings": "Diese Einstellungen schreiben direkt in die Teile der Baugruppe.",
+    "settings": "Diese Einstellungen schreiben direkt in die Teile des Widgets.",
     "dissolve": "Was das Auflösen bewirkt.",
-    "parts": "Warum die Teile einer Baugruppe an ihrem Platz bleiben."
+    "parts": "Warum die Teile eines Widgets an ihrem Platz bleiben."
   }
 }

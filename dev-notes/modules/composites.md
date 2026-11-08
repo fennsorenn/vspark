@@ -151,9 +151,9 @@ Code-defined settings:
 
 Namespace `composites` (EN / DE). Help page `help/content/{en,de}/composites.md`,
 anchors `{#composites}` `{#settings}` `{#alert}` `{#chat}` `{#parts}` `{#dissolve}`;
-topic registered in `help/docs.ts` after `presets`. The German terms (Baugruppe, Teil,
-Auflösen, Benannter Auslöser) are in the [i18n-help.md](i18n-help.md) vocabulary
-table; they were chosen by Claude and are not yet confirmed by the user.
+topic registered in `help/docs.ts` after `presets`. The German terms are in the [i18n-help.md](i18n-help.md)
+vocabulary table: **Decided (user):** a composite is a *Widget*; Teil, Auflösen
+and Benannter Auslöser were chosen by Claude and are not yet confirmed.
 
 ## Tests
 

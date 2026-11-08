@@ -1,24 +1,24 @@
-# Baugruppen {#composites}
+# Widgets {#composites}
 
-Eine **Baugruppe** ist ein fertiges Overlay – ein Alert, ein Chat-Overlay –, das
+Ein **Widget** ist ein fertiges Overlay – ein Alert, ein Chat-Overlay –, das
 als **ein Objekt mit eigenen Einstellungen** eingefügt wird. Statt dich durch
 Ebenen, einen Track-Clip und einen Logik-Graphen zu suchen, um die Nachricht oder
-den Ton zu ändern, stellst du beides direkt an der Baugruppe ein.
+den Ton zu ändern, stellst du beides direkt am Widget ein.
 
-Baugruppen stehen in der Palette **Erstellen** neben den normalen Objekten und
-Ebenen und tragen ein kleines Kennzeichen **Baugruppe**. Dasselbe Kennzeichen
+Widgets stehen in der Palette **Erstellen** neben den normalen Objekten und
+Ebenen und tragen ein kleines Kennzeichen **Widget**. Dasselbe Kennzeichen
 erscheint an ihrer Zeile im Szenen- oder Kompositionsbaum.
 
 ## Einstellungen {#settings}
 
-Wähle eine Baugruppe aus, um ihre **Einstellungen** im Eigenschaften-Bereich zu
-sehen. Jede Einstellung schreibt direkt in die Teile der Baugruppe – eine
+Wähle ein Widget aus, um seine **Einstellungen** im Eigenschaften-Bereich zu
+sehen. Jede Einstellung schreibt direkt in die Teile des Widgets – eine
 getrennte Kopie des Werts gibt es nicht. Du kannst die Teile also auch direkt
 bearbeiten (die Nachricht verschieben, ihr eine andere Schriftart geben), und die
 Einstellung zeigt die Änderung.
 
 Jede Änderung ist ein Rückgängig-Schritt. Zeigt eine Einstellung auf etwas, das
-du aus der Logik der Baugruppe entfernt hast, steht dort _nicht verfügbar_.
+du aus der Logik des Widgets entfernt hast, steht dort _nicht verfügbar_.
 
 ## Alert {#alert}
 
@@ -53,16 +53,16 @@ Warteschlange und laufen nacheinander.
 
 ## Teile bleiben an ihrem Platz {#parts}
 
-Die Objekte in einer Baugruppe sind ihre **Teile**. Du kannst sie wie jedes
-andere Objekt auswählen, bearbeiten und umsortieren, aber nicht aus der
-Baugruppe heraus oder in eine Gruppe darin verschieben und auch nicht einzeln
-löschen: Die Logik der Baugruppe spricht sie an genau dieser Stelle an. Löschst
-du die ganze Baugruppe, verschwinden ihre Teile mit ihr.
+Die Objekte in einem Widget sind seine **Teile**. Du kannst sie wie jedes
+andere Objekt auswählen, bearbeiten und umsortieren, aber nicht aus dem
+Widget heraus oder in eine Gruppe darin verschieben und auch nicht einzeln
+löschen: Die Logik des Widgets spricht sie an genau dieser Stelle an. Löschst
+du das ganze Widget, verschwinden seine Teile mit ihm.
 
 ## Auflösen {#dissolve}
 
-**Baugruppe auflösen** (im Abschnitt Einstellungen und im Rechtsklickmenü des
-Baums) macht aus einer Baugruppe eine normale Gruppe. Darin ändert sich nichts,
+**Widget auflösen** (im Abschnitt Einstellungen und im Rechtsklickmenü des
+Baums) macht aus einem Widget eine normale Gruppe. Darin ändert sich nichts,
 aber die Einstellungen verschwinden und die Teile lassen sich frei verschieben
 und löschen – für den Fall, dass du mehr anpassen willst, als die Einstellungen
 erlauben. Auflösen lässt sich rückgängig machen.
