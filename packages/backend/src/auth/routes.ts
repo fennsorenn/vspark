@@ -2,16 +2,17 @@
  * Enrollment: how a browser gets the token its `/mesh` hello carries.
  *
  * `POST /api/mesh/enroll { label?, code? }` issues a token. A browser on this
- * machine, or on a network `VSPARK_ALLOW_LAN` trusts, gets one directly; any
- * other browser must send the current pairing code (printed on server start,
- * readable by local callers from
+ * machine, or on a network `VSPARK_TRUSTED_NETWORKS` trusts (by default the
+ * same as `VSPARK_ALLOW_LAN`), gets one directly; any other browser must send
+ * the current pairing code (printed on server start, readable by this machine
+ * from
  * `GET /api/mesh/pairing-code`). Without it the answer is 403 with
  * `code: 'PAIRING_REQUIRED'`, which the frontend turns into a prompt.
  */
 import { Router } from 'express';
 import {
   browserAddress,
-  isLoopbackAddress,
+  isThisMachine,
   trustedNetworkAddress,
 } from '../localAccess.js';
 import {
@@ -42,13 +43,11 @@ authRoutes.post('/mesh/enroll', (req, res) => {
 });
 
 authRoutes.get('/mesh/pairing-code', (req, res) => {
-  if (!isLoopbackAddress(browserAddress(req))) {
-    res
-      .status(403)
-      .json({
-        ok: false,
-        error: { status: 403, message: 'local callers only' },
-      });
+  if (!isThisMachine(browserAddress(req))) {
+    res.status(403).json({
+      ok: false,
+      error: { status: 403, message: 'local callers only' },
+    });
     return;
   }
   res.json({ ok: true, data: { code: currentPairingCode() } });

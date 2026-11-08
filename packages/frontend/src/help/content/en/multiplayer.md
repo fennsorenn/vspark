@@ -28,7 +28,9 @@ Either way, both servers save each other as **contacts**.
 ## Opening vspark on another device {#device-code}
 
 vspark only lets a browser in after it has been connected once. A browser on the
-computer that runs vspark is connected automatically.
+computer that runs vspark is connected automatically — also when you open one of
+the computer's other addresses (for example a Docker or network address the
+console lists) instead of `localhost`.
 
 To open vspark from **another device** (a laptop, a tablet):
 
@@ -37,11 +39,18 @@ To open vspark from **another device** (a laptop, a tablet):
    window, and shown at the top of **Connections** on the vspark computer.
 3. Enter it. The browser stays connected from then on.
 
-On your own network you can skip the code: start vspark with
-`VSPARK_ALLOW_LAN=1` and browsers on your local network connect straight away.
-To trust other networks too, list them instead, separated by commas, for example
-`VSPARK_ALLOW_LAN=lan,tailscale`. Devices outside the listed networks still need
-the code.
+Two settings decide this, each a comma-separated list of networks:
+
+- `VSPARK_ALLOW_LAN` — which devices may connect at all. Without it, only this
+  computer (`self`). `VSPARK_ALLOW_LAN=self,lan` also lets in your local
+  network, `self,lan,tailscale` your Tailscale devices too; `any` lets in
+  everyone, `0` only `localhost`.
+- `VSPARK_TRUSTED_NETWORKS` — which of those connect **without** the code.
+  Without it, the same as `VSPARK_ALLOW_LAN`: everyone who may connect skips
+  the code. Set for example `VSPARK_TRUSTED_NETWORKS=self` to let your network
+  in but still ask its devices for the code.
+
+Ranges (`192.168.1.0/24`) and single addresses work in both lists too.
 
 Each code works once; after a few wrong tries vspark picks a new one. This is not
 the same as the multiplayer **pairing code** above, which links two vspark
