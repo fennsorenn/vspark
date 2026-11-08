@@ -48,8 +48,12 @@ import {
   initServerStatus,
   resetServerStatus,
 } from './status.js';
+import { initRuntimeVariables, resetRuntimeVariables } from './variables.js';
 import { refreshAllBehaviorManagers } from '../behaviors/refresh.js';
 import { logicLifecycle } from '../logic/lifecycle.js';
+import { actionLifecycle, guardAction } from '../actions/lifecycle.js';
+import { behaviorGraphLifecycle } from '../behaviors/graphLifecycle.js';
+import { validateBehaviorGraph } from '../behaviors/storedGraph.js';
 import {
   ensurePeerProject,
   isCollabScene,
@@ -90,9 +94,13 @@ interface RtypeBinding {
    *  route, a tab, an undo, a collab peer) — they run in the persistence tap,
    *  never in a route, or a write that bypasses the route would skip them.
    *  `onRemoving` runs before the row is deleted, the others after. */
-  onSaved?: (dto: Dto) => void;
+  onSaved?: (dto: Dto, prev?: Dto) => void;
   onRemoving?: (id: string) => void;
   onRemoved?: (id: string) => void;
+  /** Hand `onSaved` the document as it was persisted before this write (read
+   *  back from SQLite ahead of the save; undefined on a create). For side
+   *  effects that depend on what changed rather than on the new state alone. */
+  withPrev?: boolean;
 }
 
 /** camera_view layers show a camera by id — a reference, not containment, so
@@ -227,7 +235,15 @@ const BINDINGS: RtypeBinding[] = [
     // Attaching, reconfiguring or detaching a behavior starts, restarts or
     // tears down its signal graph. Each manager re-reads the full row set, so
     // the refresh is idempotent; on remove it runs after the row is gone.
-    onSaved: () => refreshAllBehaviorManagers(),
+    // First its STORED graph is kept in step (created when missing, rebuilt
+    // on a shape change of an unmodified graph) — which needs the document as
+    // it was, hence withPrev. The graph is a child document (logic parented to
+    // the behavior), so removing the behavior removes it through removeTree.
+    withPrev: true,
+    onSaved: (d, prev) => {
+      behaviorGraphLifecycle.onCommitted(d, prev);
+      refreshAllBehaviorManagers();
+    },
     onRemoved: () => refreshAllBehaviorManagers(),
     // Tabs author behaviors directly now, so the route's owner check runs here
     // — and it matters more than for effects, because a committed behavior doc
@@ -355,9 +371,28 @@ const BINDINGS: RtypeBinding[] = [
     rtype: 'logic',
     clients: TAB_AUTHORED,
     // A graph's descriptor IS its program: committing one starts, restarts or
-    // stops the running instance.
-    onSaved: (d) => logicLifecycle.onCommitted(d.id as string),
-    onRemoved: (id) => logicLifecycle.onRemoved(id),
+    // stops the running instance. A behavior's graph runs in its behavior's
+    // manager, not in LogicManager, so its manager rebuilds it instead.
+    onSaved: (d) =>
+      d.ownerKind === 'behavior'
+        ? behaviorGraphLifecycle.onGraphCommitted()
+        : logicLifecycle.onCommitted(d.id as string),
+    // The row is gone by onRemoved; note whose graph it was while it exists.
+    onRemoving: (id) => {
+      if (
+        getDb()
+          .prepare(
+            "SELECT 1 FROM logic WHERE id = ? AND owner_kind = 'behavior'"
+          )
+          .get(id)
+      )
+        removingBehaviorGraphs.add(id);
+    },
+    onRemoved: (id) => {
+      if (removingBehaviorGraphs.delete(id))
+        behaviorGraphLifecycle.onGraphCommitted();
+      else logicLifecycle.onRemoved(id);
+    },
     table: 'logic',
     // A project-owned graph has no parent (no `project` rtype), so project
     // graphs cannot be subtree-scoped (shared or collab-scoped) until one
@@ -366,13 +401,17 @@ const BINDINGS: RtypeBinding[] = [
     // equivalent of the 400 the PUT route used to return, and the only place
     // the check lives, since REST and tabs both write through here. The canvas
     // commits `set(id, 'descriptor', …)`; the check sees the whole document.
+    // A behavior's graph is checked on its own terms: it may use the
+    // behavior-context nodes Logic refuses, and must still be buildable.
     validate: (data) => {
       const d = data as Dto;
-      if (d.descriptor)
-        validateDescriptor(
-          toGraphDescriptor(d.descriptor as GraphDescriptorDoc),
-          String(d.ownerKind)
+      if (d.descriptor) {
+        const descriptor = toGraphDescriptor(
+          d.descriptor as GraphDescriptorDoc
         );
+        if (d.ownerKind === 'behavior') validateBehaviorGraph(descriptor);
+        else validateDescriptor(descriptor, String(d.ownerKind));
+      }
       return d;
     },
     persists: (d) =>
@@ -380,7 +419,37 @@ const BINDINGS: RtypeBinding[] = [
         ? rowExists('projects', d.ownerId)
         : d.ownerKind === 'scene_node'
           ? rowExists('scene_nodes', d.ownerId)
-          : rowExists('compose_layers', d.ownerId),
+          : d.ownerKind === 'action'
+            ? rowExists('actions', d.ownerId)
+            : d.ownerKind === 'behavior'
+              ? rowExists('behaviors', d.ownerId)
+              : rowExists('compose_layers', d.ownerId),
+  },
+  {
+    rtype: 'action',
+    clients: TAB_AUTHORED,
+    table: 'actions',
+    // Settings are normalized for every writer (a correction when they were
+    // not), an unknown kind or a foreign project is refused.
+    validate: (data, { origin }) =>
+      guardAction(data as Dto, isClientParticipant(origin)),
+    // Value edits reach the running graph live; a shape edit rebuilds an
+    // unmodified graph; an enable toggle starts or stops it. Deciding which
+    // needs the document as it was, hence withPrev. The graph itself is a
+    // child document (logic parented to the action), so removing the action
+    // removes it through removeTree in the tap below.
+    withPrev: true,
+    onSaved: (d, prev) => actionLifecycle.onCommitted(d, prev),
+    persists: (d) => ownProject(d.projectId),
+  },
+  {
+    // Persistent graph variables (the short-lived ones are the
+    // `runtime_variable` collection in mesh/variables.ts). Graphs write them
+    // through variables/store.ts; tabs only read them for now.
+    rtype: 'variable',
+    clients: { read: true },
+    table: 'variables',
+    persists: (d) => ownProject(d.projectId),
   },
   {
     rtype: 'clip_playback',
@@ -391,6 +460,9 @@ const BINDINGS: RtypeBinding[] = [
     persists: (d) => rowExists('track_clips', d.clipId),
   },
 ];
+
+/** Behavior-owned graphs being removed (onRemoving → onRemoved). */
+const removingBehaviorGraphs = new Set<string>();
 
 /** Echo guard for the legacy bridge: ids currently being persisted from a
  *  mesh apply — the sync.onDocument mirror skips them so the tap's own
@@ -519,6 +591,7 @@ export function initBackendMesh(): MeshPeer {
   // collection is silent, and the overrides simply stop arriving.
   initMeshRuntime(peer);
   initServerStatus(peer);
+  initRuntimeVariables(peer);
   // The animation-clip asset follow-up re-points sourceFilePath through the
   // store once a fetched blob lands.
   const animCol = COLLECTIONS.get('animation_clip');
@@ -547,6 +620,7 @@ export function resetBackendMesh(): void {
   COLLECTIONS.clear();
   resetMeshRuntime();
   resetServerStatus();
+  resetRuntimeVariables();
 }
 
 /** Epoch reset: forget deletion markers for the given ids — replica AND the
@@ -612,12 +686,13 @@ function bindCollection(
         b.onRemoved?.(c.id);
       } else if (c.doc) {
         if (b.persists && !b.persists(c.doc)) return;
+        const prev = b.withPrev ? r.load?.(c.id) : undefined;
         // Before persisting: a throw here nacks the write and restores the
         // pre-write state on the author.
         r.save?.(c.doc);
         clearTombstone(b.rtype, c.id);
         sync.document.upsert(b.rtype, c.id);
-        b.onSaved?.(c.doc);
+        b.onSaved?.(c.doc, prev);
       }
     } finally {
       applyingFromMesh.delete(key);

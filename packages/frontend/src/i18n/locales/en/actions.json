@@ -1,0 +1,174 @@
+{
+  "title": "Actions",
+  "add": "Add",
+  "addOfKind": "Add another {{kind}}",
+  "empty": "No actions yet. Add one to set up a hotkey, a chat command and more without building a graph.",
+  "rowError": "This action couldn't be shown here — open its graph instead.",
+  "help": {
+    "overview": "What actions are and how they relate to Logic",
+    "shape": "Some settings change the structure of the action's graph",
+    "account": "Which streaming account the action listens on and replies with",
+    "cooldown": "How often the action may run, optionally shared with other actions",
+    "counter": "Count how often the action ran and use the number in the reply",
+    "placeholders": "Placeholders you can use in the text",
+    "patterns": "How patterns (regular expressions) work",
+    "trigger": "Send a named trigger that other Logic can react to",
+    "combo": "How a combo is counted"
+  },
+  "kinds": {
+    "hotkey": {
+      "label": "Hotkey",
+      "description": "Press a key combination to play a clip, set a property, control media…"
+    },
+    "chat_command": {
+      "label": "Chat command",
+      "description": "Reply to a chat command like !hug, with cooldown, minimum rank and an optional counter"
+    },
+    "chat_pattern": {
+      "label": "Chat pattern",
+      "description": "Reply to chat messages that match a pattern, using the parts it captures"
+    },
+    "chat_keyword": {
+      "label": "Chat keyword",
+      "description": "React when a keyword or emote shows up in chat: play a sound or clip, send a trigger …"
+    },
+    "keyword_combo": {
+      "label": "Keyword combo",
+      "description": "React when a keyword or emote is spammed by enough chatters in a short time"
+    },
+    "redemption": {
+      "label": "Redemption",
+      "description": "React to a channel-point reward: play a clip, reply in chat, count, mark it complete …"
+    }
+  },
+  "row": {
+    "enabled": "Enable / disable this action",
+    "openGraph": "Open graph",
+    "reset": "Reset",
+    "resetTip": "Rebuild the graph from the template (discards your edits to the graph)",
+    "delete": "Delete action"
+  },
+  "editor": {
+    "empty": "Select an action in the list to edit its settings.",
+    "enabled": "Enabled"
+  },
+  "badge": {
+    "modified": "Modified",
+    "modifiedTip": "The graph was edited and differs from what the template generated.",
+    "templateUpdate": "Template update",
+    "templateUpdateTip": "The template now generates a different graph. Reset to use it (discards your edits to the graph).",
+    "missingGraph": "No graph",
+    "missingGraphTip": "This action has no graph. Reset creates it from the template."
+  },
+  "confirm": {
+    "reset": "Rebuild the graph of “{{name}}” from its template? Your edits to the graph are discarded.",
+    "rebuild": "This change rebuilds the graph of “{{name}}” and discards your edits to the graph. Continue?",
+    "rebuildConfirm": "Rebuild graph"
+  },
+  "form": {
+    "name": "Name",
+    "shortcut": "Shortcut",
+    "mode": "Mode",
+    "positions": "Positions",
+    "position": "Position {{n}}",
+    "response": "Response",
+    "chooseResponse": "Choose a response…",
+    "account": "Account",
+    "defaultAccount": "Default account",
+    "missingAccount": "(removed account)",
+    "command": "Command",
+    "aliases": "Aliases",
+    "aliasesHint": "Other names for the same command, separated by spaces or commas.",
+    "minRank": "Who may use it",
+    "cooldown": "Cooldown",
+    "seconds": "s",
+    "cooldownGroup": "shared group",
+    "argsPattern": "Args must match",
+    "argsPatternHint": "Optional pattern the text after the command must match. Named groups become placeholders.",
+    "counter": "Counter",
+    "counterEnabled": "Count each use",
+    "counterName": "counter name",
+    "counterNameHint": "Empty: this action's own counter. A name: a shared counter other actions can use too.",
+    "counterStep": "Step",
+    "counterPersistent": "Keep after restart",
+    "reply": "Reply",
+    "placeholders": "Placeholders: {{list}}. Empty: no reply.",
+    "pattern": "Pattern",
+    "patternHint": "The whole message must match (case is ignored). Named groups become placeholders.",
+    "keywords": "Keywords",
+    "keywordsHint": "Words or emote names, separated by commas. Whole words only, case is ignored.",
+    "trigger": "Send trigger",
+    "triggerHint": "Optional trigger name. Empty: no trigger.",
+    "noResponse": "No response",
+    "threshold": "Threshold",
+    "within": "within",
+    "uniqueChatters": "Count each chatter once",
+    "onReached": "When reached",
+    "endMessage": "End message",
+    "reward": "Reward",
+    "rewardHint": "The reward's title, exactly as on Twitch (case is ignored).",
+    "markComplete": "Mark the redemption as complete",
+    "onEnded": "When it ends"
+  },
+  "mode": {
+    "single": "Single",
+    "toggle": "Toggle",
+    "cycle": "Cycle"
+  },
+  "rank": {
+    "everyone": "Everyone",
+    "sub": "Subscribers and up",
+    "mod": "Moderators and up",
+    "broadcaster": "Only the broadcaster"
+  },
+  "preview": {
+    "noShortcut": "No shortcut",
+    "noResponse": "No response",
+    "toggle": "toggle",
+    "cycle": "cycle ×{{n}}",
+    "position": "{{n}}.",
+    "noCommand": "No command",
+    "noPattern": "No pattern",
+    "noKeywords": "No keywords",
+    "noReward": "No reward",
+    "noReply": "No reply",
+    "rank": {
+      "sub": "subs+",
+      "mod": "mods+",
+      "broadcaster": "broadcaster only"
+    },
+    "cooldown": "⏱ {{s}} s",
+    "cooldownGroup": "⏱ {{s}} s ({{group}})",
+    "counter": "# {{name}}",
+    "counterOwn": "# counted",
+    "argsPattern": "args:",
+    "trigger": "⚡ trigger {{name}}",
+    "combo": "{{n}}× within {{s}} s",
+    "unique": "unique chatters",
+    "endMessage": "at the end:",
+    "markComplete": "✓ marks complete",
+    "comboTimeout": "≥ {{n}}×, {{s}} s after the last"
+  },
+  "responses": {
+    "play_clip": "Play clip",
+    "spawn_clip": "Spawn clip",
+    "set_expression": "Set expression",
+    "set_property": "Set property",
+    "set_layer_property": "Set layer property",
+    "control_media": "Control media"
+  },
+  "mediaAction": {
+    "play": "Play",
+    "pause": "Pause",
+    "stop": "Stop",
+    "restart": "Restart",
+    "mute": "Mute",
+    "unmute": "Unmute"
+  },
+  "comboMode": {
+    "threshold": "On threshold",
+    "timeout": "After timeout",
+    "thresholdHint": "Runs as soon as the count reaches the threshold.",
+    "timeoutHint": "Runs once the combo ends (no message for the window), if the count reached the threshold."
+  }
+}

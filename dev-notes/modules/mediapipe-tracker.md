@@ -74,7 +74,7 @@ into `TrackingResult.faceBlendshapes` (`CameraCapture`), travel on
 graph routes them **exactly like the VMC pipeline**: `arkit` event → `unpack_arkit` → a trio of
 `arkit_vrm_mapper` nodes (`arkit_fcl` / `arkit_expr` / `arkit_pass`, one per mode) →
 `blendshapes_sum` → `blendshapes_broadcast`. Each mapper is independently toggleable via
-`behavior_config` fields `nodeConfig.arkit_{fcl,expr,pass}_cfg.{enabled,mapping}` — **identical
+`settings` fields `nodeConfig.arkit_{fcl,expr,pass}_cfg.{enabled,mapping}` — **identical
 field names to the VMC pipeline**, so the same expression-mapping UI controls apply to both.
 Defaults: `fcl` enabled, `expressions` and `passthrough` disabled. The mappers are summed, so
 enabled modes coexist. **The mappers are the single calibration/customization layer regardless of
@@ -181,10 +181,10 @@ either `VmcManager` or `TrackingManager`.
 ### Config injection
 
 All knobs (IK xScale/yScale/zScale, xOffset/yOffset/zOffset, invertX/Y/Z; head
-pitchGain/yawGain/rollGain/restPitch) are surfaced via `behavior_config` nodes
+pitchGain/yawGain/rollGain/restPitch) are surfaced via `settings` nodes
 wired into the converter nodes' value ports. There is no `nodeConfig[nodeId]`
-side-channel. The manager only injects `_behaviorConfig` for the
-`behavior_config` node kind.
+side-channel. The manager only injects `_settings` for the
+`settings` node kind.
 
 ## Frontend IK solve (Step 2.5)
 
@@ -222,7 +222,7 @@ an active IK target:
    `mediapipe_source` (via `unpack_event` if you want a separate trigger/value
    split), through any merge/calibration nodes, into the appropriate broadcast.
 4. If the converter needs user-tunable knobs, add them to the behavior config
-   schema and add a `behavior_config` node feeding the relevant value port.
+   schema and add a `settings` node feeding the relevant value port.
 5. If new UI knobs are needed, extend `MediapipeTrackerProps` in
    `PropertiesPanel.tsx`.
 

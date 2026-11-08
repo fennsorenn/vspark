@@ -105,16 +105,24 @@ export const MODELS = {
         : null,
     clockFields: ['startEpoch'],
   },
-  // Owned polymorphically by a project, a scene node or a compose layer. A
-  // project-owned graph has no parent: there is no `project` rtype.
+  // Owned polymorphically by a project, a scene node, a compose layer, an
+  // action or a behavior. A project-owned graph has no parent: there is no
+  // `project` rtype. An action's or a behavior's graph hangs off its owner, so
+  // removing the owner (removeTree) removes its graph in the same undo step.
   logic: {
     parent: (d) =>
-      d.ownerKind === 'scene_node' && typeof d.ownerId === 'string'
-        ? { rtype: 'scene_node', id: d.ownerId }
-        : d.ownerKind === 'compose_layer' && typeof d.ownerId === 'string'
-          ? { rtype: 'compose_layer', id: d.ownerId }
+      typeof d.ownerId !== 'string'
+        ? null
+        : d.ownerKind === 'scene_node' ||
+            d.ownerKind === 'compose_layer' ||
+            d.ownerKind === 'action' ||
+            d.ownerKind === 'behavior'
+          ? { rtype: d.ownerKind, id: d.ownerId }
           : null,
   },
+  // A project-level workflow (dev-notes/modules/actions.md). Like project
+  // logic it has no parent: there is no `project` rtype.
+  action: {},
   // Runtime state hangs off the entity it targets or is scoped to; a global
   // data field (scope '') belongs to no entity.
   runtime_override: {
@@ -136,6 +144,15 @@ export const MODELS = {
         : null;
     },
   },
+  // Graph variables (signal-graph `variable` / `set_variable` /
+  // `increment_variable`), one document per (project, scope, name). A variable
+  // lives in exactly one of the two collections: `variable` holds the
+  // persistent ones (committed, persisted in the `variables` table), and
+  // `runtime_variable` the short-lived ones (retained, gone on restart). Two
+  // collections because a collection allows only one retained channel. Neither
+  // has a parent: variables are project-wide and there is no `project` rtype.
+  variable: {},
+  runtime_variable: { channels: [RUNTIME] },
   // Server-to-server only: pose/blendshape/drag frames on collab nodes, and
   // runtime events per collab scene.
   node_stream: { channels: ['preview'] },
@@ -155,6 +172,7 @@ export const TAB_MODELS: readonly ModelName[] = [
   'scheduled_animation',
   'clip_playback',
   'logic',
+  'action',
   'runtime_override',
   'data_field',
   'media_control',

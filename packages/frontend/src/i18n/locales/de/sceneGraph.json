@@ -3,7 +3,8 @@
     "stage": "Bühne",
     "compose": "Komposition",
     "logic": "Logik",
-    "macros": "Makros"
+    "macros": "Makros",
+    "actions": "Aktionen"
   },
   "sections": {
     "behaviors": "Verhalten",
@@ -118,15 +119,16 @@
   "logic": {
     "globalLogic": "Globale Logik",
     "scopedLogic": "Bereichslogik",
+    "actionLogic": "Aktionslogik",
     "behaviorLogic": "Verhaltenslogik",
     "pasteTitle": "Logik aus Zwischenablage als globale Logik einfügen",
     "newTitle": "Neue Logik",
     "noProjectGraphs": "Noch keine Projektgraphen.",
     "noScopedGraphs": "Keine Bereichsgraphen. Über einen Szenenknoten oder eine Compose-Ebene hinzufügen.",
+    "noActionGraphs": "Noch keine Aktionen. Füge eine im Tab Aktionen hinzu.",
     "noBehaviorGraphs": "Keine aktiven Komponentengraphen.",
     "nodes": "{{count}} Knoten",
     "disabled": "· deaktiviert",
-    "readOnly": "nur lesen",
     "layer": "Ebene",
     "node": "Knoten",
     "promptName": "Name der neuen Logik:",

@@ -32,6 +32,7 @@ import {
 } from '../../mesh/writes';
 import { ComposeTree } from './ComposeTree';
 import { MacrosPanel } from './macros/MacrosPanel';
+import { ActionsPanel } from './actions/ActionsPanel';
 import { ClipsSection } from './ClipsSection';
 import { LogicSection } from './LogicSection';
 import { ContextMenu, type ContextMenuItem } from './ContextMenu';
@@ -1729,6 +1730,8 @@ import {
   useTrackingStatuses,
 } from '../../mesh/hooks';
 import { useSceneNode, useSceneNodes, useScenes } from '../../mesh/nodes';
+import { commitActionPatch, useProjectActions } from '../../mesh/actions';
+import { ACTION_KINDS } from '@vspark/shared/actions';
 
 function LogicListPanel() {
   const { t } = useTranslation('sceneGraph');
@@ -1738,6 +1741,7 @@ function LogicListPanel() {
   const { activeLogicId, setActiveLogic } = useEditorStore();
   const [behaviorLogic, setBehaviorLogic] = useState<GraphDescriptor[]>([]);
   const [scopedLogicOpen, setScopedLogicOpen] = useState(true);
+  const [actionLogicOpen, setActionLogicOpen] = useState(true);
   const [behaviorLogicOpen, setBehaviorLogicOpen] = useState(false);
   const clipboardPayload = useEditorStore((s) => s.clipboardPayload);
   const setClipboard = useEditorStore((s) => s.setClipboard);
@@ -1774,9 +1778,16 @@ function LogicListPanel() {
   >({});
   const triedOwnerNames = useRef(new Set<string>());
   const ownedLogic = useMemo(
-    () => Object.values(storeLogic).filter((g) => g.ownerKind !== 'project'),
+    () =>
+      Object.values(storeLogic).filter(
+        (g) => g.ownerKind === 'scene_node' || g.ownerKind === 'compose_layer'
+      ),
     [storeLogic]
   );
+  // Action graphs get their own section, so one opened from the Actions panel
+  // shows as selected. Their owner is in the replica (no join needed).
+  const projectActions = useProjectActions(projectId);
+  const { t: tActions } = useTranslation('actions');
   useEffect(() => {
     if (!projectId) return;
     const unknown = ownedLogic.filter(
@@ -1807,15 +1818,34 @@ function LogicListPanel() {
         .sort((a, b) => (a.createdAt ?? '').localeCompare(b.createdAt ?? '')),
     [ownedLogic, ownerNames]
   );
+  // One entry per action that has a graph, in the Actions list's order:
+  // grouped by kind, then by creation (useProjectActions sorts by creation).
+  const actionLogic = useMemo(() => {
+    const graphs = new Map(
+      Object.values(storeLogic)
+        .filter((g) => g.ownerKind === 'action')
+        .map((g) => [g.ownerId, g])
+    );
+    const kindOrder = new Map(ACTION_KINDS.map((k, i) => [k.kind, i]));
+    return projectActions
+      .filter((a) => graphs.has(a.id))
+      .map((a) => ({ action: a, graph: graphs.get(a.id)! }))
+      .sort(
+        (x, y) =>
+          (kindOrder.get(x.action.kind) ?? 99) -
+          (kindOrder.get(y.action.kind) ?? 99)
+      );
+  }, [storeLogic, projectActions]);
 
   const handleToggleScopedEnabled = (g: ScopedLogicRecord) => {
     commitLogicPatch(g.id, { enabled: !g.enabled });
   };
 
-  // Behavior graphs are runtime state, not documents: the descriptors are built
-  // by the behavior managers, so there is nothing to sync. Their set changes
-  // only when a behavior or a graph document does, which is the trigger here —
-  // a timer would only re-fetch the same answer.
+  // The graphs the behavior managers are RUNNING (each a behavior's stored,
+  // editable graph — a logic document — or its template while none is stored).
+  // The list is fetched from the managers; it changes only when a behavior or
+  // a graph document does, which is the trigger here — a timer would only
+  // re-fetch the same answer. Opening one edits the stored document.
   useEffect(() => {
     api
       .getSignalGraphs()
@@ -2140,6 +2170,105 @@ function LogicListPanel() {
           })
         ))}
 
+      {/* Action graphs (each owned by an action on the Actions tab). */}
+      <div
+        className="vs-logic-action-section"
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: 6,
+          padding: '8px 10px 4px',
+          fontSize: 10,
+          fontWeight: 700,
+          color: '#666',
+          textTransform: 'uppercase',
+          letterSpacing: 0.5,
+          cursor: 'pointer',
+          userSelect: 'none',
+        }}
+        onClick={() => setActionLogicOpen((v) => !v)}
+      >
+        <span style={{ color: '#555' }}>{actionLogicOpen ? '▼' : '▶'}</span>
+        <span>{t('logic.actionLogic')}</span>
+        <span style={{ color: '#444', fontWeight: 400 }}>
+          ({actionLogic.length})
+        </span>
+      </div>
+      {actionLogicOpen &&
+        (actionLogic.length === 0 ? (
+          <div
+            style={{
+              color: '#444',
+              fontSize: 11,
+              padding: '4px 12px',
+              fontStyle: 'italic',
+            }}
+          >
+            {t('logic.noActionGraphs')}
+          </div>
+        ) : (
+          actionLogic.map(({ action, graph: g }) => {
+            const active = g.id === activeLogicId;
+            // The action's own switch decides whether its graph runs.
+            const on = action.enabled && g.enabled;
+            return (
+              <div
+                key={g.id}
+                className="vs-logic-action-row"
+                style={rowStyle(active)}
+                onClick={() => setActiveLogic(active ? null : g.id)}
+              >
+                <span style={{ opacity: on ? 0.9 : 0.35 }}>⚡</span>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div
+                    style={{
+                      fontWeight: 500,
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis',
+                      whiteSpace: 'nowrap',
+                    }}
+                  >
+                    {action.name}
+                  </div>
+                  <div
+                    style={{
+                      fontSize: 10,
+                      color: '#555',
+                      marginTop: 1,
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis',
+                      whiteSpace: 'nowrap',
+                    }}
+                  >
+                    {tActions(`kinds.${action.kind}.label`)}
+                    {on ? '' : ' ' + t('logic.disabled')}
+                  </div>
+                </div>
+                <button
+                  className="vs-logic-action-enable"
+                  title={on ? t('logic.disable') : t('logic.enable')}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    if (!g.enabled) commitLogicPatch(g.id, { enabled: true });
+                    commitActionPatch(action.id, { enabled: !on });
+                  }}
+                  style={{
+                    background: 'none',
+                    border: 'none',
+                    cursor: 'pointer',
+                    color: on ? '#4a9' : '#555',
+                    fontSize: 13,
+                    padding: '0 2px',
+                    lineHeight: 1,
+                  }}
+                >
+                  {on ? '●' : '○'}
+                </button>
+              </div>
+            );
+          })
+        ))}
+
       {/* Behavior-owned graphs (read-only) */}
       <div
         style={{
@@ -2196,8 +2325,7 @@ function LogicListPanel() {
               <div>
                 <div style={{ fontWeight: 500 }}>{g.label}</div>
                 <div style={{ fontSize: 10, color: '#555', marginTop: 1 }}>
-                  {t('logic.nodes', { count: g.nodes.length })} ·{' '}
-                  {t('logic.readOnly')}
+                  {t('logic.nodes', { count: g.nodes.length })}
                 </div>
               </div>
             </div>
@@ -3383,6 +3511,10 @@ export function SceneGraph() {
 
   const tabStyle = (active: boolean): React.CSSProperties => ({
     flex: 1,
+    minWidth: 0,
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+    whiteSpace: 'nowrap',
     padding: '7px 0',
     fontSize: 11,
     fontWeight: 600,
@@ -3445,10 +3577,19 @@ export function SceneGraph() {
         >
           {t('tabs.macros')}
         </button>
+        <button
+          className="vs-tab-actions"
+          style={tabStyle(dockTab === 'actions')}
+          onClick={() => setDockTab('actions')}
+          title={t('tabs.actions')}
+        >
+          {t('tabs.actions')}
+        </button>
       </div>
 
       {dockTab === 'graphs' && <LogicListPanel />}
       {dockTab === 'macros' && <MacrosPanel />}
+      {dockTab === 'actions' && <ActionsPanel />}
       {dockTab === 'compose' && <ComposeTree />}
 
       {dockTab === 'scene' && (

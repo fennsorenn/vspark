@@ -222,6 +222,203 @@ export const inferCycle: InferPortsFn = (ctx: InferCtx): InferResult => {
 };
 
 // ──────────────────────────────────────────────────────────────────────────────
+// Pass-through gates — one Event<T> in → named Event<T> outs (if_else, cooldown)
+//
+// Every output mirrors the resolved `in` payload type, like cycle. The extra
+// (static) value inputs are listed after `in`.
+// ──────────────────────────────────────────────────────────────────────────────
+
+function passThroughGate(
+  outputs: string[],
+  valueInputs: ResolvedPort[]
+): InferPortsFn {
+  return (ctx: InferCtx): InferResult => {
+    const inT = ctx.resolvedInputs['in'];
+    const payload: ResolvedType =
+      inT && inT.kind === 'event' ? inT.payload : RT.unknown();
+    return {
+      inputPorts: [
+        { name: 'in', type: RT.event(RT.unknown()) },
+        ...valueInputs,
+      ],
+      outputPorts: outputs.map((name) => ({ name, type: RT.event(payload) })),
+    };
+  };
+}
+
+export const inferIfElse = passThroughGate(
+  ['then', 'else'],
+  [{ name: 'condition', type: RT.primitive('Bool') }]
+);
+
+export const inferCooldown = passThroughGate(
+  ['out', 'blocked'],
+  [
+    { name: 'seconds', type: RT.primitive('Float') },
+    { name: 'group', type: RT.primitive('String') },
+  ]
+);
+
+// ──────────────────────────────────────────────────────────────────────────────
+// regex — capture groups become String outputs, derived from the pattern
+//
+// The group outputs exist only while the pattern is an inline literal
+// (config.pattern, `pattern` input unwired): a wired pattern is unknown until
+// it is pulled. Named groups get their name, unnamed ones `group<n>` with n the
+// capture index (the same numbering as `$n` in a JS replacement). `groups` is a
+// record of the named groups, whatever the pattern — fixed templates read it.
+// ──────────────────────────────────────────────────────────────────────────────
+
+/** One capture group of a pattern, in capture-index order. */
+export interface RegexGroup {
+  /** 1-based capture index. */
+  index: number;
+  /** The group's name for `(?<name>…)`, else null. */
+  name: string | null;
+  /** The output port it is exposed on: the name, else `group<index>`. */
+  port: string;
+}
+
+/** Output ports every regex node has; a group never shadows them. */
+const REGEX_FIXED_OUTPUTS = new Set(['matched', 'groups']);
+
+/** Flags a regex node accepts. `g` and `y` make a RegExp stateful between
+ *  calls (lastIndex), and the node only ever reports the first match, so they
+ *  are dropped rather than rejected. */
+export function regexFlags(flags: unknown): string {
+  const s = typeof flags === 'string' ? flags : '';
+  return [...new Set(s.replace(/[gy\s]/g, ''))].join('');
+}
+
+/**
+ * The capture groups of `pattern`, or null when it does not compile (with the
+ * given flags). The groups are found by scanning the source — escapes and
+ * character classes skipped, `(?:`, lookarounds and other `(?` forms not
+ * counted — and cross-checked against the engine's own count; if the scan and
+ * the engine disagree (an exotic syntax the scan doesn't know), every group
+ * falls back to its positional `group<n>` port.
+ */
+export function regexGroups(pattern: string, flags = ''): RegexGroup[] | null {
+  let re: RegExp;
+  try {
+    re = new RegExp(pattern, regexFlags(flags));
+  } catch {
+    return null;
+  }
+  // `(?:pattern)|` always matches the empty string, so exec returns an array
+  // with one slot per capture group.
+  const count =
+    (new RegExp(`(?:${re.source})|`, re.flags).exec('')?.length ?? 1) - 1;
+
+  const scanned: Array<string | null> = [];
+  let inClass = false;
+  for (let i = 0; i < pattern.length; i++) {
+    const c = pattern[i];
+    if (c === '\\') {
+      i++;
+      continue;
+    }
+    if (inClass) {
+      if (c === ']') inClass = false;
+      continue;
+    }
+    if (c === '[') {
+      inClass = true;
+      continue;
+    }
+    if (c !== '(') continue;
+    if (pattern[i + 1] !== '?') {
+      scanned.push(null);
+    } else if (
+      pattern[i + 2] === '<' &&
+      pattern[i + 3] !== '=' &&
+      pattern[i + 3] !== '!'
+    ) {
+      const end = pattern.indexOf('>', i + 3);
+      if (end > i + 3) scanned.push(pattern.slice(i + 3, end));
+    }
+  }
+  const trustScan = scanned.length === count;
+
+  const out: RegexGroup[] = [];
+  const used = new Set(REGEX_FIXED_OUTPUTS);
+  for (let index = 1; index <= count; index++) {
+    const name = trustScan ? scanned[index - 1] : null;
+    let port = name ?? `group${index}`;
+    if (used.has(port)) port = `group${index}`;
+    if (used.has(port)) continue;
+    used.add(port);
+    out.push({ index, name, port });
+  }
+  return out;
+}
+
+interface RegexConfig {
+  pattern?: unknown;
+  flags?: unknown;
+}
+
+export const inferRegex: InferPortsFn = (ctx: InferCtx): InferResult => {
+  const cfg = (ctx.config ?? {}) as RegexConfig;
+  const literal =
+    ctx.resolvedInputs['pattern'] === undefined &&
+    ctx.resolvedInputs['flags'] === undefined &&
+    typeof cfg.pattern === 'string' &&
+    cfg.pattern.length > 0;
+  const groups = literal
+    ? (regexGroups(cfg.pattern as string, regexFlags(cfg.flags)) ?? [])
+    : [];
+
+  const named: Record<string, ResolvedType> = {};
+  for (const g of groups) if (g.name) named[g.name] = RT.primitive('String');
+
+  return {
+    inputPorts: [
+      { name: 'text', type: RT.primitive('String') },
+      { name: 'pattern', type: RT.primitive('String') },
+      { name: 'flags', type: RT.primitive('String') },
+    ],
+    outputPorts: [
+      { name: 'matched', type: RT.primitive('Bool') },
+      ...groups.map((g) => ({ name: g.port, type: RT.primitive('String') })),
+      // A literal pattern's named groups are known; otherwise any record.
+      { name: 'groups', type: literal ? RT.record(named) : RT.unknown() },
+    ],
+  };
+};
+
+// ──────────────────────────────────────────────────────────────────────────────
+// text_format — `${field}` template over user-defined labeled input ports (the
+// same dynamic-field mechanism as overlive_send_chat) plus an optional `values`
+// record whose fields are usable in the template too. Pure: `text` is a value
+// output computed on pull.
+// ──────────────────────────────────────────────────────────────────────────────
+
+interface TextFormatConfig {
+  fields?: string[];
+}
+
+export const inferTextFormat: InferPortsFn = (ctx: InferCtx): InferResult => {
+  const cfg = (ctx.config ?? {}) as TextFormatConfig;
+  const fields = (cfg.fields ?? []).filter((f) => f.length > 0);
+
+  const inputPorts: ResolvedPort[] = [
+    { name: 'template', type: RT.primitive('String') },
+    // Any record (width subtyping: `{}` accepts every record), or a wildcard.
+    { name: 'values', type: RT.record({}) },
+  ];
+  for (const name of fields) {
+    inputPorts.push({ name, type: ctx.resolvedInputs[name] ?? RT.unknown() });
+  }
+  inputPorts.push({ name: TRAILING_SLOT, type: RT.unknown() });
+
+  return {
+    inputPorts,
+    outputPorts: [{ name: 'text', type: RT.primitive('String') }],
+  };
+};
+
+// ──────────────────────────────────────────────────────────────────────────────
 // Registry — kind → inferPorts. Imported by both engine and editor.
 // ──────────────────────────────────────────────────────────────────────────────
 
@@ -233,6 +430,10 @@ export const INFER_BY_KIND: Record<string, InferPortsFn> = {
   queue_events: inferQueueEvents,
   unpack_event: inferUnpackEvent,
   cycle: inferCycle,
+  if_else: inferIfElse,
+  cooldown: inferCooldown,
+  regex: inferRegex,
+  text_format: inferTextFormat,
 };
 
 export function inferForKind(kind: string): InferPortsFn | undefined {

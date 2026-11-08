@@ -27,6 +27,7 @@ import { Viewport } from '../components/editor/Viewport';
 import { PropertiesPanel } from '../components/editor/PropertiesPanel';
 import { AssetManager } from '../components/editor/AssetManager';
 import { SignalGraphCanvas } from '../components/editor/signal/SignalGraphCanvas';
+import { ActionEditor } from '../components/editor/actions/ActionEditor';
 import { NodePalette } from '../components/editor/signal/NodePalette';
 import { ComposeView } from '../components/editor/ComposeView';
 import { HelpWindow } from '../help/HelpWindow';
@@ -321,6 +322,7 @@ export function Editor() {
               </div>
             ))}
           {leftTab === 'compose' && <ComposeView />}
+          {leftTab === 'actions' && <ActionEditor />}
         </div>
         <PropertiesPanel />
       </div>

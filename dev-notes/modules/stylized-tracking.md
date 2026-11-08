@@ -397,7 +397,7 @@ entirely — that is how the UI's "switch this bone off" round-trips.
 }
 ```
 
-Every field is surfaced through a `behavior_config` node wired into the graph
+Every field is surfaced through a `settings` node wired into the graph
 (visible on the canvas, not a hidden config read), and node config resolves live
 per access, so properties-panel edits hot-apply without a graph rebuild.
 
@@ -457,8 +457,10 @@ the drivers edge is typed rather than `Any`. Both nodes are ordinary static node
 
 ## Known limitations
 
-- **The behavior graph is `readonly: true`** — it cannot be rewired in the
-  substrate editor. Everything user-facing goes through the behavior config.
+- ~~The behavior graph is `readonly: true`~~ — no longer: since migration 047
+  a behavior's graph is stored and editable on the canvas (see
+  [component-managers.md](component-managers.md#stored-editable-graphs)).
+  Everything in the panel still goes through the behavior config.
 - **`energy` cannot leave the behavior.** There is no `set_data` node in the
   template and no other bridge, so it cannot currently drive a Logic graph,
   expressions, or particles — only bones, via a rig entry. Adding a `set_data`

@@ -2,6 +2,8 @@ import { SignalNode } from '@vspark/shared/signal';
 import { Node, type Emitter } from '@vspark/shared/node';
 import { eventIn, valueIn, eventOut } from '@vspark/shared/node_decorators';
 import { getOverliveManager } from '../../../overlive/manager.js';
+import { renderTemplate } from '../../textTemplate.js';
+import { acctOrDefault } from './_actions.js';
 
 interface SendChatConfig {
   /** User-defined field NAMES (+ order). Each becomes a labeled value-in port
@@ -14,6 +16,8 @@ interface SendChatConfig {
   account?: string;
   /** Config fallback for the `channel` port when unconnected. */
   channel?: string;
+  /** Injected by LogicManager; resolves the default account. */
+  _projectId?: unknown;
 }
 
 /**
@@ -23,6 +27,8 @@ interface SendChatConfig {
  * labeled-port mechanism `set_data` uses). Placeholders with no matching field
  * resolve to the empty string. After substitution, an empty/whitespace-only
  * message is skipped.
+ *
+ * An empty `account` (port and config) sends as the project's default account.
  *
  * Routing is delegated to `OverliveManager.sendChat`, which posts via the
  * account's adapter (Twitch today; requires the `user:write:chat` scope).
@@ -55,11 +61,9 @@ export class OverliveSendChat extends Node {
     const tpl = this.template() ?? cfg.template ?? '';
     if (typeof tpl !== 'string' || tpl.length === 0) return '';
     const fields = new Set(this._fieldNames());
-    return tpl.replace(/\$\{(\w+)\}/g, (_m, name: string) => {
-      if (!fields.has(name)) return '';
-      const v = this.input(name);
-      return v === null || v === undefined ? '' : String(v);
-    });
+    return renderTemplate(tpl, (name) =>
+      fields.has(name) ? this.input(name) : undefined
+    );
   }
 
   @eventIn('fire', 'Trigger')
@@ -67,7 +71,9 @@ export class OverliveSendChat extends Node {
     const text = this._render().trim();
     if (text.length === 0) return;
     const cfg = (this.config ?? {}) as SendChatConfig;
-    const accountId = (this.account() as string | undefined) ?? cfg.account;
+    // Port → config → the project's default account (empty = default, like
+    // the inbound trigger nodes).
+    const accountId = acctOrDefault(this.account, cfg);
     if (typeof accountId !== 'string' || accountId.length === 0) return;
     const channel = this.channel() ?? cfg.channel;
     // Fire-and-forget; the manager swallows + logs send errors.

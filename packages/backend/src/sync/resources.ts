@@ -69,6 +69,9 @@ interface BehaviorRow {
   enabled: number;
   config: string;
   sort_order: number;
+  /** Fingerprint of the template output its graph was generated from
+   *  (migration 047); null when unknown. */
+  template_fingerprint: string | null;
 }
 
 interface CameraEffectRow {
@@ -144,6 +147,10 @@ defineResource({
       enabled: r.enabled === 1,
       config: JSON.parse(r.config || '{}'),
       sortOrder: r.sort_order ?? 0,
+      // The behavior's graph is a separate `logic` document it owns
+      // (owner_kind 'behavior'); this says which template output that graph
+      // was generated from. See behaviors/graphLifecycle.ts.
+      templateFingerprint: r.template_fingerprint ?? null,
     };
   },
   save: (dto) => {
@@ -154,17 +161,19 @@ defineResource({
       enabled: boolean;
       config: Record<string, unknown>;
       sortOrder?: number;
+      templateFingerprint?: string | null;
     };
     getDb()
       .prepare(
-        `INSERT INTO behaviors (id, node_id, kind, enabled, config, sort_order)
-         VALUES (?, ?, ?, ?, ?, ?)
+        `INSERT INTO behaviors (id, node_id, kind, enabled, config, sort_order, template_fingerprint)
+         VALUES (?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT(id) DO UPDATE SET
            node_id    = excluded.node_id,
            kind       = excluded.kind,
            enabled    = excluded.enabled,
            config     = excluded.config,
            sort_order = excluded.sort_order,
+           template_fingerprint = excluded.template_fingerprint,
            updated_at = datetime('now')`
       )
       .run(
@@ -173,7 +182,8 @@ defineResource({
         d.kind,
         d.enabled ? 1 : 0,
         JSON.stringify(d.config ?? {}),
-        d.sortOrder ?? 0
+        d.sortOrder ?? 0,
+        d.templateFingerprint ?? null
       );
   },
   remove: (id) => {
@@ -497,6 +507,87 @@ defineResource({
 
 // legacy WS kinds; migrating that 90 Hz hot path onto sync.stream.publish is
 // deferred until it can be runtime-verified (see the design doc, Phase 3).
+export interface ActionRow {
+  id: string;
+  project_id: string;
+  kind: string;
+  name: string;
+  enabled: number;
+  settings: string;
+  template_fingerprint: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+/** actions row → the DTO the mesh carries and the REST read model builds on. */
+export function rowToAction(r: ActionRow) {
+  return {
+    id: r.id,
+    projectId: r.project_id,
+    kind: r.kind,
+    name: r.name,
+    enabled: r.enabled === 1,
+    settings: JSON.parse(r.settings || '{}') as Record<string, unknown>,
+    templateFingerprint: r.template_fingerprint,
+    createdAt: r.created_at,
+  };
+}
+
+/** An Action: a project-level, form-configured workflow. Its graph is a
+ *  separate `logic` document it owns (owner_kind 'action'); see
+ *  actions/lifecycle.ts. */
+defineResource({
+  rtype: 'action',
+  cls: 'document',
+  load: (id) => {
+    const r = getDb()
+      .prepare('SELECT * FROM actions WHERE id = ?')
+      .get(id) as unknown as ActionRow | undefined;
+    return r ? rowToAction(r) : undefined;
+  },
+  save: (dto) => {
+    const d = dto as {
+      id: string;
+      projectId: string;
+      kind: string;
+      name: string;
+      enabled?: boolean;
+      settings?: unknown;
+      templateFingerprint?: string | null;
+      createdAt?: string;
+    };
+    const db = getDb();
+    const prior = db
+      .prepare('SELECT created_at FROM actions WHERE id = ?')
+      .get(d.id) as { created_at: string } | undefined;
+    db.prepare(
+      `INSERT INTO actions
+         (id, project_id, kind, name, enabled, settings, template_fingerprint, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, COALESCE(?, datetime('now')), datetime('now'))
+       ON CONFLICT(id) DO UPDATE SET
+         project_id           = excluded.project_id,
+         kind                 = excluded.kind,
+         name                 = excluded.name,
+         enabled              = excluded.enabled,
+         settings             = excluded.settings,
+         template_fingerprint = excluded.template_fingerprint,
+         updated_at           = datetime('now')`
+    ).run(
+      d.id,
+      d.projectId,
+      d.kind,
+      d.name,
+      d.enabled === false ? 0 : 1,
+      JSON.stringify(d.settings ?? {}),
+      d.templateFingerprint ?? null,
+      d.createdAt ?? prior?.created_at ?? null
+    );
+  },
+  remove: (id) => {
+    getDb().prepare('DELETE FROM actions WHERE id = ?').run(id);
+  },
+});
+
 interface AnimationClipRow {
   id: string;
   name: string;
@@ -727,6 +818,78 @@ defineResource({
   },
   remove: (id) => {
     getDb().prepare('DELETE FROM clip_playback WHERE id = ?').run(id);
+  },
+});
+
+interface VariableRow {
+  id: string;
+  project_id: string;
+  scope: string;
+  name: string;
+  value: string;
+  created_at: string;
+}
+
+/** A persistent graph variable (migration 046). Short-lived variables are
+ *  `runtime_variable` documents, which have no table and no resource. `value`
+ *  is stored as JSON; a row that doesn't parse reads as null. */
+defineResource({
+  rtype: 'variable',
+  cls: 'document',
+  load: (id) => {
+    const r = getDb()
+      .prepare('SELECT * FROM variables WHERE id = ?')
+      .get(id) as unknown as VariableRow | undefined;
+    if (!r) return undefined;
+    let value: unknown = null;
+    try {
+      value = JSON.parse(r.value);
+    } catch {
+      /* corrupt value → null */
+    }
+    return {
+      id: r.id,
+      projectId: r.project_id,
+      scope: r.scope,
+      name: r.name,
+      value,
+      createdAt: r.created_at,
+    };
+  },
+  save: (dto) => {
+    const d = dto as {
+      id: string;
+      projectId: string;
+      scope?: string;
+      name: string;
+      value?: unknown;
+      createdAt?: string;
+    };
+    const db = getDb();
+    const prior = db
+      .prepare('SELECT created_at FROM variables WHERE id = ?')
+      .get(d.id) as { created_at: string } | undefined;
+    db.prepare(
+      `INSERT INTO variables
+         (id, project_id, scope, name, value, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, COALESCE(?, datetime('now')), datetime('now'))
+       ON CONFLICT(id) DO UPDATE SET
+         project_id = excluded.project_id,
+         scope      = excluded.scope,
+         name       = excluded.name,
+         value      = excluded.value,
+         updated_at = datetime('now')`
+    ).run(
+      d.id,
+      d.projectId,
+      d.scope ?? '',
+      d.name,
+      JSON.stringify(d.value ?? null),
+      d.createdAt ?? prior?.created_at ?? null
+    );
+  },
+  remove: (id) => {
+    getDb().prepare('DELETE FROM variables WHERE id = ?').run(id);
   },
 });
 

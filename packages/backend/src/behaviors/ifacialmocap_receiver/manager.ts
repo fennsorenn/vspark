@@ -8,7 +8,12 @@ import { initPoseBroadcast } from '../../signal/nodes/pose_broadcast.js';
 import { initBlendshapesBroadcast } from '../../signal/nodes/blendshapes_broadcast.js';
 import { OnPoseBroadcast } from '../../signal/nodes/on_pose_broadcast.js';
 import { broadcastBus } from '../../broadcast/bus.js';
-import { makeIFacialMocapGraphDescriptor, HEAD_CALIB_BONES } from './graph.js';
+import { HEAD_CALIB_BONES } from './graph.js';
+import {
+  behaviorContextConfig,
+  behaviorDescriptorToRun,
+  programChanged,
+} from '../storedGraph.js';
 import {
   IFM_DEFAULT_PORT,
   IFM_HANDSHAKE,
@@ -103,7 +108,12 @@ export class IFacialMocapManager {
   // ── graph management ───────────────────────────────────────────────────────
 
   private createGraph(behaviorId: string): SignalGraph {
-    const descriptor = makeIFacialMocapGraphDescriptor(behaviorId);
+    // The behavior's stored (editable) graph; the template if none is stored.
+    const descriptor = behaviorDescriptorToRun(
+      'ifacialmocap_receiver',
+      behaviorId,
+      this.behaviorConfigs.get(behaviorId)
+    );
     this.descriptors.set(behaviorId, descriptor);
     if (!this.nodeStates.has(behaviorId))
       this.nodeStates.set(behaviorId, new Map());
@@ -177,10 +187,6 @@ export class IFacialMocapManager {
 
     // Infrastructure nodes with non-config-derived values.
     switch (nodeId) {
-      case 'comp_id':
-        return { behaviorId };
-      case 'scene_entity':
-        return { nodeId: sceneNodeId };
       case 'head_calib':
         return { boneFilter: HEAD_CALIB_BONES };
     }
@@ -192,13 +198,39 @@ export class IFacialMocapManager {
       cfg.nodeConfig as Record<string, unknown> | undefined
     )?.[nodeId] ?? {}) as Record<string, unknown>;
 
-    // behavior_config nodes get the full live behavior config injected so they
-    // can resolve arbitrary dot-notation field paths.
-    if (nodeDef?.kind === 'behavior_config') {
-      return { ...defaults, ...overrides, _behaviorConfig: cfg };
-    }
+    // By node kind: settings nodes get the full live behavior config
+    // (`_settings`) to resolve arbitrary dot-notation field paths;
+    // scene_entity / behavior_id get this behavior's ids — so the context
+    // nodes a user adds on the canvas are fed like the template's.
+    return {
+      ...defaults,
+      ...overrides,
+      ...behaviorContextConfig(nodeDef?.kind, {
+        behaviorId,
+        sceneNodeId: this.behaviorNodeIds.get(behaviorId) ?? '',
+        settings: cfg,
+      }),
+    };
+  }
 
-    return { ...defaults, ...overrides };
+  /** Tear the running graph down: interceptor registrations, then the nodes'
+   *  own resources (timers etc.). */
+  private disposeGraph(behaviorId: string): void {
+    for (const cleanup of this.interceptorCleanups.get(behaviorId) ?? [])
+      cleanup();
+    this.interceptorCleanups.delete(behaviorId);
+    this.graphs.get(behaviorId)?.dispose();
+    this.graphs.delete(behaviorId);
+  }
+
+  /** Swap the running graph for one built from the current stored graph,
+   *  keeping the receiver (socket, connection and tracking state): the packet
+   *  handler fires into whatever graph is current. */
+  private rebuildGraph(behaviorId: string): void {
+    if (!this.graphs.has(behaviorId)) return;
+    this.disposeGraph(behaviorId);
+    this.graphs.set(behaviorId, this.createGraph(behaviorId));
+    console.log(`[iFacialMocap] Rebuilt graph of behavior ${behaviorId}`);
   }
 
   fireGraphEvent(behaviorId: string, nodeId: string, port: string): void {
@@ -224,8 +256,7 @@ export class IFacialMocapManager {
     if (existing?.port === port && existing.deviceHost === deviceHost) return;
     if (existing) this.stopReceiver(behaviorId);
 
-    const graph = this.createGraph(behaviorId);
-    this.graphs.set(behaviorId, graph);
+    this.graphs.set(behaviorId, this.createGraph(behaviorId));
 
     // Listener is captured here so we can store the unsubscribe handle on `info`
     // before defining the handler — info itself is referenced inside the handler.
@@ -293,14 +324,14 @@ export class IFacialMocapManager {
       const ts = Date.now();
 
       if (Object.keys(frame.bones).length > 0) {
-        graph.fire(
+        this.graphs.get(behaviorId)?.fire(
           'ifm',
           'bones',
           mkEvent(BoneRotations.fromRecord(frame.bones), ts)
         );
       }
       if (Object.keys(frame.arkit).length > 0) {
-        graph.fire(
+        this.graphs.get(behaviorId)?.fire(
           'ifm',
           'arkit',
           mkEvent(Blendshapes.fromRecord(frame.arkit), ts)
@@ -323,10 +354,7 @@ export class IFacialMocapManager {
     if (!info) return;
     info.unsubscribe();
     this.receivers.delete(behaviorId);
-    this.graphs.delete(behaviorId);
-    for (const cleanup of this.interceptorCleanups.get(behaviorId) ?? [])
-      cleanup();
-    this.interceptorCleanups.delete(behaviorId);
+    this.disposeGraph(behaviorId);
     broadcastBus.removeBehavior(behaviorId);
     if (info.connected)
       publishTracking({ behaviorId, connected: false });
@@ -369,6 +397,14 @@ export class IFacialMocapManager {
       const port = (c.config.port as number) ?? IFM_DEFAULT_PORT;
       const deviceHost = (c.config.deviceHost as string) ?? '';
       this.startReceiver(c.id, port, deviceHost);
+      // Its stored graph was edited (or reset): rebuild the running one.
+      if (
+        programChanged(
+          this.descriptors.get(c.id),
+          behaviorDescriptorToRun('ifacialmocap_receiver', c.id, liveConfig)
+        )
+      )
+        this.rebuildGraph(c.id);
       active.add(c.id);
     }
     for (const id of [...this.receivers.keys()]) {

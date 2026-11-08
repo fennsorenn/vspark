@@ -1025,10 +1025,30 @@ export interface BehaviorKindMeta {
   description: string;
   applicableTo: string[];
   defaultConfig: Record<string, unknown>;
+  /** The kind runs a stored, editable signal graph (all but api_controller). */
+  hasGraph?: boolean;
 }
 
 export const getBehaviorKinds = () =>
   request<BehaviorKindMeta[]>('/behavior-kinds');
+
+/** The template a behavior's graph is generated from, for its current config
+ *  (backend behaviors/templates.ts). */
+export interface BehaviorTemplate {
+  /** Id the behavior's graph document is created under. */
+  graphId: string;
+  label: string;
+  /** Document form (nodes/edges keyed by id), ready to write. */
+  descriptor: import('@vspark/shared/signal').GraphDescriptorDoc;
+  fingerprint: string;
+  /** Config paths that change the template's structure (none today). */
+  shapeFields: string[];
+}
+
+export const getBehaviorTemplate = (behaviorId: string) =>
+  request<BehaviorTemplate>(
+    `/behaviors/${encodeURIComponent(behaviorId)}/template`
+  );
 
 // Update / config
 export const getUpdateStatus = () =>

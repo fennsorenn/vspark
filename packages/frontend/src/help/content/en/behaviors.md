@@ -8,6 +8,30 @@ You add behaviors from the **Behaviors** tab and attach them to a node. A single
 avatar can have several behaviors running at once — for example tracking *and*
 lip sync.
 
+## A behavior's graph {#graph}
+
+Under the hood every behavior (except **API control**) runs a
+[Logic graph](topic:logic): the nodes that turn tracking data, microphone
+input or a timer into motion. That graph belongs to the behavior and you can
+edit it like any other graph — the settings in the behavior's panel keep
+working, because the graph reads them through its **Settings** nodes.
+
+The **Graph** row at the top of a behavior's settings shows:
+
+- **Open graph** — opens the graph on the canvas. Changes take effect on the
+  running behavior straight away.
+- **Modified** — the graph differs from what the behavior's template
+  generated. Moving nodes around does not count as a change.
+- **Template update** — a newer version of vspark generates a different graph
+  for this behavior. Unchanged graphs are updated automatically when vspark
+  starts; a graph you edited is left alone and shows this badge instead.
+- **No graph** — the behavior has no stored graph and runs its template.
+- **Reset graph** — rebuilds the graph from the template. It asks first,
+  because your edits to the graph are discarded. **Undo** brings them back.
+
+Nodes that react to chat, hotkeys, OBS or triggers only receive those events
+in Logic graphs, not in a behavior's graph.
+
 ## VMC receiver {#vmc}
 
 **VMC** is a common standard that motion-capture apps use to send pose data over

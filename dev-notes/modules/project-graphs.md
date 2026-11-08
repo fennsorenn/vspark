@@ -21,7 +21,7 @@ Behavior graphs (one per `behaviors` row, hardcoded shape) are a separate concep
 | Column | Type | Notes |
 |---|---|---|
 | `id` | TEXT PK | |
-| `owner_kind` | TEXT | `'project'` \| `'scene_node'` \| `'compose_layer'` |
+| `owner_kind` | TEXT | `'project'` \| `'scene_node'` \| `'compose_layer'` \| `'action'` ([actions.md](actions.md)) \| `'behavior'` (a behavior's stored graph, run by its behavior manager, not by LogicManager — [component-managers.md](component-managers.md#stored-editable-graphs)) |
 | `owner_id` | TEXT | Project / scene-node / compose-layer id |
 | `name` | TEXT | |
 | `enabled` | INTEGER 0/1, default 1 | |
@@ -67,7 +67,7 @@ why it is exported.
 
 - **`startAllEnabled()`** — called at server boot. Hydrates and starts every `enabled = 1` row across all owner kinds.
 - **`reconcile(id)`** — called from the mesh `onCommitted` tap (`logic/lifecycle.ts`) on every committed write, whoever authored it. If `enabled` it stops then re-starts the instance (picks up descriptor + node_state changes); if disabled, stops only.
-- **Descriptor validation** — `validateDescriptor()` (exported; run from the `logic` binding's `guard` in `mesh/index.ts`, so a tab-authored descriptor is checked on the same terms as one PUT over REST — a throw nacks the write and rolls the author back) always rejects the behavior-context kinds `{ behavior_config, behavior_id }` (no behavior to read from). `scene_entity` is allowed in **scene-node- and compose-layer-scoped** logic and rejected only in **project**-scoped logic (no owner entity). Thrown errors surface as `400` from the PUT handler. For the allowed scopes the user authors a `scene_entity` node directly; the manager feeds its `config.nodeId` = `owner_id` at start time, and the node's **output type follows the scope** — `SceneNode` for scene-node-scoped, `ComposeLayer` for compose-layer-scoped — via `inferSceneEntity` (the scope reaches inference through `SignalGraph.fromDescriptor(..., ownerKind)` → `InferGraph` → `InferCtx.ownerKind`).
+- **Descriptor validation** — `validateDescriptor()` (exported; run from the `logic` binding's `guard` in `mesh/index.ts`, so a tab-authored descriptor is checked on the same terms as one PUT over REST — a throw nacks the write and rolls the author back) always rejects the behavior-context kind `behavior_id` (no behavior to read from), and rejects the shared `settings` node (formerly `behavior_config`) unless the owner is an Action (`owner_kind = 'action'` — see [actions.md](actions.md)), because only then is there something to read. `scene_entity` is allowed in **scene-node- and compose-layer-scoped** logic and rejected only in **project**-scoped logic (no owner entity). Thrown errors surface as `400` from the PUT handler. For the allowed scopes the user authors a `scene_entity` node directly; the manager feeds its `config.nodeId` = `owner_id` at start time, and the node's **output type follows the scope** — `SceneNode` for scene-node-scoped, `ComposeLayer` for compose-layer-scoped — via `inferSceneEntity` (the scope reaches inference through `SignalGraph.fromDescriptor(..., ownerKind)` → `InferGraph` → `InferCtx.ownerKind`).
 - **State persistence** — a `setState(nodeId, state)` from a node declaring `static persistState` writes the JSON map back to the row's `node_state` column; every other node's state stays in the graph's scratch map and never touches the row (see [signal-graph.md](signal-graph.md) → *Scratch vs durable state*).
 - **Clock self-tick** — for each `clock` node in the descriptor, the manager calls `Clock.attach(...)` and stashes the cleanup; defaults to 30Hz or `defaultConfig.hz`.
 
@@ -85,6 +85,15 @@ Iteration helper for managers that need to discover nodes across all running log
 for (const { graphId, node, projectId } of logicManager.iterateNodes()) { ... }
 ```
 
+Users: overlive event routing, `HotkeyManager`, OBS events, and the cross-graph
+trigger router (`triggers/router.ts`, `send_trigger` → `on_trigger`, see
+[signal-graph.md](signal-graph.md#logic-helpers--conditions-text-variables-triggers-combos)).
+
+Context injected into every node's config: `_projectId` (the graph's resolved
+project) and `_logicId` (the graph's own id, output by `logic_id`). Deleting a logic
+also deletes the graph variables scoped to its id (`logicLifecycle.onRemoved`, see
+[variables.md](variables.md)).
+
 ## Frontend
 
 ### `components/editor/LogicSection.tsx` (renamed from `GraphsSection.tsx`)
@@ -93,7 +102,7 @@ Inline expandable list of logic attached to a single scene node ("object") or co
 
 `setActiveLogic(id)` (store) does double duty: when `id != null` it also flips `leftTab` to `'graphs'` (the tab-id string is unchanged; the tab's UI label is "Logic"), so opening any logic — including a scoped one from the scene/compose trees — switches the main view to the writable `SignalGraphCanvas` (the substrate editor). Clearing the active logic (`null`) leaves the current tab alone. This is the mechanism behind "the main view is bound to the active tab" (see [frontend.md](frontend.md)).
 
-The Logic panel (`LogicListPanel` in `SceneGraph.tsx`) lists three groups: **Global Logic** (project scope), **Scoped Logic** (scene-node + compose-layer owned, each row labelled with its owner name + scope), and **Behavior Logic** (read-only). All three come from the store rather than the 3-second REST poll they used to. The scoped rows are the one hybrid: the documents come from the mesh, but the owner NAME is a join the store cannot do (the panel is project-wide, while only the open scene's nodes are loaded), so `GET /api/projects/:id/scoped-logic` is still fetched for the names — re-fetched when the mesh reports an owned graph whose name is unknown, not on a timer. Behavior Logic is runtime state (`GET /api/signal/graphs`, built by the behavior managers), so it is re-fetched when a behavior or graph document changes. The Scoped Logic section exists so the active scoped logic shows as selected and can be switched without leaving the Logic tab — the inline per-owner lists in the scene/compose trees remain the place to create them.
+The Logic panel (`LogicListPanel` in `SceneGraph.tsx`) lists three groups: **Global Logic** (project scope), **Scoped Logic** (scene-node + compose-layer owned, each row labelled with its owner name + scope), and **Behavior Logic** (the graphs the behavior managers run — editable since migration 047). All three come from the store rather than the 3-second REST poll they used to. The scoped rows are the one hybrid: the documents come from the mesh, but the owner NAME is a join the store cannot do (the panel is project-wide, while only the open scene's nodes are loaded), so `GET /api/projects/:id/scoped-logic` is still fetched for the names — re-fetched when the mesh reports an owned graph whose name is unknown, not on a timer. Behavior Logic is runtime state (`GET /api/signal/graphs`, built by the behavior managers), so it is re-fetched when a behavior or graph document changes. The Scoped Logic section exists so the active scoped logic shows as selected and can be switched without leaving the Logic tab — the inline per-owner lists in the scene/compose trees remain the place to create them.
 
 ### `SignalGraphCanvas` — writable
 
@@ -110,7 +119,7 @@ The canvas (the signal-graph substrate editor, name kept) is writable for all lo
 
 So two people can work on one graph at once: moving a node and wiring an edge elsewhere no longer collide, and each settled edit is one undo step. The backend's `onCommitted` tap reconciles the running instance on every write.
 
-There is no local descriptor copy and no debounced PUT any more — that shape is what made concurrent edits overwrite each other, and it needed a flush-on-unmount so the last edit was not lost. Behavior-owned graphs are not documents (their descriptors are built by the managers), so those are still fetched, and read-only.
+There is no local descriptor copy and no debounced PUT any more — that shape is what made concurrent edits overwrite each other, and it needed a flush-on-unmount so the last edit was not lost. Behavior graphs are documents too since migration 047 (`owner_kind = 'behavior'`), so the canvas edits them the same way; the REST fetch of running descriptors remains only as a read-only fallback for a running graph with no document.
 
 The 500ms state poll preserves React Flow selection across reloads (see `4a72b34`); noodles are independently selectable + deletable (`61af21c`).
 

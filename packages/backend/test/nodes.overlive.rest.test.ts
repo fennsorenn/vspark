@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { loneNode } from './helpers/nodeHarness.js';
+import { loneNode, pullValue } from './helpers/nodeHarness.js';
 
 /**
  * Overlive event nodes share a shape: an `@eventIn('event')` handler maps the
@@ -172,6 +172,12 @@ describe('overlive_chat_message', () => {
       cheerAmount: 0,
     });
     expect(typeof state.html).toBe('string');
+  });
+
+  it('exposes every output as one `data` record', () => {
+    const n = loneNode('overlive_chat_message');
+    n.deliver('event', msg);
+    expect(pullValue('overlive_chat_message', 'data', {}, n.state())).toEqual(n.state());
   });
 
   it('an undefined payload emits without setting state', () => {

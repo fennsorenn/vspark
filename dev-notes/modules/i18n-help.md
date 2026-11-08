@@ -25,7 +25,9 @@ Dependencies added: `i18next`, `react-i18next`, `i18next-browser-languagedetecto
 
 One namespace per component area. Namespace names match the component area they cover:
 
-`common`, `help`, `topbar`, `update`, `editor`, `home`, `sceneGraph`, `assets`, `properties`, `compose`, `signalGraph`, `clips`, `accounts`, `presets`, `media`, `assistant`, `misc`.
+`common`, `help`, `topbar`, `update`, `editor`, `home`, `sceneGraph`, `assets`, `properties`, `compose`, `signalGraph`, `clips`, `accounts`, `presets`, `media`, `assistant`, `misc`, `actions`.
+
+The `actions` namespace covers the Actions panel (left-dock tab, `components/editor/actions/`); its help page is `help/content/{en,de}/actions.md` (anchors `{#overview}` `{#add}` `{#hotkey}` `{#chat_command}` `{#chat_pattern}` `{#chat_keyword}` `{#keyword_combo}` `{#redemption}` `{#placeholders}` `{#patterns}` `{#cooldown}` `{#counter}` `{#account}` `{#trigger}` `{#value-shape}` `{#modified}` `{#reset}` `{#graph}` — the kind anchors equal the kind ids because each group header's `HelpButton` targets `anchor={kind}`, `'actions'` in `TOPIC_ORDER` after `logic`). See [actions.md](actions.md).
 
 The `assistant` namespace covers the in-app AI Assistant window; its help page (`help/content/{en,de}/assistant.md`, anchors `{#how-to-use}` `{#setup}` `{#capabilities}` `{#attach}` `{#limits}`, `'assistant'` in `TOPIC_ORDER`) documents the agent for end users; `{#attach}` covers the 📎 attach picker (attach editor elements so "this/that" resolves to a concrete id/url). See [mcp-assistant.md](mcp-assistant.md).
 
@@ -87,6 +89,17 @@ carried the original copy; this table is the durable source of truth.)
 | Group | Gruppe |
 | Behavior | Verhalten |
 | Logic | Logik |
+| Action (project-level workflow, Actions tab) | Aktion |
+| Response (what an Action does, e.g. play a clip) | Reaktion |
+| Chat command (Action kind) | Chat-Befehl |
+| Chat pattern (Action kind) | Chat-Muster |
+| Keyword (chat) | Stichwort |
+| Keyword combo (Action kind) | Stichwort-Combo |
+| Redemption (channel points) | Einlösung |
+| Reward (channel points) | Belohnung |
+| Counter | Zähler |
+| Pattern (regular expression) | Muster |
+| Placeholder (`${user}` in a text) | Platzhalter |
 | Automation | Automatisierung |
 | Compose | Compose |
 | Layer | Ebene |
@@ -103,6 +116,11 @@ carried the original copy; this table is the durable source of truth.)
 | Properties | Eigenschaften |
 | Add / Remove / Delete | Hinzufügen / Entfernen / Löschen |
 | Notice / toast | Meldung |
+| Variable | Variable |
+| Cooldown | Abklingzeit |
+| Trigger (event source) | Auslöser |
+| Modified (a graph that differs from its template) | Geändert |
+| Reset (rebuild a graph from its template) | Zurücksetzen |
 
 When you introduce a new recurring domain term, add it here so future
 translations stay consistent.
@@ -163,7 +181,7 @@ Custom rehype plugin. Converts a `{#id}` marker at the end of a heading into tha
 
 ### Content — `help/content/<lng>/<topic>.md`
 
-Markdown files for each topic in each supported language. Current topics (21, `en` + `de` in lockstep): `assets`, `assistant`, `avatar`, `behaviors`, `camera`, `camera-effects`, `compose`, `lighting`, `live2d`, `logic`, `materials`, `multiplayer`, `obs`, `overview`, `particles`, `presets`, `props`, `scene`, `streaming`, `track-clips`, `transform`. Each contains `{#anchor}` markers on section headings that serve as deep-link targets.
+Markdown files for each topic in each supported language. Current topics (22, `en` + `de` in lockstep): `actions`, `assets`, `assistant`, `avatar`, `behaviors`, `camera`, `camera-effects`, `compose`, `lighting`, `live2d`, `logic`, `materials`, `multiplayer`, `obs`, `overview`, `particles`, `presets`, `props`, `scene`, `streaming`, `track-clips`, `transform`. Each contains `{#anchor}` markers on section headings that serve as deep-link targets.
 
 Available anchors per topic:
 
@@ -173,7 +191,8 @@ Available anchors per topic:
 | `avatar` | `loading`, `animation`, `expressions`, `materials`, `calibration` |
 | `scene` | `nodes`, `hierarchy`, `cameras`, `lights`, `compose` |
 | `behaviors` | `vmc`, `tracking`, `lipsync`, `breathing`, `expression-limits`, `devices`, `api` |
-| `logic` | `automations`, `nodes`, `events`, `triggers` |
+| `logic` | `automations`, `nodes`, `events`, `triggers`, `hotkeys`, `conditions`, `variables`, `combos`, `custom-triggers`, `macros` |
+| `actions` | `overview`, `add`, `hotkey`, `value-shape`, `modified`, `reset`, `graph` |
 
 ### docs.ts — `help/docs.ts`
 

@@ -67,6 +67,7 @@ Design → executed → follow-ups. Each supersedes roughly what came before it.
 | [`phase3-data-feeds.md`](./phase3-data-feeds.md)   | shipped — data channels + template feed layer                                        |
 | [`video-audio-assets.md`](./video-audio-assets.md) | shipped — `video`/`audio` node kinds, media bus, clip event lane                     |
 | [`tracking-mix.md`](./tracking-mix.md)             | shipped — migration `044`, see [`../modules/animation.md`](../modules/animation.md)  |
+| [`actions.md`](./actions.md)                       | **design-only** — project-level preauthored workflows (Actions) + the nodes they need; editable Behavior graphs |
 
 ## Cross-cutting / process
 

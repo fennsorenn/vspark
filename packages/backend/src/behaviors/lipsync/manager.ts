@@ -4,7 +4,11 @@ import { Blendshapes, mkEvent } from '@vspark/shared/signal';
 import type { GraphDescriptor } from '@vspark/shared/signal';
 import { getDb } from '../../db/index.js';
 import { BehaviorKind } from '../decorator.js';
-import { makeLipsyncGraphDescriptor } from './graph.js';
+import {
+  behaviorContextConfig,
+  behaviorDescriptorToRun,
+  programChanged,
+} from '../storedGraph.js';
 import { broadcastBus } from '../../broadcast/bus.js';
 
 @BehaviorKind({
@@ -24,7 +28,12 @@ export class LipsyncManager {
   private readonly configs = new Map<string, Record<string, unknown>>();
 
   private createGraph(behaviorId: string): SignalGraph {
-    const descriptor = makeLipsyncGraphDescriptor(behaviorId);
+    // The behavior's stored (editable) graph; the template if none is stored.
+    const descriptor = behaviorDescriptorToRun(
+      'lipsync_processor',
+      behaviorId,
+      this.configs.get(behaviorId)
+    );
     this.descriptors.set(behaviorId, descriptor);
     if (!this.nodeStates.has(behaviorId))
       this.nodeStates.set(behaviorId, new Map());
@@ -45,17 +54,23 @@ export class LipsyncManager {
 
   private _getNodeConfig(behaviorId: string, nodeId: string): unknown {
     const cfg = this.configs.get(behaviorId) ?? {};
-    const nodeId_ = this.nodeIds.get(behaviorId) ?? '';
-    if (nodeId === 'scene_entity') return { nodeId: nodeId_ };
-    if (nodeId === 'comp_id') return { behaviorId };
-
     const descriptor = this.descriptors.get(behaviorId);
     const nodeDef = descriptor?.nodes.find((n) => n.id === nodeId);
     const defaults = nodeDef?.defaultConfig ?? {};
     const overrides = ((
       cfg.nodeConfig as Record<string, unknown> | undefined
     )?.[nodeId] ?? {}) as Record<string, unknown>;
-    return { ...defaults, ...overrides };
+    // By node kind — including `_settings` for the `settings` nodes, which
+    // this manager never injected, so `sensitivity` always read its default.
+    return {
+      ...defaults,
+      ...overrides,
+      ...behaviorContextConfig(nodeDef?.kind, {
+        behaviorId,
+        sceneNodeId: this.nodeIds.get(behaviorId) ?? '',
+        settings: cfg,
+      }),
+    };
   }
 
   private _persistNodeState(
@@ -92,6 +107,8 @@ export class LipsyncManager {
 
   stop(behaviorId: string): void {
     if (!this.graphs.has(behaviorId)) return;
+    // Release the nodes' own resources (timers etc.) before dropping it.
+    this.graphs.get(behaviorId)?.dispose();
     this.graphs.delete(behaviorId);
     broadcastBus.removeBehavior(behaviorId);
     console.log(`[Lipsync] Stopped component ${behaviorId}`);
@@ -119,6 +136,15 @@ export class LipsyncManager {
       this.nodeStates.set(c.id, stateMap);
       this.configs.set(c.id, liveConfig);
       this.nodeIds.set(c.id, c.nodeId);
+      // Its stored graph was edited (or reset): rebuild the running one.
+      if (
+        this.graphs.has(c.id) &&
+        programChanged(
+          this.descriptors.get(c.id),
+          behaviorDescriptorToRun('lipsync_processor', c.id, liveConfig)
+        )
+      )
+        this.stop(c.id);
       this.start(c.id);
       active.add(c.id);
     }

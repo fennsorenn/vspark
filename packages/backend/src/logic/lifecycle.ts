@@ -13,6 +13,7 @@
  * lifecycle read as one thing rather than as two hooks buried in a tap.
  */
 import { logicManager } from './manager.js';
+import { deleteVariablesInScope } from '../variables/store.js';
 
 export const logicLifecycle = {
   /** A graph was created or edited: reconcile starts it if enabled, stops it if
@@ -23,8 +24,12 @@ export const logicLifecycle = {
 
   /** A graph was deleted. Its row is already gone by the time the tap runs, so
    *  reconcile finds nothing and stops the instance — which is exactly the
-   *  wanted behaviour, and why this does not need its own stop call. */
+   *  wanted behaviour, and why this does not need its own stop call. The
+   *  variables scoped to the graph go with it. */
   onRemoved(id: string): void {
     logicManager.reconcile(id);
+    // Graph-local variables are scoped to the graph's id (`logic_id`); they
+    // have nothing left to belong to.
+    deleteVariablesInScope(id);
   },
 };

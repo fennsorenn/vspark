@@ -69,6 +69,57 @@ runs on your own machine. On a headless or remote server, or where the
 operating system blocks global keyboard hooks, the hotkey simply never fires —
 nothing else is affected.
 
+## Conditions and text {#conditions}
+
+A few small nodes help you decide *whether* something should happen and *what* to
+say:
+
+- **If / Else** passes an event on to its **then** output when its condition is
+  true, and to **else** otherwise. Wire any yes/no value into the condition.
+- **Equals** tells you whether two values are the same (text is case-sensitive).
+- **Chat Rank** checks whether a chatter is at least a subscriber, moderator or
+  the broadcaster — wire in the matching outputs of a chat trigger and pick the
+  minimum rank (`everyone`, `sub`, `mod`, `broadcaster`).
+- **Regex Match** checks text against a pattern and pulls pieces out of it. Name
+  a part of the pattern, like `(?<user>\w+)`, and it gets its own output, so a
+  command such as `!so bob` can hand `bob` to the next node.
+- **Format Text** builds a message from a template with `${placeholders}` — the
+  same way **Send Chat** does — filled from its labeled inputs or from the named
+  parts of a Regex Match.
+
+## Variables and counters {#variables}
+
+Variables remember a value between events — a death counter, the last person who
+redeemed a reward, a running total. **Set Variable** stores a value, **Increment
+Variable** adds to a number (by 1 unless you say otherwise), and **Get Variable**
+reads it back.
+
+Every automation in the project shares the same variables, so one automation can
+count and another can show the count. To keep a variable to one automation, wire
+the **This Logic** node into its **scope**. Tick **persistent** to keep the value
+when vspark restarts; otherwise it starts over.
+
+## Cooldowns and combos {#combos}
+
+- **Cooldown** lets an event through at most once per number of seconds; events
+  that arrive too soon come out of **blocked** instead. Give several cooldowns the
+  same **group** name and they share one cooldown — handy when a few chat
+  commands should not be spammed together.
+- **Combo Threshold** counts events that arrive close together (within the
+  **window**) and fires once when the count reaches the threshold — say, five
+  chatters posting the same emote.
+- **Combo Timeout** fires when a run of events stops, with the final **count**.
+- Wire the chatter's name into a combo's **key** to count each person only once.
+
+## Triggers between automations {#custom-triggers}
+
+**Send Trigger** fires a named trigger, and every **On Trigger** node with the
+same name — in any automation of this project — reacts to it. You can send some
+data along as the **payload**. This lets one automation start another, for
+example a chat command that sets off an alert built elsewhere. A trigger can't
+set itself off again while it is still being handled, so loops stop on their
+own.
+
 ## Macros {#macros}
 
 The **Macros** tab is the easy way to set up a bunch of keyboard shortcuts

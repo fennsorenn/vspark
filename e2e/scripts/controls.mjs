@@ -80,7 +80,15 @@ const HANDLERS = new Set([
 // root) so distinct usages are attributed independently; the component's own
 // internal controls are opted out in `coverage-ignore.json` (implementation, not
 // a distinct interface surface). Extend this set as more primitives are added.
-const COMPONENTS = new Set(['NumInput', 'VecInput', 'SliderInput']);
+const COMPONENTS = new Set([
+  'NumInput',
+  'VecInput',
+  'SliderInput',
+  // Actions settings forms (components/editor/actions/draftInputs.tsx).
+  'DraftText',
+  'DraftNumber',
+  'SettingCheck',
+]);
 
 /** Any literal `vs-…` token anywhere in a string. */
 const VS_TOKEN = /vs-[A-Za-z0-9_-]+/g;

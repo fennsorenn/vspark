@@ -59,9 +59,9 @@ Defined in [packages/backend/src/behaviors/lipsync/graph.ts](../../packages/back
 
 The graph descriptor previously contained a stray edge wiring `cfg_sensitivity.value` (a `number`) into `passthrough.blendshapes` (expects `Blendshapes`). On pull paths where no event payload was available, this caused `bs.map is not a function` crashes. The edge has been removed.
 
-### Latent issue (not fixed)
+### Sensitivity (fixed)
 
-`viseme_passthrough` reads `config.sensitivity` directly, but the manager's `_getNodeConfig` only forwards `cfg.nodeConfig[nodeId]` overrides — not top-level behavior config. The sensitivity slider in the UI is therefore currently a no-op. Tracked for a separate fix.
+The sensitivity slider used to be a no-op: `viseme_passthrough` read `config.sensitivity`, the `cfg_sensitivity` settings node was not wired, and the manager never injected `_settings`. Now `viseme_passthrough` has a `sensitivity` value input (falling back to `config.sensitivity`), the template wires `cfg_sensitivity` into it, and the manager injects the behavior's config into settings nodes. See [component-managers.md](component-managers.md).
 
 ## Extension notes
 

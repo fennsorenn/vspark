@@ -658,7 +658,7 @@ export class OverliveManager {
       if (gpId !== projectId) continue;
       if (node.kind !== expectedKind) continue;
       candidates++;
-      const cfg = (node.defaultConfig ?? {}) as Record<string, unknown>;
+      const cfg = routingConfig(graphId, node);
       if (!this.nodeAcceptsEvent(projectId, cfg, event)) continue;
       // Fire as an event on the node's `event` input port. The node helpers
       // unwrap `inputs.event.payload`, so wrap the overlive event in the
@@ -674,10 +674,8 @@ export class OverliveManager {
   }
 
   /**
-   * Resolve a node's `account` / `channel` config against an incoming event.
-   * The node's "account" config is the inline literal stored in defaultConfig
-   * (events arrive externally, so the node doesn't get to pull its inputs
-   * first). Empty config or an unresolved `__preset:*` placeholder both fall
+   * Resolve a node's `account` / `channel` (see {@link routingConfig}) against
+   * an incoming event. Empty or an unresolved `__preset:*` placeholder both fall
    * back to the project's default account; with no default we warn once and
    * reject rather than fanning out to every account.
    */
@@ -750,7 +748,7 @@ export class OverliveManager {
     } of logicManager.iterateNodes()) {
       if (gpId !== projectId) continue;
       if (node.kind !== 'overlive_chat_feed') continue;
-      const cfg = (node.defaultConfig ?? {}) as Record<string, unknown>;
+      const cfg = routingConfig(graphId, node);
       if (!this.nodeAcceptsEvent(projectId, cfg, event)) continue;
       // Deliver the buffer slice this node cares about. An empty channel filter
       // means "all channels for this account"; otherwise restrict to the match.
@@ -834,6 +832,25 @@ export class OverliveManager {
       )
       .get(id) as unknown as AppCredentialRow | undefined;
   }
+}
+
+const ROUTING_PORTS = ['account', 'channel'] as const;
+
+/** A trigger node's `account` / `channel` as the node would pull them: a wired
+ *  port (e.g. a `settings` node reading an Action's account) wins, an unwired
+ *  one falls back to the inline config — the engine's ordinary value-input
+ *  resolution (`SignalGraph.pullInput`, as the HotkeyManager does for combos).
+ *  Falls back to the descriptor config when the graph is not running. */
+function routingConfig(
+  graphId: string,
+  node: { id: string; defaultConfig?: Record<string, unknown> }
+): Record<string, unknown> {
+  const cfg = { ...((node.defaultConfig ?? {}) as Record<string, unknown>) };
+  for (const port of ROUTING_PORTS) {
+    const v = logicManager.pullInput(graphId, node.id, port);
+    if (v !== undefined) cfg[port] = v;
+  }
+  return cfg;
 }
 
 // Event-type → node-kind table. Keep in sync with Phase H node implementations.

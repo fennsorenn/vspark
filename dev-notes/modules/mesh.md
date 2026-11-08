@@ -787,9 +787,11 @@ concern by [grant delivery](#subscriptions-and-grant-delivery).
   the rtypes tabs author (`scene_node`, `behavior`, `camera_effect`,
   `compose_layer`, `track_clip`, `logic`, `clip_playback`), `TAB_READ_DELETE`
   for `animation_clip` and `scheduled_animation` (servers write them; a tab
-  removes them only as part of deleting their node via `removeTree`). The
-  runtime collections (`runtime_override`, `data_field`, `media_control`,
-  `server_status`) get `{ read: true }` where they are created. `node_stream`
+  removes them only as part of deleting their node via `removeTree`), and
+  `{ read: true }` for `variable` (persistent graph variables, written only by
+  graphs — see [variables.md](variables.md)). The runtime collections
+  (`runtime_override`, `data_field`, `media_control`, `server_status`,
+  `runtime_variable`) get `{ read: true }` where they are created. `node_stream`
   and `runtime_control` get none — they are server-to-server only. There is no
   blanket grant and no collection flag standing in for one.
 - Collab scenes (`mesh/collab.ts`): the author grants the mounting peer RUCD on
@@ -1340,16 +1342,17 @@ Both halves are load-bearing:
   unacked channel keeps a graph firing overrides at frame rate off the authoring
   tab's undo stack. That is a deliberate use of the ack flag, not a default.
 
-Collections on it, both parented to the entity they describe so existing
-scene-subtree grants route them cross-type:
+Collections on it, parented to the entity they describe (where there is one) so
+existing scene-subtree grants route them cross-type:
 
 | rtype | key | notes |
 |---|---|---|
 | `runtime_override` | `${targetKind}:${targetId}:${paramPath}` | one document per overridden path, so two graphs overriding different params of one node cannot clobber each other; a clear is a `remove` |
 | `data_field` | `${scope}:${field}` | one document per published field, which is what makes `set`'s merge structural; carries `scopeKind` so both peers derive the same parent without a DB lookup. Scope `''` is global and has no parent |
 | `server_status` | `${kind}:${key}` | server-authored status (`mesh/status.ts`), see below |
+| `runtime_variable` | `rvar:${projectId}:${scope}:${name}` (scope/name URI-encoded) | short-lived graph variables (`mesh/variables.ts`); the persistent ones are the committed `variable` collection. No parent — variables are project-wide. See [variables.md](variables.md) |
 
-The backend grants its tabs `{ read: true }` on all three: tabs read them, only
+The backend grants its tabs `{ read: true }` on all of them: tabs read them, only
 the server writes them.
 
 **Server status** (`packages/backend/src/mesh/status.ts`) replaces the
@@ -1472,6 +1475,7 @@ lost to its own copy of the document.
 - `packages/backend/src/mesh/streams.ts` — `node_stream` and `runtime_control` collections (server-to-server only); collab live-ops bridging helpers.
 - `packages/backend/src/mesh/runtime.ts` — the `runtime_override`, `data_field` and `media_control` collections. Registered from `initBackendMesh` so a mesh peer cannot exist without them.
 - `packages/backend/src/mesh/status.ts` — the `server_status` collection and its `publishStatus` / `publishTracking` / `clearStatus` / `clearStatusOf` helpers.
+- `packages/backend/src/mesh/variables.ts` — the `runtime_variable` collection (short-lived graph variables); read/write through `variables/store.ts`.
 - `packages/backend/src/auth/clients.ts`, `auth/routes.ts` — tab credentials, pairing code, enrollment routes.
 - `packages/backend/src/mesh/assets.ts` — `initMeshAssets()`: mid-session asset fetch for mesh docs with unresolvable file paths (COLLAB + PLACE paths; inert without multiplayer).
 - `packages/frontend/src/mesh/peer.ts` — frontend peer creation + wiring, the containment schema (`PARENTS`) and the subscribed rtype list (`RTYPES`), plus `meshUndo` / `meshRedo` / `meshBatch`.

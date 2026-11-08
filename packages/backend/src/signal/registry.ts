@@ -8,7 +8,7 @@ import { getPortMeta, type PortMeta } from '@vspark/shared/node';
 import { typeTagToResolved } from '@vspark/shared/signal_types';
 import { INFER_BY_KIND } from '@vspark/shared/infer_nodes';
 import { BehaviorId } from './nodes/behavior_id.js';
-import { BehaviorConfigNode } from './nodes/behavior_config.js';
+import { SettingsNode } from './nodes/settings.js';
 import { SceneEntity } from './nodes/scene_entity.js';
 import { ManualTrigger } from './nodes/manual_trigger.js';
 import { ArmIkCalibration } from './nodes/arm_ik_calibration.js';
@@ -129,6 +129,21 @@ import { ObsReplayPath } from './nodes/obs/replay_path.js';
 import { ObsConnectionState } from './nodes/obs/connection_state.js';
 // Render-client lifecycle (vspark-native, driven by the browser-source bridge)
 import { ClientLifecycle } from './nodes/client_lifecycle.js';
+// General-purpose logic nodes (Actions plan, phase 1)
+import { Regex } from './nodes/regex.js';
+import { IfElse } from './nodes/if_else.js';
+import { Equals } from './nodes/equals.js';
+import { ChatRankNode } from './nodes/chat_rank.js';
+import { TextFormat } from './nodes/text_format.js';
+import { LogicId } from './nodes/logic_id.js';
+import { Cooldown } from './nodes/cooldown.js';
+import { ComboThreshold, ComboTimeout } from './nodes/combo.js';
+import { SendTrigger, OnTrigger } from './nodes/trigger.js';
+import {
+  GetVariable,
+  SetVariable,
+  IncrementVariable,
+} from './nodes/variable.js';
 
 // ──────────────────────────────────────────────────────────────────────────────
 // All known node kinds. Import a new class here to auto-register it.
@@ -137,7 +152,7 @@ import { ClientLifecycle } from './nodes/client_lifecycle.js';
 const ALL_NODE_CLASSES: SignalNodeClass[] = [
   // Context / value nodes (internal — hidden from user palette)
   BehaviorId,
-  BehaviorConfigNode,
+  SettingsNode,
   SceneEntity,
   ManualTrigger,
   ArmIkCalibration,
@@ -262,6 +277,22 @@ const ALL_NODE_CLASSES: SignalNodeClass[] = [
   SystemHotkey,
   // Flow control
   Cycle,
+  IfElse,
+  Cooldown,
+  ComboThreshold,
+  ComboTimeout,
+  SendTrigger,
+  OnTrigger,
+  // Text / comparison helpers
+  Regex,
+  TextFormat,
+  Equals,
+  ChatRankNode,
+  // Variables
+  LogicId,
+  GetVariable,
+  SetVariable,
+  IncrementVariable,
   // Runtime output
   SetExpression,
 ];

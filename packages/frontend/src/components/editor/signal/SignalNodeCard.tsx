@@ -455,6 +455,14 @@ function PackFieldsEditor({
 // Node card
 // ──────────────────────────────────────────────────────────────────────────────
 
+/** Node kinds whose labeled input ports are the names in `config.fields`. */
+const FIELDS_EDITOR_KINDS = new Set([
+  'pack_event',
+  'set_data',
+  'overlive_send_chat',
+  'text_format',
+]);
+
 export function SignalNodeCard({
   data,
   selected,
@@ -517,9 +525,9 @@ export function SignalNodeCard({
     commitBehaviorPatch(behaviorId, { config: newConfig });
   };
 
-  // pack_event / set_data: user-defined named input fields (config.fields:
-  // string[]) — each becomes a labeled input port.
-  const hasFieldsEditor = kind === 'pack_event' || kind === 'set_data';
+  // User-defined named input fields (config.fields: string[]) — each becomes a
+  // labeled input port.
+  const hasFieldsEditor = FIELDS_EDITOR_KINDS.has(kind);
   const packFields: string[] =
     hasFieldsEditor && Array.isArray(configRecord.fields)
       ? (configRecord.fields as string[])
@@ -617,7 +625,7 @@ export function SignalNodeCard({
         </div>
       )}
 
-      {/* pack_event / set_data named-field editor */}
+      {/* named-field editor (FIELDS_EDITOR_KINDS) */}
       {hasFieldsEditor && (
         <PackFieldsEditor fields={packFields} onChange={setPackFields} />
       )}

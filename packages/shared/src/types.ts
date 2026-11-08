@@ -262,7 +262,16 @@ export function obsOutputWindowTitle(composeSceneName: string): string {
 
 // --- Logic (user-built signal graphs with owner scoping) ---
 
-export type LogicOwnerKind = 'project' | 'scene_node' | 'compose_layer';
+export type LogicOwnerKind =
+  | 'project'
+  | 'scene_node'
+  | 'compose_layer'
+  /** An Action's graph (dev-notes/modules/actions.md). */
+  | 'action'
+  /** A Behavior's graph (dev-notes/modules/component-managers.md). Stored
+   *  as Logic so the canvas, mesh sync and undo are shared, but run by the
+   *  behavior's manager, never by LogicManager. */
+  | 'behavior';
 
 export interface Logic {
   id: string;

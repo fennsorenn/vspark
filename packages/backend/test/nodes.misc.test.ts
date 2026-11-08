@@ -429,6 +429,22 @@ describe('media_control', () => {
     });
   });
 
+  it('takes the action from a wired input (e.g. an Action settings node)', () => {
+    const { graph } = buildGraph(
+      [
+        { id: 'cfg', kind: 'settings' },
+        { id: 'm', kind: 'media_control' },
+      ],
+      [{ fromNodeId: 'cfg', fromPort: 'value', toNodeId: 'm', toPort: 'action' }],
+      {
+        cfg: { field: 'a', _settings: { a: 'pause' } },
+        m: { targetId: 'vid-4', action: 'play' },
+      }
+    );
+    graph.deliverExternal('m', 'fire', undefined);
+    expect(dispatchSpy).toHaveBeenCalledWith('scene_node', 'vid-4', { action: 'pause' });
+  });
+
   it('a SpawnRef retargets the command to the tmp id', () => {
     const n = loneNode('media_control', {
       targetId: 'orig',

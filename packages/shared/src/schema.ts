@@ -428,7 +428,7 @@ export const replaceTrackClipKeyframesSchema = z
 // --- Graphs (generalized owner-scoped) ---
 
 export const graphOwnerKindSchema = z
-  .enum(['project', 'scene_node', 'compose_layer'])
+  .enum(['project', 'scene_node', 'compose_layer', 'action', 'behavior'])
   .openapi('LogicOwnerKind');
 
 export const createLogicSchema = z
@@ -446,6 +446,29 @@ export const updateLogicSchema = z
     descriptor: z.unknown().optional(),
   })
   .openapi('UpdateLogic');
+
+// --- Actions (project-level workflows; see @vspark/shared/actions) ---
+
+export const createActionSchema = z
+  .object({
+    id: z.string().min(1).optional(),
+    kind: z.string().min(1),
+    name: z.string().min(1).optional(),
+    enabled: z.boolean().optional(),
+    /** The kind's settings; missing fields take the kind's defaults. */
+    settings: z.record(z.string(), z.unknown()).optional(),
+  })
+  .openapi('CreateAction');
+
+export const updateActionSchema = z
+  .object({
+    name: z.string().min(1).optional(),
+    enabled: z.boolean().optional(),
+    /** Deep-merged into the stored settings. A change to a shape setting
+     *  rebuilds an unmodified graph; a modified graph is kept (use reset). */
+    settings: z.record(z.string(), z.unknown()).optional(),
+  })
+  .openapi('UpdateAction');
 
 // --- Presets ---
 

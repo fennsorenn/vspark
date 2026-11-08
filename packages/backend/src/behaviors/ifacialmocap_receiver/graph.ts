@@ -26,51 +26,51 @@ export const HEAD_CALIB_BONES = ['head', 'leftEye', 'rightEye'] as const;
  */
 const IFACIALMOCAP_BASE_TEMPLATE: Omit<GraphDescriptor, 'id'> = {
   label: 'iFacialMocap Receiver Pipeline',
-  readonly: true,
+  readonly: false,
   nodes: [
     // ── Behavior config value sources ─────────────────────────────────────────
     // Each exposes ONE field from the behavior config via its `value` output port.
     // Columns: x=-520 (cfg), x=-240 (source), x=60 (unpack), x=280 (mappers), x=560 (calib/sum), x=760+ (out)
     {
       id: 'cfg_device_host',
-      kind: 'behavior_config',
+      kind: 'settings',
       position: { x: -520, y: 80 },
       defaultConfig: { field: 'deviceHost', defaultValue: '' },
     },
     {
       id: 'cfg_port',
-      kind: 'behavior_config',
+      kind: 'settings',
       position: { x: -520, y: 200 },
       defaultConfig: { field: 'port', defaultValue: 49983 },
     },
     {
       id: 'cfg_mirror',
-      kind: 'behavior_config',
+      kind: 'settings',
       position: { x: -520, y: 320 },
       defaultConfig: { field: 'mirror', defaultValue: false },
     },
     {
       id: 'cfg_invert_pitch',
-      kind: 'behavior_config',
+      kind: 'settings',
       position: { x: -520, y: 0 },
       defaultConfig: { field: 'invertPitch', defaultValue: false },
     },
     {
       id: 'cfg_invert_yaw',
-      kind: 'behavior_config',
+      kind: 'settings',
       position: { x: -520, y: -80 },
       defaultConfig: { field: 'invertYaw', defaultValue: false },
     },
     {
       id: 'cfg_invert_roll',
-      kind: 'behavior_config',
+      kind: 'settings',
       position: { x: -520, y: -160 },
       defaultConfig: { field: 'invertRoll', defaultValue: false },
     },
     // Mapper config pairs — 160 px between en/map, 240 px between mapper groups.
     {
       id: 'cfg_fcl_en',
-      kind: 'behavior_config',
+      kind: 'settings',
       position: { x: -520, y: 540 },
       defaultConfig: {
         field: 'nodeConfig.arkit_fcl_cfg.enabled',
@@ -79,7 +79,7 @@ const IFACIALMOCAP_BASE_TEMPLATE: Omit<GraphDescriptor, 'id'> = {
     },
     {
       id: 'cfg_fcl_map',
-      kind: 'behavior_config',
+      kind: 'settings',
       position: { x: -520, y: 660 },
       defaultConfig: {
         field: 'nodeConfig.arkit_fcl_cfg.mapping',
@@ -88,7 +88,7 @@ const IFACIALMOCAP_BASE_TEMPLATE: Omit<GraphDescriptor, 'id'> = {
     },
     {
       id: 'cfg_expr_en',
-      kind: 'behavior_config',
+      kind: 'settings',
       position: { x: -520, y: 820 },
       defaultConfig: {
         field: 'nodeConfig.arkit_expr_cfg.enabled',
@@ -97,7 +97,7 @@ const IFACIALMOCAP_BASE_TEMPLATE: Omit<GraphDescriptor, 'id'> = {
     },
     {
       id: 'cfg_expr_map',
-      kind: 'behavior_config',
+      kind: 'settings',
       position: { x: -520, y: 940 },
       defaultConfig: {
         field: 'nodeConfig.arkit_expr_cfg.mapping',
@@ -106,7 +106,7 @@ const IFACIALMOCAP_BASE_TEMPLATE: Omit<GraphDescriptor, 'id'> = {
     },
     {
       id: 'cfg_pass_en',
-      kind: 'behavior_config',
+      kind: 'settings',
       position: { x: -520, y: 1100 },
       defaultConfig: {
         field: 'nodeConfig.arkit_pass_cfg.enabled',
@@ -115,7 +115,7 @@ const IFACIALMOCAP_BASE_TEMPLATE: Omit<GraphDescriptor, 'id'> = {
     },
     {
       id: 'cfg_pass_map',
-      kind: 'behavior_config',
+      kind: 'settings',
       position: { x: -520, y: 1220 },
       defaultConfig: {
         field: 'nodeConfig.arkit_pass_cfg.mapping',

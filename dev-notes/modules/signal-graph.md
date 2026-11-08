@@ -36,7 +36,7 @@ Decorators live in `packages/shared/src/node_decorators.ts`:
 
 Only `body_calibration` and `arm_ik_calibration` are durable today — user-produced calibration, stored as plain numbers/arrays so the JSON round-trip is lossless. **Everything else must stay scratch.** Per-frame state (`unpack_event` payloads, scaled visemes, interceptor frames) persisted at frame rate cost a DB write per frame, and the round-trip strips class identity: a `Blendshapes` / `NormalizedPose` comes back from SQLite as a plain object and throws in the first consumer that calls a method on it. Stale `_nodeState` written before the split is simply ignored — scratch nodes never read the owner's store.
 
-**Lifecycle hooks**: the constructor runs **before** ports are wired; the `protected onBind()` hook runs **after** bind, so dynamic-port setup goes in `onBind()`, not the constructor.
+**Lifecycle hooks**: the constructor runs **before** ports are wired; the `protected onBind()` hook runs **after** bind, so dynamic-port setup goes in `onBind()`, not the constructor. `protected onUnbind()` runs when the graph is disposed (stop / rebuild): release external resources and pending timers there (`set_data`, `set_expression`, the combo nodes).
 
 **Dynamic ports** (no new decorator machinery — decorations are the static skeleton, `inferPorts` declares the actual current ports, which may have no decorated member):
 - `this.input(name)` — pull a dynamic value-in by name.
@@ -47,7 +47,7 @@ Toolchain: repo runs TC39 Stage-3 decorators (TS 5.9, **no** `experimentalDecora
 
 ## Runtime — `signal/engine.ts`
 
-`SignalGraph` (the reactive substrate; name kept) is instantiated per Behavior (one per VMC receiver, one per breathing behavior, etc.). A signal graph can also back a **Logic** (project / scene-node / compose-layer scoped) rather than a Behavior — see [project-graphs.md](project-graphs.md) for user-authored logic owned by a `logic` row (table renamed from `graphs` via migrations 022 → 025). The behavior-context kinds `behavior_config` / `behavior_id` are rejected in all logic at descriptor-validation time by `LogicManager`. `scene_entity` is allowed in scene-node- and compose-layer-scoped logic (rejected only in project scope); the logic's owner kind is threaded into inference via `fromDescriptor(..., ownerKind)` so `scene_entity`'s output type follows the scope (`SceneNode` / `ComposeLayer`).
+`SignalGraph` (the reactive substrate; name kept) is instantiated per Behavior (one per VMC receiver, one per breathing behavior, etc.). A signal graph can also back a **Logic** (project / scene-node / compose-layer scoped) rather than a Behavior — see [project-graphs.md](project-graphs.md) for user-authored logic owned by a `logic` row (table renamed from `graphs` via migrations 022 → 025). The behavior-context kind `behavior_id` is rejected in all logic at descriptor-validation time by `LogicManager`; the shared `settings` node (formerly `behavior_config`) is rejected everywhere except in Action-owned logic (`owner_kind = 'action'`, see [actions.md](actions.md)) and Behavior-owned logic (`owner_kind = 'behavior'` — a behavior's stored graph, validated by `validateBehaviorGraph` and run by its manager, see [component-managers.md](component-managers.md#stored-editable-graphs)). `scene_entity` is allowed in scene-node- and compose-layer-scoped logic (rejected only in project scope); the logic's owner kind is threaded into inference via `fromDescriptor(..., ownerKind)` so `scene_entity`'s output type follows the scope (`SceneNode` / `ComposeLayer`).
 
 After the Phase 2 re-architecture the engine is **wiring + lifecycle** over Node instances, not a central dispatcher:
 
@@ -64,9 +64,9 @@ A graph executes when `fire(nodeId, portName, value)` is called from outside (by
 
 **Source nodes** (`vmc_packet_source` / `ifacialmocap_packet_source` / `mediapipe_source` / `lipsync_source`) declare `@eventOut` ports that are fired externally by their managers via `deliverExternal`. `clock` keeps a static `attach()`; `on_pose_broadcast` keeps a static `register()`.
 
-**Value-input auto-fallback to `config.<port>`**: when a value-input port is unconnected, the engine resolves its pull-thunk to `defaultConfig.<portName>` from the descriptor. Nodes just read `this.port()` and get the config fallback for free. This is the preferred pattern; reserve `behavior_config` nodes for values that must track live user edits at runtime. The breathing graph is the reference example (bone names / mode / priority / blend mode in per-port `defaultConfig`; only the two live-editable amplitudes remain `behavior_config` nodes).
+**Value-input auto-fallback to `config.<port>`**: when a value-input port is unconnected, the engine resolves its pull-thunk to `defaultConfig.<portName>` from the descriptor. Nodes just read `this.port()` and get the config fallback for free. This is the preferred pattern; reserve `settings` nodes for values that must track live user edits at runtime. The breathing graph is the reference example (bone names / mode / priority / blend mode in per-port `defaultConfig`; only the two live-editable amplitudes remain `settings` nodes).
 
-**Node config resolves live**: `_makeBindContext` exposes `config` as a **getter** (not a value snapshotted at graph-build time), so `this.config` — and therefore a `behavior_config` node reading `_behaviorConfig` — re-reads the owning behavior's current config on every access. This is what makes `behavior_config`-fed values (breathing amplitudes, manual-calibration map) hot-apply without a graph rebuild; before, they only took effect on behavior restart.
+**Node config resolves live**: `_makeBindContext` exposes `config` as a **getter** (not a value snapshotted at graph-build time), so `this.config` — and therefore a `settings` node reading `_settings` — re-reads the owner's current settings (a Behavior's config or an Action's settings) on every access. This is what makes `settings`-fed values (breathing amplitudes, manual-calibration map) hot-apply without a graph rebuild; before, they only took effect on behavior restart.
 
 **Hydration**: `SignalGraph.fromDescriptor(descriptor, registry, getConfig, getState, onSetState)` — builds a graph from a `GraphDescriptor` template. Config is injected from outside (DB-backed). State only reaches `getState`/`onSetState` for nodes declaring `static persistState`; every other node's state stays in the graph's scratch map (see **Scratch vs durable state** above).
 
@@ -76,14 +76,14 @@ A graph executes when `fire(nodeId, portName, value)` is called from outside (by
 
 Transport is folded **into** the type. The old `PortKind` / `PortDecl.kind` / `portsCompatible` machinery is **deleted**.
 
-- `packages/shared/src/signal_types.ts` — the `ResolvedType` AST: `primitive | record | event | list | unknown`. Transport is derived from a type via `transportOf`. `isAssignable` is structural width subtyping on records, an `unknown` wildcard in **both** directions, and one documented special case: a `List<E>` target accepts a source of `E` or `List<E>`. Both the `Any` and `BehaviorConfig` type tags map to `unknown` (`BehaviorConfig` is the wildcard escape-hatch output of `behavior_config`).
+- `packages/shared/src/signal_types.ts` — the `ResolvedType` AST: `primitive | record | event | list | unknown`. Transport is derived from a type via `transportOf`. `isAssignable` is structural width subtyping on records, an `unknown` wildcard in **both** directions, and one documented special case: a `List<E>` target accepts a source of `E` or `List<E>`. Both the `Any` and `BehaviorConfig` type tags map to `unknown` (`BehaviorConfig` is the wildcard escape-hatch output of the `settings` node).
 - `packages/shared/src/inference.ts` — `InferGraph`: `tryAddEdge` (forward propagation + transactional rollback if a downstream port is invalidated), `removeEdge`, `setConfig`, `portsOf`.
-- `packages/shared/src/infer_nodes.ts` — the `INFER_BY_KIND` table mapping kind → `inferPorts`. Imported by **both** the backend engine and the frontend canvas so the two never drift. Dynamic nodes (`pack_event`, `queue_events`, `unpack_event`) live here.
+- `packages/shared/src/infer_nodes.ts` — the `INFER_BY_KIND` table mapping kind → `inferPorts`. Imported by **both** the backend engine and the frontend canvas so the two never drift. Dynamic nodes (`pack_event`, `queue_events`, `unpack_event`, `cycle`, `regex`, `text_format`, and the pass-through gates `if_else` / `cooldown`) live here.
 - `NodeKindMeta` now carries `{ name, resolved, typeTag, transport }` per port plus a `dynamic` flag.
 
 ## Node Registry — `signal/registry.ts`
 
-`NODE_REGISTRY` maps kind string → node class. All 108 built-in node kinds are registered here. `getAllNodeKindMeta()` returns per-port `{name, resolved, typeTag, transport}` + `dynamic` flag and display metadata for each kind — this drives the UI node palette.
+`NODE_REGISTRY` maps kind string → node class. All 123 built-in node kinds are registered here. `getAllNodeKindMeta()` returns per-port `{name, resolved, typeTag, transport}` + `dynamic` flag and display metadata for each kind — this drives the UI node palette.
 
 To register a node: import the class and add it to the registry (and, if it has dynamic or non-trivial ports, add its `inferPorts` entry to `INFER_BY_KIND` in `infer_nodes.ts`).
 
@@ -125,10 +125,10 @@ Organized by role:
 | `body_calibration` | Captures neutral pose; subtracts offset via quaternion inversion. Supports optional `mirrorPairs` config + `mirrorSource` input port for one-hand symmetric calibration (used by finger_calib in MediaPipe tracker), and `preserveChildren` (`{ bone, parents }[]`) to keep a child's orientation through its parents' correction (used by head_calib for the upper arms). |
 | `arm_ik_calibration` | Two-bone arm IK; captures arm reach (finger-to-eye-corner); applies corrected IK at runtime |
 | `eye_range_map` (label "Eye Range Map") | `pose` + `nodeId` (SceneNode) + `enabled` (Bool) + `inputMaxDeg` (Float) in → `pose` out. Scales `leftEye`/`rightEye` pitch/yaw so `inputMaxDeg` of tracked rotation reaches the model's VRM look-at range (read via `vrm/lookAt.ts`), clamped beyond; roll dropped, other bones and expression-type look-at models pass through. Inserted into receiver pipelines by `behaviors/eyeRange.ts`. See [ifacialmocap.md](ifacialmocap.md#gaze--eye-range). |
-| `pose_manual_calibration` (label "Manual Calibration") | Static `pose` in → `pose` out. For each configured bone, decomposes the quaternion to ZYX euler and applies per axis `angle' = angle * multiplier + offset` (offset in DEGREES, converted to radians; multiplier unitless). Bones with no entry, or at identity (mult `[1,1,1]` / offset `[0,0,0]`), pass through. The per-bone map arrives via a wired `calibrations` value-input (fed by a `behavior_config` node, `field: 'calibrations'`), not a hidden config read; shape `Record<boneName, { multiplier?: [x,y,z]; offset?: [x,y,z] }>`. Ordinary static node (NOT in `INFER_BY_KIND`; ports via decorators / `defaultInfer`, like `body_calibration` / `pose_apply_bone`). Drives the `manual_calibration` behavior interceptor — see [component-managers.md](component-managers.md). Euler-space, so ZYX-order-dependent + degrades at the yaw=±90° gimbal singularity. |
+| `pose_manual_calibration` (label "Manual Calibration") | Static `pose` in → `pose` out. For each configured bone, decomposes the quaternion to ZYX euler and applies per axis `angle' = angle * multiplier + offset` (offset in DEGREES, converted to radians; multiplier unitless). Bones with no entry, or at identity (mult `[1,1,1]` / offset `[0,0,0]`), pass through. The per-bone map arrives via a wired `calibrations` value-input (fed by a `settings` node, `field: 'calibrations'`), not a hidden config read; shape `Record<boneName, { multiplier?: [x,y,z]; offset?: [x,y,z] }>`. Ordinary static node (NOT in `INFER_BY_KIND`; ports via decorators / `defaultInfer`, like `body_calibration` / `pose_apply_bone`). Drives the `manual_calibration` behavior interceptor — see [component-managers.md](component-managers.md). Euler-space, so ZYX-order-dependent + degrades at the yaw=±90° gimbal singularity. |
 | `pose_style_drivers` (label "Style Drivers") | `pose` + `response` + `preset` in → `drivers` (`StyleDrivers`) out. (`preset` is needed here too because a preset may carry a response baseline — `expressive` tightens the ranges.) Collapses a full pose into nine normalized scalars: head orientation relative to the torso (`neck·head` composed), torso orientation (`hips·spine·chest·upperChest` composed), per-arm elevation, and a motion-`energy` summary. Each is conditioned `÷ range → clamp ±1 → deadzone → rate limit → EMA smooth`; the rate limit is the glitch gate that turns an impossible tracker jump into a human slew, and the frame-rate-compensated EMA keeps the feel constant across tracker rates. Previous-driver state lives on the node INSTANCE (not `setState`) because persisting it would put a SQLite write in the 60Hz pose path; the output memoizes on the input pose object so it integrates exactly once per frame. Ordinary static node (not in `INFER_BY_KIND`). Drives the `pose_stylizer` behavior — see [stylized-tracking.md](stylized-tracking.md). |
 | `pose_stylize` (label "Stylize Pose") | `pose` + `drivers` + `amount` + `lag` + `preset` + `rig` + `restUnmapped` in → `pose` out. Rebuilds the pose from the drivers through a `StyleRig` (`bone → {mode, lag, drivers: driverName → [pitch,yaw,roll] degrees at driver 1}`), merged over the rig named by `preset` (`follow` / `counter` / `headOnly` / `headOnlyCounter` / `expressive`; unknown/absent → `follow`). `preset` also supplies the base `lag` when the `lag` input is null. `rigMode` + `simpleRig` add the simplified 6×6 section-total surface on top (identity when empty, so the two editors are interchangeable); `strength` multiplies every rig contribution before the lag integrator. `replace` bones are synthesized outright (bounded by construction → glitch-proof; emitted even if the tracker never sent them, so a face-only source drives a whole body); `add` bones premultiply the offset onto the tracked rotation and are skipped when untracked. A per-bone first-order lag (base `lag` × the rig's per-bone multiplier) staggers the chain for follow-through; `amount` slerps the result against the untouched pose. Per-bone lag state on the instance + memoized on the input pose, same reasoning as above. Ordinary static node. See [stylized-tracking.md](stylized-tracking.md). |
-| `blendshape_limits` (label "Expression Limits") | Static `blendshapes` in → `blendshapes` out. Applies the expression-limit rule set: exclusive groups (only the strongest member of a set of competing expressions survives, losers scaled by `1 − strength × winnerWeight`) then clamp rules (targets capped into `[min, max]` while a driver expression is active, ramped by the driver's weight). The rule set arrives via a wired `limits` value-input (fed by a `behavior_config` node, `field: 'limits'`), not a hidden config read. The engine itself is the pure `applyBlendshapeLimits` in [`packages/shared/src/blendshapeLimits.ts`](../../packages/shared/src/blendshapeLimits.ts); the node is only the graph wrapper and runs the config through `normalizeBlendshapeLimits` so a malformed hand-edited document degrades to fewer rules instead of a crashed graph. Ordinary static node (NOT in `INFER_BY_KIND`). Drives the `blendshape_limiter` behavior interceptor — see [component-managers.md](component-managers.md). |
+| `blendshape_limits` (label "Expression Limits") | Static `blendshapes` in → `blendshapes` out. Applies the expression-limit rule set: exclusive groups (only the strongest member of a set of competing expressions survives, losers scaled by `1 − strength × winnerWeight`) then clamp rules (targets capped into `[min, max]` while a driver expression is active, ramped by the driver's weight). The rule set arrives via a wired `limits` value-input (fed by a `settings` node, `field: 'limits'`), not a hidden config read. The engine itself is the pure `applyBlendshapeLimits` in [`packages/shared/src/blendshapeLimits.ts`](../../packages/shared/src/blendshapeLimits.ts); the node is only the graph wrapper and runs the config through `normalizeBlendshapeLimits` so a malformed hand-edited document degrades to fewer rules instead of a crashed graph. Ordinary static node (NOT in `INFER_BY_KIND`). Drives the `blendshape_limiter` behavior interceptor — see [component-managers.md](component-managers.md). |
 
 ### Processing / utility
 | Kind | Description |
@@ -177,13 +177,62 @@ first); ties break by registration order. Interceptors receive the frame after T
 | `on_blendshapes_broadcast` (label "Intercept Blendshapes") | Entry for a blendshape interceptor graph; receives a `BlendshapeInterceptorFrame`. The frame type is deliberately distinct from `InterceptorFrame` so a pose frame can't be wired into a blendshape terminal. |
 | `blendshapes_interceptor_broadcast` (label "Send Intercepted Blendshapes") | Exit for a blendshape interceptor graph; advances the chain or performs the final broadcast |
 
+### Logic helpers — conditions, text, variables, triggers, combos
+
+General-purpose nodes added for the Actions plan (phase 1,
+[plans/actions.md](../plans/actions.md)); each is usable in any Logic graph. Plan
+decisions they implement — **Decided** (user, 2026-11-06): regex is a pure node and
+gating is a separate `if_else`; variables and triggers are project-wide; variables
+take an optional `scope`; a cooldown takes an optional shared `group`; combos are two
+separate kinds, threshold and timeout.
+
+Pull outputs are recomputed on demand; event outputs that "pass through" mirror the
+resolved type of their `in` input (`inferIfElse` / `inferCooldown`, like `cycle`).
+
+| Kind (label) | Inputs → Outputs | Behaviour |
+|---|---|---|
+| `regex` ("Regex Match") | `text`, `pattern`, `flags` → `matched` (Bool), one String per capture group, `groups` (record) | Pure; memoised on its inputs. Group outputs are dynamic (`inferRegex`) and exist only while `pattern` (and `flags`) are inline literals: a named group is exposed under its name, an unnamed one as `group<n>` where *n* is the capture index (`$n` numbering, so `(?<a>x)(y)` gives `a`, `group2`). A group never shadows `matched`/`groups` (it falls back to `group<n>`). `groups` holds the **named** groups only. First match only — `g`/`y` are stripped. Empty pattern → no match. Invalid pattern → `matched` false, groups '', warned once per node+pattern. The group scan lives in `regexGroups` (`shared/infer_nodes.ts`), cross-checked against the engine's group count. |
+| `if_else` ("If / Else") | `in` (event), `condition` (Bool) → `then`, `else` | Only boolean `true` takes `then`. |
+| `equals` | `a`, `b` → `equal` (Bool) | Strict for primitives (`1` ≠ `'1'`, case-sensitive), structural for arrays/plain objects; two unset inputs are equal. |
+| `chat_rank` ("Chat Rank") | `isSub`, `isMod`, `isBroadcaster`, `minRank` → `allowed` (Bool) | Ranks `everyone` < `sub` < `mod` < `broadcaster`; empty `minRank` = everyone, an unknown rank never allows. No VIP rank — the chat triggers expose no VIP flag. |
+| `text_format` ("Format Text") | `template`, labeled field ports (`config.fields`, like `overlive_send_chat`), `values` (record) → `text` | Pure. `${name}` resolves to the declared field port when it yields a value, else to `values[name]`, else ''. Renderer shared with `overlive_send_chat`: `backend/src/signal/textTemplate.ts` (`renderTemplate`). The canvas card has no field-name editor for it yet (`SignalNodeCard`'s `hasFieldsEditor` lists only `pack_event` / `set_data` — `overlive_send_chat` is in the same position). |
+| `logic_id` ("This Logic") | → `id` (String) | The running graph's id, from `config._logicId` (injected by `LogicManager`); '' elsewhere. Use as a variable `scope` for graph-local variables. |
+| `variable` ("Get Variable") | `name`, `scope` → `value` | Pure read; unset → nothing. See [variables.md](variables.md). |
+| `set_variable` | `fire`, `name`, `scope`, `value`, `persistent` (Bool) → `done`, `value` | Stores `value`, then fires `done`; the `value` output reads the variable (so it is the stored value on `done`). |
+| `increment_variable` | `fire`, `name`, `scope`, `by` (Float, default 1), `persistent` → `done`, `value` (Float) | Unset/non-numeric counts as 0. A non-numeric `by` is refused (warned). |
+| `cooldown` | `in` (event), `seconds`, `group` → `out`, `blocked` | Passes at most once per `seconds` (blocked events don't restart it); `seconds` ≤ 0/unset passes everything. Empty `group` → private scratch state; a group name → the "last passed" time is the short-lived variable `__cooldown/<group>` of the project, shared by every cooldown with that group (across graphs). Wall-clock compare, no timers; a clock that moved backwards counts as elapsed. |
+| `combo_threshold` ("Combo Threshold") | `in` (event), `threshold`, `window` (s), `key` → `reached`, `count` (Float) | Each counted event restarts the window; `reached` fires once per combo when `count` hits `ceil(threshold)` (min 1); the combo resets to 0 when the window runs out. A non-empty `key` already counted in this combo neither counts nor extends it (feed a username for unique chatters); empty/unwired counts every event. No positive `window` → inert. |
+| `combo_timeout` ("Combo Timeout") | `in` (event), `timeout` (s), `key` → `ended`, `count` (Float) | Each counted event restarts the timeout; `ended` fires on every expiry (also a combo of 1 — gate with `if_else`). `count` is the running count, and after `ended` the final count, held until the next counted event starts a new combo. Same `key` rule. |
+| `send_trigger` ("Send Trigger") | `fire`, `name`, `payload` (Any) | Sends a named trigger to every running Logic graph of the same project (`_projectId`); empty name / no project → nothing. |
+| `on_trigger` ("On Trigger") | `name` → `event`, `payload` | Fires when a trigger with exactly this name (trimmed) is sent in its project; empty name never fires. Receives externally on an `event` input, like the overlive / hotkey sources. |
+
+**Trigger routing** — `backend/src/triggers/router.ts` walks
+`logicManager.iterateNodes()` (the hotkey/overlive pattern), filters to `on_trigger`
+nodes of the sending project and fires each; the node checks the name against its own
+(possibly wired) `name` input. Delivery is synchronous, inside the sender's `fire`.
+Re-entrancy guard (phase-1 implementation choice, not a user decision): a send whose
+(project, name) is already being delivered further up the stack is dropped as a loop,
+and so is any send nested deeper than `MAX_TRIGGER_DEPTH` (16); each is warned once
+per (project, name, reason). So a trigger cannot synchronously re-send itself, even
+through other triggers. Behavior graphs are not in `iterateNodes()` and receive no
+triggers.
+
+**Timers and teardown** — the combo nodes keep their pending `setTimeout` on the
+instance and clear it in `onUnbind`, which `SignalGraph.dispose()` calls when
+`LogicManager` stops or rebuilds a graph, so a stopped graph never fires late. Behavior
+managers do not call `dispose()` today, so a combo node in a behavior graph would keep
+its timer until it expires (no behavior template uses one).
+
+**Context injected by `LogicManager`** — besides `_projectId`, every node's config
+carries `_logicId` (the graph's id); `logic_id` reads it.
+
 ### Config/context
 | Kind | Description |
 |------|-------------|
-| `behavior_config` (label "Behavior Settings") | Dot-notation extractor on behavior config JSON (e.g., `field: "myNode.param"`). |
+| `settings` (label "Settings"; kind id was `behavior_config` until the Actions work) | Dot-notation extractor on the graph owner's settings JSON (e.g., `field: "myNode.param"`), injected as `_settings` by whoever runs the graph — a behavior manager (the behavior's config) or `LogicManager` for Action-owned logic (the action's settings). |
 | `behavior_id` (label "This Behavior") | Injects the owning behavior's instance id as a string value. |
 | `scene_entity` (label "This Entity") | Outputs the id of the entity the logic/behavior is scoped to; output type follows scope (`SceneNode` / `ComposeLayer`) |
-| `viseme_passthrough` (label "Visemes → Blendshapes") | Scales viseme weights by a sensitivity config value |
+| `viseme_passthrough` (label "Visemes → Blendshapes") | Scales viseme weights by its `sensitivity` value input (falls back to `config.sensitivity`; the Lipsync template feeds it from the behavior's `sensitivity` setting), clamped to [0, 1] |
 
 ## Graph Descriptor
 
@@ -236,7 +285,7 @@ Phase 2 (branch `feature/signal-graph-nodes-v2`) landed both architecture change
 
 #### Deferred / out of scope
 
-- **Typed `behavior_config`** — `inferPorts`-based typing is deferred: there is no config-schema registry, so writable graphs simply **reject** the node and its `BehaviorConfig` wildcard (→ `unknown`) output stays. Stays planned for a later phase.
+- **Typed `settings`** — `inferPorts`-based typing is deferred: there is no config-schema registry, so writable Logic graphs other than Action and Behavior graphs simply **reject** the node and its `BehaviorConfig` wildcard (→ `unknown`) output stays. Stays planned for a later phase.
 - Typed `set_*_param` value input (would replace the `Any` + runtime-coerce approach with a port typed from the paramPath registry).
 - Incremental `reconcile` (stays rebuild-from-scratch).
 

@@ -124,7 +124,7 @@ State + token persistence:
 Event routing:
 
 - `kit.onAny(event => routeEvent(projectId, event))`.
-- `routeEvent` walks `logicManager.iterateNodes()`, skips logic from other projects, matches `node.kind` against the `OVERLIVE_KIND_BY_EVENT` table (e.g. `chat.message` → `overlive_chat_message`), then filters by the node's `defaultConfig.account` (must match `event.sourceInstanceId`) and optional `defaultConfig.channel` (lowercased, empty = any). Matching nodes get the event fired into their `event` input port via `logicManager.fire(graphId, nodeId, 'event', mkEvent(event))` (the `graphId` param keeps its substrate name).
+- `routeEvent` walks `logicManager.iterateNodes()`, skips logic from other projects, matches `node.kind` against the `OVERLIVE_KIND_BY_EVENT` table (e.g. `chat.message` → `overlive_chat_message`), then filters by the node's `account` (must match `event.sourceInstanceId`; empty or an unresolved `__preset:*` placeholder = the project's default account) and optional `channel` (lowercased, empty = any). Both are resolved as the node would pull them (`routingConfig` → `logicManager.pullInput`): a wired port wins — e.g. a `settings` node reading an Action's `account` setting — else the inline `defaultConfig` value, the same rule the HotkeyManager applies to combos. (Before the Actions chat kinds, routing read `defaultConfig` only, so a wired account was ignored.) Matching nodes get the event fired into their `event` input port via `logicManager.fire(graphId, nodeId, 'event', mkEvent(event))` (the `graphId` param keeps its substrate name).
 - The event MUST be wrapped with `mkEvent(event)` from `@vspark/shared/signal` before firing. The node helper `_helpers.ts handleOverliveEvent` reads `inputs.event.payload` (the signal engine's `Event<T>` envelope). Firing the raw overlive event (which has no `.payload`) made every node see `undefined` and emit empty outputs — the bug that `mkEvent` fixes.
 - Per-event filtering on top of this (command name, reward id, tier, etc.) happens inside the node's `execute()`.
 
@@ -140,12 +140,12 @@ The shared `handleOverliveEvent(...)` helper in `signal/nodes/overlive/_helpers.
 
 | Kind | Source event | Filter inputs (beyond account/channel) | Notable outputs |
 |---|---|---|---|
-| `overlive_redemption` | Channel-point redemption | `rewardId` | `username`, `displayName`, `rewardTitle`, `cost`, `userInput` |
+| `overlive_redemption` | Bits / channel points / tip / superchat | `currencyKind`, `rewardId` | `username`, `displayName`, `currencyKind`, `amount`, `rewardTitle`, `rewardId`, `redemptionId` (channel points: the event id, i.e. Twitch's redemption id), `message`, `data` (all outputs as one record) |
 | `overlive_subscription` | New / resub | `tier`, `isGift` | `username`, `tier`, `months`, `isGift`, `message` |
 | `overlive_gift_bomb` | Multi-gift sub | `tier` | `gifter`, `count`, `tier` |
 | `overlive_raid` | Incoming raid | min viewers | `raider`, `viewers` |
 | `overlive_follow` | New follow | — | `username`, `displayName` |
-| `overlive_chat_message` | Chat message | (user/contains/badges via downstream nodes) | `username`, `displayName`, `text`, `isMod`, `isSub`, `isBroadcaster` |
+| `overlive_chat_message` | Chat message | (user/contains/badges via downstream nodes) | `username`, `displayName`, `text`, `html`, `color`, `isMod`, `isSub`, `isBroadcaster`, `isAction`, `isHighlighted`, `cheerAmount`, `data` (all outputs as one record) |
 | `overlive_chat_command` | Chat message starting with the prefix | `command` (case-insensitive, no prefix; empty = any) | `command`, `args` (space-joined), `text`, `isMod`/`isSub`/`isBroadcaster` |
 | `overlive_chat_delete` | Message deletion | — | `messageId`, `username` |
 | `overlive_ad_start` | Ad break started | — | `duration` |
@@ -179,7 +179,10 @@ ports from `config.fields: string[]` — the dynamic-port shape is computed by
 `INFER_BY_KIND['overlive_send_chat']`, same `TRAILING_SLOT` mechanism). On fire
 it substitutes each `${field}` in the template with the current value of the
 like-named input (unknown placeholders → empty string), skips an empty result,
-then calls `OverliveManager.sendChat(accountId, channel, text)`. Ports:
+then calls `OverliveManager.sendChat(accountId, channel, text)`. The account
+is the `account` port, else `config.account`, else — when both are empty — the
+project's default account (`acctOrDefault` in `_actions.ts`, using the injected
+`_projectId`); with no default account nothing is sent. Ports:
 `fire` (Trigger), `account` (Account), `channel` (String), `template` (String),
 N dynamic fields, output `sent` (Trigger).
 
@@ -203,7 +206,10 @@ installs them from the registry.
 Backed by the `PlatformActions` capability interface introduced on the Twitch
 adapter in `@overlive/twitch` `0.3.0`. Each node is a simple **fire-triggered**
 node — `fire` (Trigger) in → `done` (Trigger) out — that reads its destination
-`account` (port → `config.account` fallback via `acct()` in `_actions.ts`),
+`account` (port → `config.account` fallback via `acct()` in `_actions.ts`;
+`overlive_redemption_status` alone also falls back to the project's default
+account via `acctOrDefault`, like `overlive_send_chat` — the two nodes the
+Actions templates send through; the others keep "no account → do nothing"),
 coerces its remaining value ports, and calls the matching best-effort
 `OverliveManager.<action>()` method. Action methods resolve the account's live
 Twitch adapter (`OverliveKit.adapter(instanceId)`) and call the SDK; **errors are

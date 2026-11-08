@@ -8,9 +8,9 @@ import {
   type EyeRanges,
 } from '../../vrm/lookAt.js';
 
-/** Default physical eye range (degrees): a tracked eye turned this far maps to
- *  the model's full eye range. (Decided by the user, 2026-10-06.) */
-export const DEFAULT_EYE_INPUT_MAX_DEG = 30;
+import { DEFAULT_EYE_INPUT_MAX_DEG } from '../eyeRangeDefaults.js';
+
+export { DEFAULT_EYE_INPUT_MAX_DEG };
 
 const RAD2DEG = 180 / Math.PI;
 const DEG2RAD = Math.PI / 180;

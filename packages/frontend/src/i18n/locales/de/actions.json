@@ -1,0 +1,174 @@
+{
+  "title": "Aktionen",
+  "add": "Hinzufügen",
+  "addOfKind": "Weitere Aktion „{{kind}}“ hinzufügen",
+  "empty": "Noch keine Aktionen. Füge eine hinzu, um ein Tastenkürzel, einen Chat-Befehl und mehr einzurichten, ohne einen Graphen zu bauen.",
+  "rowError": "Diese Aktion konnte hier nicht angezeigt werden — öffne stattdessen ihren Graphen.",
+  "help": {
+    "overview": "Was Aktionen sind und wie sie mit Logik zusammenhängen",
+    "shape": "Manche Einstellungen ändern den Aufbau des Graphen der Aktion",
+    "account": "Mit welchem Streaming-Konto die Aktion mitliest und antwortet",
+    "cooldown": "Wie oft die Aktion laufen darf, optional geteilt mit anderen Aktionen",
+    "counter": "Zählen, wie oft die Aktion lief, und die Zahl in der Antwort verwenden",
+    "placeholders": "Platzhalter, die du im Text verwenden kannst",
+    "patterns": "Wie Muster (reguläre Ausdrücke) funktionieren",
+    "trigger": "Einen benannten Auslöser senden, auf den andere Logik reagieren kann",
+    "combo": "Wie eine Combo gezählt wird"
+  },
+  "kinds": {
+    "hotkey": {
+      "label": "Tastenkürzel",
+      "description": "Eine Tastenkombination drücken, um einen Clip abzuspielen, eine Eigenschaft zu setzen, Medien zu steuern …"
+    },
+    "chat_command": {
+      "label": "Chat-Befehl",
+      "description": "Auf einen Chat-Befehl wie !hug antworten, mit Abklingzeit, Mindestrang und optionalem Zähler"
+    },
+    "chat_pattern": {
+      "label": "Chat-Muster",
+      "description": "Auf Chat-Nachrichten antworten, die zu einem Muster passen, mit den erfassten Teilen"
+    },
+    "chat_keyword": {
+      "label": "Chat-Stichwort",
+      "description": "Reagieren, wenn ein Stichwort oder Emote im Chat auftaucht: Sound oder Clip abspielen, Auslöser senden …"
+    },
+    "keyword_combo": {
+      "label": "Stichwort-Combo",
+      "description": "Reagieren, wenn genug Chatter ein Stichwort oder Emote kurz hintereinander schreiben"
+    },
+    "redemption": {
+      "label": "Einlösung",
+      "description": "Auf eine Kanalpunkte-Belohnung reagieren: Clip abspielen, im Chat antworten, zählen, als erledigt markieren …"
+    }
+  },
+  "row": {
+    "enabled": "Diese Aktion aktivieren / deaktivieren",
+    "openGraph": "Graph öffnen",
+    "reset": "Zurücksetzen",
+    "resetTip": "Den Graphen aus der Vorlage neu aufbauen (verwirft deine Änderungen am Graphen)",
+    "delete": "Aktion löschen"
+  },
+  "editor": {
+    "empty": "Wähle links eine Aktion aus, um ihre Einstellungen zu bearbeiten.",
+    "enabled": "Aktiv"
+  },
+  "badge": {
+    "modified": "Geändert",
+    "modifiedTip": "Der Graph wurde bearbeitet und weicht von dem ab, was die Vorlage erzeugt hat.",
+    "templateUpdate": "Vorlagen-Update",
+    "templateUpdateTip": "Die Vorlage erzeugt inzwischen einen anderen Graphen. Zurücksetzen, um ihn zu übernehmen (verwirft deine Änderungen am Graphen).",
+    "missingGraph": "Kein Graph",
+    "missingGraphTip": "Diese Aktion hat keinen Graphen. Zurücksetzen erzeugt ihn aus der Vorlage."
+  },
+  "confirm": {
+    "reset": "Den Graphen von „{{name}}“ aus der Vorlage neu aufbauen? Deine Änderungen am Graphen gehen verloren.",
+    "rebuild": "Diese Änderung baut den Graphen von „{{name}}“ neu auf und verwirft deine Änderungen am Graphen. Fortfahren?",
+    "rebuildConfirm": "Graph neu aufbauen"
+  },
+  "form": {
+    "name": "Name",
+    "shortcut": "Kürzel",
+    "mode": "Modus",
+    "positions": "Positionen",
+    "position": "Position {{n}}",
+    "response": "Reaktion",
+    "chooseResponse": "Reaktion auswählen …",
+    "account": "Konto",
+    "defaultAccount": "Standardkonto",
+    "missingAccount": "(entferntes Konto)",
+    "command": "Befehl",
+    "aliases": "Aliase",
+    "aliasesHint": "Weitere Namen für denselben Befehl, durch Leerzeichen oder Kommas getrennt.",
+    "minRank": "Wer darf ihn nutzen",
+    "cooldown": "Abklingzeit",
+    "seconds": "s",
+    "cooldownGroup": "geteilte Gruppe",
+    "argsPattern": "Argumente müssen passen",
+    "argsPatternHint": "Optionales Muster, zu dem der Text nach dem Befehl passen muss. Benannte Gruppen werden zu Platzhaltern.",
+    "counter": "Zähler",
+    "counterEnabled": "Jede Nutzung zählen",
+    "counterName": "Name des Zählers",
+    "counterNameHint": "Leer: eigener Zähler dieser Aktion. Ein Name: ein geteilter Zähler, den auch andere Aktionen nutzen können.",
+    "counterStep": "Schrittweite",
+    "counterPersistent": "Nach Neustart behalten",
+    "reply": "Antwort",
+    "placeholders": "Platzhalter: {{list}}. Leer: keine Antwort.",
+    "pattern": "Muster",
+    "patternHint": "Die ganze Nachricht muss passen (Groß-/Kleinschreibung egal). Benannte Gruppen werden zu Platzhaltern.",
+    "keywords": "Stichwörter",
+    "keywordsHint": "Wörter oder Emote-Namen, durch Kommas getrennt. Nur ganze Wörter, Groß-/Kleinschreibung egal.",
+    "trigger": "Auslöser senden",
+    "triggerHint": "Optionaler Name eines Auslösers. Leer: kein Auslöser.",
+    "noResponse": "Keine Reaktion",
+    "threshold": "Schwelle",
+    "within": "innerhalb von",
+    "uniqueChatters": "Jeden Chatter nur einmal zählen",
+    "onReached": "Bei Erreichen",
+    "endMessage": "Abschlussnachricht",
+    "reward": "Belohnung",
+    "rewardHint": "Der Titel der Belohnung, genau wie auf Twitch (Groß-/Kleinschreibung egal).",
+    "markComplete": "Einlösung als erledigt markieren",
+    "onEnded": "Bei Ende"
+  },
+  "mode": {
+    "single": "Einfach",
+    "toggle": "Umschalten",
+    "cycle": "Durchschalten"
+  },
+  "rank": {
+    "everyone": "Alle",
+    "sub": "Ab Abonnenten",
+    "mod": "Ab Moderatoren",
+    "broadcaster": "Nur der Kanalinhaber"
+  },
+  "preview": {
+    "noShortcut": "Kein Kürzel",
+    "noResponse": "Keine Reaktion",
+    "toggle": "umschalten",
+    "cycle": "durchschalten ×{{n}}",
+    "position": "{{n}}.",
+    "noCommand": "Kein Befehl",
+    "noPattern": "Kein Muster",
+    "noKeywords": "Keine Stichwörter",
+    "noReward": "Keine Belohnung",
+    "noReply": "Keine Antwort",
+    "rank": {
+      "sub": "ab Abos",
+      "mod": "ab Mods",
+      "broadcaster": "nur Kanalinhaber"
+    },
+    "cooldown": "⏱ {{s}} s",
+    "cooldownGroup": "⏱ {{s}} s ({{group}})",
+    "counter": "# {{name}}",
+    "counterOwn": "# gezählt",
+    "argsPattern": "Argumente:",
+    "trigger": "⚡ Auslöser {{name}}",
+    "combo": "{{n}}× innerhalb von {{s}} s",
+    "unique": "verschiedene Chatter",
+    "endMessage": "am Ende:",
+    "markComplete": "✓ markiert als erledigt",
+    "comboTimeout": "≥ {{n}}×, {{s}} s nach der letzten"
+  },
+  "responses": {
+    "play_clip": "Clip abspielen",
+    "spawn_clip": "Clip erzeugen",
+    "set_expression": "Ausdruck setzen",
+    "set_property": "Eigenschaft setzen",
+    "set_layer_property": "Ebenen-Eigenschaft setzen",
+    "control_media": "Medien steuern"
+  },
+  "mediaAction": {
+    "play": "Abspielen",
+    "pause": "Pause",
+    "stop": "Stopp",
+    "restart": "Neu starten",
+    "mute": "Stumm",
+    "unmute": "Ton an"
+  },
+  "comboMode": {
+    "threshold": "Bei Schwelle",
+    "timeout": "Nach Ablauf",
+    "thresholdHint": "Läuft, sobald die Zahl die Schwelle erreicht.",
+    "timeoutHint": "Läuft, wenn die Combo endet (so lange keine Nachricht), sofern die Zahl die Schwelle erreicht hat."
+  }
+}

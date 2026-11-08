@@ -6,7 +6,7 @@
  * Writes `config.eyeRange = { enabled, inputMaxDeg }`, read by the receiver
  * graph's eye range stage (backend signal/nodes/eye_range_map.ts). The default
  * for `enabled` differs per receiver — on for iFacialMocap, off for VMC — and
- * must match the graph's `behavior_config` default (behaviors/<kind>/graph.ts).
+ * must match the graph's `settings` node default (behaviors/<kind>/graph.ts).
  */
 import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';

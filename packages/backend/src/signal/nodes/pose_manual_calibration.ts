@@ -41,7 +41,7 @@ export class PoseManualCalibration extends Node {
   static readonly kind = 'pose_manual_calibration';
 
   @valueIn('pose', 'NormalizedPose') poseIn!: () => NormalizedPose | undefined;
-  // The per-bone calibration map, wired in from a `behavior_config` (Behavior
+  // The per-bone calibration map, wired in from a `settings` (Behavior
   // Settings) node reading the behavior's `calibrations` field — visible on the
   // graph rather than read from config behind the scenes. Reads live each pull,
   // so UI edits hot-apply without a graph rebuild.

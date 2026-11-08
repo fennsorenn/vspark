@@ -100,7 +100,7 @@ export interface ComposeLayerOverride {
 export type RuntimeOverrideValue = number | string | boolean;
 export type RuntimeOverrideMap = Record<string, RuntimeOverrideValue>;
 
-export type LeftDockTab = 'scene' | 'compose' | 'graphs' | 'macros';
+export type LeftDockTab = 'scene' | 'compose' | 'graphs' | 'macros' | 'actions';
 export type BottomDockTab =
   | 'create'
   | 'models'
@@ -138,7 +138,13 @@ function lsSet(key: string, value: string): void {
     /* storage unavailable — ignore */
   }
 }
-const LEFT_TABS: LeftDockTab[] = ['scene', 'compose', 'graphs', 'macros'];
+const LEFT_TABS: LeftDockTab[] = [
+  'scene',
+  'compose',
+  'graphs',
+  'macros',
+  'actions',
+];
 const BOTTOM_TABS: BottomDockTab[] = [
   'create',
   'models',
@@ -245,6 +251,9 @@ export interface Behavior {
   kind: string;
   enabled: boolean;
   config: Record<string, unknown>;
+  /** Fingerprint of the template output its stored graph was generated from
+   *  (mesh/behaviorGraphs.ts); null when unknown. */
+  templateFingerprint?: string | null;
 }
 
 export interface PresetSummary {
@@ -296,6 +305,8 @@ export interface EditorState {
    *  by the OBS Connections modal; status kept live by `server_status` docs. */
   obsConnections: import('../api/client').ObsConnectionRecord[];
   activeLogicId: string | null;
+  /** The action whose settings the Actions tab shows in the main view. */
+  activeActionId: string | null;
   /** True when the active graph is a writable standalone project graph;
    *  false when it's a behavior-owned (read-only) graph or no graph is active.
    *  Set by SignalGraphCanvas after it resolves the descriptor source. */
@@ -395,6 +406,7 @@ export interface EditorState {
     connections: import('../api/client').ObsConnectionRecord[]
   ) => void;
   setActiveLogic: (id: string | null) => void;
+  setActiveAction: (id: string | null) => void;
   setActiveLogicWritable: (writable: boolean) => void;
   setSelectedSignalNode: (id: string | null) => void;
   setBoneListExpanded: (nodeId: string, expanded: boolean) => void;
@@ -498,6 +510,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   obsConnections: [],
   activeLogicWritable: false,
   activeLogicId: null,
+  activeActionId: null,
   selectedSignalNodeId: null,
   boneListExpanded: {},
   fbxDebugVisible: {},
@@ -626,6 +639,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       leftTab: id != null ? 'graphs' : s.leftTab,
     }));
   },
+  setActiveAction: (id) => set({ activeActionId: id }),
   setSelectedSignalNode: (id) => set({ selectedSignalNodeId: id }),
   setBoneListExpanded: (nodeId, expanded) =>
     set((s) => ({
