@@ -1,6 +1,6 @@
 # Plan: Composites — built-in templates as objects with their own settings
 
-> **Status:** design-only
+> **Status:** in progress
 > Branch: `feature/composites` (off `dev`)
 > This plan is the seed context for an implementation session. It is a starting point,
 > not an airtight spec — the open questions at the end need the user's answer first.
