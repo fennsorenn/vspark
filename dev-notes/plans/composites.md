@@ -40,11 +40,19 @@ plain group the preset produces today, for customising it further.
 - **[decided]** (user, 2026-11-08) **Keep the old presets** in the preset library
   until the composites are confirmed to replace them adequately.
 - **[decided]** (user, 2026-11-08) **One alert type** with a trigger setting:
-  donation / tip / sub / raid, plus a **generic trigger** (see open question 1).
+  donation / tip / sub / raid, plus a **generic trigger**: the named triggers sent by
+  `send_trigger` (Actions' "send trigger" option, or any Logic graph). The alert is a
+  consumer of those via an `On Trigger` node. This is the "alerts react to named
+  triggers" consumer that [`actions.md`](./actions.md) deferred.
 - **[decided]** (user, 2026-11-08) **A composite is a parent node like any other.**
   Its parts are always listed as its children in the tree and are edited like any
   other node — there is no closed / opened mode. The one difference: **parts are
   protected from being moved out of place in the hierarchy.**
+- **[decided]** (user, 2026-11-08) **What "out of place" means:** a part's container
+  and depth must not change, because the composite's logic may address it. Reordering
+  parts among their siblings is allowed.
+- **[decided]** (user, 2026-11-08) **Deleting a part is refused** for the same
+  reason. Dissolving the composite is the way to do either for advanced users.
 - **[observed]** Built-in presets are `vspark.preset.v2` payloads in
   `packages/backend/src/presets/builtin_presets/` (`alerts.ts`, `chat.ts`), served by
   `GET /api/presets/builtin[/:id]` and instantiated by `POST /api/presets/instantiate`.
@@ -109,14 +117,20 @@ Reading a setting reads its first link; writing one writes every link in a singl
 `peer.batch`, so one change is one undo step. Built-in only means the `custom`
 getters/setters can live in code.
 
-**Missing parts.** If a linked part or graph node is gone (see open question 3),
-settings that point at it show as unavailable; nothing else breaks.
+**Missing parts.** Parts can't be deleted, but a linked logic-graph node can (the
+graph stays editable). Settings that point at something that's gone show as
+unavailable; nothing else breaks.
 
 ### The two templates in this scope
 
 - **Alert** — one type with a **Trigger** setting (donation / tip / sub / raid /
   generic). Changing the trigger replaces the event node at the head of the queue
   graph — a `custom` setting, and the nearest thing to "generation" in this scope.
+  For the generic trigger that node is `on_trigger` with a **Trigger name** setting.
+  The caption comes from a **Message** template run through `text_format` with the
+  event's data as values (`{displayName}` for a sub, any field of the payload for a
+  named trigger, e.g. a redemption sent by an Action) — proposal, so every trigger
+  shares one way of building the text.
   The account and filter settings shown depend on the trigger. It contains both the
   image and the video badge. "Badge type" is a `custom` setting
   that toggles which one is visible and which one the fade clip's marker restarts, so
@@ -141,14 +155,18 @@ composite is a builtin payload plus the `composite` marker on its root.
 - **Tree:** the composite is an ordinary parent row with the tag; its parts are its
   children, selectable and editable like any node. Selecting the composite shows its
   own transform plus a **Settings** section generated from the type.
-- **Protected parts:** dragging a part out of the composite (or to another depth
-  inside it) is refused, in the tree drag-and-drop and in cut/paste. The rule is also
-  enforced by the mesh `validate` guard for scene nodes and compose layers, so REST,
-  the assistant and other tabs can't break it either: a write that changes a part's
-  `parentId` away from where the composite's `parts` map puts it is refused. What
-  else counts as "out of place" is open question 2.
+- **Protected parts:** moving a part to another container (out of the composite or
+  into a sub-group of it) and deleting a part are refused — in tree drag-and-drop,
+  cut/paste and the delete action (with a short message pointing at Dissolve).
+  Reordering among siblings works as usual. The rule is also enforced by the mesh
+  `validate` guard for scene nodes and compose layers, so REST, the assistant and
+  other tabs can't break it either: a write that changes a part's `parentId`, or
+  removes a part, while the composite's `parts` map lists it is refused. Deleting the
+  whole composite still deletes its parts with it.
 - **Dissolve:** in the context menu and panel; undoable, no confirmation. Lifts the
   protection along with the marker.
+- **Track clips and logic graphs** owned by the composite are not parts in the
+  hierarchy sense; they stay visible and editable in their usual places.
 - Owned logic graphs and track clips stay visible in their usual places.
 - i18n EN + DE for every setting label; a help section (`{#composites}` in the
   relevant help page) with a `HelpButton` next to the Settings section; `vs-` handles
@@ -170,7 +188,8 @@ bindings' `validate`. `GET /api/presets/builtin` gains a
   custom properties), built with the existing helpers. The current alert and chat
   presets stay as they are.
 - `packages/backend/src/mesh/` (`scene_node` / `compose_layer` bindings) — part
-  protection in `validate`.
+  protection in `validate` (reparent and remove), with the whole-composite delete
+  still allowed.
 - `packages/backend/src/presets/builtins.ts`, `routes/presets.ts` — `composite` in
   the summary.
 - `packages/frontend/src/components/editor/createKinds.ts`, `CreatePalette.tsx`,
@@ -201,20 +220,12 @@ bindings' `validate`. `GET /api/presets/builtin` gains a
 - Frontend test: changing a setting issues one batched write.
 - e2e (isolated ports): create an alert from the palette → change Message and Sound →
   REST read-back of the caption / audio layer; move the caption within the alert
-  (allowed); drag it out of the alert (refused, also via REST); switch the trigger →
-  the graph's event node changes; dissolve → marker gone, parts unchanged and
-  movable.
+  (allowed); reorder caption and badge (allowed); drag the caption out of the alert or
+  delete it (refused, also via REST); delete the whole alert (parts go with it);
+  switch the trigger → the graph's event node changes; generic trigger + a
+  `send_trigger` with that name → the alert shows; dissolve → marker gone, parts
+  unchanged, movable and deletable.
 
 ## Open questions for the user
 
-1. **Generic trigger.** Claude's reading (inferred, not confirmed): an alert that
-   isn't tied to a platform event but is fired from elsewhere in vspark with a
-   message — e.g. an Action response "Show alert", or a logic node / clip marker
-   that sends it a text. Is that what's meant, or something else (e.g. "any Overlive
-   event")?
-2. **What "out of place" covers.** Proposal: parts can't be moved out of the
-   composite or to a different depth; reordering parts among themselves (stacking
-   order — e.g. caption above badge) is allowed; other objects may be added into a
-   composite and moved out again freely. Confirm or adjust.
-3. **Deleting a part.** Protected too (refused until dissolved), or allowed (its
-   settings then show as unavailable)?
+None at the moment — all answered on 2026-11-08 (recorded above as decided).
