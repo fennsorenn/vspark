@@ -3,6 +3,7 @@ import { randomUUID } from 'crypto';
 import { getDb } from '../db/index.js';
 import { getMeshCollection, getMeshPeer } from '../mesh/index.js';
 import { assertSceneInstanceValid } from '../mesh/docGuards.js';
+import { partDeleteRefusal, refusalStatus } from '../composites/guard.js';
 
 const router: ReturnType<typeof Router> = Router();
 
@@ -181,7 +182,7 @@ router.put('/scene-nodes/:id', async (req, res) => {
   const outcome = await col.set(req.params.id, '', next).ack;
   if (outcome.status === 'rejected')
     return res
-      .status(500)
+      .status(refusalStatus(outcome.reason))
       .json({ ok: false, error: { message: outcome.reason } });
 
   // The `col.set` above is the whole notification: it fanned the canonical doc
@@ -202,6 +203,7 @@ router.put('/scene-nodes/:id', async (req, res) => {
  *       - { in: path, name: id, required: true, schema: { type: string } }
  *     responses:
  *       200: { description: Deleted; broadcast as node_removed over WebSocket }
+ *       409: { description: The entity is a part of a composite (COMPOSITE_PART) — delete the composite or dissolve it first }
  */
 router.delete('/scene-nodes/:id', async (req, res) => {
   // The node, its child nodes and everything hanging off them (behaviors,
@@ -213,6 +215,16 @@ router.delete('/scene-nodes/:id', async (req, res) => {
     return res
       .status(500)
       .json({ ok: false, error: { message: 'store not ready' } });
+  // A composite's part goes only with the composite (or after dissolving it).
+  const nodes = getMeshCollection('scene_node');
+  const refused = partDeleteRefusal('scene_node', req.params.id, (id) =>
+    nodes?.get(id)
+  );
+  if (refused)
+    return res.status(409).json({
+      ok: false,
+      error: { status: 409, message: refused, code: 'COMPOSITE_PART' },
+    });
   await Promise.all(peer.removeTree(req.params.id).map((h) => h.ack));
   res.json({ ok: true, data: {} });
 });

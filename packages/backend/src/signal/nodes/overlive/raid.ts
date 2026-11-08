@@ -33,6 +33,17 @@ export class OverliveRaid extends Node {
   @valueOut('fromUsername', 'String') fromUsername = (): string => this._out().fromUsername;
   @valueOut('fromDisplayName', 'String') fromDisplayName = (): string => this._out().fromDisplayName;
   @valueOut('viewerCount', 'Float') viewerCount = (): number => this._out().viewerCount;
+  /** Every output above as one record (e.g. a Format Text node's values, or
+   *  a `send_trigger` payload), plus `username` / `displayName` aliases of the
+   *  raider's, so a template written for other events (`${displayName}`)
+   *  reads the raider too. */
+  @valueOut('data', 'Any') dataOut = (): RaidOut & {
+    username: string;
+    displayName: string;
+  } => {
+    const o = this._out();
+    return { ...o, username: o.fromUsername, displayName: o.fromDisplayName };
+  };
 
   @eventIn('event', 'Any')
   onEvent(ev: Event<unknown>): void {

@@ -25,7 +25,8 @@
     "./clipPlayback": "./src/clipPlayback.ts",
     "./idMap": "./src/idMap.ts",
     "./live2d": "./src/live2d.ts",
-    "./actions": "./src/actions.ts"
+    "./actions": "./src/actions.ts",
+    "./composites": "./src/composites.ts"
   },
   "scripts": {
     "build": "tsc --noEmit",

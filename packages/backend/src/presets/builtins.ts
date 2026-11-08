@@ -9,6 +9,8 @@
 //   - particles.ts — Rain / Snow / Fire / Magic Sparkles / Sparkler
 //   - chat.ts      — chat overlay (2D layer + 3D node) + scrolling 3D chat
 //   - alerts.ts    — Donation / Tip / Sub / Raid event overlays
+//   - composites.ts — the same templates as composites (one object with its
+//                    own settings; see @vspark/shared/composites)
 // Add more by extending the relevant file (or appending below).
 import {
   identity,
@@ -20,8 +22,11 @@ import {
 import { PARTICLE_PRESETS } from './builtin_presets/particles.js';
 import { CHAT_PRESETS } from './builtin_presets/chat.js';
 import { ALERT_PRESETS } from './builtin_presets/alerts.js';
+import { BUILTIN_COMPOSITES } from './builtin_presets/composites.js';
 
 export type { BuiltinPreset } from './builtin_presets/helpers.js';
+export type { BuiltinComposite } from './builtin_presets/composites.js';
+export { BUILTIN_COMPOSITES };
 
 export const BUILTIN_PRESETS: BuiltinPreset[] = [
   sceneNodePreset(
@@ -75,6 +80,13 @@ export const BUILTIN_PRESETS: BuiltinPreset[] = [
   ...ALERT_PRESETS,
 ];
 
+/** A built-in preset or composite by id. Composites are served through the
+ *  same lookup so the editor places them through the ordinary preset path;
+ *  they are listed separately (GET /api/presets/composites), not in the
+ *  preset library. */
 export function getBuiltinPreset(id: string): BuiltinPreset | undefined {
-  return BUILTIN_PRESETS.find((p) => p.id === id);
+  return (
+    BUILTIN_PRESETS.find((p) => p.id === id) ??
+    BUILTIN_COMPOSITES.find((p) => p.id === id)
+  );
 }

@@ -4,6 +4,7 @@ import { validateFeedConfig } from '@vspark/shared/feedValidation';
 import { getDb } from '../db/index.js';
 import { _ws } from './shared.js';
 import { getMeshCollection } from '../mesh/index.js';
+import { partDeleteRefusal, refusalStatus } from '../composites/guard.js';
 import { keyAfter } from '@vspark/shared/fracIndex';
 
 const router: ReturnType<typeof Router> = Router();
@@ -422,7 +423,7 @@ router.put('/compose-layers/:id', async (req, res) => {
   const outcome = await col.set(id, '', next).ack;
   if (outcome.status === 'rejected')
     return res
-      .status(500)
+      .status(refusalStatus(outcome.reason))
       .json({ ok: false, error: { message: outcome.reason } });
 
   const row = getDb()
@@ -442,6 +443,7 @@ router.put('/compose-layers/:id', async (req, res) => {
  *       - { in: path, name: id, required: true, schema: { type: string } }
  *     responses:
  *       200: { description: Deleted; broadcast as compose_layer_removed }
+ *       409: { description: The entity is a part of a composite (COMPOSITE_PART) — delete the composite or dissolve it first }
  */
 router.delete('/compose-layers/:id', async (req, res) => {
   const id = req.params.id;
@@ -450,6 +452,14 @@ router.delete('/compose-layers/:id', async (req, res) => {
     return res
       .status(500)
       .json({ ok: false, error: { message: 'store not ready' } });
+
+  // A composite's part goes only with the composite (or after dissolving it).
+  const refused = partDeleteRefusal('compose_layer', id, (x) => col.get(x));
+  if (refused)
+    return res.status(409).json({
+      ok: false,
+      error: { status: 409, message: refused, code: 'COMPOSITE_PART' },
+    });
 
   // Runtime overrides are cleared by the mesh persistence tap, so a remove
   // authored by a tab or a collab peer is cleaned up the same way.

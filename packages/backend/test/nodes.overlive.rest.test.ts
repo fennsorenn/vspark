@@ -37,6 +37,14 @@ describe('overlive_subscription', () => {
     });
   });
 
+  it('hands the whole event over as one data record', () => {
+    const n = loneNode('overlive_subscription');
+    n.deliver('event', sub);
+    expect(
+      pullValue('overlive_subscription', 'data', {}, n.state())
+    ).toEqual(sub.data);
+  });
+
   it('an undefined payload emits without setting state', () => {
     const n = loneNode('overlive_subscription');
     n.deliver('event', undefined);
@@ -128,6 +136,18 @@ describe('overlive_raid', () => {
       fromUsername: 'cara',
       fromDisplayName: 'Cara',
       viewerCount: 42,
+    });
+  });
+
+  it('hands the raid over as one data record, with displayName aliases', () => {
+    const n = loneNode('overlive_raid');
+    n.deliver('event', raid);
+    expect(pullValue('overlive_raid', 'data', {}, n.state())).toEqual({
+      fromUsername: 'cara',
+      fromDisplayName: 'Cara',
+      viewerCount: 42,
+      username: 'cara',
+      displayName: 'Cara',
     });
   });
 
