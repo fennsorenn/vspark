@@ -21,6 +21,8 @@ import {
 import { seedEditor, testPeer } from './helpers/mesh';
 import { DialogProvider } from '../src/components/DialogProvider';
 import { ActionsPanel } from '../src/components/editor/actions/ActionsPanel';
+import { useEditorStore } from '../src/store/editorStore';
+import { ActionEditor } from '../src/components/editor/actions/ActionEditor';
 import {
   commitActionCreate,
   commitActionDelete,
@@ -77,10 +79,12 @@ const renderPanel = () =>
   renderWithProviders(
     <DialogProvider>
       <ActionsPanel projectId={P} />
+      <ActionEditor projectId={P} />
     </DialogProvider>
   );
 
 beforeEach(() => {
+  useEditorStore.setState({ activeActionId: null });
   seedEditor({
     projectId: P,
     nodes: [{ id: 'n1', name: 'Avatar', kind: 'vrm', parentId: null, rootSceneNodeId: 's1' }],
@@ -113,10 +117,9 @@ describe('Actions panel', () => {
     // The entity reference resolves to its name.
     expect(smile.textContent).toContain('Avatar');
     expect(smile.textContent).toContain('happy');
-    // A Hotkey row's headline is its shortcut recorder (Macros parity).
-    expect(
-      wave.querySelector('.vs-action-row-shortcut')?.textContent
-    ).toMatch(/Set shortcut/);
+    // The list only previews; the shortcut is set in the editor.
+    expect(wave.textContent).toContain('No shortcut');
+    expect(container.querySelector('.vs-action-shortcut')).toBeNull();
     expect(wave.textContent).toContain('toggle');
     expect(wave.textContent).toContain('2.');
   });
@@ -157,13 +160,32 @@ describe('Actions panel', () => {
     expect(has('moved', '.vs-action-badge-modified')).toBe(false);
     expect(has('outdated', '.vs-action-badge-template')).toBe(true);
     expect(has('nograph', '.vs-action-badge-missing')).toBe(true);
-    // Reset is only offered when there is something to reset.
-    expect(
-      (row('clean').querySelector('.vs-action-reset') as HTMLButtonElement).disabled
-    ).toBe(true);
-    expect(
-      (row('edited').querySelector('.vs-action-reset') as HTMLButtonElement).disabled
-    ).toBe(false);
+  });
+
+  it('the editor offers Reset only when there is something to reset', async () => {
+    seedAction('clean');
+    seedAction('edited');
+    logic().set(actionGraphId('edited'), 'descriptor.nodes.extra', {
+      id: 'extra',
+      kind: 'log',
+      position: { x: 0, y: 0 },
+    });
+    const user = userEvent.setup();
+    const { container } = renderPanel();
+    const row = (name: string) =>
+      Array.from(container.querySelectorAll('.vs-action-row')).find((r) =>
+        r.textContent?.includes(name)
+      ) as HTMLElement;
+    const reset = () =>
+      container.querySelector('.vs-action-reset') as HTMLButtonElement;
+
+    expect(container.querySelector('.vs-action-editor-empty')).toBeTruthy();
+    await user.click(row('clean'));
+    expect(reset().disabled).toBe(true);
+    await user.click(row('edited'));
+    expect(reset().disabled).toBe(false);
+    expect(row('edited').getAttribute('aria-pressed')).toBe('true');
+    expect(row('clean').getAttribute('aria-pressed')).toBe('false');
   });
 
   it('adds an action of a picked kind with its graph', async () => {
@@ -178,6 +200,28 @@ describe('Actions panel', () => {
       ownerKind: 'action',
       ownerId: a.id,
     });
+    // The new action opens in the editor right away.
+    await waitFor(() =>
+      expect(container.querySelector('.vs-action-form')).toBeTruthy()
+    );
+  });
+
+  it('the row toggle does not select; delete in the editor clears it', async () => {
+    seedAction('a1');
+    const user = userEvent.setup();
+    const { container } = renderPanel();
+    await user.click(container.querySelector('.vs-action-enable')!);
+    expect(actions().get('a1')?.enabled).toBe(false);
+    expect(container.querySelector('.vs-action-form')).toBeNull();
+
+    await user.click(container.querySelector('.vs-action-row')!);
+    await user.click(container.querySelector('.vs-action-editor-enable')!);
+    expect(actions().get('a1')?.enabled).toBe(true);
+    await user.click(container.querySelector('.vs-action-delete')!);
+    await waitFor(() => expect(actions().get('a1')).toBeUndefined());
+    await waitFor(() =>
+      expect(container.querySelector('.vs-action-editor-empty')).toBeTruthy()
+    );
   });
 
   it('toggles enabled and edits settings from the form', async () => {
@@ -187,7 +231,7 @@ describe('Actions panel', () => {
     await user.click(container.querySelector('.vs-action-enable')!);
     expect(actions().get('a1')?.enabled).toBe(false);
 
-    await user.click(container.querySelector('.vs-action-settings')!);
+    await user.click(container.querySelector('.vs-action-row')!);
     await user.selectOptions(
       container.querySelector('.vs-action-mode') as HTMLSelectElement,
       'cycle'
@@ -213,7 +257,7 @@ describe('Actions panel', () => {
     });
     const user = userEvent.setup();
     const { container } = renderPanel();
-    await user.click(container.querySelector('.vs-action-settings')!);
+    await user.click(container.querySelector('.vs-action-row')!);
     await user.selectOptions(
       container.querySelector('.vs-action-mode') as HTMLSelectElement,
       'toggle'

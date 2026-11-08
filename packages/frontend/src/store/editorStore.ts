@@ -305,6 +305,8 @@ export interface EditorState {
    *  by the OBS Connections modal; status kept live by `server_status` docs. */
   obsConnections: import('../api/client').ObsConnectionRecord[];
   activeLogicId: string | null;
+  /** The action whose settings the Actions tab shows in the main view. */
+  activeActionId: string | null;
   /** True when the active graph is a writable standalone project graph;
    *  false when it's a behavior-owned (read-only) graph or no graph is active.
    *  Set by SignalGraphCanvas after it resolves the descriptor source. */
@@ -404,6 +406,7 @@ export interface EditorState {
     connections: import('../api/client').ObsConnectionRecord[]
   ) => void;
   setActiveLogic: (id: string | null) => void;
+  setActiveAction: (id: string | null) => void;
   setActiveLogicWritable: (writable: boolean) => void;
   setSelectedSignalNode: (id: string | null) => void;
   setBoneListExpanded: (nodeId: string, expanded: boolean) => void;
@@ -507,6 +510,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   obsConnections: [],
   activeLogicWritable: false,
   activeLogicId: null,
+  activeActionId: null,
   selectedSignalNodeId: null,
   boneListExpanded: {},
   fbxDebugVisible: {},
@@ -635,6 +639,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       leftTab: id != null ? 'graphs' : s.leftTab,
     }));
   },
+  setActiveAction: (id) => set({ activeActionId: id }),
   setSelectedSignalNode: (id) => set({ selectedSignalNodeId: id }),
   setBoneListExpanded: (nodeId, expanded) =>
     set((s) => ({

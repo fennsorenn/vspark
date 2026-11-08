@@ -43,12 +43,14 @@
   },
   "row": {
     "enabled": "Enable / disable this action",
-    "settings": "Settings",
-    "closeSettings": "Close",
     "openGraph": "Open graph",
     "reset": "Reset",
     "resetTip": "Rebuild the graph from the template (discards your edits to the graph)",
     "delete": "Delete action"
+  },
+  "editor": {
+    "empty": "Select an action in the list to edit its settings.",
+    "enabled": "Enabled"
   },
   "badge": {
     "modified": "Modified",

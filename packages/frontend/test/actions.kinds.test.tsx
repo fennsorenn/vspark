@@ -20,6 +20,7 @@ import {
 import { seedEditor, testPeer } from './helpers/mesh';
 import { DialogProvider } from '../src/components/DialogProvider';
 import { ActionsPanel } from '../src/components/editor/actions/ActionsPanel';
+import { ActionEditor } from '../src/components/editor/actions/ActionEditor';
 import type { ActionRecord } from '../src/mesh/actions';
 import { useEditorStore } from '../src/store/editorStore';
 
@@ -69,6 +70,7 @@ const renderPanel = () =>
   renderWithProviders(
     <DialogProvider>
       <ActionsPanel projectId={P} />
+      <ActionEditor projectId={P} />
     </DialogProvider>
   );
 
@@ -86,6 +88,7 @@ async function commitText(
 }
 
 beforeEach(() => {
+  useEditorStore.setState({ activeActionId: null });
   seedEditor({
     projectId: P,
     nodes: [
@@ -139,7 +142,7 @@ describe('Chat command', () => {
     const user = userEvent.setup();
     const { container } = renderPanel();
     const q = (cls: string) => container.querySelector(cls)!;
-    await user.click(q('.vs-action-settings'));
+    await user.click(q('.vs-action-row'));
 
     await commitText(user, q('.vs-action-command'), '!hug');
     expect(settingsOf('a1').command).toBe('!hug');
@@ -189,7 +192,7 @@ describe('Chat command', () => {
     seed('a1', 'chat_command');
     const user = userEvent.setup();
     const { container } = renderPanel();
-    await user.click(container.querySelector('.vs-action-settings')!);
+    await user.click(container.querySelector('.vs-action-row')!);
     const input = container.querySelector(
       '.vs-action-command'
     ) as HTMLInputElement;
@@ -214,7 +217,7 @@ describe('Chat pattern', () => {
     const user = userEvent.setup();
     const { container } = renderPanel();
     expect(preview(container, 'chat_pattern')).toContain('/a+b/');
-    await user.click(container.querySelector('.vs-action-settings')!);
+    await user.click(container.querySelector('.vs-action-row')!);
     await commitText(
       user,
       container.querySelector('.vs-action-pattern')!,
@@ -239,7 +242,7 @@ describe('Chat keyword', () => {
     const user = userEvent.setup();
     const { container } = renderPanel();
     const q = (cls: string) => container.querySelector(cls)!;
-    await user.click(q('.vs-action-settings'));
+    await user.click(q('.vs-action-row'));
     await commitText(user, q('.vs-action-keywords'), 'LUL');
     expect(settingsOf('a1').derived.keywordPattern).toContain('LUL');
     await user.selectOptions(
@@ -284,7 +287,7 @@ describe('Keyword combo', () => {
     const user = userEvent.setup();
     const { container } = renderPanel();
     const q = (cls: string) => container.querySelector(cls)!;
-    await user.click(q('.vs-action-settings'));
+    await user.click(q('.vs-action-row'));
     await commitText(user, q('.vs-action-threshold'), '7');
     await commitText(user, q('.vs-action-window'), '12');
     await user.click(q('.vs-action-unique'));
@@ -313,7 +316,7 @@ describe('Redemption', () => {
     const user = userEvent.setup();
     const { container } = renderPanel();
     const q = (cls: string) => container.querySelector(cls)!;
-    await user.click(q('.vs-action-settings'));
+    await user.click(q('.vs-action-row'));
     await commitText(user, q('.vs-action-reward'), 'Hydrate');
     expect(settingsOf('a1').derived.rewardPattern).toContain('Hydrate');
     await commitText(user, q('.vs-action-reply'), 'Drink, ${user}!');
@@ -326,12 +329,14 @@ describe('Redemption', () => {
 });
 
 describe('Hotkey parity', () => {
-  it('the shortcut is recorded inline in the row, without opening the form', async () => {
+  it('the row previews the shortcut; it is recorded in the editor', async () => {
     seed('a1', 'hotkey');
     const user = userEvent.setup();
     const { container } = renderPanel();
     expect(container.querySelector('.vs-action-form')).toBeNull();
-    await user.click(container.querySelector('.vs-action-row-shortcut')!);
+    expect(container.querySelector('.vs-action-shortcut')).toBeNull();
+    await user.click(container.querySelector('.vs-action-row')!);
+    await user.click(container.querySelector('.vs-action-shortcut')!);
     fireEvent.keyDown(window, { key: 'F9', code: 'F9', ctrlKey: true });
     await waitFor(() =>
       expect(settingsOf('a1').shortcut).toMatchObject({ key: 'F9', ctrl: true })

@@ -297,25 +297,45 @@ Actions do not exist yet.
 
 ### Panel (`components/editor/actions/ActionsPanel.tsx`)
 
-Left-dock tab `actions` (`LeftDockTab`), after Macros. Groups by kind in
-`ACTION_KINDS` order with a count and a `HelpButton`; each row has the enable
-checkbox, name, badges (Modified / Template update / No graph), the kind's
-preview (ids resolved to node / layer / clip names), and Settings, Open graph
+Left-dock tab `actions` (`LeftDockTab`), after Macros. The tab is split like
+Logic: the list in the left dock (`ActionsPanel.tsx`), the selected action's
+settings in the main view (`ActionEditor.tsx`, rendered by `Editor.tsx` when
+`leftTab === 'actions'`). **Decided** (the user): the list is a list with a
+preview of the most important settings, and the settings live in the main
+view; a row keeps only the enable toggle as a control.
+
+The list groups by kind in `ACTION_KINDS` order with a count and a
+`HelpButton`. **Decided** (the user): one line per action. A row has the
+enable checkbox, the name, the kind's preview on the same line (headline, then
+each line after `→`; ids resolved to node / layer / clip names; cut off with an
+ellipsis, the full text as tooltip) and the status (Modified / Template update
+/ No graph) as coloured dots with tooltips. There is no small-screen layout;
+the user mentioned a two-line row on small devices as a possible exception. Clicking a row sets `activeActionId` in the editor store
+(in memory, not persisted). The editor shows the kind, name and badges, an
+enabled toggle, the name field and the kind's form, then Open graph
 (`setActiveLogic`, which switches to the Logic tab), Reset (enabled only when
-there is something to reset; confirmed via `useConfirm`) and delete. A shape
-edit on a modified graph asks for confirmation first. The Hotkey form reuses
+there is something to reset; confirmed via `useConfirm`) and delete (which
+clears the selection). Without a selection, or when the selected action is
+gone, it shows an empty state. A shape edit on a modified graph asks for
+confirmation first. Shared pieces (preview, badges, name field, render
+boundary) are in `actions/parts.tsx`. The Hotkey form reuses
 the Macros panel's `ShortcutRecorder`, `FieldEditor` and `effectiveFields`
 (exported from `macros/MacrosPanel.tsx` with a `className` handle), so the
 field labels still come from the `macros` i18n namespace — they need a new
 home when Macros is retired.
 
-The Logic panel lists action graphs under *Scoped Logic*, labelled with the
-action's name, so a graph opened from the Actions panel shows as selected.
+The Logic panel lists action graphs in their own *Action Logic* section
+(between Scoped Logic and Behavior Logic; **decided** by the user), one row per
+action with a graph, in the Actions list's order (kind, then creation), labelled
+with the action's name and kind, so a graph opened from the Actions panel shows
+as selected. The row's dot switches the action itself (`enabled` on the
+action, re-enabling the graph document too if it was off).
 
-Other row / panel behaviour (added for Hotkey parity with Macros): a Hotkey
-row's headline is an inline `ShortcutRecorder` (record without opening the
-form); each group header has a `+` that adds another action of that kind in
-one click; a newly added action opens its form.
+Other panel behaviour (added for Hotkey parity with Macros): each group header
+has a `+` that adds another action of that kind in one click; a newly added
+action is selected, so its settings open in the main view. (An inline
+shortcut recorder in Hotkey rows existed briefly; it went with the move of the
+settings to the main view.)
 
 The chat / redemption forms (`ChatForms.tsx`) commit text and number fields on
 blur / Enter (`DraftText` / `DraftNumber`), so typing a reply is one write and
@@ -326,8 +346,8 @@ is excluded in `e2e/coverage-ignore.json`. The account select lists the editor s
 with "Default account" (empty) first.
 
 `vs-` handles: `vs-tab-actions`, `vs-action-add`, `vs-action-add-kind`
-(`-<kind>`), `vs-action-group-add`, `vs-action-enable`, `vs-action-settings`,
-`vs-action-name`, `vs-action-shortcut`, `vs-action-row-shortcut`,
+(`-<kind>`), `vs-action-group-add`, `vs-action-enable`, `vs-action-row` (select),
+`vs-action-editor-enable`, `vs-action-name`, `vs-action-shortcut`,
 `vs-action-mode`, `vs-action-positions`, `vs-action-response-type`,
 `vs-action-field` (+ `-<field>`), `vs-action-account`, `vs-action-command`,
 `vs-action-aliases`, `vs-action-min-rank`, `vs-action-cooldown-seconds`,

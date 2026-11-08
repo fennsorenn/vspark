@@ -5,7 +5,7 @@ import type { APIRequestContext, Locator, Page } from '@playwright/test';
 /**
  * Control-coverage spec: the Actions panel's chat / redemption kinds (chat
  * command, chat pattern, chat keyword, keyword combo, redemption) and the
- * Hotkey parity additions (inline shortcut recorder, per-group quick add).
+ * Hotkey parity additions (per-group quick add).
  * Sibling of cov-actions.spec.ts (core + Hotkey).
  *
  * Targeted `vs-` handles:
@@ -17,7 +17,7 @@ import type { APIRequestContext, Locator, Page } from '@playwright/test';
  *   vs-action-trigger, vs-action-response-type, vs-action-field,
  *   vs-action-threshold, vs-action-window, vs-action-unique,
  *   vs-action-end-message, vs-action-reward, vs-action-mark-complete,
- *   vs-action-group-add, vs-action-row-shortcut.
+ *   vs-action-group-add.
  *
  * Every mutation is asserted by REST read-back. The account list is served by
  * a route stub (no real Twitch / StreamElements account can be created here).
@@ -97,7 +97,8 @@ async function addKind(
   await expect
     .poll(async () => (await byKind(request, projectId, kind)).length)
     .toBe(1);
-  const form = page.locator(`.vs-action-group-${kind} .vs-action-form`);
+  // A new action opens in the main view (ActionEditor).
+  const form = page.locator('.vs-action-editor .vs-action-form');
   await expect(form).toBeVisible();
   const read = async () => (await byKind(request, projectId, kind))[0];
   return { form, read };
@@ -261,7 +262,7 @@ test('Actions kinds: keyword / combo / redemption forms (REST-verified)', async 
   );
 });
 
-test('Actions: Hotkey parity — inline shortcut, per-group quick add', async ({
+test('Actions: Hotkey — shortcut in the editor, per-group quick add', async ({
   page,
   request,
 }) => {
@@ -273,10 +274,8 @@ test('Actions: Hotkey parity — inline shortcut, per-group quick add', async ({
     .poll(async () => (await byKind(request, projectId, 'hotkey')).length)
     .toBe(1);
 
-  // Record the shortcut in the row itself, settings closed.
-  await page.locator('.vs-action-settings').click(); // close the auto-opened form
-  await expect(page.locator('.vs-action-form')).toHaveCount(0);
-  await page.locator('.vs-action-row-shortcut').click();
+  // The row previews the shortcut; it is recorded in the editor.
+  await page.locator('.vs-action-shortcut').click();
   await page.keyboard.press('Control+F7');
   await expect
     .poll(
@@ -290,7 +289,11 @@ test('Actions: Hotkey parity — inline shortcut, per-group quick add', async ({
   await expect
     .poll(async () => (await byKind(request, projectId, 'hotkey')).length)
     .toBe(2);
+  await expect(page.locator('.vs-action-editor .vs-action-form')).toHaveCount(1);
   await expect(
-    page.locator('.vs-action-group-hotkey .vs-action-form')
-  ).toHaveCount(1);
+    page.locator('.vs-action-group-hotkey .vs-action-row[aria-pressed="true"]')
+  ).toContainText('Hotkey 2');
+  await expect(
+    page.locator('.vs-action-group-hotkey .vs-action-row').first()
+  ).toContainText('Ctrl + F7');
 });

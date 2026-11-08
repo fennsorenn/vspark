@@ -16,15 +16,14 @@ Click **+ Add** and pick a kind. The new action appears in the list, grouped
 with the other actions of the same kind. Each row shows its most important
 settings at a glance — for a hotkey, the key combination and what it does.
 
+- Click a row to edit that action: its settings open in the main area next to
+  the list (a new action opens there right away).
 - The checkbox at the start of a row turns the action on or off without deleting
   it.
-- **Settings** opens the form for that action (a new action opens it right
-  away).
 - The **+** next to a group's name adds another action of that kind in one
   click.
-- A hotkey row shows its shortcut as a button: click it and press the new keys
-  to change the shortcut without opening the settings.
-- **✕** deletes the action and its graph (**Undo** brings both back).
+- **Delete action** (at the bottom of the settings) deletes the action and its
+  graph (**Undo** brings both back).
 
 ## Hotkey {#hotkey}
 
@@ -213,4 +212,5 @@ the edited graph back.
 **Open graph** shows the action's graph on the Logic canvas, where you can
 change it like any other Logic — add nodes, rewire, tweak values. The graph
 reads the action's settings through **Settings** nodes, so the form keeps
-working after you edit the graph.
+working after you edit the graph. The Logic tab lists every action's graph in
+its own **Action Logic** section.

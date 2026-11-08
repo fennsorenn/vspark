@@ -1,427 +1,123 @@
 /**
- * Actions panel (left-dock tab) — project-level workflows configured by a
- * settings form, each backed by a stored, editable Logic graph generated from
- * its kind's template. See dev-notes/modules/actions.md.
+ * Actions panel (left-dock tab) — the list of the project's actions:
+ * project-level workflows configured by a settings form, each backed by a
+ * stored, editable Logic graph generated from its kind's template. See
+ * dev-notes/modules/actions.md.
  *
  * Grouped by kind; each row previews its most important settings (the kind
  * declares the preview in @vspark/shared/actions), shows Modified / template
- * update badges, and offers enable, settings, Reset, Open graph and delete. All
- * writes go through the mesh (mesh/actions.ts).
+ * update badges and an enable toggle. Clicking a row opens its settings in the
+ * main view (ActionEditor). All writes go through the mesh (mesh/actions.ts).
  */
-import { Component, useEffect, useRef, useState, type ReactNode } from 'react';
+import { useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import {
-  ACTION_KINDS,
-  actionKind,
-  type ActionPreview,
-  type PreviewToken,
-} from '@vspark/shared/actions';
+import { ACTION_KINDS, actionKind } from '@vspark/shared/actions';
 import { useEditorStore } from '../../../store/editorStore';
-import { useSceneNodes } from '../../../mesh/nodes';
-import { useComposeLayers } from '../../../mesh/compose';
-import { useTrackClips } from '../../../mesh/hooks';
 import {
   commitActionCreate,
-  commitActionDelete,
   commitActionPatch,
-  commitActionReset,
-  commitActionSetting,
-  editRebuildsGraph,
   statusOf,
   useActionGraphs,
   useProjectActions,
   type ActionRecord,
 } from '../../../mesh/actions';
 import { HelpButton } from '../../../help/HelpButton';
-import { useConfirm } from '../../DialogProvider';
-import { HotkeyForm } from './HotkeyForm';
-import { CHAT_FORMS } from './ChatForms';
-import { ShortcutRecorder } from '../macros/MacrosPanel';
-import type { HotkeyCombo } from '../macros/types';
-import { buttonStyle, inputStyle } from './styles';
-
-// ── preview ──────────────────────────────────────────────────────────────────
-
-/** Resolve an entity reference to its display name (falls back to the id). */
-function useRefName(): (ref: string, id: string) => string {
-  const nodes = useSceneNodes();
-  const layers = useComposeLayers();
-  const clips = useTrackClips();
-  return (ref, id) => {
-    if (ref === 'clip') return clips.find((c) => c.id === id)?.name || id;
-    const node = nodes.find((n) => n.id === id);
-    if (node && ref !== 'composeLayer') return node.name || id;
-    const layer = layers.find((l) => l.id === id);
-    if (layer && ref !== 'sceneNode') return layer.name || id;
-    return id;
-  };
-}
-
-function Tokens({ tokens }: { tokens: PreviewToken[] }) {
-  const { t } = useTranslation('actions');
-  const refName = useRefName();
-  return (
-    <>
-      {tokens.map((tok, i) => {
-        const text =
-          tok.t === 'text'
-            ? tok.text
-            : tok.t === 'msg'
-              ? t(tok.key, tok.params ?? {})
-              : refName(tok.ref, tok.id);
-        return (
-          <span
-            key={i}
-            style={{
-              marginRight: 5,
-              color: tok.t === 'ref' ? '#9bc' : undefined,
-            }}
-          >
-            {text}
-          </span>
-        );
-      })}
-    </>
-  );
-}
-
-export function PreviewView({
-  preview,
-  headline,
-}: {
-  preview: ActionPreview;
-  /** Replaces the headline tokens (a Hotkey row shows its inline recorder). */
-  headline?: ReactNode;
-}) {
-  return (
-    <div className="vs-action-preview" style={{ fontSize: 11, color: '#999' }}>
-      <div style={{ fontFamily: 'monospace', color: '#ddd' }}>
-        {headline ?? <Tokens tokens={preview.headline} />}
-      </div>
-      {preview.lines.map((line, i) => (
-        <div key={i} style={{ marginTop: 2 }}>
-          → <Tokens tokens={line} />
-        </div>
-      ))}
-    </div>
-  );
-}
+import { PreviewLine, RenderBoundary, StatusBadges } from './parts';
+import { buttonStyle } from './styles';
 
 // ── row ──────────────────────────────────────────────────────────────────────
-
-/** A render throw in one row must never white-screen the editor. */
-class RowBoundary extends Component<
-  { children: ReactNode; fallback: ReactNode },
-  { failed: boolean }
-> {
-  state = { failed: false };
-  static getDerivedStateFromError() {
-    return { failed: true };
-  }
-  componentDidCatch(err: unknown) {
-    console.error('[actions] row render failed', err);
-  }
-  render() {
-    return this.state.failed ? this.props.fallback : this.props.children;
-  }
-}
-
-function Badge({
-  className,
-  label,
-  tip,
-  color,
-}: {
-  className: string;
-  label: string;
-  tip: string;
-  color: string;
-}) {
-  return (
-    <span
-      className={className}
-      title={tip}
-      style={{
-        fontSize: 9,
-        padding: '1px 5px',
-        borderRadius: 8,
-        border: `1px solid ${color}`,
-        color,
-        whiteSpace: 'nowrap',
-      }}
-    >
-      {label}
-    </span>
-  );
-}
-
-function NameField({ action }: { action: ActionRecord }) {
-  const { t } = useTranslation('actions');
-  const [draft, setDraft] = useState(action.name);
-  useEffect(() => setDraft(action.name), [action.name]);
-  const commit = () => {
-    const name = draft.trim();
-    if (name && name !== action.name) commitActionPatch(action.id, { name });
-    else setDraft(action.name);
-  };
-  return (
-    <label style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 10, color: '#888' }}>
-      <span style={{ minWidth: 52 }}>{t('form.name')}</span>
-      <input
-        className="vs-action-name"
-        value={draft}
-        onChange={(e) => setDraft(e.target.value)}
-        onBlur={commit}
-        onKeyDown={(e) => {
-          if (e.key === 'Enter') (e.target as HTMLInputElement).blur();
-        }}
-        style={{ ...inputStyle, flex: 1 }}
-      />
-    </label>
-  );
-}
-
-const EMPTY_COMBO: HotkeyCombo = {
-  key: '',
-  ctrl: false,
-  shift: false,
-  alt: false,
-  meta: false,
-};
-
-/** A Hotkey row's headline: the shortcut, recordable in place (as in the
- *  Macros panel), plus the mode tokens of the preview. */
-function InlineShortcut({
-  action,
-  preview,
-  onSetting,
-}: {
-  action: ActionRecord;
-  preview: ActionPreview;
-  onSetting: (path: string, value: unknown) => void;
-}) {
-  const sc = action.settings.shortcut;
-  const combo = (
-    sc && typeof sc === 'object' ? { ...EMPTY_COMBO, ...sc } : EMPTY_COMBO
-  ) as HotkeyCombo;
-  return (
-    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-      <ShortcutRecorder
-        className="vs-action-row-shortcut"
-        combo={combo}
-        onChange={(c) => onSetting('shortcut', c)}
-      />
-      <Tokens tokens={preview.headline.slice(1)} />
-    </span>
-  );
-}
 
 function ActionRow({
   action,
   graph,
-  defaultOpen = false,
+  selected,
+  onSelect,
 }: {
   action: ActionRecord;
   graph: ReturnType<typeof useActionGraphs>[string] | undefined;
-  /** Open the settings form on mount (a freshly added action). */
-  defaultOpen?: boolean;
+  selected: boolean;
+  onSelect: () => void;
 }) {
   const { t } = useTranslation('actions');
-  const confirm = useConfirm();
-  const setActiveLogic = useEditorStore((s) => s.setActiveLogic);
-  const [open, setOpen] = useState(defaultOpen);
-  // The row usually mounts (optimistic create) before the panel learns it is
-  // the new one, so follow the flag rather than only reading it at mount.
-  useEffect(() => {
-    if (defaultOpen) setOpen(true);
-  }, [defaultOpen]);
   const def = actionKind(action.kind);
   const status = statusOf(action, graph);
-
-  /** A setting edit; a shape edit on a modified graph asks first, because the
-   *  rebuild discards the graph edits (decided in the Actions plan). */
-  const setSetting = async (path: string, value: unknown) => {
-    if (editRebuildsGraph(action, path, value) && status.modified) {
-      const ok = await confirm({
-        message: t('confirm.rebuild', { name: action.name }),
-        confirmLabel: t('confirm.rebuildConfirm'),
-        danger: true,
-      });
-      if (!ok) return;
-    }
-    commitActionSetting(action, path, value);
-  };
-
-  const onReset = async () => {
-    const ok = await confirm({
-      message: t('confirm.reset', { name: action.name }),
-      confirmLabel: t('row.reset'),
-      danger: true,
-    });
-    if (ok) commitActionReset(action);
-  };
-
   return (
     <div
       className="vs-action-row"
+      role="button"
+      tabIndex={0}
+      aria-pressed={selected}
+      onClick={onSelect}
+      onKeyDown={(e) => {
+        if (e.target !== e.currentTarget) return;
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          onSelect();
+        }
+      }}
       style={{
         display: 'flex',
-        flexDirection: 'column',
+        alignItems: 'center',
         gap: 6,
-        padding: 8,
-        borderRadius: 5,
-        background: '#141420',
-        border: '1px solid #262636',
+        padding: '4px 6px',
+        borderRadius: 4,
+        cursor: 'pointer',
+        background: selected ? '#1c2233' : '#141420',
+        border: `1px solid ${selected ? '#3a5a8a' : '#262636'}`,
         opacity: action.enabled ? 1 : 0.55,
       }}
     >
-      <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-        <input
-          type="checkbox"
-          className="vs-action-enable"
-          checked={action.enabled}
-          title={t('row.enabled')}
-          aria-label={t('row.enabled')}
-          onChange={(e) => commitActionPatch(action.id, { enabled: e.target.checked })}
-        />
-        <span
-          style={{
-            flex: 1,
-            minWidth: 0,
-            fontSize: 12,
-            color: '#ccc',
-            overflow: 'hidden',
-            textOverflow: 'ellipsis',
-            whiteSpace: 'nowrap',
-          }}
-        >
-          {action.name}
-        </span>
-        {status.modified && (
-          <Badge
-            className="vs-action-badge-modified"
-            label={t('badge.modified')}
-            tip={t('badge.modifiedTip')}
-            color="#d9a441"
-          />
-        )}
-        {status.templateUpdateAvailable && !status.missingGraph && (
-          <Badge
-            className="vs-action-badge-template"
-            label={t('badge.templateUpdate')}
-            tip={t('badge.templateUpdateTip')}
-            color="#5aa0d9"
-          />
-        )}
-        {status.missingGraph && (
-          <Badge
-            className="vs-action-badge-missing"
-            label={t('badge.missingGraph')}
-            tip={t('badge.missingGraphTip')}
-            color="#c66"
-          />
-        )}
-      </div>
-
-      {def && (() => {
-        const preview = def.preview(action.settings);
-        return (
-          <PreviewView
-            preview={preview}
-            headline={
-              action.kind === 'hotkey' ? (
-                <InlineShortcut
-                  action={action}
-                  preview={preview}
-                  onSetting={(p, v) => void setSetting(p, v)}
-                />
-              ) : undefined
-            }
-          />
-        );
-      })()}
-
-      <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexWrap: 'wrap' }}>
-        <button
-          className="vs-action-settings"
-          onClick={() => setOpen((o) => !o)}
-          style={{ ...buttonStyle, color: open ? '#ddd' : '#8ac' }}
-          aria-expanded={open}
-        >
-          {open ? t('row.closeSettings') : t('row.settings')}
-        </button>
-        <button
-          className="vs-action-open-graph"
-          onClick={() => graph && setActiveLogic(graph.id)}
-          disabled={!graph}
-          style={buttonStyle}
-        >
-          {t('row.openGraph')}
-        </button>
-        <button
-          className="vs-action-reset"
-          onClick={() => void onReset()}
-          disabled={
-            !status.modified &&
-            !status.templateUpdateAvailable &&
-            !status.missingGraph
-          }
-          title={t('row.resetTip')}
-          style={buttonStyle}
-        >
-          {t('row.reset')}
-        </button>
-        <div style={{ flex: 1 }} />
-        <button
-          className="vs-action-delete"
-          onClick={() => void commitActionDelete(action.id)}
-          title={t('row.delete')}
-          aria-label={t('row.delete')}
-          style={{ ...buttonStyle, color: '#c66' }}
-        >
-          ✕
-        </button>
-      </div>
-
-      {open && (
-        <div
-          className="vs-action-form"
-          style={{
-            display: 'flex',
-            flexDirection: 'column',
-            gap: 6,
-            paddingTop: 6,
-            borderTop: '1px solid #262636',
-          }}
-        >
-          <NameField action={action} />
-          {action.kind === 'hotkey' && (
-            <HotkeyForm action={action} onSetting={(p, v) => void setSetting(p, v)} />
-          )}
-          {CHAT_FORMS[action.kind] &&
-            (() => {
-              const Form = CHAT_FORMS[action.kind];
-              return (
-                <Form action={action} onSetting={(p, v) => void setSetting(p, v)} />
-              );
-            })()}
-        </div>
+      <input
+        type="checkbox"
+        className="vs-action-enable"
+        checked={action.enabled}
+        title={t('row.enabled')}
+        aria-label={t('row.enabled')}
+        onClick={(e) => e.stopPropagation()}
+        onChange={(e) =>
+          commitActionPatch(action.id, { enabled: e.target.checked })
+        }
+        style={{ margin: 0, flexShrink: 0 }}
+      />
+      <span
+        title={action.name}
+        style={{
+          flex: '0 1 auto',
+          maxWidth: '45%',
+          fontSize: 12,
+          color: '#ccc',
+          overflow: 'hidden',
+          textOverflow: 'ellipsis',
+          whiteSpace: 'nowrap',
+        }}
+      >
+        {action.name}
+      </span>
+      {def ? (
+        <PreviewLine preview={def.preview(action.settings)} />
+      ) : (
+        <span style={{ flex: 1 }} />
       )}
+      <StatusBadges status={status} compact />
     </div>
   );
 }
 
 // ── panel ────────────────────────────────────────────────────────────────────
 
-export function ActionsPanel({ projectId: propProjectId }: { projectId?: string }) {
+export function ActionsPanel({
+  projectId: propProjectId,
+}: {
+  projectId?: string;
+}) {
   const { t } = useTranslation('actions');
   const storeProjectId = useEditorStore((s) => s.projectId);
   const projectId = propProjectId ?? storeProjectId ?? undefined;
   const actions = useProjectActions(projectId);
   const graphs = useActionGraphs();
   const [adding, setAdding] = useState(false);
-  // The action added last opens its settings right away.
-  const [createdId, setCreatedId] = useState<string | null>(null);
+  const activeId = useEditorStore((s) => s.activeActionId);
+  const setActiveAction = useEditorStore((s) => s.setActiveAction);
   const busy = useRef(false);
 
   const onAdd = async (kind: string) => {
@@ -435,7 +131,8 @@ export function ActionsPanel({ projectId: propProjectId }: { projectId?: string 
         kind,
         `${t(`kinds.${kind}.label`)} ${sameKind + 1}`
       );
-      if (created) setCreatedId(created.id);
+      // The new action opens in the main view right away.
+      if (created) setActiveAction(created.id);
     } finally {
       busy.current = false;
     }
@@ -447,7 +144,14 @@ export function ActionsPanel({ projectId: propProjectId }: { projectId?: string 
   })).filter((g) => g.items.length > 0);
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden' }}>
+    <div
+      style={{
+        display: 'flex',
+        flexDirection: 'column',
+        height: '100%',
+        overflow: 'hidden',
+      }}
+    >
       <div
         style={{
           display: 'flex',
@@ -459,8 +163,15 @@ export function ActionsPanel({ projectId: propProjectId }: { projectId?: string 
         }}
       >
         <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-          <span style={{ fontSize: 12, fontWeight: 600, color: '#ccc' }}>{t('title')}</span>
-          <HelpButton topic="actions" anchor="overview" tip={t('help.overview')} size={12} />
+          <span style={{ fontSize: 12, fontWeight: 600, color: '#ccc' }}>
+            {t('title')}
+          </span>
+          <HelpButton
+            topic="actions"
+            anchor="overview"
+            tip={t('help.overview')}
+            size={12}
+          />
         </div>
         <button
           className="vs-action-add"
@@ -506,14 +217,33 @@ export function ActionsPanel({ projectId: propProjectId }: { projectId?: string 
           </div>
         )}
       </div>
-      <div style={{ flex: 1, overflowY: 'auto', padding: 8, display: 'flex', flexDirection: 'column', gap: 10 }}>
+      <div
+        style={{
+          flex: 1,
+          overflowY: 'auto',
+          padding: 8,
+          display: 'flex',
+          flexDirection: 'column',
+          gap: 10,
+        }}
+      >
         {actions.length === 0 && (
-          <div style={{ fontSize: 11, color: '#555', padding: 12, textAlign: 'center' }}>
+          <div
+            style={{
+              fontSize: 11,
+              color: '#555',
+              padding: 12,
+              textAlign: 'center',
+            }}
+          >
             {t('empty')}
           </div>
         )}
         {groups.map(({ def, items }) => (
-          <section key={def.kind} className={`vs-action-group vs-action-group-${def.kind}`}>
+          <section
+            key={def.kind}
+            className={`vs-action-group vs-action-group-${def.kind}`}
+          >
             <div
               style={{
                 display: 'flex',
@@ -529,24 +259,44 @@ export function ActionsPanel({ projectId: propProjectId }: { projectId?: string 
               <span>{def.icon}</span>
               <span>{t(`kinds.${def.kind}.label`)}</span>
               <span style={{ color: '#555' }}>({items.length})</span>
-              <HelpButton topic="actions" anchor={def.kind} tip={t(`kinds.${def.kind}.description`)} size={11} />
+              <HelpButton
+                topic="actions"
+                anchor={def.kind}
+                tip={t(`kinds.${def.kind}.description`)}
+                size={11}
+              />
               <div style={{ flex: 1 }} />
               <button
                 className="vs-action-group-add"
                 onClick={() => void onAdd(def.kind)}
                 title={t('addOfKind', { kind: t(`kinds.${def.kind}.label`) })}
-                aria-label={t('addOfKind', { kind: t(`kinds.${def.kind}.label`) })}
-                style={{ ...buttonStyle, color: '#8ac', padding: '0 6px', textTransform: 'none' }}
+                aria-label={t('addOfKind', {
+                  kind: t(`kinds.${def.kind}.label`),
+                })}
+                style={{
+                  ...buttonStyle,
+                  color: '#8ac',
+                  padding: '0 6px',
+                  textTransform: 'none',
+                }}
               >
                 +
               </button>
             </div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
               {items.map((a) => (
-                <RowBoundary
+                <RenderBoundary
                   key={a.id}
                   fallback={
-                    <div style={{ fontSize: 10, color: '#c66', padding: 8, border: '1px solid #402020', borderRadius: 5 }}>
+                    <div
+                      style={{
+                        fontSize: 10,
+                        color: '#c66',
+                        padding: 8,
+                        border: '1px solid #402020',
+                        borderRadius: 5,
+                      }}
+                    >
                       {t('rowError')}
                     </div>
                   }
@@ -554,9 +304,10 @@ export function ActionsPanel({ projectId: propProjectId }: { projectId?: string 
                   <ActionRow
                     action={a}
                     graph={graphs[a.id]}
-                    defaultOpen={a.id === createdId}
+                    selected={a.id === activeId}
+                    onSelect={() => setActiveAction(a.id)}
                   />
-                </RowBoundary>
+                </RenderBoundary>
               ))}
             </div>
           </section>

@@ -9,7 +9,8 @@ import type { APIRequestContext, Page } from '@playwright/test';
  *
  * Targeted `vs-` handles:
  *   vs-tab-actions, vs-action-add, vs-action-add-kind, vs-action-enable,
- *   vs-action-settings, vs-action-name, vs-action-shortcut, vs-action-mode,
+ *   vs-action-row (select → editor), vs-action-editor-enable, vs-action-name,
+ *   vs-logic-action-row, vs-logic-action-enable (Logic list, Action Logic), vs-action-shortcut, vs-action-mode,
  *   vs-action-positions, vs-action-response-type, vs-action-field (-paramPath,
  *   -value), vs-action-reset, vs-action-open-graph, vs-action-delete; badges
  *   vs-action-badge-modified / -template / -missing; vs-dialog-confirm.
@@ -73,11 +74,14 @@ test('Actions panel: add, configure, badges, reset, open graph, delete (REST-ver
   await page.locator('.vs-action-enable').click();
   await expect.poll(async () => (await first(request, projectId))?.enabled).toBe(true);
 
-  // ── settings form (a new action opens it; Settings closes / reopens) ───────
-  await expect(page.locator('.vs-action-form')).toBeVisible();
-  await page.locator('.vs-action-settings').click();
-  await expect(page.locator('.vs-action-form')).toHaveCount(0);
-  await page.locator('.vs-action-settings').click();
+  // ── editor (a new action opens in the main view; a row click selects) ─────
+  await expect(page.locator('.vs-action-editor .vs-action-form')).toBeVisible();
+  await page.locator('.vs-action-row').click();
+  await expect(page.locator('.vs-action-row')).toHaveAttribute('aria-pressed', 'true');
+  await page.locator('.vs-action-editor-enable').click();
+  await expect.poll(async () => (await first(request, projectId))?.enabled).toBe(false);
+  await page.locator('.vs-action-editor-enable').click();
+  await expect.poll(async () => (await first(request, projectId))?.enabled).toBe(true);
   await page.locator('.vs-action-name').fill('Show sign');
   await page.locator('.vs-action-name').press('Enter');
   await expect.poll(async () => (await first(request, projectId))?.name).toBe('Show sign');
@@ -154,10 +158,19 @@ test('Actions panel: add, configure, badges, reset, open graph, delete (REST-ver
   // Merely opening the canvas must not count as a modification.
   await page.waitForTimeout(1_000);
   expect((await first(request, projectId))?.modified).toBe(false);
+  // The Logic list shows it in its own Action Logic section; the dot switches
+  // the action itself (controlled: click + poll).
+  await expect(page.locator('.vs-logic-action-row')).toHaveCount(1);
+  await expect(page.locator('.vs-logic-action-row')).toContainText('Show sign');
+  await page.locator('.vs-logic-action-enable').click();
+  await expect.poll(async () => (await first(request, projectId))?.enabled).toBe(false);
+  await page.locator('.vs-logic-action-enable').click();
+  await expect.poll(async () => (await first(request, projectId))?.enabled).toBe(true);
   await page.locator('.vs-tab-actions').click();
 
   // ── Delete takes the graph along ───────────────────────────────────────────
   await page.locator('.vs-action-delete').click();
   await expect.poll(async () => (await actionsOf(request, projectId)).length).toBe(0);
   expect((await request.get(`/api/logic/${graphId}`)).status()).toBe(404);
+  await expect(page.locator('.vs-action-editor-empty')).toBeVisible();
 });
