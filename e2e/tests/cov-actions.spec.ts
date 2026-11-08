@@ -119,7 +119,13 @@ test('Actions panel: add, configure, badges, reset, open graph, delete (REST-ver
 
   // ── Modified badge after a graph edit; a shape edit then asks first ───────
   await editGraph(request, graphId);
-  await expect(page.locator('.vs-action-badge-modified')).toBeVisible();
+  // Shown twice: a dot in the list row and a label in the editor.
+  await expect(
+    page.locator('.vs-action-row .vs-action-badge-modified')
+  ).toBeVisible();
+  await expect(
+    page.locator('.vs-action-editor .vs-action-badge-modified')
+  ).toBeVisible();
   expect((await first(request, projectId))?.modified).toBe(true);
   await page.locator('.vs-action-mode').selectOption('toggle');
   await page.locator('.vs-dialog-confirm').click();
@@ -131,7 +137,9 @@ test('Actions panel: add, configure, badges, reset, open graph, delete (REST-ver
   await editGraph(request, graphId);
   await expect.poll(async () => (await first(request, projectId))?.modified).toBe(true);
   await request.put(`/api/actions/${id}`, { data: { settings: { mode: 'single' } } });
-  await expect(page.locator('.vs-action-badge-template')).toBeVisible();
+  await expect(
+    page.locator('.vs-action-editor .vs-action-badge-template')
+  ).toBeVisible();
   expect((await first(request, projectId))?.templateUpdateAvailable).toBe(true);
 
   // ── Reset (confirmed) clears both ──────────────────────────────────────────
@@ -147,7 +155,9 @@ test('Actions panel: add, configure, badges, reset, open graph, delete (REST-ver
 
   // ── Missing graph → Reset recreates it ─────────────────────────────────────
   await request.delete(`/api/logic/${graphId}`);
-  await expect(page.locator('.vs-action-badge-missing')).toBeVisible();
+  await expect(
+    page.locator('.vs-action-editor .vs-action-badge-missing')
+  ).toBeVisible();
   await page.locator('.vs-action-reset').click();
   await page.locator('.vs-dialog-confirm').click();
   await expect.poll(async () => (await first(request, projectId))?.missingGraph).toBe(false);
