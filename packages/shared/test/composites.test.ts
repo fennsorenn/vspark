@@ -270,6 +270,12 @@ describe('alert settings', () => {
     );
   });
 
+  it('reads an unset field of an existing part as null, not as gone', () => {
+    const w = alertWorld();
+    expect(w.read(ALERT_COMPOSITE, 'fontFamily')).toBeNull();
+    expect(w.write(ALERT_COMPOSITE, 'fontFamily', 'serif')).toHaveLength(1);
+  });
+
   it('shows a setting as unavailable when its part is gone, and skips it on write', () => {
     const w = alertWorld();
     delete w.docs.snd;

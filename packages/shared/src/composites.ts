@@ -205,11 +205,14 @@ function readLink(v: CompositeView, def: CompositeTypeDef, l: SettingLink) {
   const p = partDoc(v, def, l.part);
   if (!p) return undefined;
   const raw = getPath(p.doc, l.path);
-  return l.cssVar ? readCssVar(raw, l.cssVar) : raw;
+  // A CSS link needs its declaration to write into; a plain field that is
+  // merely unset (a caption with no font yet) reads as null, not as gone.
+  return l.cssVar ? readCssVar(raw, l.cssVar) : (raw ?? null);
 }
 
 /** A setting's current value: read through its first link. Undefined when
- *  what it points at is gone (the editor shows it as unavailable). */
+ *  what it points at is gone (the editor shows it as unavailable); null when
+ *  the part is there but the field is unset. */
 export function readSetting(
   v: CompositeView,
   def: CompositeTypeDef,
