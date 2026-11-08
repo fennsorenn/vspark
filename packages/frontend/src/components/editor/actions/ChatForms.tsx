@@ -1,10 +1,11 @@
 /**
  * Settings forms of the chat and redemption Action kinds (chat command, chat
  * pattern, chat keyword, keyword combo, redemption). Every field is a value
- * setting except a response's type (see @vspark/shared/actions), so editing
- * them never rebuilds the graph.
+ * setting except a response's type and the combo mode (see
+ * @vspark/shared/actions), so editing the others never rebuilds the graph.
  */
 import { useTranslation } from 'react-i18next';
+import { COMBO_MODES } from '@vspark/shared/actions';
 import type { ActionRecord } from '../../../mesh/actions';
 import { SettingCheck, DraftNumber, DraftText } from './draftInputs';
 import {
@@ -17,6 +18,7 @@ import {
   TemplateField,
   type OnSetting,
 } from './fields';
+import { inputStyle } from './styles';
 
 export interface KindFormProps {
   action: ActionRecord;
@@ -170,9 +172,28 @@ export function KeywordComboForm(props: KindFormProps) {
   const { t } = useTranslation('actions');
   const { action, onSetting } = props;
   const s = action.settings;
+  const mode = s.mode === 'timeout' ? 'timeout' : 'threshold';
   return (
     <div style={column}>
       <KeywordsField {...props} />
+      <Field
+        label={t('form.mode')}
+        hint={t(`comboMode.${mode}Hint`)}
+        help={{ anchor: 'value-shape', tip: t('help.shape') }}
+      >
+        <select
+          className="vs-action-combo-mode"
+          value={mode}
+          onChange={(e) => onSetting('mode', e.target.value)}
+          style={inputStyle}
+        >
+          {COMBO_MODES.map((m) => (
+            <option key={m} value={m}>
+              {t(`comboMode.${m}`)}
+            </option>
+          ))}
+        </select>
+      </Field>
       <Field
         label={t('form.threshold')}
         help={{ anchor: 'keyword_combo', tip: t('help.combo') }}
@@ -202,7 +223,7 @@ export function KeywordComboForm(props: KindFormProps) {
         />
       </Field>
       <ResponseEditor
-        label={t('form.onReached')}
+        label={t(mode === 'timeout' ? 'form.onEnded' : 'form.onReached')}
         path="response"
         slot={s.response}
         allowNone

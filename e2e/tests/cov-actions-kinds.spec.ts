@@ -245,6 +245,15 @@ test('Actions kinds: keyword / combo / redemption forms (REST-verified)', async 
   await expect(
     page.locator('.vs-action-group-keyword_combo .vs-action-preview')
   ).toContainText('6× within 15 s');
+  // Timeout mode: a shape setting, so the graph is rebuilt (not modified).
+  await combo.form.locator('.vs-action-combo-mode').selectOption('timeout');
+  await expect
+    .poll(async () => (await combo.read()).settings.mode)
+    .toBe('timeout');
+  expect((await combo.read()).modified).toBe(false);
+  await expect(
+    page.locator('.vs-action-group-keyword_combo .vs-action-preview')
+  ).toContainText('≥ 6×, 15 s after the last');
 
   // ── Redemption ─────────────────────────────────────────────────────────────
   const red = await addKind(page, request, projectId, 'redemption');

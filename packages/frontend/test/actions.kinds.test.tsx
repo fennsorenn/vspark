@@ -282,6 +282,21 @@ describe('Keyword combo', () => {
       expect(text).toContain(s);
   });
 
+  it('mode: timeout mode relabels the response and the preview', async () => {
+    seed('a1', 'keyword_combo', { keywords: 'Pog', threshold: 4, window: 8 });
+    const user = userEvent.setup();
+    const { container, getByText } = renderPanel();
+    const q = (cls: string) => container.querySelector(cls)!;
+    await user.click(q('.vs-action-row'));
+    expect(getByText('When reached')).toBeTruthy();
+    await user.selectOptions(q('.vs-action-combo-mode'), 'timeout');
+    expect(settingsOf('a1').mode).toBe('timeout');
+    expect(getByText('When it ends')).toBeTruthy();
+    expect(preview(container, 'keyword_combo')).toContain(
+      '≥ 4×, 8 s after the last'
+    );
+  });
+
   it('threshold, window, unique chatters, end message', async () => {
     seed('a1', 'keyword_combo');
     const user = userEvent.setup();

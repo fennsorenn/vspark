@@ -36,6 +36,12 @@ Decisions recorded in the plan (user, 2026-11-06) that this module follows:
   most important settings, declared per kind.
 - **Decided:** the Macros panel is retired only once the Actions panel reaches
   parity for hotkeys (plan Phase 3) — it is still present.
+- **Decided (user, 2026-11-08):** the Keyword combo has two modes. *Threshold*:
+  the response runs as soon as the count reaches the threshold; the count
+  resets once the window passes after the last hit. *Timeout*: the response
+  runs once the window passes after the last hit, if the count reached the
+  threshold. The mode is a shape setting (like a Hotkey's mode), and the end
+  message is sent in both modes.
 
 The fingerprint-based boot regeneration was *proposed, not decided* in the plan;
 it is implemented as proposed (below).
@@ -252,7 +258,7 @@ Settings normalization: `minRank` ∈ `everyone|sub|mod|broadcaster`;
 | `chat_command` | `account`, `command`, `aliases` (space/comma list), `minRank`, `cooldown`, `argsPattern`, `counter`, `reply`; derived `commandPattern`, `counterName`, `counterScope` | `overlive_chat_command` (command filter empty) → `regex(command, derived.commandPattern, i)` gate → rank gate → args: `equals(argsPattern, '')` skips, else `regex(args, argsPattern, i)` gate → cooldown → counter + reply (fields `user` ← displayName, `args`; `values` ← args groups) | headline `!hug !cuddle` + rank / cooldown / counter tokens; lines: quoted reply, args pattern |
 | `chat_pattern` | `account`, `pattern`, `minRank`, `cooldown`, `counter`, `reply`; derived `fullPattern` (`^(?:pattern)$`), counter values | `overlive_chat_message` → `regex(text, fullPattern, i)` gate → rank gate → cooldown → counter + reply (fields `user`, `message`; `values` ← groups) | `/pattern/` + meta; reply |
 | `chat_keyword` | `account`, `keywords` (comma list), `cooldown`, `response` (**`response.type` shape**), `trigger`; derived `keywordPattern` | `overlive_chat_message` → `regex(text, keywordPattern, iu)` gate → cooldown → response + `send_trigger` (payload ← the message's `data` record) | keywords + cooldown; response line, trigger line |
-| `keyword_combo` | `account`, `keywords`, `threshold` (≥ 1), `window` (s), `uniqueChatters`, `response` (**type shape**), `endMessage`; derived `keywordPattern`, `comboKey` | keyword gate → `combo_threshold` + `combo_timeout` from the same hit (same `window`, key ← `text_format(derived.comboKey, user ← username)`); `reached` → response and `set_variable(comboReached = true)` (graph-local, short-lived); `ended` → `if_else(variable comboReached)` → clear + `overlive_send_chat(text_format(endMessage, count ← final count))` | keywords + `N× within S s` + unique; response, end message |
+| `keyword_combo` | `mode` (**shape**: `threshold` \| `timeout`, default `threshold`), `account`, `keywords`, `threshold` (≥ 1), `window` (s), `uniqueChatters`, `response` (**type shape**), `endMessage`; derived `keywordPattern`, `comboKey` | keyword gate → `combo_threshold` + `combo_timeout` from the same hit (same `window`, key ← `text_format(derived.comboKey, user ← username)`); `reached` → `set_variable(comboReached = true)` (graph-local, short-lived); `ended` → `if_else(variable comboReached)` → clear + `overlive_send_chat(text_format(endMessage, count ← final count))`. The response fires from `threshold.reached` (threshold mode) or from that end gate's `then` (timeout mode) | keywords + `N× within S s` (threshold) or `≥ N×, S s after the last` (timeout) + unique; response, end message |
 | `redemption` | `account`, `reward` (title), `response` (**type shape**), `counter`, `reply`, `trigger`, `markComplete`; derived `rewardPattern`, counter values | `overlive_redemption` → `regex(rewardTitle, rewardPattern, i)` gate → response; counter + reply (fields `user`, `message`, `reward`); `send_trigger` (payload ← the redemption's `data` record); `if_else(markComplete)` → `overlive_redemption_status(rewardId, redemptionId, status FULFILLED)` | reward + counter + complete; response, reply, trigger |
 
 Matching details (in `@vspark/shared/actions`): command names drop a leading

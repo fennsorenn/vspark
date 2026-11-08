@@ -107,7 +107,8 @@
     "endMessage": "End message",
     "reward": "Reward",
     "rewardHint": "The reward's title, exactly as on Twitch (case is ignored).",
-    "markComplete": "Mark the redemption as complete"
+    "markComplete": "Mark the redemption as complete",
+    "onEnded": "When it ends"
   },
   "mode": {
     "single": "Single",
@@ -145,7 +146,8 @@
     "combo": "{{n}}× within {{s}} s",
     "unique": "unique chatters",
     "endMessage": "at the end:",
-    "markComplete": "✓ marks complete"
+    "markComplete": "✓ marks complete",
+    "comboTimeout": "≥ {{n}}×, {{s}} s after the last"
   },
   "responses": {
     "play_clip": "Play clip",
@@ -162,5 +164,11 @@
     "restart": "Restart",
     "mute": "Mute",
     "unmute": "Unmute"
+  },
+  "comboMode": {
+    "threshold": "On threshold",
+    "timeout": "After timeout",
+    "thresholdHint": "Runs as soon as the count reaches the threshold.",
+    "timeoutHint": "Runs once the combo ends (no message for the window), if the count reached the threshold."
   }
 }

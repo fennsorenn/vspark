@@ -388,6 +388,9 @@ describe('Keyword combo', () => {
       0,
       true,
     ]);
+    expect(combo.mode).toBe('threshold');
+    expect(norm('keyword_combo', { mode: 'timeout' }).mode).toBe('timeout');
+    expect(norm('keyword_combo', { mode: 'bogus' }).mode).toBe('threshold');
     expect(derived(combo).comboKey).toBe('${user}');
     expect(
       derived(norm('keyword_combo', { uniqueChatters: false })).comboKey
@@ -419,6 +422,47 @@ describe('Keyword combo', () => {
       name: 'comboReached',
       value: true,
       persistent: false,
+    });
+  });
+
+  it('timeout mode: the response runs when a combo that reached the threshold ends', () => {
+    const g = graph('keyword_combo', { mode: 'timeout' });
+    const edges = edgeStrs(g);
+    expect(edges).toContain('end_gate.then>response.fire');
+    expect(edges).not.toContain('threshold.reached>response.fire');
+    // "reached" is still recorded, and the end message still goes out.
+    expect(edges).toEqual(
+      expect.arrayContaining([
+        'threshold.reached>reached_set.fire',
+        'end_gate.then>end_send.fire',
+      ])
+    );
+    // The mode is a shape setting: switching it changes the template, and a
+    // missing mode (actions made before modes existed) is threshold mode.
+    expect(A.settingClassOf('keyword_combo', 'mode')).toBe('shape');
+    expect(
+      A.changesShape(
+        'keyword_combo',
+        norm('keyword_combo'),
+        norm('keyword_combo', { mode: 'timeout' })
+      )
+    ).toBe(true);
+    expect(A.templateFingerprint('keyword_combo', { response: {} })).toBe(
+      A.templateFingerprint('keyword_combo', {
+        mode: 'threshold',
+        response: {},
+      })
+    );
+  });
+
+  it('preview: timeout mode names the minimum and the wait', () => {
+    expect(
+      preview('keyword_combo', { mode: 'timeout', threshold: 3, window: 5 })
+        .headline[1]
+    ).toEqual({
+      t: 'msg',
+      key: 'preview.comboTimeout',
+      params: { n: 3, s: 5 },
     });
   });
 

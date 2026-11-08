@@ -3,7 +3,7 @@
   "components/DialogProvider.tsx": "896fa9df2a91",
   "components/editor/actions/ActionEditor.tsx": "f4e8c9fd9196",
   "components/editor/actions/ActionsPanel.tsx": "de46f703d546",
-  "components/editor/actions/ChatForms.tsx": "3c3f22588138",
+  "components/editor/actions/ChatForms.tsx": "66eef10f47d5",
   "components/editor/actions/fields.tsx": "60de9b2fed03",
   "components/editor/actions/HotkeyForm.tsx": "2e5306e29f9b",
   "components/editor/actions/parts.tsx": "3c780e425465",

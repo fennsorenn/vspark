@@ -254,6 +254,12 @@ export const HOTKEY_MODES: readonly HotkeyMode[] = ['single', 'toggle', 'cycle']
 export const MIN_CYCLE_POSITIONS = 2;
 export const MAX_CYCLE_POSITIONS = 8;
 
+/** Keyword combo modes. `threshold`: the response runs as soon as the count
+ *  reaches the threshold. `timeout`: it runs when the combo ends (no hit for
+ *  the window), if the count reached the threshold. */
+export type ComboMode = 'threshold' | 'timeout';
+export const COMBO_MODES: readonly ComboMode[] = ['threshold', 'timeout'];
+
 /** Human-readable shortcut, e.g. "Ctrl + Shift + F8" (same format as the
  *  Macros recorder). Empty string for no key. */
 export function formatHotkeyCombo(c: Partial<HotkeyComboSettings>): string {
@@ -967,6 +973,7 @@ const keywordCombo: ActionKindDef = {
   label: 'Keyword combo',
   icon: '🔥',
   fields: [
+    { path: 'mode', class: 'shape' },
     { path: 'account', class: 'value' },
     { path: 'keywords', class: 'value' },
     { path: 'threshold', class: 'value' },
@@ -983,6 +990,9 @@ const keywordCombo: ActionKindDef = {
     const uniqueChatters = boolOf(src.uniqueChatters, true);
     return {
       ...src,
+      mode: COMBO_MODES.includes(src.mode as ComboMode)
+        ? src.mode
+        : 'threshold',
       account: strOf(src.account),
       keywords,
       threshold: Math.round(numOf(src.threshold, 5, 1)),
@@ -1021,7 +1031,15 @@ const keywordCombo: ActionKindDef = {
     b.wire('keyword_gate', 'then', 'timeout', 'in');
     b.setting('window', 'timeout', 'timeout', 0, 0);
     b.wire('combo_key', 'text', 'timeout', 'key');
-    addSingleResponse(b, shape, ['threshold', 'reached'], 1400, -200);
+    // Threshold mode: the response runs on reaching the threshold. Timeout
+    // mode: when a combo that reached it ends (the end gate below).
+    addSingleResponse(
+      b,
+      shape,
+      shape.mode === 'timeout' ? ['end_gate', 'then'] : ['threshold', 'reached'],
+      1400,
+      -200
+    );
     // "Reached" is remembered in a graph-local short-lived variable so the end
     // message goes out only for combos that reached the threshold (the
     // timeout node ends every combo, however small).
@@ -1059,7 +1077,7 @@ const keywordCombo: ActionKindDef = {
     const headline = keywordsHeadline(s);
     headline.push({
       t: 'msg',
-      key: 'preview.combo',
+      key: s.mode === 'timeout' ? 'preview.comboTimeout' : 'preview.combo',
       params: { n: numOf(s.threshold, 5), s: numOf(s.window, 10) },
     });
     if (s.uniqueChatters !== false) headline.push({ t: 'msg', key: 'preview.unique' });

@@ -91,14 +91,21 @@ anywhere in a chat message — as a whole word, ignoring upper and lower case
 ## Keyword combo {#keyword_combo}
 
 A **Keyword combo** reacts when a keyword or emote is spammed: it counts the
-chat messages containing it, and fires once the count reaches the
-**Threshold** — as long as each new message arrives **within** the given number
-of seconds of the previous one. When no message arrives for that long, the
-combo ends and the count starts over.
+chat messages containing it, as long as each new message arrives **within** the
+given number of seconds of the previous one. When no message arrives for that
+long, the combo ends and the count starts over.
 
+- **Mode** decides when the response runs:
+  - **On threshold**: as soon as the count reaches the **Threshold**.
+  - **After timeout**: when the combo ends, if the count reached the
+    **Threshold** by then — so the response comes after the spam has died
+    down, and the end message can name the final count.
+
+  Changing the mode rebuilds the action's graph (see
+  [Settings that rebuild the graph](#value-shape)).
 - **Count each chatter once**: a chatter who repeats the keyword neither counts
   again nor keeps the combo alive. Turn it off to count every message.
-- **When reached**: the response that runs once per combo.
+- **When reached** / **When it ends**: the response that runs once per combo.
 - **End message** (optional): a chat message sent when a combo that reached the
   threshold ends, with `${count}` for the final count.
 
@@ -187,7 +194,7 @@ the graph while it runs. Changing them takes effect right away and never touches
 the graph itself.
 
 A few settings decide what the graph *looks like*: a hotkey's **mode** and
-number of **positions**, and the **type** of each response (in every kind that
+number of **positions**, a keyword combo's **mode**, and the **type** of each response (in every kind that
 has one). Changing one of these rebuilds
 the graph. If you have edited the graph yourself, vspark asks first, because
 the rebuild discards those edits.

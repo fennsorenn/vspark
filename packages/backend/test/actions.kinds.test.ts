@@ -383,6 +383,50 @@ describe('Keyword combo', () => {
     vi.advanceTimersByTime(5_100);
     expect(replies()).toEqual(['2 hype']);
   });
+  it('keyword combo, timeout mode: the response runs when a combo that reached the threshold ends', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    await create('keyword_combo', {
+      mode: 'timeout',
+      keywords: 'PogChamp',
+      threshold: 2,
+      window: 5,
+      response: { type: 'control_media', target: 'v1', action: 'play' },
+      endMessage: '${count}×',
+    });
+    const hit = (user: string) => route(projectId, chatEvent('PogChamp', user));
+    // Below the threshold: the combo ends without a response.
+    hit('a');
+    vi.advanceTimersByTime(5_100);
+    expect(nodeIn('keyword_combo', 'response', 'fire')).toBeUndefined();
+    expect(replies()).toEqual([]);
+
+    // Reaching the threshold does not respond yet; the end does.
+    hit('a');
+    hit('b');
+    hit('c');
+    vi.advanceTimersByTime(4_000);
+    expect(nodeIn('keyword_combo', 'response', 'fire')).toBeUndefined();
+    hit('d'); // keeps the combo alive
+    vi.advanceTimersByTime(4_000);
+    expect(nodeIn('keyword_combo', 'response', 'fire')).toBeUndefined();
+    vi.advanceTimersByTime(1_100);
+    expect(nodeIn('keyword_combo', 'response', 'fire')).toBeDefined();
+    expect(replies()).toEqual(['4×']);
+  });
+
+  it('keyword combo: switching the mode rebuilds the graph', async () => {
+    await create('keyword_combo', { keywords: 'hype' });
+    const before = (await request(app).get('/api/actions/keyword_combo')).body
+      .data;
+    await request(app)
+      .put('/api/actions/keyword_combo')
+      .send({ settings: { mode: 'timeout' } });
+    const after = (await request(app).get('/api/actions/keyword_combo')).body
+      .data;
+    expect(after.settings.mode).toBe('timeout');
+    expect(after.templateFingerprint).not.toBe(before.templateFingerprint);
+    expect(after.modified).toBe(false);
+  });
 });
 
 describe('Redemption', () => {

@@ -96,15 +96,23 @@ Kleinschreibung zu achten (`LUL` passt zu „haha lul!“, aber nicht zu „LULZ
 ## Stichwort-Combo {#keyword_combo}
 
 Eine **Stichwort-Combo** reagiert, wenn ein Stichwort oder Emote gespammt wird:
-Sie zählt die Chat-Nachrichten, die es enthalten, und löst aus, sobald die Zahl
-die **Schwelle** erreicht — solange jede neue Nachricht **innerhalb** der
-angegebenen Sekunden nach der vorigen kommt. Kommt so lange keine Nachricht,
-endet die Combo, und das Zählen beginnt von vorn.
+Sie zählt die Chat-Nachrichten, die es enthalten, solange jede neue Nachricht
+**innerhalb** der angegebenen Sekunden nach der vorigen kommt. Kommt so lange
+keine Nachricht, endet die Combo, und das Zählen beginnt von vorn.
 
+- Der **Modus** bestimmt, wann die Reaktion läuft:
+  - **Bei Schwelle**: sobald die Zahl die **Schwelle** erreicht.
+  - **Nach Ablauf**: wenn die Combo endet, sofern die Zahl bis dahin die
+    **Schwelle** erreicht hat — die Reaktion kommt also, nachdem der Spam
+    abgeklungen ist, und die Abschlussnachricht kann die Endzahl nennen.
+
+  Ein Wechsel des Modus baut den Graphen der Aktion neu auf (siehe
+  [Einstellungen, die den Graphen neu aufbauen](#value-shape)).
 - **Jeden Chatter nur einmal zählen**: Wer das Stichwort wiederholt, zählt weder
   erneut, noch hält er die Combo am Leben. Ausschalten, um jede Nachricht zu
   zählen.
-- **Bei Erreichen**: die Reaktion, die einmal pro Combo ausgeführt wird.
+- **Bei Erreichen** / **Bei Ende**: die Reaktion, die einmal pro Combo
+  ausgeführt wird.
 - **Abschlussnachricht** (optional): eine Chat-Nachricht, die gesendet wird,
   wenn eine Combo endet, die die Schwelle erreicht hat, mit `${count}` für die
   Endzahl.
@@ -200,7 +208,8 @@ setzender Wert — liest der Graph, während er läuft. Änderungen wirken sofor
 verändern den Graphen selbst nie.
 
 Einige Einstellungen bestimmen, wie der Graph *aufgebaut* ist: der **Modus** und
-die Anzahl der **Positionen** eines Tastenkürzels sowie die **Art** jeder
+die Anzahl der **Positionen** eines Tastenkürzels, der **Modus** einer
+Stichwort-Combo sowie die **Art** jeder
 Reaktion (bei jeder Art von Aktion, die eine hat). Änderst du eine davon,
 wird der Graph neu aufgebaut. Hast du den Graphen selbst bearbeitet, fragt
 vspark vorher nach, denn der Neuaufbau verwirft diese Änderungen.

@@ -107,7 +107,8 @@
     "endMessage": "Abschlussnachricht",
     "reward": "Belohnung",
     "rewardHint": "Der Titel der Belohnung, genau wie auf Twitch (Groß-/Kleinschreibung egal).",
-    "markComplete": "Einlösung als erledigt markieren"
+    "markComplete": "Einlösung als erledigt markieren",
+    "onEnded": "Bei Ende"
   },
   "mode": {
     "single": "Einfach",
@@ -145,7 +146,8 @@
     "combo": "{{n}}× innerhalb von {{s}} s",
     "unique": "verschiedene Chatter",
     "endMessage": "am Ende:",
-    "markComplete": "✓ markiert als erledigt"
+    "markComplete": "✓ markiert als erledigt",
+    "comboTimeout": "≥ {{n}}×, {{s}} s nach der letzten"
   },
   "responses": {
     "play_clip": "Clip abspielen",
@@ -162,5 +164,11 @@
     "restart": "Neu starten",
     "mute": "Stumm",
     "unmute": "Ton an"
+  },
+  "comboMode": {
+    "threshold": "Bei Schwelle",
+    "timeout": "Nach Ablauf",
+    "thresholdHint": "Läuft, sobald die Zahl die Schwelle erreicht.",
+    "timeoutHint": "Läuft, wenn die Combo endet (so lange keine Nachricht), sofern die Zahl die Schwelle erreicht hat."
   }
 }
