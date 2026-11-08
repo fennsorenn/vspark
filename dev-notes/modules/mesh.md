@@ -858,16 +858,28 @@ Every tab authenticates before it joins its server's mesh (principle 9).
   `revokeClient` locks a browser out at its next connection).
 - **Enrollment** (`packages/backend/src/auth/routes.ts`):
   `POST /api/mesh/enroll { label?, code? }` issues a token directly to a
-  loopback caller, or to one on a network `VSPARK_ALLOW_LAN` trusts; any other
-  caller must send the current pairing code or gets 403 `PAIRING_REQUIRED`.
-  `VSPARK_ALLOW_LAN` (`packages/backend/src/localAccess.ts`): unset or `0`
-  trusts this machine only; any other value also lets other machines reach the
-  server at all. `1` / `lan` trusts private and link-local ranges (RFC 1918,
-  169.254/16, fc00::/7, fe80::/10); a comma list may combine `lan`,
-  `tailscale` (100.64/10, fd7a:115c:a1e0::/48), CIDRs, single addresses and
-  `any`. Unknown entries are ignored with a startup warning. **Decided** (the
-  user): one switch for "reach" and "trust", defaulting to the local network. `GET /api/mesh/pairing-code` answers loopback callers
-  only. The code is six digits, single-use, rotates after five wrong guesses,
+  caller on a trusted network; any other caller must send the current pairing
+  code or gets 403 `PAIRING_REQUIRED`. Two network lists
+  (`packages/backend/src/localAccess.ts`), loopback always included:
+  `VSPARK_ALLOW_LAN` — who may connect at all (`remoteAllowed`, used by the
+  HTTP guard and the `/ws` / `/mesh` upgrades); unset or empty means `self`,
+  `0` loopback only. `VSPARK_TRUSTED_NETWORKS` — who enrolls without the code
+  (`trustedNetworkAddress`); unset or empty means the same value as
+  `VSPARK_ALLOW_LAN`, `0` loopback only. Entries: `self` (this machine's own
+  interface addresses, read from `os.networkInterfaces()` and re-read every
+  5 s), `1` / `lan` (private and link-local ranges: RFC 1918, 169.254/16,
+  fc00::/7, fe80::/10), `tailscale` (100.64/10, fd7a:115c:a1e0::/48), `any`,
+  CIDRs and single addresses. Unknown entries are ignored with a startup
+  warning naming the setting. **Decided** (the user, 2026-11-08): "who may
+  connect" and "who skips the code" are separate settings, the trust list
+  defaulting to the allow list; a connection from this machine's own address
+  (e.g. the Docker bridge link the dev server prints) is a configurable entry,
+  `self`, on by default. This replaces the earlier decision of one switch for
+  both, defaulting to the local network. Note the behaviour change: a list in
+  `VSPARK_ALLOW_LAN` now restricts who may connect (before, any value let
+  every address connect); `any` gives the old reach. `GET
+  /api/mesh/pairing-code` answers this machine (`isThisMachine`: loopback or
+  an own address, independent of the settings) only. The code is six digits, single-use, rotates after five wrong guesses,
   and is printed to the server log at start and on every rotation. `browserAddress` reads
   `X-Forwarded-For` only when the socket itself is loopback (the Vite proxy,
   which `vite.config.ts` sets to `xfwd`) and then only its last entry.

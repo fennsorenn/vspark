@@ -8,7 +8,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import request from 'supertest';
 import type { Express } from 'express';
 import { makeTestApp } from './helpers/testApp.js';
-import { unknownTrustedNetworkEntries } from '../src/localAccess.js';
+import { unknownNetworkEntries } from '../src/localAccess.js';
 import {
   currentPairingCode,
   revokeClient,
@@ -172,7 +172,10 @@ describe('VSPARK_ALLOW_LAN: trusted networks join without the device code', () =
     process.env.VSPARK_ALLOW_LAN = 'any';
     expect((await enroll('8.8.8.8')).status).toBe(200);
     process.env.VSPARK_ALLOW_LAN = 'lan,bogus,10.0.0.0/99';
-    expect(unknownTrustedNetworkEntries()).toEqual(['bogus', '10.0.0.0/99']);
+    expect(unknownNetworkEntries()).toEqual([
+      { setting: 'VSPARK_ALLOW_LAN', entry: 'bogus' },
+      { setting: 'VSPARK_ALLOW_LAN', entry: '10.0.0.0/99' },
+    ]);
     expect((await enroll('192.168.1.50')).status).toBe(200);
   });
 

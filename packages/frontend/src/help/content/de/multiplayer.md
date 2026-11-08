@@ -29,7 +29,9 @@ In beiden Fällen speichern sich beide Server gegenseitig als **Kontakte**.
 ## vspark auf einem anderen Gerät öffnen {#device-code}
 
 vspark lässt einen Browser erst herein, nachdem er einmal verbunden wurde. Ein
-Browser auf dem Computer, auf dem vspark läuft, wird automatisch verbunden.
+Browser auf dem Computer, auf dem vspark läuft, wird automatisch verbunden — auch
+wenn du statt `localhost` eine andere Adresse dieses Computers öffnest (etwa eine
+Docker- oder Netzwerkadresse aus der Konsole).
 
 So öffnest du vspark auf einem **anderen Gerät** (Laptop, Tablet):
 
@@ -38,11 +40,18 @@ So öffnest du vspark auf einem **anderen Gerät** (Laptop, Tablet):
    von vspark und oben unter **Verbindungen** auf dem vspark-Computer.
 3. Gib ihn ein. Der Browser bleibt danach verbunden.
 
-Im eigenen Netzwerk geht es auch ohne Code: Starte vspark mit
-`VSPARK_ALLOW_LAN=1`, dann verbinden sich Browser aus deinem lokalen Netzwerk
-sofort. Um weitere Netzwerke zu vertrauen, liste sie stattdessen mit Kommas
-getrennt auf, zum Beispiel `VSPARK_ALLOW_LAN=lan,tailscale`. Geräte außerhalb
-der genannten Netzwerke brauchen weiterhin den Code.
+Das regeln zwei Einstellungen, jeweils eine kommagetrennte Liste von Netzwerken:
+
+- `VSPARK_ALLOW_LAN` — welche Geräte sich überhaupt verbinden dürfen. Ohne die
+  Einstellung nur dieser Computer (`self`). `VSPARK_ALLOW_LAN=self,lan` lässt
+  auch dein lokales Netzwerk herein, `self,lan,tailscale` zusätzlich deine
+  Tailscale-Geräte; `any` lässt alle herein, `0` nur `localhost`.
+- `VSPARK_TRUSTED_NETWORKS` — welche davon sich **ohne** Code verbinden. Ohne
+  die Einstellung dieselben wie bei `VSPARK_ALLOW_LAN`: Wer sich verbinden darf,
+  braucht keinen Code. Setze zum Beispiel `VSPARK_TRUSTED_NETWORKS=self`, um dein
+  Netzwerk hereinzulassen, seine Geräte aber trotzdem nach dem Code zu fragen.
+
+Bereiche (`192.168.1.0/24`) und einzelne Adressen gehen in beiden Listen.
 
 Jeder Code gilt einmal; nach einigen falschen Versuchen wählt vspark einen neuen.
 Das ist nicht der **Kopplungscode** für Multiplayer weiter oben, der zwei

@@ -6,14 +6,19 @@
  * another machine when the user opts in. This guard enforces the local-only
  * default and closes the two browser-borne attacks a local server is open to:
  *
- *  - **LAN access**: requests from a non-loopback address are refused unless
- *    `VSPARK_ALLOW_LAN` is set. The Vite dev proxy connects from loopback, so
- *    dev access over LAN/Tailscale through Vite keeps working either way.
+ *  - **LAN access**: `VSPARK_ALLOW_LAN` lists the networks that may connect
+ *    at all; everything else is refused. Unset (or empty) it is `self`: this
+ *    machine's own addresses (e.g. a Docker bridge or its LAN IP), which are
+ *    as local as loopback. `0` allows loopback only. The Vite dev proxy
+ *    connects from loopback, so dev access through Vite works either way.
  *
- * `VSPARK_ALLOW_LAN` also names the networks whose browsers join the mesh
- * without the device code (see `trustedNetworkAddress`): `1` or `lan` is the
- * local network only; a comma list may add `tailscale`, CIDR ranges, single
- * addresses or `any`. Browsers outside it still join with the code.
+ * `VSPARK_TRUSTED_NETWORKS` lists the networks whose browsers join the mesh
+ * without the device code (see `trustedNetworkAddress`); unset, it is the same
+ * as `VSPARK_ALLOW_LAN`. Browsers outside it join with the code.
+ *
+ * Both lists are comma-separated entries: `self`, `lan` (also `1` / `true` /
+ * `yes`: the private and link-local ranges), `tailscale`, `any` (`*`), CIDR
+ * ranges and single addresses. Loopback is always allowed and trusted.
  *  - **DNS rebinding**: a hostile domain re-resolved to 127.0.0.1 arrives with
  *    its own name in `Host`. Only loopback names, IP literals and names listed
  *    in `VSPARK_ALLOWED_HOSTS` are accepted.
@@ -26,15 +31,17 @@ import type { IncomingMessage } from 'http';
 import type { Duplex } from 'stream';
 import type { Request, RequestHandler } from 'express';
 import { BlockList, isIP } from 'net';
+import { networkInterfaces } from 'os';
 
-function allowLanSetting(): string {
-  return (process.env.VSPARK_ALLOW_LAN ?? '').trim();
+/** `VSPARK_ALLOW_LAN`: who may connect. Unset or empty means `self`. */
+function allowSetting(): string {
+  return (process.env.VSPARK_ALLOW_LAN ?? '').trim() || 'self';
 }
 
-/** Other machines may reach the server at all (any value but empty / `0`). */
-function allowLan(): boolean {
-  const v = allowLanSetting();
-  return v !== '' && v !== '0';
+/** `VSPARK_TRUSTED_NETWORKS`: who skips the device code. Unset or empty means
+ *  the same as `VSPARK_ALLOW_LAN`. */
+function trustSetting(): string {
+  return (process.env.VSPARK_TRUSTED_NETWORKS ?? '').trim() || allowSetting();
 }
 
 type Subnet = [network: string, prefix: number, family: 'ipv4' | 'ipv6'];
@@ -58,7 +65,8 @@ const ANY: Subnet[] = [
   ['::', 0, 'ipv6'],
 ];
 
-/** One entry of `VSPARK_ALLOW_LAN`, or null when it isn't understood. */
+/** One list entry as subnets, or null when it isn't understood. (`self` is
+ *  handled apart: this machine's addresses change while it runs.) */
 function subnetsOf(entry: string): Subnet[] | null {
   const e = entry.toLowerCase();
   if (e === '1' || e === 'true' || e === 'yes' || e === 'lan') return LAN;
@@ -73,43 +81,104 @@ function subnetsOf(entry: string): Subnet[] | null {
   return [[addr, prefix, v === 4 ? 'ipv4' : 'ipv6']];
 }
 
-let _trusted: { setting: string; list: BlockList; unknown: string[] } | null =
-  null;
+interface NetworkList {
+  setting: string;
+  list: BlockList;
+  self: boolean;
+  unknown: string[];
+}
 
-function trustedNetworks(): { list: BlockList; unknown: string[] } {
-  const setting = allowLanSetting();
-  if (_trusted?.setting === setting) return _trusted;
+const _lists = new Map<string, NetworkList>();
+
+/** Parse a list setting (cached per value). `0` is the empty list. */
+function networkList(setting: string): NetworkList {
+  const cached = _lists.get(setting);
+  if (cached) return cached;
   const list = new BlockList();
+  let self = false;
   const unknown: string[] = [];
-  if (allowLan())
+  if (setting !== '0')
     for (const entry of setting
       .split(',')
       .map((x) => x.trim())
       .filter(Boolean)) {
+      if (entry.toLowerCase() === 'self') {
+        self = true;
+        continue;
+      }
       const subnets = subnetsOf(entry);
       if (!subnets) unknown.push(entry);
       else
         for (const [net, prefix, fam] of subnets)
           list.addSubnet(net, prefix, fam);
     }
-  _trusted = { setting, list, unknown };
-  return _trusted;
+  const parsed = { setting, list, self, unknown };
+  _lists.set(setting, parsed);
+  return parsed;
 }
 
-/** Entries of `VSPARK_ALLOW_LAN` that were ignored (for the startup log). */
-export function unknownTrustedNetworkEntries(): string[] {
-  return trustedNetworks().unknown;
+const unmapped = (addr: string): string =>
+  addr.startsWith('::ffff:') ? addr.slice(7) : addr;
+
+const OWN_ADDRESSES_TTL_MS = 5000;
+let _own: { at: number; set: Set<string> } | null = null;
+
+/** This machine's own interface addresses, re-read every few seconds so a VPN
+ *  or DHCP change is picked up and a released address is not trusted. */
+function ownAddresses(): Set<string> {
+  const now = Date.now();
+  if (_own && now - _own.at < OWN_ADDRESSES_TTL_MS) return _own.set;
+  const set = new Set<string>();
+  for (const infos of Object.values(networkInterfaces()))
+    for (const i of infos ?? []) set.add(i.address.toLowerCase().split('%')[0]);
+  _own = { at: now, set };
+  return set;
+}
+
+/** A connection from one of this machine's own addresses comes from this
+ *  machine: the kernel drops packets from the network that claim one of them,
+ *  and replies to such an address never leave the machine. */
+export function isOwnAddress(addr: string | undefined): boolean {
+  if (!addr) return false;
+  return ownAddresses().has(unmapped(addr).toLowerCase());
+}
+
+/** Does `addr` fall in the list? Loopback always does. */
+function inList(l: NetworkList, addr: string | undefined): boolean {
+  if (isLoopbackAddress(addr)) return true;
+  if (!addr) return false;
+  if (l.self && isOwnAddress(addr)) return true;
+  const a = unmapped(addr);
+  const v = isIP(a);
+  if (!v) return false;
+  return l.list.check(a, v === 4 ? 'ipv4' : 'ipv6');
+}
+
+/** Ignored entries of both settings (for the startup log). */
+export function unknownNetworkEntries(): { setting: string; entry: string }[] {
+  const out: { setting: string; entry: string }[] = [];
+  for (const entry of networkList(allowSetting()).unknown)
+    out.push({ setting: 'VSPARK_ALLOW_LAN', entry });
+  if ((process.env.VSPARK_TRUSTED_NETWORKS ?? '').trim())
+    for (const entry of networkList(trustSetting()).unknown)
+      out.push({ setting: 'VSPARK_TRUSTED_NETWORKS', entry });
+  return out;
+}
+
+/** The effective settings (for the startup log). */
+export function networkSettings(): { allowed: string; trusted: string } {
+  return { allowed: allowSetting(), trusted: trustSetting() };
 }
 
 /** A browser at `addr` joins the mesh without the device code: this machine
- *  always, other machines when their network is listed in `VSPARK_ALLOW_LAN`. */
+ *  always, other addresses when `VSPARK_TRUSTED_NETWORKS` lists them. */
 export function trustedNetworkAddress(addr: string | undefined): boolean {
-  if (isLoopbackAddress(addr)) return true;
-  if (!addr) return false;
-  const a = addr.startsWith('::ffff:') ? addr.slice(7) : addr;
-  const v = isIP(a);
-  if (!v) return false;
-  return trustedNetworks().list.check(a, v === 4 ? 'ipv4' : 'ipv6');
+  return inList(networkList(trustSetting()), addr);
+}
+
+/** A caller on this machine: loopback or one of its own addresses. */
+export function isThisMachine(addr: string | undefined): boolean {
+  return isLoopbackAddress(addr) || isOwnAddress(addr);
 }
 
 function extraHosts(): string[] {
@@ -121,7 +190,7 @@ function extraHosts(): string[] {
 
 export function isLoopbackAddress(addr: string | undefined): boolean {
   if (!addr) return false;
-  const a = addr.startsWith('::ffff:') ? addr.slice(7) : addr;
+  const a = unmapped(addr);
   return a === '::1' || a.startsWith('127.');
 }
 
@@ -177,8 +246,9 @@ export function originAllowed(
   return !!hostHeader && name === hostnameOf(hostHeader);
 }
 
-function remoteAllowed(addr: string | undefined): boolean {
-  return allowLan() || isLoopbackAddress(addr);
+/** May `addr` connect at all? Loopback always; else `VSPARK_ALLOW_LAN`. */
+export function remoteAllowed(addr: string | undefined): boolean {
+  return inList(networkList(allowSetting()), addr);
 }
 
 /** Express middleware: refuse non-local callers and rebinding hosts. */
@@ -189,7 +259,7 @@ export const localAccessGuard: RequestHandler = (req, res, next) => {
       error: {
         status: 403,
         message:
-          'vspark only accepts local connections. Set VSPARK_ALLOW_LAN=1 (or a list of networks) to allow other machines.',
+          'vspark does not accept connections from this address. List its network in VSPARK_ALLOW_LAN (e.g. self,lan) to allow it.',
       },
     });
     return;

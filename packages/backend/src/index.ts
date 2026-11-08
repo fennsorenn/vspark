@@ -5,7 +5,11 @@ import { fileURLToPath } from 'url';
 import { currentPairingCode, onPairingCode } from './auth/clients.js';
 import { publishStatus } from './mesh/status.js';
 import { createApp } from './app.js';
-import { unknownTrustedNetworkEntries, upgradeAllowed } from './localAccess.js';
+import {
+  networkSettings,
+  unknownNetworkEntries,
+  upgradeAllowed,
+} from './localAccess.js';
 import { runMigrations, getDb, closeDb } from './db/index.js';
 import {
   setVmcManager,
@@ -477,11 +481,12 @@ async function start() {
     // Browsers on other machines enroll with this code (auth/clients.ts).
     console.log(`Pairing code for other devices: ${currentPairingCode()}`);
     onPairingCode((code) => console.log(`New pairing code: ${code}`));
-    const lan = (process.env.VSPARK_ALLOW_LAN ?? '').trim();
-    if (lan && lan !== '0')
-      console.log(`Browsers on trusted networks join without a code: ${lan}`);
-    for (const entry of unknownTrustedNetworkEntries())
-      console.warn(`VSPARK_ALLOW_LAN: ignoring unknown entry "${entry}"`);
+    // Loopback is always allowed and trusted; these are the additions.
+    const { allowed, trusted } = networkSettings();
+    console.log(`Connections allowed from: localhost, ${allowed}`);
+    console.log(`Browsers that join without a code: localhost, ${trusted}`);
+    for (const { setting, entry } of unknownNetworkEntries())
+      console.warn(`${setting}: ignoring unknown entry "${entry}"`);
     if (existsSync(PUBLIC_DIR)) {
       const { default: open } = await import('open');
       open(`http://localhost:${port}`);
