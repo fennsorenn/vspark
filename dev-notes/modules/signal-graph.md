@@ -207,6 +207,8 @@ resolved type of their `in` input (`inferIfElse` / `inferCooldown`, like `cycle`
 | `send_trigger` ("Send Trigger") | `fire`, `name`, `payload` (Any) | Sends a named trigger to every running Logic graph of the same project (`_projectId`); empty name / no project → nothing. |
 | `on_trigger` ("On Trigger") | `name` → `event`, `payload` | Fires when a trigger with exactly this name (trimmed) is sent in its project; empty name never fires. Receives externally on an `event` input, like the overlive / hotkey sources. |
 
+Consumer: the alert composite's **Named trigger** option puts an `on_trigger` at the head of its queue graph, with `${payload}` available to its caption template — see [composites.md](composites.md).
+
 **Trigger routing** — `backend/src/triggers/router.ts` walks
 `logicManager.iterateNodes()` (the hotkey/overlive pattern), filters to `on_trigger`
 nodes of the sending project and fires each; the node checks the name against its own

@@ -25,7 +25,9 @@ Dependencies added: `i18next`, `react-i18next`, `i18next-browser-languagedetecto
 
 One namespace per component area. Namespace names match the component area they cover:
 
-`common`, `help`, `topbar`, `update`, `editor`, `home`, `sceneGraph`, `assets`, `properties`, `compose`, `signalGraph`, `clips`, `accounts`, `presets`, `media`, `assistant`, `misc`, `actions`.
+`common`, `help`, `topbar`, `update`, `editor`, `home`, `sceneGraph`, `assets`, `properties`, `compose`, `signalGraph`, `clips`, `accounts`, `presets`, `media`, `assistant`, `misc`, `actions`, `composites`.
+
+The `composites` namespace covers composite settings, tags and the Dissolve menu items (`components/editor/composites/`); its help page is `help/content/{en,de}/composites.md` (anchors `{#composites}` `{#settings}` `{#alert}` `{#chat}` `{#parts}` `{#dissolve}`, `'composites'` in `TOPIC_ORDER` after `presets`). See [composites.md](composites.md).
 
 The `actions` namespace covers the Actions panel (left-dock tab, `components/editor/actions/`); its help page is `help/content/{en,de}/actions.md` (anchors `{#overview}` `{#add}` `{#hotkey}` `{#chat_command}` `{#chat_pattern}` `{#chat_keyword}` `{#keyword_combo}` `{#redemption}` `{#placeholders}` `{#patterns}` `{#cooldown}` `{#counter}` `{#account}` `{#trigger}` `{#value-shape}` `{#modified}` `{#reset}` `{#graph}` — the kind anchors equal the kind ids because each group header's `HelpButton` targets `anchor={kind}`, `'actions'` in `TOPIC_ORDER` after `logic`). See [actions.md](actions.md).
 
@@ -115,6 +117,9 @@ carried the original copy; this table is the durable source of truth.)
 | Part (of a composite) | Teil |
 | Dissolve (a composite) | Auflösen |
 | Named trigger | Benannter Auslöser |
+
+The four composite rows above (Baugruppe, Teil, Auflösen, Benannter Auslöser) were chosen by Claude on `feature/composites` and are not yet confirmed by the user.
+
 | Account | Konto |
 | Project | Projekt |
 | Properties | Eigenschaften |
