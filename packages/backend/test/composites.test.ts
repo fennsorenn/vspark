@@ -94,6 +94,11 @@ describe('composites — listing and placing', () => {
     expect(getMeshCollection('track_clip')!.get(parts.fade)).toBeDefined();
     const graph = getMeshCollection('logic')!.get(parts.queue) as Doc;
     expect(graph.ownerId).toBe(rootId);
+    // Stored in document form (keyed by node id), so per-node paths address
+    // the node — the preset itself carries lists.
+    const nodes = (graph.descriptor as Doc).nodes as Record<string, Doc>;
+    expect(Array.isArray(nodes)).toBe(false);
+    expect(nodes.ev.kind).toBe('overlive_redemption');
     // The graph is valid and running: the engine accepted the trigger wiring.
     expect(logicManager.getRunningDescriptors().map((g) => g.id)).toContain(
       parts.queue

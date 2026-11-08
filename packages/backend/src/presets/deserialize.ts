@@ -23,6 +23,7 @@ import { matchAssetByHash, materializeAsset } from './assets.js';
 import { makeImportSubstituter } from './substitute.js';
 import { byId } from '@vspark/shared/idMap';
 import { keysBetween } from '@vspark/shared/fracIndex';
+import { toDescriptorDoc, toGraphDescriptor } from '@vspark/shared/signal';
 
 interface PresetPayload {
   format: string;
@@ -438,7 +439,16 @@ export async function instantiatePreset(
       ownerId: resolveId(graph.ownerPresetId),
       name: graph.name,
       enabled: graph.enabled,
-      descriptor: graph.descriptor,
+      // The document form — nodes and edges keyed by id — as every other
+      // writer stores it. A preset carries lists (and older ones always will);
+      // committing them as-is left the imported graph's per-element paths
+      // (`descriptor.nodes.<id>…`, what the graph editor and composite
+      // settings write) addressing a list until the next restart re-keyed it.
+      descriptor: toDescriptorDoc(
+        toGraphDescriptor(
+          graph.descriptor as Parameters<typeof toGraphDescriptor>[0]
+        )
+      ),
     });
     // `node_state` is runtime scratch owned by the running graph, not document
     // content — the logic DTO leaves it out on purpose (sync/resources.ts), so
