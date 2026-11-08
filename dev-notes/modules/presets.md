@@ -116,3 +116,4 @@ Preset payloads also flow through the clipboard for copy/paste of scene-node and
 - [project-graphs.md](project-graphs.md) — logic are nested into preset payloads at the right owner scope.
 - [track-clips.md](track-clips.md) — track clips owned by nodes / layers in the subtree are serialised with lanes + keyframes.
 - [clipboard.md](clipboard.md) — uses `presets/serialize` + `presets/instantiate` to copy/paste scene-node and compose-layer subtrees within and across projects.
+- Composites (planned) — built-in alert and chat presets packaged as one object with linked settings, instantiated through this preset path; see [../plans/composites.md](../plans/composites.md).
