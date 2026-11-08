@@ -131,6 +131,7 @@ export function FieldEditor({
   const composeLayers = useComposeLayers();
   const trackClips = useTrackClips();
   const expressionsByNode = useEditorStore((s) => s.vrmExpressionsByNode);
+  const assets = useEditorStore((s) => s.assets);
   // The shared handle first (what a caller's `className` names), then the
   // per-field one.
   const base = className ?? 'vs-macro-field';
@@ -168,6 +169,9 @@ export function FieldEditor({
       />
     );
   }
+  if (field.control === 'slider') {
+    return wrap(<SliderField field={field} value={value} onChange={onChange} className={cls} />);
+  }
   if (field.control === 'enum') {
     return wrap(
       <select className={cls} value={cur} onChange={(e) => onChange(e.target.value)} style={{ ...inputStyle }}>
@@ -196,6 +200,15 @@ export function FieldEditor({
       ...nodes.filter((n) => n.kind !== 'scene').map((n) => ({ value: n.id, label: n.name || n.id })),
       ...composeLayers.map((l) => ({ value: l.id, label: l.name || l.id })),
     ];
+  } else if (field.control === 'videoEntity') {
+    options = [
+      ...nodes.filter((n) => n.kind === 'video').map((n) => ({ value: n.id, label: n.name || n.id })),
+      ...composeLayers.filter((l) => l.kind === 'video').map((l) => ({ value: l.id, label: l.name || l.id })),
+    ];
+  } else if (field.control === 'asset') {
+    options = assets
+      .filter((a) => !field.assetKind || a.kind === field.assetKind)
+      .map((a) => ({ value: a.id, label: a.name || a.id }));
   } else if (field.control === 'expression') {
     const nodeId = typeof values.nodeId === 'string' ? values.nodeId : '';
     options = (expressionsByNode[nodeId] ?? []).map((name) => ({ value: name, label: name }));
@@ -228,6 +241,50 @@ export function FieldEditor({
       onChange={(e) => onChange(e.target.value)}
       style={{ ...inputStyle, width: 130 }}
     />
+  );
+}
+
+/** A range slider with its value beside it. The value is committed when the
+ *  drag (or key press) ends, not on every step, so a drag is one edit. */
+function SliderField({
+  field,
+  value,
+  onChange,
+  className,
+}: {
+  field: MacroField;
+  value: MacroFieldValue;
+  onChange: (v: MacroFieldValue) => void;
+  className: string;
+}) {
+  const min = field.min ?? 0;
+  const max = field.max ?? 1;
+  const saved = typeof value === 'number' ? value : (field.defaultValue ?? min);
+  const [draft, setDraft] = useState<number | null>(null);
+  const shown = draft ?? saved;
+  const commit = () => {
+    if (draft !== null && draft !== saved) onChange(draft);
+    setDraft(null);
+  };
+  return (
+    <>
+      <input
+        type="range"
+        className={className}
+        min={min}
+        max={max}
+        step={field.step ?? (max - min) / 100}
+        value={shown}
+        onChange={(e) => setDraft(Number(e.target.value))}
+        onPointerUp={commit}
+        onKeyUp={commit}
+        onBlur={commit}
+        style={{ width: 100 }}
+      />
+      <span style={{ minWidth: 34, fontVariantNumeric: 'tabular-nums', color: '#bbb' }}>
+        {field.percent ? `${Math.round(shown * 100)} %` : shown}
+      </span>
+    </>
   );
 }
 

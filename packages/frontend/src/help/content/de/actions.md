@@ -41,8 +41,9 @@ Vordergrund ist.
   - *Durchschalten* — Drücke gehen der Reihe nach mehrere Reaktionen durch;
     **Positionen** legt fest, wie viele.
 - **Reaktion** (eine pro Position): einen Clip abspielen, einen Clip erzeugen,
-  einen Ausdruck setzen, eine Eigenschaft eines Objekts oder einer Ebene setzen
-  oder ein Video bzw. eine Audiodatei steuern. Wähle die Reaktion und fülle dann
+  einen Sound abspielen, ein Video abspielen, einen Ausdruck setzen, eine
+  Eigenschaft eines Objekts oder einer Ebene setzen oder ein Video bzw. eine
+  Audiodatei steuern (siehe [Sounds und Videos](#media)). Wähle die Reaktion und fülle dann
   ihre Details aus.
 
 ## Chat-Befehl {#chat_command}
@@ -87,10 +88,10 @@ Kleinschreibung zu achten (`LUL` passt zu „haha lul!“, aber nicht zu „LULZ
 
 - **Stichwörter**: Wörter, Wortgruppen oder Emote-Namen, durch Kommas getrennt.
 - **Abklingzeit**: siehe [Abklingzeit](#cooldown).
-- **Reaktion**: was passiert — einen Clip abspielen, einen Ausdruck oder eine
-  Eigenschaft setzen, ein Video oder eine Audiodatei steuern (für einen
-  Soundeffekt *Medien steuern*, das Audio-Objekt bzw. die Ebene und *Abspielen*
-  wählen) oder *Keine Reaktion*.
+- **Reaktion**: was passiert — einen Clip abspielen, einen Sound oder ein Video
+  abspielen (siehe [Sounds und Videos](#media)), einen Ausdruck oder eine
+  Eigenschaft setzen, ein Video oder eine Audiodatei steuern oder *Keine
+  Reaktion*.
 - **Auslöser senden** (optional): siehe [Auslöser](#trigger).
 
 ## Stichwort-Combo {#keyword_combo}
@@ -200,6 +201,21 @@ anderes, wenn du mehrere hast.
 *Auslöser*. Jeder [Logik](topic:logic)-Graph im Projekt kann mit einem
 **On Trigger**-Knoten desselben Namens darauf reagieren — zum Beispiel, um einen
 Alert anzuzeigen. Leer lassen, um nichts zu senden.
+
+## Sounds und Videos {#media}
+
+- **Sound abspielen** spielt einen Sound aus deiner Sammlung einmal ab, mit der
+  gewählten **Lautstärke** (0–1). Dafür musst du kein Audio-Objekt platzieren.
+  Zu hören ist er im Viewer, im Editor nur bei eingeschalteter Audio-Vorschau.
+- **Video abspielen** spielt ein Video aus deiner Sammlung auf einem bereits
+  platzierten Video-Objekt oder einer Video-Ebene ab (**Auf**), ohne dieses zu
+  verändern: Es läuft einmal, danach gilt die Einstellung *Bei Ende* des
+  Objekts, und beim nächsten Laden der Szene zeigt es wieder sein eigenes
+  Video. *Stopp* (mit *Medien steuern*) holt das eigene Video ebenfalls zurück.
+  So kann ein Video-Objekt beliebig viele verschiedene Clips zeigen.
+
+In einem Logik-Graphen geht dasselbe mit dem Knoten **Play Sound** und dem
+Eingang **asset** des Knotens **Media Control**.
 
 ## Einstellungen, die den Graphen neu aufbauen {#value-shape}
 

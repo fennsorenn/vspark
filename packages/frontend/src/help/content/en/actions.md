@@ -37,9 +37,10 @@ running vspark — even when vspark is not the focused window.
   - *Toggle* — presses alternate between two responses (on / off).
   - *Cycle* — presses step through several responses in turn; **Positions**
     sets how many.
-- **Response** (one per position): play a clip, spawn a clip, set an
-  expression, set a property of an object or layer, or control a video or audio
-  file. Pick the response, then fill in its details.
+- **Response** (one per position): play a clip, spawn a clip, play a sound,
+  play a video, set an expression, set a property of an object or layer, or
+  control a video or audio file. Pick the response, then fill in its details.
+  See [Sounds and videos](#media).
 
 ## Chat command {#chat_command}
 
@@ -83,9 +84,9 @@ anywhere in a chat message — as a whole word, ignoring upper and lower case
 
 - **Keywords**: words, phrases or emote names, separated by commas.
 - **Cooldown**: see [Cooldown](#cooldown).
-- **Response**: what happens — play a clip, set an expression or property,
-  control a video or audio file (for a sound effect, pick *Control media*, the
-  audio object or layer and *Play*), or *No response*.
+- **Response**: what happens — play a clip, play a sound or video (see
+  [Sounds and videos](#media)), set an expression or property, control a video
+  or audio file, or *No response*.
 - **Send trigger** (optional): see [Triggers](#trigger).
 
 ## Keyword combo {#keyword_combo}
@@ -186,6 +187,21 @@ account* is the project's default; pick another one if you have several.
 [Logic](topic:logic) graph in the project can react to it with an **On Trigger**
 node of the same name — for example to show an alert. Leave the name empty to
 send nothing.
+
+## Sounds and videos {#media}
+
+- **Play sound** plays a sound from your collection once, at the chosen
+  **Volume** (0–1). You don't need to place an audio object for it. It is heard
+  in the viewer, and in the editor only while audio preview is on.
+- **Play video** plays a video from your collection on a video object or video
+  layer you already placed (**On**), without changing that object: it plays
+  once, then the object's own *On end* setting applies, and the next time the
+  scene loads it shows its own video again. *Stop* (with *Control media*) also
+  brings its own video back. One video object can so show any number of
+  different clips.
+
+In a Logic graph the same is done by the **Play Sound** node and the **asset**
+input of the **Media Control** node.
 
 ## Settings that rebuild the graph {#value-shape}
 

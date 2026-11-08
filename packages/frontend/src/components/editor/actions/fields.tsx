@@ -276,6 +276,14 @@ export function ResponseEditor({
           </option>
         ))}
       </select>
+      {(type === 'play_sound' || type === 'play_video') && (
+        <HelpButton
+          topic="actions"
+          anchor="media"
+          tip={t('help.media')}
+          size={11}
+        />
+      )}
       {type &&
         effectiveFields({ defId: type, values }).map((f) => (
           <FieldEditor

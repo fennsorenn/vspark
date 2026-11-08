@@ -75,6 +75,23 @@ export interface MediaCommand {
   t?: number;
   /** 0..1 — only for `action: 'setVolume'`. */
   volume?: number;
+  /** Only for `play` / `restart`: play this collection video (asset id)
+   *  instead of the entity's own, temporarily — the entity's saved settings
+   *  are not changed. */
+  assetId?: string;
+}
+
+/** A one-shot sound for a whole project (the `sound_cue` mesh document): every
+ *  tab of the project that may play audio plays the asset once. No entity. */
+export interface SoundCue {
+  /** The project's id: one live slot per project. */
+  id: string;
+  projectId: string;
+  assetId: string;
+  /** 0..1, default 1. */
+  volume?: number;
+  /** Fresh per cue, so the same sound twice is still a change. */
+  cueId: string;
 }
 
 /** Payload of the `media_control` WS message (graph → frontend). */

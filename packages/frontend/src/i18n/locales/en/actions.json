@@ -13,7 +13,8 @@
     "placeholders": "Placeholders you can use in the text",
     "patterns": "How patterns (regular expressions) work",
     "trigger": "Send a named trigger that other Logic can react to",
-    "combo": "How a combo is counted"
+    "combo": "How a combo is counted",
+    "media": "Playing sounds and videos from your collection"
   },
   "kinds": {
     "hotkey": {
@@ -152,6 +153,8 @@
   "responses": {
     "play_clip": "Play clip",
     "spawn_clip": "Spawn clip",
+    "play_sound": "Play sound",
+    "play_video": "Play video",
     "set_expression": "Set expression",
     "set_property": "Set property",
     "set_layer_property": "Set layer property",

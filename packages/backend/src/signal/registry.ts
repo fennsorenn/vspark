@@ -62,6 +62,7 @@ import { SetComposeLayerParam } from './nodes/set_compose_layer_param.js';
 import { SetText } from './nodes/set_text.js';
 import { SetData } from './nodes/set_data.js';
 import { MediaControl } from './nodes/media_control.js';
+import { PlaySound } from './nodes/play_sound.js';
 import { LogNode } from './nodes/log.js';
 // Overlive event nodes
 import { OverliveRedemption } from './nodes/overlive/redemption.js';
@@ -214,6 +215,7 @@ const ALL_NODE_CLASSES: SignalNodeClass[] = [
   SetData,
   // Media playback control (fire-and-forget command bus)
   MediaControl,
+  PlaySound,
   // Debug
   LogNode,
   // Overlive event nodes

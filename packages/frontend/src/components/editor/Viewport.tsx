@@ -4438,11 +4438,21 @@ function VideoNode({
   const videoElRef = useRef<HTMLVideoElement | null>(null);
   const textureRef = useRef<THREE.VideoTexture | null>(null);
   const [hidden, setHidden] = useState(false);
+  // A collection video swapped in by a media command (`playSource`): played
+  // once, not saved. `stop` and a change of the node's own source end it.
+  const [swapUrl, setSwapUrl] = useState<string | null>(null);
+  const src = swapUrl ?? vc.sourceUrl;
+  /** Play the next element created (the swapped-in video). */
+  const playNextRef = useRef(false);
+  /** Don't autoplay the next element (the own video, after a `stop`). */
+  const holdNextRef = useRef(false);
+  useEffect(() => setSwapUrl(null), [vc.sourceUrl]);
 
-  // (Re)create the <video> element + texture when the source changes.
+  // (Re)create the <video> element + texture when the source changes. (Not
+  // un-hidden when a `stop` with onEnd 'hide' brings the own video back.)
   useEffect(() => {
-    setHidden(false);
-    if (!vc.sourceUrl) {
+    if (!holdNextRef.current) setHidden(false);
+    if (!src) {
       videoElRef.current?.pause();
       videoElRef.current = null;
       textureRef.current?.dispose();
@@ -4452,10 +4462,11 @@ function VideoNode({
       return;
     }
     const el = document.createElement('video');
-    el.src = vc.sourceUrl;
+    el.src = src;
     el.crossOrigin = 'anonymous';
     el.playsInline = true;
-    el.loop = vc.loop;
+    // A swapped-in video plays once; then the node's onEnd applies.
+    el.loop = swapUrl ? false : vc.loop;
     el.preload = 'auto';
     videoElRef.current = el;
     const tex = new THREE.VideoTexture(el);
@@ -4475,7 +4486,7 @@ function VideoNode({
       el.pause();
       tex.dispose();
     };
-  }, [vc.sourceUrl, vc.loop, vc.onEnd, frontMat, backMat]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [src, vc.loop, vc.onEnd, frontMat, backMat]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Push chroma / opacity / blend / mirror into the materials.
   useEffect(() => {
@@ -4510,16 +4521,20 @@ function VideoNode({
     const audible = (viewerMode || audioPreview) && !vc.muted;
     el.muted = !audible;
     el.volume = Math.max(0, Math.min(1, vc.volume));
-  }, [viewerMode, audioPreview, vc.muted, vc.volume, vc.sourceUrl]);
+  }, [viewerMode, audioPreview, vc.muted, vc.volume, src]);
 
-  // Autoplay on (re)mount / source change.
+  // Autoplay on (re)mount / source change; a swapped-in video always plays,
+  // and the own video coming back after a `stop` stays stopped.
   useEffect(() => {
     const el = videoElRef.current;
-    if (!el || !vc.autoplay) return;
+    const play = playNextRef.current || (vc.autoplay && !holdNextRef.current);
+    playNextRef.current = false;
+    holdNextRef.current = false;
+    if (!el || !play) return;
     void el.play().catch(() => {
       /* autoplay may be blocked until a user gesture; ignore */
     });
-  }, [vc.autoplay, vc.sourceUrl]);
+  }, [vc.autoplay, src]);
 
   // Imperative playback handle for the media-command bus + clip event lane.
   useEffect(() => {
@@ -4531,7 +4546,24 @@ function VideoNode({
         if (!el) return;
         el.pause();
         el.currentTime = 0;
+        // A swapped-in video ends here: back to the node's own, not playing.
+        setSwapUrl((cur) => {
+          if (cur !== null) holdNextRef.current = true;
+          return null;
+        });
         if (vc.onEnd === 'hide') setHidden(true);
+      },
+      playSource: (url: string) => {
+        setHidden(false);
+        const el = videoElRef.current;
+        if (el && el.src === new URL(url, location.href).href) {
+          // Already loaded: play it again from the start.
+          el.currentTime = 0;
+          void el.play().catch(() => {});
+          return;
+        }
+        playNextRef.current = true;
+        setSwapUrl(url);
       },
       restart: () => {
         const el = videoElRef.current;

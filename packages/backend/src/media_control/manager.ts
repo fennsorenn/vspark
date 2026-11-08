@@ -21,7 +21,12 @@
  *
  * See dev-notes/modules/media.md.
  */
-import { CONTROL_CHANNEL, mediaControlCollection } from '../mesh/runtime.js';
+import { randomUUID } from 'node:crypto';
+import {
+  CONTROL_CHANNEL,
+  mediaControlCollection,
+  soundCueCollection,
+} from '../mesh/runtime.js';
 import type { MediaCommand, MediaTargetKind } from '@vspark/shared';
 
 export class MediaControlManager {
@@ -37,6 +42,27 @@ export class MediaControlManager {
       targetId,
       '',
       { id: targetId, targetKind, targetId, command },
+      { channel: CONTROL_CHANNEL }
+    );
+  }
+
+  /** Play a collection sound once in every tab of the project that may play
+   *  audio — no entity needed. No-op without a project or asset, or before the
+   *  mesh is up. */
+  playSound(projectId: string, assetId: string, volume?: number): void {
+    if (!projectId || !assetId) return;
+    soundCueCollection()?.set(
+      projectId,
+      '',
+      {
+        id: projectId,
+        projectId,
+        assetId,
+        ...(typeof volume === 'number' && Number.isFinite(volume)
+          ? { volume: Math.max(0, Math.min(1, volume)) }
+          : {}),
+        cueId: randomUUID(),
+      },
       { channel: CONTROL_CHANNEL }
     );
   }

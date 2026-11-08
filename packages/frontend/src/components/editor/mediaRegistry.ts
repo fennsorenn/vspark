@@ -1,4 +1,5 @@
 import type { MediaCommand } from '@vspark/shared';
+import { useEditorStore } from '../../store/editorStore';
 
 /**
  * Imperative registry of live media elements (3D video nodes, compose-layer
@@ -24,6 +25,9 @@ export interface MediaHandle {
   setVolume(v: number): void;
   mute(): void;
   unmute(): void;
+  /** Play another video (URL) from the start, temporarily: the entity's saved
+   *  source is untouched, and `stop` goes back to it. Video entities only. */
+  playSource?(url: string): void;
 }
 
 const handles = new Map<string, MediaHandle>();
@@ -46,6 +50,20 @@ export function getMediaHandle(id: string): MediaHandle | undefined {
 export function dispatchMediaCommand(id: string, cmd: MediaCommand): void {
   const h = handles.get(id);
   if (!h) return;
+  // A play / restart carrying a collection video swaps it in temporarily.
+  if (
+    cmd.assetId &&
+    h.playSource &&
+    (cmd.action === 'play' || cmd.action === 'restart')
+  ) {
+    const url = useEditorStore
+      .getState()
+      .assets.find((a) => a.id === cmd.assetId)?.url;
+    if (url) {
+      h.playSource(url);
+      return;
+    }
+  }
   switch (cmd.action) {
     case 'play':
       h.play();

@@ -119,7 +119,8 @@ export type ResponseRefKind =
   | 'clip'
   | 'sceneNode'
   | 'composeLayer'
-  | 'sceneEntity';
+  | 'sceneEntity'
+  | 'asset';
 
 export interface ResponseTypeDef {
   /** The sink node kind. */
@@ -136,6 +137,19 @@ export interface ResponseTypeDef {
 export const RESPONSE_TYPES: Readonly<Record<string, ResponseTypeDef>> = {
   play_clip: { nodeKind: 'start_clip', entryPort: 'fire', fields: ['clipId'] },
   spawn_clip: { nodeKind: 'spawn_clip', entryPort: 'fire', fields: ['clipId'] },
+  // A sound from the collection, played without an entity in the scene.
+  play_sound: {
+    nodeKind: 'play_sound',
+    entryPort: 'fire',
+    fields: ['assetId', 'volume'],
+  },
+  // A collection video on an existing video node or layer, temporarily: the
+  // media command carries the asset (Media Control's action defaults to play).
+  play_video: {
+    nodeKind: 'media_control',
+    entryPort: 'fire',
+    fields: ['target', 'assetId'],
+  },
   set_expression: {
     nodeKind: 'set_expression',
     entryPort: 'fire',
@@ -229,6 +243,13 @@ function responsePreview(resp: Record<string, unknown>): PreviewToken[] {
       ref(type === 'set_property' ? 'sceneNode' : 'composeLayer', 'targetId');
       if (str('paramPath'))
         out.push({ t: 'text', text: `${str('paramPath')} = ${str('value')}` });
+      break;
+    case 'play_sound':
+      ref('asset', 'assetId');
+      break;
+    case 'play_video':
+      ref('asset', 'assetId');
+      ref('sceneEntity', 'target');
       break;
     case 'control_media':
       ref('sceneEntity', 'target');

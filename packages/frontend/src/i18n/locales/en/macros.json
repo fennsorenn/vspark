@@ -19,7 +19,9 @@
     "set_expression": "Set expression",
     "set_property": "Set property",
     "set_layer_property": "Set layer property",
-    "control_media": "Control media"
+    "control_media": "Control media",
+    "play_sound": "Play sound",
+    "play_video": "Play video"
   },
   "field": {
     "clip": "Clip",
@@ -30,7 +32,11 @@
     "layer": "Layer",
     "property": "Property",
     "value": "Value",
-    "action": "Action"
+    "action": "Action",
+    "sound": "Sound",
+    "volume": "Volume",
+    "video": "Video",
+    "videoTarget": "On"
   },
   "mediaAction": {
     "play": "Play",

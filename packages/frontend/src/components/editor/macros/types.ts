@@ -30,10 +30,13 @@ export type MacroFieldControl =
   | 'sceneNode'
   | 'composeLayer'
   | 'sceneEntity'
+  | 'videoEntity'
+  | 'asset'
   | 'expression'
   | 'paramPath'
   | 'string'
   | 'number'
+  | 'slider'
   | 'bool'
   | 'enum';
 
@@ -61,9 +64,15 @@ export interface MacroField {
   /** For `control: 'paramPath'` (and the value field that follows it): which
    *  paramPath registry to list / type against. Defaults to 'scene_node'. */
   paramTargetKind?: 'scene_node' | 'compose_layer';
+  /** For `control: 'asset'`: which collection assets to list. */
+  assetKind?: 'audio' | 'video';
   min?: number;
   max?: number;
   step?: number;
+  /** For `control: 'slider'`: the value shown while the field is unset. */
+  defaultValue?: number;
+  /** For `control: 'slider'`: show the value as a percentage (0..1 → 0–100 %). */
+  percent?: boolean;
 }
 
 export type MacroFieldValue = string | number | boolean | undefined;

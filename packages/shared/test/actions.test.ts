@@ -327,6 +327,15 @@ describe('Hotkey preview', () => {
       { t: 'ref', ref: 'sceneEntity', id: 'v1' },
       { t: 'msg', key: 'mediaAction.pause' },
     ]);
+    expect(line({ type: 'play_sound', assetId: 'snd', volume: 0.5 })).toEqual([
+      { t: 'msg', key: 'responses.play_sound' },
+      { t: 'ref', ref: 'asset', id: 'snd' },
+    ]);
+    expect(line({ type: 'play_video', target: 'v1', assetId: 'vid' })).toEqual([
+      { t: 'msg', key: 'responses.play_video' },
+      { t: 'ref', ref: 'asset', id: 'vid' },
+      { t: 'ref', ref: 'sceneEntity', id: 'v1' },
+    ]);
     expect(line({ type: 'spawn_clip' })).toEqual([
       { t: 'msg', key: 'responses.spawn_clip' },
     ]);
