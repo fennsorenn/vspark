@@ -36,6 +36,7 @@ export type MacroFieldControl =
   | 'paramPath'
   | 'string'
   | 'number'
+  | 'slider'
   | 'bool'
   | 'enum';
 
@@ -68,6 +69,10 @@ export interface MacroField {
   min?: number;
   max?: number;
   step?: number;
+  /** For `control: 'slider'`: the value shown while the field is unset. */
+  defaultValue?: number;
+  /** For `control: 'slider'`: show the value as a percentage (0..1 → 0–100 %). */
+  percent?: boolean;
 }
 
 export type MacroFieldValue = string | number | boolean | undefined;

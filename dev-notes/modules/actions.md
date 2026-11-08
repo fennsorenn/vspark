@@ -208,7 +208,10 @@ fields as `macros/actionRegistry.ts`): `play_clip` → `start_clip`, `spawn_clip
 shares the `media_control` node with `control_media` and the projection could
 not tell them apart. They use two new `FieldEditor` controls: `asset`
 (collection assets, filtered by the field's `assetKind` `audio` / `video`) and
-`videoEntity` (video scene nodes + video compose layers). Their preview uses
+`videoEntity` (video scene nodes + video compose layers). `play_sound`'s
+volume uses the `slider` control (range input with `min` / `max` / `step`, an
+unset `defaultValue` and optional `percent` display), which commits once when
+the drag or key press ends rather than on every step. Their preview uses
 the `asset` ref kind (`ResponseRefKind`), resolved to the asset name. A
 `HelpButton` next to the response-type select, shown for these two, points at
 help anchor `actions#media`. See [media.md](media.md#media-one-shots).

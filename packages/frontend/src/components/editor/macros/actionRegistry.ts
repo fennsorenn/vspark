@@ -157,7 +157,7 @@ const playSound = singleNodeAction({
   nodeKind: 'play_sound',
   fields: [
     { key: 'assetId', labelKey: 'field.sound', control: 'asset', assetKind: 'audio', port: 'assetId' },
-    { key: 'volume', labelKey: 'field.volume', control: 'number', port: 'volume', min: 0, max: 1, step: 0.05 },
+    { key: 'volume', labelKey: 'field.volume', control: 'slider', port: 'volume', min: 0, max: 1, step: 0.05, defaultValue: 1, percent: true },
   ],
 });
 
