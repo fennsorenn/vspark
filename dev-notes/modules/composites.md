@@ -33,6 +33,14 @@ leaves the plain group behind.
 - **Decided (user, 2026-11-08):** part protection lives in the editor + REST, not in the
   sync engine (there is no remove-validation hook in `packages/mesh`).
 
+## Planned (batch 2)
+
+WIP on `feature/stream-widgets`, plan [../plans/stream-widgets.md](../plans/stream-widgets.md):
+2D goal, countdown, subathon timer, recent / top and ad break composites, plus the
+follow / gift bomb / bits alert triggers, and the signal nodes and `<Countdown>`
+feed-template helper they need. The plan's `[decided]` items are the user's; nothing
+in it is built yet.
+
 ## Shared model — `packages/shared/src/composites.ts`
 
 Subpath `@vspark/shared/composites`. Registered in the shared `package.json` exports,

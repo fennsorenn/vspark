@@ -1,6 +1,6 @@
 # Plan: Stream widgets (2D composites, batch 2)
 
-> **Status:** design-only
+> **Status:** in progress
 
 > Branch: `feature/stream-widgets` (vspark, off `dev` after the composites merge 405d4ff);
 > `feature/goals` in `~/projects/overlive`.
