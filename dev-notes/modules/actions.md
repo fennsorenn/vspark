@@ -2,9 +2,8 @@
 
 **Status: Implemented (core + all six kinds: Hotkey, Chat command, Chat
 pattern, Chat keyword, Keyword combo, Redemption).** See
-[plans/actions.md](../plans/actions.md). The Macros panel is still present
-(retiring it awaits the user trying the Actions panel; the parity additions
-are under "Panel" below). Behaviors getting the same stored-graph treatment
+[plans/actions.md](../plans/actions.md). The Hotkey kind replaced the Macros
+panel, which was removed on 2026-11-09. Behaviors getting the same stored-graph treatment
 (Phase 4) is implemented — see
 [component-managers.md](component-managers.md#stored-editable-graphs).
 
@@ -34,8 +33,9 @@ Decisions recorded in the plan (user, 2026-11-06) that this module follows:
   `behavior_config`, now kind `settings`, palette label "Settings").
 - **Decided:** the list is grouped by kind by default and each row previews its
   most important settings, declared per kind.
-- **Decided:** the Macros panel is retired only once the Actions panel reaches
-  parity for hotkeys (plan Phase 3) — it is still present.
+- **Decided:** the Macros panel is retired once the Actions panel reaches
+  parity for hotkeys (plan Phase 3). The user confirmed parity and it was
+  removed on 2026-11-09; existing Macros graphs stay as plain Logic.
 - **Decided (user, 2026-11-08):** the Keyword combo has two modes. *Threshold*:
   the response runs as soon as the count reaches the threshold; the count
   resets once the window passes after the last hit. *Timeout*: the response
@@ -195,18 +195,14 @@ work through ports (see [overlive.md](overlive.md)):
 Settings: `shortcut {key, ctrl, shift, alt, meta}` (value), `mode`
 `single | toggle | cycle` (shape), `positions` 2–8 (shape; used in cycle mode),
 `responses.<i>` per position with `type` (shape) and the type's fields (value).
-Responses are the Macros panel's set (`RESPONSE_TYPES`, same ids, sinks and
-fields as `macros/actionRegistry.ts`): `play_clip` → `start_clip`, `spawn_clip`,
+Responses (`RESPONSE_TYPES` in `@vspark/shared/actions`; the editor's
+controls per field in `actions/responseFields.ts`, kept in step by
+`test/responseFields.test.ts`): `play_clip` → `start_clip`, `spawn_clip`,
 `set_expression`, `set_property` → `set_scene_node_param`,
 `set_layer_property` → `set_compose_layer_param`, `control_media` →
-`media_control`, plus two response types the Macros panel does not offer:
-`play_sound` → `play_sound` (fields `assetId`, `volume`) and `play_video` →
+`media_control`, `play_sound` → `play_sound` (fields `assetId`, `volume`) and `play_video` →
 `media_control` (fields `target`, `assetId`; the node's action defaults to
-`play`). Their field editors are response-only defs in
-`macros/actionRegistry.ts` (`RESPONSE_ONLY_DEFS`): looked up by
-`macroActionById` but not part of the Macros projection, because `play_video`
-shares the `media_control` node with `control_media` and the projection could
-not tell them apart. They use two new `FieldEditor` controls: `asset`
+`play`). These two use the `FieldEditor` controls: `asset`
 (collection assets, filtered by the field's `assetKind` `audio` / `video`) and
 `videoEntity` (video scene nodes + video compose layers). `play_sound`'s
 volume uses the `slider` control (range input with `min` / `max` / `step`, an
@@ -318,7 +314,7 @@ Actions do not exist yet.
 
 ### Panel (`components/editor/actions/ActionsPanel.tsx`)
 
-Left-dock tab `actions` (`LeftDockTab`), after Macros. The tab is split like
+Left-dock tab `actions` (`LeftDockTab`), after Logic. The tab is split like
 Logic: the list in the left dock (`ActionsPanel.tsx`), the selected action's
 settings in the main view (`ActionEditor.tsx`, rendered by `Editor.tsx` when
 `leftTab === 'actions'`). **Decided** (the user): the list is a list with a
@@ -339,11 +335,13 @@ there is something to reset; confirmed via `useConfirm`) and delete (which
 clears the selection). Without a selection, or when the selected action is
 gone, it shows an empty state. A shape edit on a modified graph asks for
 confirmation first. Shared pieces (preview, badges, name field, render
-boundary) are in `actions/parts.tsx`. The Hotkey form reuses
-the Macros panel's `ShortcutRecorder`, `FieldEditor` and `effectiveFields`
-(exported from `macros/MacrosPanel.tsx` with a `className` handle), so the
-field labels still come from the `macros` i18n namespace — they need a new
-home when Macros is retired.
+boundary) are in `actions/parts.tsx`. The Hotkey form's
+shortcut recorder is `actions/ShortcutRecorder.tsx` (browser key codes →
+the OS hook's key names in `actions/keymap.ts`); response fields are edited by
+`actions/FieldEditor.tsx`, with `effectiveFields` (`actions/responseFields.ts`)
+typing a property's value by the chosen property. Both take a required
+`className` `vs-` handle; their labels are in the `actions` namespace
+(`shortcut.*`, `field.*`).
 
 The Logic panel lists action graphs in their own *Action Logic* section
 (between Scoped Logic and Behavior Logic; **decided** by the user), one row per
@@ -352,7 +350,7 @@ with the action's name and kind, so a graph opened from the Actions panel shows
 as selected. The row's dot switches the action itself (`enabled` on the
 action, re-enabling the graph document too if it was off).
 
-Other panel behaviour (added for Hotkey parity with Macros): each group header
+Other panel behaviour (added for Hotkey parity with the former Macros panel): each group header
 has a `+` that adds another action of that kind in one click; a newly added
 action is selected, so its settings open in the main view. (An inline
 shortcut recorder in Hotkey rows existed briefly; it went with the move of the
@@ -430,9 +428,6 @@ boot; modified ones show "Template update".
   its `actions` rows through the FK cascade, but not the action graphs'
   `logic` rows (same as project Logic), and the action documents stay in the
   running server's mesh replica until restart.
-- The Macros i18n namespace calls responses "actions" (DE "Aktionen"), which
-  now collides with the Action concept; the Actions UI says "Response" /
-  "Reaktion".
 
 ## Cross-references
 

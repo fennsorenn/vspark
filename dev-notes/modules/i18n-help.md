@@ -200,7 +200,7 @@ Available anchors per topic:
 | `avatar` | `loading`, `animation`, `expressions`, `materials`, `calibration` |
 | `scene` | `nodes`, `hierarchy`, `cameras`, `lights`, `compose` |
 | `behaviors` | `vmc`, `tracking`, `lipsync`, `breathing`, `expression-limits`, `devices`, `api` |
-| `logic` | `automations`, `nodes`, `events`, `triggers`, `hotkeys`, `conditions`, `variables`, `combos`, `custom-triggers`, `macros` |
+| `logic` | `automations`, `nodes`, `events`, `triggers`, `hotkeys`, `conditions`, `variables`, `combos`, `custom-triggers` |
 | `actions` | `overview`, `add`, `hotkey`, `value-shape`, `modified`, `reset`, `graph` |
 
 ### docs.ts — `help/docs.ts`

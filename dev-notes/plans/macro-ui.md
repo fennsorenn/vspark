@@ -1,5 +1,8 @@
 # Plan: Macro UI — a friendly projection over hotkey→action logic graphs
 
+> **Retired 2026-11-09:** the Macros panel was removed in favour of the Hotkey
+> Action kind ([plans/actions.md](actions.md)). Kept for history.
+
 > Branch: `feature/macro-ui` (builds on the `system_hotkey` node + `HotkeyManager`
 > already merged) · Status: Stages 1–3 landed (feature functional end-to-end)
 > This plan is the seed context for a cloud worker. It is a starting point, not an
