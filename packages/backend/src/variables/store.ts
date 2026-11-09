@@ -33,36 +33,17 @@ import {
   type VariableDoc,
 } from '../mesh/variables.js';
 
-export interface VariableRef {
-  projectId: string;
-  /** '' = the shared namespace. */
-  scope: string;
-  name: string;
-}
+import {
+  persistentVariableId,
+  runtimeVariableId,
+  variableRef,
+  type VariableRef,
+} from '@vspark/shared/variables';
 
-const enc = (s: string) => encodeURIComponent(s);
-
-/** Document id in the persistent collection. Scope and name are encoded so
- *  the separators are unambiguous; the prefixes keep the two collections' ids
- *  apart (the mesh containment index keys ids across every rtype). */
-export const persistentVariableId = (r: VariableRef): string =>
-  `var:${r.projectId}:${enc(r.scope)}:${enc(r.name)}`;
-export const runtimeVariableId = (r: VariableRef): string =>
-  `rvar:${r.projectId}:${enc(r.scope)}:${enc(r.name)}`;
-
-/** Normalize the parts of a ref read off node ports; null when unusable (no
- *  project — e.g. a graph that isn't a Logic graph — or no name). */
-export function variableRef(
-  projectId: unknown,
-  scope: unknown,
-  name: unknown
-): VariableRef | null {
-  if (typeof projectId !== 'string' || projectId === '') return null;
-  const n = typeof name === 'string' ? name.trim() : '';
-  if (n === '') return null;
-  const s = typeof scope === 'string' ? scope.trim() : '';
-  return { projectId, scope: s, name: n };
-}
+// Naming lives in @vspark/shared/variables (the editor addresses the same
+// documents); re-exported for existing importers.
+export { persistentVariableId, runtimeVariableId, variableRef };
+export type { VariableRef };
 
 let warnedNoMesh = false;
 function collections(): {
@@ -176,3 +157,50 @@ export function deleteVariablesInScope(scope: string): number {
     }
   return n;
 }
+
+/**
+ * Call `cb` with the ref of every variable that changes or is removed — by a
+ * graph here, or by a tab (a Start button, a goal set by hand). Synchronous:
+ * a node can skip its own write by flagging it around the write. Returns an
+ * unsubscribe; a no-op before the mesh is up.
+ */
+export function onVariableChange(
+  cb: (ref: VariableRef) => void
+): () => void {
+  const c = collections();
+  if (!c) return () => {};
+  const handle = (change: { doc?: VariableDoc; id: string }) => {
+    const d = change.doc;
+    if (d) {
+      cb({ projectId: d.projectId, scope: d.scope, name: d.name });
+      return;
+    }
+    // A removal carries no document: recover the ref from the id.
+    const ref = refFromId(change.id);
+    if (ref) cb(ref);
+  };
+  const offs = [c.persistent.observe('**', handle), c.runtime.observe('**', handle)];
+  return () => offs.forEach((off) => off());
+}
+
+/** The ref a variable document id encodes (`var:` / `rvar:` ids). */
+export function refFromId(id: string): VariableRef | null {
+  const m = /^r?var:([^:]*):([^:]*):(.*)$/.exec(id);
+  if (!m) return null;
+  try {
+    return {
+      projectId: m[1],
+      scope: decodeURIComponent(m[2]),
+      name: decodeURIComponent(m[3]),
+    };
+  } catch {
+    return null;
+  }
+}
+
+export const sameRef = (a: VariableRef | null, b: VariableRef | null) =>
+  !!a &&
+  !!b &&
+  a.projectId === b.projectId &&
+  a.scope === b.scope &&
+  a.name === b.name;

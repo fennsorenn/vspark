@@ -1,4 +1,11 @@
-import { Component, createElement, type ReactNode } from 'react';
+import {
+  Component,
+  createElement,
+  useEffect,
+  useMemo,
+  useState,
+  type ReactNode,
+} from 'react';
 import DOMPurify from 'dompurify';
 import htm from 'htm';
 import { TEXT_SANITIZE_OPTS } from './textSanitize';
@@ -29,10 +36,78 @@ export function Emote({ html: raw }: { html?: string }) {
   );
 }
 
+/** Seconds as a clock: `auto` → `M:SS` under an hour, else `H:MM:SS` (hours
+ *  keep counting past 24); `hh:mm:ss` / `mm:ss` force the layout (`mm:ss`
+ *  counts minutes past 59). */
+export function formatCountdown(seconds: number, format = 'auto'): string {
+  const total = Math.max(0, Math.ceil(seconds));
+  const h = Math.floor(total / 3600);
+  const m = Math.floor((total % 3600) / 60);
+  const s = total % 60;
+  const p2 = (n: number) => String(n).padStart(2, '0');
+  if (format === 'mm:ss') return `${p2(Math.floor(total / 60))}:${p2(s)}`;
+  if (format === 'hh:mm:ss') return `${p2(h)}:${p2(m)}:${p2(s)}`;
+  return h > 0 ? `${h}:${p2(m)}:${p2(s)}` : `${m}:${p2(s)}`;
+}
+
+/** What a timer looks like when published: the Deadline node's `state`. */
+export interface CountdownState {
+  /** Epoch seconds it ends at while running. */
+  endsAt?: number | null;
+  /** Seconds left while paused / not started. */
+  remaining?: number;
+  running?: boolean;
+  /** The publisher's clock (epoch seconds) when it published — corrects for
+   *  a viewer whose clock differs. */
+  now?: number;
+}
+
+/**
+ * Host-provided component for feed templates: a clock that counts down on the
+ * page, so the graph only publishes when the end time changes (start, pause,
+ * time added) — never once per second. Pass the Deadline node's `state` as
+ * `state`, or `to` (epoch seconds) for a plain count down to a moment.
+ *
+ *   <${Countdown} state=${timer} format="auto" />
+ */
+export function Countdown({
+  state,
+  to,
+  format = 'auto',
+  className,
+}: {
+  state?: CountdownState | null;
+  to?: number | null;
+  format?: string;
+  className?: string;
+}) {
+  const running = to != null ? true : state?.running === true;
+  const endsAt = to ?? state?.endsAt ?? null;
+  const frozen = state?.remaining ?? 0;
+  // The publisher's clock minus ours, taken when a new state arrives.
+  const skew = useMemo(
+    () =>
+      typeof state?.now === 'number' ? state.now - Date.now() / 1000 : 0,
+    [state?.now]
+  );
+  const left = () =>
+    running && typeof endsAt === 'number'
+      ? endsAt - (Date.now() / 1000 + skew)
+      : frozen;
+  const [, setTick] = useState(0);
+  useEffect(() => {
+    if (!running || typeof endsAt !== 'number') return;
+    const id = setInterval(() => setTick((n) => n + 1), 250);
+    return () => clearInterval(id);
+  }, [running, endsAt]);
+  return <span className={className}>{formatCountdown(left(), format)}</span>;
+}
+
 export type FeedRender = (
   html: unknown,
   Emote: unknown,
-  channels: Record<string, unknown>
+  channels: Record<string, unknown>,
+  Countdown: unknown
 ) => ReactNode;
 
 export interface CompiledTemplate {
@@ -49,8 +124,8 @@ const _templateCache = new Map<string, CompiledTemplate>();
  * interpolated into an htm tagged-template literal and evaluated as JS via
  * `new Function` — htm has no build step. The published fields visible to this
  * consumer are exposed as BARE NAMES via `with(channels)` (so a field labeled
- * `chat` is referenced as `${chat.map(...)}`); the `Emote` helper is also in
- * scope. Field names must be valid JS identifiers to be referenced bare.
+ * `chat` is referenced as `${chat.map(...)}`); the `Emote` and `Countdown`
+ * helpers are also in scope. Field names must be valid JS identifiers to be referenced bare.
  *
  * NOTE: templates execute as code. This is acceptable under vspark's local /
  * single-user model — no worse than the `browser` compose layer, which already
@@ -69,6 +144,7 @@ export function compileTemplate(src: string): CompiledTemplate {
       'html',
       'Emote',
       'channels',
+      'Countdown',
       `with (channels) { return html\`${src}\`; }`
     ) as FeedRender;
     result = { render: fn, error: null };
@@ -95,7 +171,7 @@ export function FeedContent({
   channels: Record<string, unknown>;
 }) {
   try {
-    return <>{render(html, Emote, channels)}</>;
+    return <>{render(html, Emote, channels, Countdown)}</>;
   } catch {
     return null;
   }

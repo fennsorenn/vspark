@@ -7,11 +7,24 @@ import {
   valueOut,
 } from '@vspark/shared/node_decorators';
 import {
+  TALLY_EMPTY as EMPTY,
+  tallyAdd,
+  tallyStateOf as stateOf,
+  tallyTop,
+  type TallyEntry,
+  type TallyRecent,
+  type TallyState,
+} from '@vspark/shared/variables';
+import {
+  onVariableChange,
   readVariable,
+  sameRef,
   variableRef,
   writeVariable,
   type VariableRef,
 } from '../../variables/store.js';
+
+export { tallyAdd, tallyTop };
 
 /**
  * Per-viewer totals and the latest entries, kept in one project variable
@@ -23,81 +36,11 @@ import {
  * graph's tally of the same name shows the same lists.
  */
 
-export interface TallyEntry {
-  /** The name as last seen (display name). */
-  name: string;
-  total: number;
-  count: number;
-}
-
-export interface TallyRecent {
-  name: string;
-  amount: number;
-  label: string;
-  /** Epoch seconds. */
-  at: number;
-}
-
-export interface TallyState {
-  /** Keyed by the lower-cased name. */
-  totals: Record<string, TallyEntry>;
-  /** Newest first. */
-  recent: TallyRecent[];
-}
-
-const EMPTY: TallyState = { totals: {}, recent: [] };
-
-function stateOf(raw: unknown): TallyState {
-  if (!raw || typeof raw !== 'object') return EMPTY;
-  const r = raw as Partial<TallyState>;
-  return {
-    totals:
-      r.totals && typeof r.totals === 'object' && !Array.isArray(r.totals)
-        ? r.totals
-        : {},
-    recent: Array.isArray(r.recent) ? r.recent : [],
-  };
-}
-
 function countOf(v: unknown, fallback: number): number {
   const n = Number(v);
   return v === undefined || v === null || v === '' || !Number.isFinite(n)
     ? fallback
     : Math.max(0, Math.floor(n));
-}
-
-/** Pure: add one entry, keeping at most `keep` recent ones. */
-export function tallyAdd(
-  s: TallyState,
-  name: string,
-  amount: number,
-  label: string,
-  keep: number,
-  at = Date.now() / 1000
-): TallyState {
-  const key = name.toLowerCase();
-  const prev = s.totals[key];
-  return {
-    totals: {
-      ...s.totals,
-      [key]: {
-        name,
-        total: (prev?.total ?? 0) + amount,
-        count: (prev?.count ?? 0) + 1,
-      },
-    },
-    recent: [{ name, amount, label, at }, ...s.recent].slice(0, keep),
-  };
-}
-
-/** The `n` highest totals, highest first (ties: most entries, then name). */
-export function tallyTop(s: TallyState, n: number): TallyEntry[] {
-  return Object.values(s.totals)
-    .sort(
-      (a, b) =>
-        b.total - a.total || b.count - a.count || a.name.localeCompare(b.name)
-    )
-    .slice(0, n);
 }
 
 @SignalNode({
@@ -134,6 +77,9 @@ export class Tally extends Node {
     this.read().recent[0] ?? null;
 
   private boot: ReturnType<typeof setTimeout> | null = null;
+  private unwatch: (() => void) | null = null;
+  /** Set around this node's own writes, so the watcher skips them. */
+  private writing = false;
 
   private ref(): VariableRef | null {
     return variableRef(this.config._projectId, this.scope(), this.name());
@@ -147,7 +93,12 @@ export class Tally extends Node {
   private commit(next: TallyState): void {
     const ref = this.ref();
     if (!ref) return;
-    writeVariable(ref, next, this.persistent() === true);
+    this.writing = true;
+    try {
+      writeVariable(ref, next, this.persistent() === true);
+    } finally {
+      this.writing = false;
+    }
     this.changed.emit(undefined);
   }
 
@@ -156,11 +107,18 @@ export class Tally extends Node {
       this.boot = null;
       this.changed.emit(undefined);
     }, 0);
+    // Reset (or edited) by someone else — e.g. the editor's Reset button.
+    this.unwatch = onVariableChange((ref) => {
+      if (!this.writing && sameRef(ref, this.ref()))
+        this.changed.emit(undefined);
+    });
   }
 
   protected override onUnbind(): void {
     if (this.boot !== null) clearTimeout(this.boot);
+    this.unwatch?.();
     this.boot = null;
+    this.unwatch = null;
   }
 
   @eventIn('add', 'Trigger')

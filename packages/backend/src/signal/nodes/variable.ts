@@ -8,7 +8,9 @@ import {
 } from '@vspark/shared/node_decorators';
 import {
   incrementVariable,
+  onVariableChange,
   readVariable,
+  sameRef,
   variableRef,
   writeVariable,
   type VariableRef,
@@ -40,11 +42,12 @@ function refOf(
   return variableRef(config._projectId, scope, name);
 }
 
-/** Pure read: the variable's current value (unset → nothing). */
+/** Read: the variable's current value (unset → nothing), and `changed`
+ *  whenever it changes. */
 @SignalNode({
   label: 'Get Variable',
   description:
-    'Reads a project variable by name. Scope keeps names apart: leave it empty for the shared namespace, or wire "This Logic" to keep the variable private to this graph.',
+    'Reads a project variable by name and fires "changed" when it changes. Scope keeps names apart: leave it empty for the shared namespace, or wire "This Logic" to keep the variable private to this graph.',
   tags: ['variables'],
   color: '#6a4a8a',
 })
@@ -58,6 +61,31 @@ export class GetVariable extends Node {
     const ref = refOf(this.config, this.scope(), this.name());
     return ref ? readVariable(ref) : undefined;
   };
+
+  /** Fires whenever the variable changes — set by any graph, or by a tab —
+   *  and once when the graph starts, so a display can publish it. */
+  @eventOut('changed', 'Trigger') changed!: Emitter<void>;
+
+  private unwatch: (() => void) | null = null;
+  private boot: ReturnType<typeof setTimeout> | null = null;
+
+  protected override onBind(): void {
+    this.boot = setTimeout(() => {
+      this.boot = null;
+      this.changed.emit(undefined);
+    }, 0);
+    this.unwatch = onVariableChange((ref) => {
+      if (sameRef(ref, refOf(this.config, this.scope(), this.name())))
+        this.changed.emit(undefined);
+    });
+  }
+
+  protected override onUnbind(): void {
+    if (this.boot !== null) clearTimeout(this.boot);
+    this.unwatch?.();
+    this.boot = null;
+    this.unwatch = null;
+  }
 }
 
 /** Boundary node: on `fire`, stores `value`; then fires `done`. `value`

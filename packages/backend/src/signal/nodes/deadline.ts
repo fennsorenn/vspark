@@ -7,11 +7,25 @@ import {
   valueOut,
 } from '@vspark/shared/node_decorators';
 import {
+  DEADLINE_IDLE as IDLE,
+  deadlineOps,
+  deadlineStateOf as stateOf,
+  remainingOf,
+  type DeadlineState,
+} from '@vspark/shared/variables';
+import {
+  onVariableChange,
   readVariable,
+  sameRef,
   variableRef,
   writeVariable,
   type VariableRef,
 } from '../../variables/store.js';
+
+// The state and its transitions live in @vspark/shared/variables (the
+// editor's Start / Pause buttons apply the same ones to the same document).
+export { deadlineOps, remainingOf };
+export type { DeadlineState };
 
 /**
  * Timer state — and nothing else. The state is one project variable (named by
@@ -19,8 +33,9 @@ import {
  * restarts), so other graphs can read it and a restart resumes a running
  * timer where its end time says.
  *
- * Nothing ticks here: the node changes the state on its events and fires
- * `changed`; displays count down on their own from `endsAt` (the feed
+ * Nothing ticks here: the node changes the state on its events — or sees it
+ * changed by someone else (a tab's Start button writes the variable) — and
+ * fires `changed`; displays count down on their own from `endsAt` (the feed
  * template's `<Countdown>`). The one timeout it holds is for `finished`, re-armed
  * whenever the end time moves and when the graph starts.
  *
@@ -28,80 +43,7 @@ import {
  * (Math / Clamp / Step Lookup) and hand them to `add`.
  */
 
-export interface DeadlineState {
-  /** Epoch seconds the timer ends at while running; null when not running. */
-  endsAt: number | null;
-  /** Seconds left while paused / before start (frozen). */
-  remaining: number;
-  /** Total length so far: the start duration plus everything added. */
-  total: number;
-  running: boolean;
-  /** Set once it ran out; cleared by start / reset. */
-  finished: boolean;
-}
-
-const IDLE: DeadlineState = {
-  endsAt: null,
-  remaining: 0,
-  total: 0,
-  running: false,
-  finished: false,
-};
-
 const nowS = () => Date.now() / 1000;
-
-function stateOf(raw: unknown): DeadlineState {
-  if (!raw || typeof raw !== 'object') return IDLE;
-  const r = raw as Partial<DeadlineState>;
-  const n = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) ? v : 0);
-  const running = r.running === true && typeof r.endsAt === 'number';
-  return {
-    endsAt: running ? n(r.endsAt) : null,
-    remaining: Math.max(0, n(r.remaining)),
-    total: Math.max(0, n(r.total)),
-    running,
-    finished: r.finished === true,
-  };
-}
-
-/** Seconds left at `now`. */
-export function remainingOf(s: DeadlineState, now = nowS()): number {
-  return s.running && s.endsAt !== null
-    ? Math.max(0, s.endsAt - now)
-    : s.remaining;
-}
-
-/** Pure transitions, exported for tests. A negative `add` takes time off
- *  (never below zero left; total shrinks by what was actually taken). */
-export const deadlineOps = {
-  start(seconds: number, now = nowS()): DeadlineState {
-    const d = Math.max(0, seconds);
-    return { endsAt: now + d, remaining: d, total: d, running: true, finished: false };
-  },
-  pause(s: DeadlineState, now = nowS()): DeadlineState {
-    if (!s.running) return s;
-    return { ...s, endsAt: null, remaining: remainingOf(s, now), running: false };
-  },
-  resume(s: DeadlineState, now = nowS()): DeadlineState {
-    if (s.running || s.finished || s.remaining <= 0) return s;
-    return { ...s, endsAt: now + s.remaining, running: true };
-  },
-  add(s: DeadlineState, seconds: number, now = nowS()): DeadlineState {
-    if (s.finished || !Number.isFinite(seconds) || seconds === 0) return s;
-    const left = remainingOf(s, now);
-    const next = Math.max(0, left + seconds);
-    const applied = next - left;
-    return {
-      ...s,
-      remaining: next,
-      endsAt: s.running ? now + next : null,
-      total: Math.max(0, s.total + applied),
-    };
-  },
-  finish(s: DeadlineState): DeadlineState {
-    return { ...s, endsAt: null, remaining: 0, running: false, finished: true };
-  },
-};
 
 function secondsOf(v: unknown): number | null {
   if (v === undefined || v === null || v === '') return null;
@@ -146,6 +88,9 @@ export class Deadline extends Node {
 
   private timer: ReturnType<typeof setTimeout> | null = null;
   private boot: ReturnType<typeof setTimeout> | null = null;
+  private unwatch: (() => void) | null = null;
+  /** Set around this node's own writes, so the watcher skips them. */
+  private writing = false;
 
   private ref(): VariableRef | null {
     return variableRef(this.config._projectId, this.scope(), this.name());
@@ -159,7 +104,12 @@ export class Deadline extends Node {
   private commit(next: DeadlineState): void {
     const ref = this.ref();
     if (!ref) return;
-    writeVariable(ref, next, this.persistent() === true);
+    this.writing = true;
+    try {
+      writeVariable(ref, next, this.persistent() === true);
+    } finally {
+      this.writing = false;
+    }
     this.arm(next);
     this.changed.emit(undefined);
   }
@@ -194,17 +144,33 @@ export class Deadline extends Node {
       const s = this.read();
       if (s.running && s.endsAt !== null && s.endsAt <= nowS()) {
         const ref = this.ref();
-        if (ref) writeVariable(ref, deadlineOps.finish(s), this.persistent() === true);
+        if (ref) {
+          this.writing = true;
+          try {
+            writeVariable(ref, deadlineOps.finish(s), this.persistent() === true);
+          } finally {
+            this.writing = false;
+          }
+        }
       } else this.arm(s);
       this.changed.emit(undefined);
     }, 0);
+    // Someone else changed the state (a tab's button, another graph): follow
+    // its end time.
+    this.unwatch = onVariableChange((ref) => {
+      if (this.writing || !sameRef(ref, this.ref())) return;
+      this.arm(this.read());
+      this.changed.emit(undefined);
+    });
   }
 
   protected override onUnbind(): void {
     if (this.timer !== null) clearTimeout(this.timer);
     if (this.boot !== null) clearTimeout(this.boot);
+    this.unwatch?.();
     this.timer = null;
     this.boot = null;
+    this.unwatch = null;
   }
 
   @eventIn('start', 'Trigger')
@@ -229,7 +195,7 @@ export class Deadline extends Node {
 
   @eventIn('reset', 'Trigger')
   onReset(): void {
-    this.commit(IDLE);
+    this.commit(deadlineOps.reset());
   }
 
   @eventIn('add', 'Trigger')

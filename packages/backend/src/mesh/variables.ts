@@ -29,12 +29,14 @@ export function initRuntimeVariables(peer: MeshPeer): void {
   if (_col) return;
   _col = peer.collection<VariableDoc>(RUNTIME_VARIABLE_RTYPE);
   peer.grants.grant({
-    grantee: peer.id, // our tabs may read them; only graphs (this server) write
+    // Our tabs read them, and write them too: a widget's Start / Pause
+    // buttons put the timer state, and the nodes holding it react.
+    grantee: peer.id,
     entityRtype: RUNTIME_VARIABLE_RTYPE,
     entityId: '*',
     includeDescendants: false,
     pathPrefix: '',
-    rights: { read: true },
+    rights: { read: true, create: true, update: true, delete: true },
   });
 }
 

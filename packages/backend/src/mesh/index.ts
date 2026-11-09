@@ -49,6 +49,11 @@ import {
   resetServerStatus,
 } from './status.js';
 import { initRuntimeVariables, resetRuntimeVariables } from './variables.js';
+import {
+  persistentVariableId,
+  runtimeVariableId,
+  variableRef,
+} from '@vspark/shared/variables';
 import { refreshAllBehaviorManagers } from '../behaviors/refresh.js';
 import { logicLifecycle } from '../logic/lifecycle.js';
 import { actionLifecycle, guardAction } from '../actions/lifecycle.js';
@@ -454,10 +459,13 @@ const BINDINGS: RtypeBinding[] = [
   {
     // Persistent graph variables (the short-lived ones are the
     // `runtime_variable` collection in mesh/variables.ts). Graphs write them
-    // through variables/store.ts; tabs only read them for now.
+    // through variables/store.ts; tabs write them too (a widget's Start /
+    // Pause buttons, a goal set by hand), and the nodes holding them react.
+    // A tab's write is checked to be a well-formed variable of a project.
     rtype: 'variable',
-    clients: { read: true },
+    clients: TAB_AUTHORED,
     table: 'variables',
+    validate: (data) => guardVariable(data as Dto, 'var'),
     persists: (d) => ownProject(d.projectId),
   },
   {
@@ -469,6 +477,21 @@ const BINDINGS: RtypeBinding[] = [
     persists: (d) => rowExists('track_clips', d.clipId),
   },
 ];
+
+/** A variable document as any writer may put it: its id is the one its
+ *  (project, scope, name) names, in the collection's id scheme, and it
+ *  belongs to an existing project. Throws (→ rejected) otherwise. */
+export function guardVariable(d: Dto, prefix: 'var' | 'rvar'): Dto {
+  const ref = variableRef(d.projectId, d.scope, d.name);
+  if (!ref || ref.scope !== d.scope || ref.name !== d.name)
+    throw new Error('A variable needs a project and a name.');
+  const want =
+    prefix === 'var' ? persistentVariableId(ref) : runtimeVariableId(ref);
+  if (d.id !== want) throw new Error('Variable id does not match its name.');
+  if (!rowExists('projects', ref.projectId))
+    throw new Error('Unknown project.');
+  return d;
+}
 
 /** Behavior-owned graphs being removed (onRemoving → onRemoved). */
 const removingBehaviorGraphs = new Set<string>();

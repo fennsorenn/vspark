@@ -11,7 +11,9 @@ import {
   type DeadlineState,
 } from '../src/signal/nodes/deadline.js';
 import { tallyAdd, tallyTop } from '../src/signal/nodes/tally.js';
-import { readVariable } from '../src/variables/store.js';
+import { readVariable, writeVariable } from '../src/variables/store.js';
+import { guardVariable } from '../src/mesh/index.js';
+import { persistentVariableId } from '@vspark/shared/variables';
 
 /**
  * The general nodes behind the stream widgets (dev-notes/plans/stream-widgets.md):
@@ -272,6 +274,64 @@ describe('deadline and tally in a project variable', () => {
       (readVariable({ projectId, scope: '', name: 'late' }) as DeadlineState)
         .finished
     ).toBe(true);
+  });
+
+  it('deadline follows a change made elsewhere (a tab pausing it)', () => {
+    vi.useFakeTimers({ now: 3_000_000 });
+    const d = probe(
+      'deadline',
+      { _projectId: projectId, name: 'ext', duration: 10 },
+      ['running', 'remaining'],
+      ['changed', 'finished']
+    );
+    vi.advanceTimersByTime(0);
+    d.fire('start');
+    const before = d.count('changed');
+    const ref = { projectId, scope: '', name: 'ext' };
+    // What the editor's Pause button writes.
+    writeVariable(
+      ref,
+      deadlineOps.pause(readVariable(ref) as DeadlineState),
+      false
+    );
+    expect(d.count('changed')).toBe(before + 1);
+    vi.advanceTimersByTime(20_000);
+    expect(d.count('finished')).toBe(0);
+    expect(d.read()).toEqual([false, 10]);
+    // …and Resume re-arms the end.
+    writeVariable(
+      ref,
+      deadlineOps.resume(readVariable(ref) as DeadlineState),
+      false
+    );
+    vi.advanceTimersByTime(10_000);
+    expect(d.count('finished')).toBe(1);
+  });
+
+  it('get variable fires changed when anyone sets the variable', () => {
+    vi.useFakeTimers();
+    const g = probe('variable', { _projectId: projectId, name: 'goal' }, ['value'], ['changed']);
+    vi.advanceTimersByTime(0);
+    expect(g.count('changed')).toBe(1); // start-up
+    writeVariable({ projectId, scope: '', name: 'goal' }, 7, true);
+    expect(g.count('changed')).toBe(2);
+    expect(g.read()).toEqual([7]);
+    writeVariable({ projectId, scope: '', name: 'other' }, 1, true);
+    expect(g.count('changed')).toBe(2);
+  });
+
+  it('a variable write must name its own id and project', () => {
+    const ref = { projectId, scope: '', name: 'x' };
+    const ok = { id: persistentVariableId(ref), ...ref, value: 1 };
+    expect(guardVariable(ok, 'var')).toBe(ok);
+    expect(() => guardVariable({ ...ok, id: 'var:other' }, 'var')).toThrow();
+    expect(() => guardVariable({ ...ok, name: '' }, 'var')).toThrow();
+    expect(() =>
+      guardVariable(
+        { ...ok, projectId: 'nope', id: persistentVariableId({ ...ref, projectId: 'nope' }) },
+        'var'
+      )
+    ).toThrow();
   });
 
   it('tally adds per user, resets, and ignores a nameless entry', () => {

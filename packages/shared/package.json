@@ -26,7 +26,8 @@
     "./idMap": "./src/idMap.ts",
     "./live2d": "./src/live2d.ts",
     "./actions": "./src/actions.ts",
-    "./composites": "./src/composites.ts"
+    "./composites": "./src/composites.ts",
+    "./variables": "./src/variables.ts"
   },
   "scripts": {
     "build": "tsc --noEmit",
