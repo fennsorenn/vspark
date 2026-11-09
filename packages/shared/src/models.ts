@@ -181,4 +181,8 @@ export const TAB_MODELS: readonly ModelName[] = [
   'media_control',
   'sound_cue',
   'server_status',
+  // Graph variables: widgets show and control the timers and counts kept in
+  // them (Start / Pause, a goal set by hand).
+  'variable',
+  'runtime_variable',
 ];

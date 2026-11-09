@@ -6,9 +6,15 @@
  */
 import {
   Bell,
+  History,
+  Hourglass,
+  Megaphone,
   MessageSquare,
   MessagesSquare,
   MessageSquareText,
+  Target,
+  Timer,
+  Trophy,
   type LucideIcon,
 } from 'lucide-react';
 import type { CompositeRootRtype } from '@vspark/shared/composites';
@@ -48,6 +54,48 @@ export const COMPOSITE_DEFS: CompositeDef[] = [
     rootRtype: 'compose_layer',
     icon: MessageSquare,
     label: 'Chat Overlay',
+  },
+  {
+    type: 'goal',
+    presetId: 'builtin:composite-goal',
+    rootRtype: 'compose_layer',
+    icon: Target,
+    label: 'Goal',
+  },
+  {
+    type: 'countdown',
+    presetId: 'builtin:composite-countdown',
+    rootRtype: 'compose_layer',
+    icon: Timer,
+    label: 'Countdown',
+  },
+  {
+    type: 'subathon',
+    presetId: 'builtin:composite-subathon',
+    rootRtype: 'compose_layer',
+    icon: Hourglass,
+    label: 'Subathon Timer',
+  },
+  {
+    type: 'recent_events',
+    presetId: 'builtin:composite-recent-events',
+    rootRtype: 'compose_layer',
+    icon: History,
+    label: 'Recent Events',
+  },
+  {
+    type: 'top_supporters',
+    presetId: 'builtin:composite-top-supporters',
+    rootRtype: 'compose_layer',
+    icon: Trophy,
+    label: 'Top Supporters',
+  },
+  {
+    type: 'ad_break',
+    presetId: 'builtin:composite-ad-break',
+    rootRtype: 'compose_layer',
+    icon: Megaphone,
+    label: 'Ad Break',
   },
   {
     type: 'chat_overlay_3d',

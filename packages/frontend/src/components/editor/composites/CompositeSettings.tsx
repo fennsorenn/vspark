@@ -13,11 +13,19 @@ import {
   writeSetting,
   type CompositeRootRtype,
   type CompositeSetting,
+  type CompositeTypeDef,
+  type CompositeView,
 } from '@vspark/shared/composites';
 import { useEditorStore } from '../../../store/editorStore';
 import { HelpButton } from '../../../help/HelpButton';
 import { DraftNumber, DraftText } from '../actions/draftInputs';
 import { inputStyle } from '../actions/styles';
+import {
+  DurationInput,
+  StagesControl,
+  TimerControl,
+  VariableControl,
+} from './CompositeControls';
 import {
   commitSettingWrites,
   compositeOf,
@@ -52,6 +60,20 @@ const rowStyle: CSSProperties = {
 };
 const labelCol: CSSProperties = { minWidth: 84, color: '#999' };
 
+/** The help section about each composite type. */
+const TYPE_ANCHOR: Record<string, string> = {
+  alert: 'alert',
+  chat_overlay: 'chat',
+  chat_overlay_3d: 'chat',
+  scrolling_chat: 'chat',
+  goal: 'goal',
+  countdown: 'countdown',
+  subathon: 'subathon',
+  recent_events: 'recent',
+  top_supporters: 'top',
+  ad_break: 'adbreak',
+};
+
 /** Re-render whenever anything under the composite changes: its parts are
  *  its child entities and their owned graphs and clips. */
 function useCompositeVersion(rtype: CompositeRootRtype, rootId: string) {
@@ -76,6 +98,10 @@ export function CompositeSettings({
   if (!found) return null;
   const { marker, def } = found;
   const view = compositeView(rtype, rootId, marker);
+  const readOther = (key: string) => {
+    const other = def.settings.find((o) => o.key === key);
+    return other ? readSetting(view, def, other) : undefined;
+  };
 
   const shown = def.settings.filter((s) => settingVisible(view, def, s));
   const groups: { group: string; settings: CompositeSetting[] }[] = [];
@@ -98,6 +124,14 @@ export function CompositeSettings({
           tip={t('help.settings')}
           size={11}
         />
+        {TYPE_ANCHOR[def.type] && (
+          <HelpButton
+            topic="composites"
+            anchor={TYPE_ANCHOR[def.type]}
+            tip={t('help.widgets')}
+            size={11}
+          />
+        )}
       </div>
       {groups.map(({ group, settings }) => (
         <div key={group}>
@@ -110,6 +144,7 @@ export function CompositeSettings({
               onValue={(v) =>
                 commitSettingWrites(writeSetting(view, def, s, v))
               }
+              ctx={{ view, def, readOther }}
             />
           ))}
         </div>
@@ -139,14 +174,24 @@ export function CompositeSettings({
   );
 }
 
+/** What the controls that reach past one field need: the composite and the
+ *  other settings' values. */
+interface SettingCtx {
+  view: CompositeView;
+  def: CompositeTypeDef;
+  readOther: (key: string) => unknown;
+}
+
 function SettingRow({
   setting: s,
   value,
   onValue,
+  ctx,
 }: {
   setting: CompositeSetting;
   value: unknown;
   onValue: (v: unknown) => void;
+  ctx: SettingCtx;
 }) {
   const { t } = useTranslation('composites');
   return (
@@ -162,6 +207,7 @@ function SettingRow({
           value={value}
           onValue={onValue}
           keyClass={`vs-composite-setting-${s.key}`}
+          ctx={ctx}
         />
       )}
     </div>
@@ -173,6 +219,7 @@ function SettingControl({
   value,
   onValue: onChange,
   keyClass,
+  ctx,
 }: {
   setting: CompositeSetting;
   value: unknown;
@@ -180,6 +227,7 @@ function SettingControl({
   /** `vs-composite-setting-<key>`: which setting, next to the shared
    *  `vs-composite-setting` handle every control carries. */
   keyClass: string;
+  ctx: SettingCtx;
 }) {
   const { t } = useTranslation('composites');
   const assets = useEditorStore((st) => st.assets);
@@ -187,6 +235,43 @@ function SettingControl({
   const str = typeof value === 'string' ? value : '';
 
   switch (s.control) {
+    case 'toggle':
+      return (
+        <input
+          type="checkbox"
+          className={`vs-composite-setting ${keyClass}`}
+          checked={value === true}
+          onChange={(e) => onChange(e.target.checked)}
+        />
+      );
+    case 'duration':
+      return (
+        <DurationInput
+          className={`vs-composite-setting ${keyClass}`}
+          value={typeof value === 'number' ? value : 0}
+          onCommit={onChange}
+        />
+      );
+    case 'timer':
+      return <TimerControl view={ctx.view} def={ctx.def} setting={s} />;
+    case 'variable':
+      return (
+        <VariableControl
+          view={ctx.view}
+          def={ctx.def}
+          setting={s}
+          keyClass={keyClass}
+        />
+      );
+    case 'stages':
+      return (
+        <StagesControl
+          value={value}
+          onValue={onChange}
+          readOther={ctx.readOther}
+          setting={s}
+        />
+      );
     case 'text':
       return (
         <DraftText

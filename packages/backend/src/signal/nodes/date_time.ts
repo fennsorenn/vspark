@@ -1,35 +1,10 @@
 import { SignalNode } from '@vspark/shared/signal';
 import { Node } from '@vspark/shared/node';
 import { valueIn, valueOut } from '@vspark/shared/node_decorators';
+import { parseDateTime } from '@vspark/shared/variables';
 
-const CLOCK = /^(\d{1,2}):(\d{2})(?::(\d{2}))?$/;
-
-/**
- * A date/time text → epoch seconds, in the backend's local time zone.
- *  - a time of day `HH:MM` or `HH:MM:SS` → its next occurrence (today, or
- *    tomorrow once it has passed);
- *  - anything `Date` parses (e.g. `2026-11-09T20:00`, an ISO string with an
- *    offset) → that moment.
- * null when the text is empty or not a date.
- */
-export function parseDateTime(text: unknown, nowMs = Date.now()): number | null {
-  if (typeof text !== 'string') return null;
-  const t = text.trim();
-  if (t === '') return null;
-  const m = CLOCK.exec(t);
-  if (m) {
-    const h = Number(m[1]);
-    const min = Number(m[2]);
-    const s = m[3] === undefined ? 0 : Number(m[3]);
-    if (h > 23 || min > 59 || s > 59) return null;
-    const d = new Date(nowMs);
-    d.setHours(h, min, s, 0);
-    if (d.getTime() <= nowMs) d.setDate(d.getDate() + 1);
-    return d.getTime() / 1000;
-  }
-  const ms = Date.parse(t);
-  return Number.isFinite(ms) ? ms / 1000 : null;
-}
+// Parsing is shared with the editor (a countdown's Start button).
+export { parseDateTime };
 
 @SignalNode({
   label: 'Date / Time',
