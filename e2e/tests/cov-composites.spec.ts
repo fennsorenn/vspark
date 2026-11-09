@@ -293,6 +293,15 @@ test('cov-composites: stream widgets — timer buttons, stages, goal by hand, li
   await current.press('Enter');
   await expect(page.getByText('7 / 50').first()).toBeVisible();
 
+  // A second goal gets a variable of its own, and suggests the first's.
+  await placeWidget('Goal', 'goal');
+  const variable = page.locator('.vs-composite-setting-variable');
+  await expect(variable).toHaveValue('goal 2');
+  const listId = await variable.getAttribute('list');
+  await expect(
+    page.locator(`datalist[id="${listId}"] option[value="goal"]`)
+  ).toHaveCount(1);
+
   // Recent events: turning a kind off unwires it.
   const recent = await placeWidget('Recent Events', 'recent_events');
   await page.locator('.vs-composite-setting-showFollow').click();
