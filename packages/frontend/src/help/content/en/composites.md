@@ -75,8 +75,9 @@ show, reconnect the account once.
 A timer counting down **a set time** or **to a time of day** (like `20:00`).
 Use **Start**, **Pause**, **Resume** and **Reset** in its settings. The same
 actions are named triggers — `countdown start`, `countdown pause`, … (change the
-base name under **Trigger names**) — so Actions, hotkeys and other logic can
-control it. **At zero, send trigger** sends a named trigger when it runs out, for
+base name under **Trigger names**; a second countdown starts out as
+`countdown 2 start`, … so one trigger never controls both) — so Actions,
+hotkeys and other logic can control it. **At zero, send trigger** sends a named trigger when it runs out, for
 example to switch scenes or show an alert.
 
 A running timer keeps going after a restart of vspark.

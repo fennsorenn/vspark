@@ -15,7 +15,10 @@ import {
   variableNames,
   type ProjectDocs,
 } from '../src/mesh/names';
-import { renameVariable } from '../src/components/editor/composites/compositeModel';
+import {
+  renameTriggerBase,
+  renameVariable,
+} from '../src/components/editor/composites/compositeModel';
 import { DraftText } from '../src/components/editor/actions/draftInputs';
 
 const node = (id: string, kind: string, defaultConfig: Record<string, unknown> = {}) => ({
@@ -124,6 +127,39 @@ describe('placing a goal', () => {
     // The fetched payload itself is left alone.
     expect(payload.logic[0].descriptor.nodes[0].defaultConfig.name).toBe('goal');
     expect(renameVariable(payload, 'goal', 'goal')).toBe(payload);
+  });
+});
+
+describe('placing a timer', () => {
+  it('renames its control triggers to the new base, nothing else', () => {
+    const payload = {
+      logic: [
+        {
+          descriptor: {
+            nodes: [
+              node('tStart', 'on_trigger', { name: 'countdown start' }),
+              node('tReset', 'on_trigger', { name: 'countdown reset' }),
+              node('done', 'send_trigger', { name: '' }),
+              node('other', 'on_trigger', { name: 'countdowns start' }),
+              node('fmt', 'text_format', { name: 'countdown start' }),
+            ],
+          },
+        },
+      ],
+    };
+    const out = renameTriggerBase(payload, 'countdown', 'countdown 2');
+    expect(out.logic[0].descriptor.nodes.map((n) => n.defaultConfig.name)).toEqual([
+      'countdown 2 start',
+      'countdown 2 reset',
+      '',
+      'countdowns start',
+      'countdown start',
+    ]);
+    expect(renameTriggerBase(payload, 'x', 'x')).toBe(payload);
+    // The base to use: the first free one among those in use.
+    expect(uniqueName('countdown', triggerBases(['countdown start', 'alert']))).toBe(
+      'countdown 2'
+    );
   });
 });
 

@@ -268,6 +268,19 @@ test('cov-composites: stream widgets — timer buttons, stages, goal by hand, li
   await page.locator('.vs-composite-timer-reset').click();
   await expect(settings).toContainText('not started');
 
+  // A second countdown gets control triggers of its own.
+  const cd2 = await placeWidget('Countdown', 'countdown');
+  await expect(page.locator('.vs-composite-setting-controlName')).toHaveValue(
+    'countdown 2'
+  );
+  await expect
+    .poll(
+      async () =>
+        ((await graphNode(request, cd2.timer, 'tStart'))?.defaultConfig as Doc)
+          ?.name
+    )
+    .toBe('countdown 2 start');
+
   // Subathon: add a soft-limit stage, change it, remove it.
   const sub = await placeWidget('Subathon Timer', 'subathon');
   const steps = async () =>

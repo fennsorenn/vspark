@@ -85,8 +85,9 @@ Ein Timer, der **eine feste Dauer** oder **bis zu einer Uhrzeit** (etwa `20:00`)
 herunterzählt. Nutze **Starten**, **Pausieren**, **Fortsetzen** und
 **Zurücksetzen** in seinen Einstellungen. Dieselben Aktionen sind benannte
 Auslöser – `countdown start`, `countdown pause`, … (den Grundnamen änderst du
-unter **Namen der Auslöser**) –, sodass Aktionen, Tastenkürzel und andere Logik
-ihn steuern können. **Bei null Auslöser senden** sendet einen benannten Auslöser,
+unter **Namen der Auslöser**; ein zweiter Countdown beginnt mit
+`countdown 2 start`, …, damit ein Auslöser nie beide steuert) –, sodass
+Aktionen, Tastenkürzel und andere Logik ihn steuern können. **Bei null Auslöser senden** sendet einen benannten Auslöser,
 wenn er abläuft, etwa um die Szene zu wechseln oder einen Alert zu zeigen.
 
 Ein laufender Timer läuft nach einem Neustart von vspark weiter.
