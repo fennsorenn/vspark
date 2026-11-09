@@ -154,7 +154,7 @@ The shared `handleOverliveEvent(...)` helper in `signal/nodes/overlive/_helpers.
 | `overlive_chat_message` | Chat message | (user/contains/badges via downstream nodes) | `username`, `displayName`, `text`, `html`, `color`, `isMod`, `isSub`, `isBroadcaster`, `isAction`, `isHighlighted`, `cheerAmount`, `data` (all outputs as one record) |
 | `overlive_chat_command` | Chat message starting with the prefix | `command` (case-insensitive, no prefix; empty = any) | `command`, `args` (space-joined), `text`, `isMod`/`isSub`/`isBroadcaster` |
 | `overlive_chat_delete` | Message deletion | — | `messageId`, `username` |
-| `overlive_ad_start` | Ad break started | — | `duration` |
+| `overlive_ad_start` | Ad break started | — | `durationSeconds`, `isAutomatic` |
 | `overlive_ad_end` | Ad break ended | — | — |
 | `overlive_ban` | User banned/timed out | — | `username`, `isPermanent`, `duration` |
 | `overlive_stream_online` | EventSub `stream.online` | — | `startedAt` |
