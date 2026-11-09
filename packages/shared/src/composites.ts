@@ -112,7 +112,20 @@ export type SettingControl =
   | 'select'
   | 'color'
   | 'asset'
-  | 'account';
+  | 'account'
+  /** On / off. */
+  | 'toggle'
+  /** Seconds, edited as H:MM:SS. */
+  | 'duration'
+  /** A list of `{ at, value }` steps (seconds → factor), with planning help:
+   *  the end time each threshold corresponds to. See `plan`. */
+  | 'stages'
+  /** Not a value: Start / Pause / Resume / Reset buttons and the time left
+   *  of a `deadline` node's timer (see `timer`). */
+  | 'timer'
+  /** A number kept in a project variable (see `variable`), e.g. a goal's
+   *  current count set by hand. */
+  | 'variable';
 
 /** A field of a part document (dotted path), e.g. the caption's
  *  `config.content` or `descriptor.nodes.ev.defaultConfig.account` on the
@@ -160,6 +173,13 @@ export interface CompositeSetting {
   /** Shown only when this holds (e.g. the account only for platform
    *  triggers). Receives the other settings' current values. */
   when?: (read: (key: string) => unknown) => boolean;
+  /** `timer` / `variable`: the graph part and the node (a `deadline`, or a
+   *  `variable` reader) whose `name` / `scope` / `persistent` name the
+   *  variable. A scope wired from a `logic_id` node is the graph's own id. */
+  node?: { part: string; id: string };
+  /** `stages`: the planning inputs — the setting keys giving the initial
+   *  length (seconds) and the planned start (date/time text). */
+  plan?: { initial: string; start: string };
 }
 
 export interface CompositeTypeDef {
@@ -309,6 +329,93 @@ function clipKeyframes(
 const num = (v: unknown, fallback: number) =>
   typeof v === 'number' && Number.isFinite(v) ? v : fallback;
 
+const graphOf = (doc: Doc) =>
+  toGraphDescriptor(doc.descriptor as Parameters<typeof toGraphDescriptor>[0]);
+
+/**
+ * The writes that replace graph node `nodeId` with a node of another kind (or
+ * remove it, `next` null) together with its edges: every edge touching it
+ * that isn't in `edges` is removed, `edges` are added. The account carries
+ * over between platform nodes.
+ */
+export function swapNodeWrites(
+  graphId: string,
+  graphDoc: Doc,
+  nodeId: string,
+  next: { kind: string; defaultConfig: Doc } | null,
+  edges: GraphEdgeDescriptor[]
+): FieldWrite[] {
+  const g = graphOf(graphDoc);
+  const prev = g.nodes.find((n) => n.id === nodeId);
+  const w = (path: string, value: unknown): FieldWrite => ({
+    rtype: 'logic',
+    id: graphId,
+    path,
+    value,
+  });
+  const out: FieldWrite[] = [];
+  const keep = new Set(edges.map(edgeKey));
+  for (const e of g.edges)
+    if (
+      (e.fromNodeId === nodeId || e.toNodeId === nodeId) &&
+      !keep.has(edgeKey(e))
+    )
+      out.push(w(`descriptor.edges.${edgeKey(e)}`, null));
+  if (!next) {
+    if (prev) out.push(w(`descriptor.nodes.${nodeId}`, null));
+    return out;
+  }
+  const prevCfg = (prev?.defaultConfig ?? {}) as Doc;
+  const cfg: Doc = { ...next.defaultConfig };
+  if ('account' in cfg && typeof prevCfg.account === 'string')
+    cfg.account = prevCfg.account;
+  out.push(
+    w(`descriptor.nodes.${nodeId}`, {
+      id: nodeId,
+      kind: next.kind,
+      position: prev?.position ?? { x: 0, y: 0 },
+      defaultConfig: cfg,
+    })
+  );
+  for (const e of edges) out.push(w(`descriptor.edges.${edgeKey(e)}`, e));
+  return out;
+}
+
+/** The writes that make the given edges present (`on`) or absent. */
+export function edgeToggleWrites(
+  graphId: string,
+  graphDoc: Doc,
+  edges: GraphEdgeDescriptor[],
+  on: boolean
+): FieldWrite[] {
+  const have = new Set(graphOf(graphDoc).edges.map(edgeKey));
+  const out: FieldWrite[] = [];
+  for (const e of edges) {
+    const k = edgeKey(e);
+    if (on && !have.has(k))
+      out.push({ rtype: 'logic', id: graphId, path: `descriptor.edges.${k}`, value: e });
+    if (!on && have.has(k))
+      out.push({ rtype: 'logic', id: graphId, path: `descriptor.edges.${k}`, value: null });
+  }
+  return out;
+}
+
+/** Whether every one of the edges is present. */
+function hasEdges(graphDoc: Doc, edges: GraphEdgeDescriptor[]): boolean {
+  const have = new Set(graphOf(graphDoc).edges.map(edgeKey));
+  return edges.every((e) => have.has(edgeKey(e)));
+}
+
+/** A graph edge (shorthand for the definitions below). */
+export const gEdge = (
+  fromNodeId: string,
+  fromPort: string,
+  toNodeId: string,
+  toPort: string,
+  kind: 'event' | 'value' = 'value'
+): GraphEdgeDescriptor =>
+  ({ fromNodeId, fromPort, toNodeId, toPort, kind }) as GraphEdgeDescriptor;
+
 // ── Alert ───────────────────────────────────────────────────────────────────
 //
 // One alert type for every trigger (decided, user 2026-11-08). The trigger is
@@ -321,7 +428,10 @@ const num = (v: unknown, fallback: number) =>
 export const ALERT_TRIGGERS = [
   'donation',
   'tip',
+  'bits',
   'sub',
+  'gift',
+  'follow',
   'raid',
   'named',
 ] as const;
@@ -345,9 +455,24 @@ export const ALERT_TRIGGER_SPECS: Record<AlertTrigger, TriggerSpec> = {
     defaultConfig: { account: '', currencyKind: 'tip', rewardId: '' },
     dataPort: 'data',
   },
+  bits: {
+    kind: 'overlive_redemption',
+    defaultConfig: { account: '', currencyKind: 'bits', rewardId: '' },
+    dataPort: 'data',
+  },
   sub: {
     kind: 'overlive_subscription',
     defaultConfig: { account: '', tier: '', isGift: '' },
+    dataPort: 'data',
+  },
+  gift: {
+    kind: 'overlive_gift_bomb',
+    defaultConfig: { account: '' },
+    dataPort: 'data',
+  },
+  follow: {
+    kind: 'overlive_follow',
+    defaultConfig: { account: '' },
     dataPort: 'data',
   },
   raid: {
@@ -394,9 +519,17 @@ function readTrigger(
   const cfg = (node.defaultConfig ?? {}) as Doc;
   switch (node.kind) {
     case 'overlive_redemption':
-      return cfg.currencyKind === 'tip' ? 'tip' : 'donation';
+      return cfg.currencyKind === 'tip'
+        ? 'tip'
+        : cfg.currencyKind === 'bits'
+          ? 'bits'
+          : 'donation';
     case 'overlive_subscription':
       return 'sub';
+    case 'overlive_gift_bomb':
+      return 'gift';
+    case 'overlive_follow':
+      return 'follow';
     case 'overlive_raid':
       return 'raid';
     case 'on_trigger':
@@ -437,38 +570,9 @@ export const ALERT_COMPOSITE: CompositeTypeDef = {
         const spec = ALERT_TRIGGER_SPECS[next];
         const p = partDoc(v, ALERT_COMPOSITE, 'queue');
         if (!spec || !p) return [];
-        const g = toGraphDescriptor(
-          p.doc.descriptor as Parameters<typeof toGraphDescriptor>[0]
-        );
-        const prev = g.nodes.find((n) => n.id === 'ev');
+        const prev = graphNode(v, ALERT_COMPOSITE, 'queue', 'ev');
         if (readTrigger(prev) === next) return [];
-        const prevCfg = (prev?.defaultConfig ?? {}) as Doc;
-        const cfg: Doc = { ...spec.defaultConfig };
-        // Keep what carries over: the account between platform triggers.
-        if ('account' in cfg && typeof prevCfg.account === 'string')
-          cfg.account = prevCfg.account;
-        const node: GraphNodeDescriptor = {
-          id: 'ev',
-          kind: spec.kind,
-          position: prev?.position ?? { x: 0, y: 0 },
-          defaultConfig: cfg,
-        } as GraphNodeDescriptor;
-        const w = (path: string, value: unknown): FieldWrite => ({
-          rtype: 'logic',
-          id: p.id,
-          path,
-          value,
-        });
-        const out: FieldWrite[] = [];
-        const nextEdges = alertTriggerEdges(next);
-        const nextKeys = new Set(nextEdges.map(edgeKey));
-        for (const e of g.edges)
-          if (e.fromNodeId === 'ev' && !nextKeys.has(edgeKey(e)))
-            out.push(w(`descriptor.edges.${edgeKey(e)}`, null));
-        out.push(w('descriptor.nodes.ev', node));
-        for (const e of nextEdges)
-          out.push(w(`descriptor.edges.${edgeKey(e)}`, e));
-        return out;
+        return swapNodeWrites(p.id, p.doc, 'ev', spec, alertTriggerEdges(next));
       },
     },
     {
@@ -489,7 +593,7 @@ export const ALERT_COMPOSITE: CompositeTypeDef = {
       key: 'currency',
       control: 'select',
       group: 'trigger',
-      options: ['', 'bits', 'channel_points', 'superchat'],
+      options: ['', 'channel_points', 'superchat'],
       links: [{ part: 'queue', path: evPath('currencyKind') }],
       when: (read) => read('trigger') === 'donation',
     },
@@ -881,11 +985,742 @@ export const SCROLLING_CHAT_COMPOSITE: CompositeTypeDef = {
   ],
 };
 
+// ── Stream widgets (batch 2) ────────────────────────────────────────────────
+//
+// See dev-notes/plans/stream-widgets.md. Each is a feed layer (template + CSS
+// with custom properties for the look) driven by a small graph that publishes
+// with `set_data`. Timers keep their state in a `deadline` node's variable and
+// are counted down on the page (`<Countdown>`); nothing is published per
+// second (decided, user 2026-11-09).
+
+/** Events a widget can count or list. */
+export const EVENT_SOURCES = [
+  'follow',
+  'sub',
+  'gift',
+  'bits',
+  'tip',
+  'raid',
+  'named',
+] as const;
+export type EventSource = (typeof EVENT_SOURCES)[number];
+
+export interface SourceSpec {
+  kind: string;
+  defaultConfig: Doc;
+  /** Output with the viewer's display name. */
+  user?: string;
+  /** Output with the amount (count, bits, money, viewers); none → 1. */
+  amount?: string;
+}
+
+/** Subs count without gifted ones: a gift bomb is its own event (and Twitch
+ *  also sends one sub per recipient, which would count it twice). */
+export const EVENT_SOURCE_SPECS: Record<EventSource, SourceSpec> = {
+  follow: {
+    kind: 'overlive_follow',
+    defaultConfig: { account: '' },
+    user: 'displayName',
+  },
+  sub: {
+    kind: 'overlive_subscription',
+    defaultConfig: { account: '', tier: '', isGift: 'false' },
+    user: 'displayName',
+  },
+  gift: {
+    kind: 'overlive_gift_bomb',
+    defaultConfig: { account: '' },
+    user: 'gifterDisplayName',
+    amount: 'count',
+  },
+  bits: {
+    kind: 'overlive_redemption',
+    defaultConfig: { account: '', currencyKind: 'bits', rewardId: '' },
+    user: 'displayName',
+    amount: 'amount',
+  },
+  tip: {
+    kind: 'overlive_redemption',
+    defaultConfig: { account: '', currencyKind: 'tip', rewardId: '' },
+    user: 'displayName',
+    amount: 'amount',
+  },
+  raid: {
+    kind: 'overlive_raid',
+    defaultConfig: { account: '' },
+    user: 'fromDisplayName',
+    amount: 'viewerCount',
+  },
+  named: {
+    kind: 'on_trigger',
+    defaultConfig: { name: 'goal' },
+    amount: 'payload',
+  },
+};
+
+/** Which event source a graph node is. */
+export function readSource(
+  node: GraphNodeDescriptor | undefined
+): EventSource | undefined {
+  if (!node) return undefined;
+  const cfg = (node.defaultConfig ?? {}) as Doc;
+  if (node.kind === 'overlive_redemption')
+    return cfg.currencyKind === 'tip'
+      ? 'tip'
+      : cfg.currencyKind === 'bits'
+        ? 'bits'
+        : undefined;
+  return (Object.keys(EVENT_SOURCE_SPECS) as EventSource[]).find(
+    (k) => EVENT_SOURCE_SPECS[k].kind === node.kind
+  );
+}
+
+/** Edges from a source node into the inputs `to` maps its outputs onto. */
+function sourceEdges(
+  srcId: string,
+  src: EventSource,
+  to: { fire: [string, string]; user?: [string, string]; amount?: [string, string] }
+): GraphEdgeDescriptor[] {
+  const spec = EVENT_SOURCE_SPECS[src];
+  const out = [gEdge(srcId, 'event', to.fire[0], to.fire[1], 'event')];
+  if (to.user && spec.user) out.push(gEdge(srcId, spec.user, ...to.user));
+  if (to.amount && spec.amount) out.push(gEdge(srcId, spec.amount, ...to.amount));
+  return out;
+}
+
+/** The node ids of a graph part that exist. */
+function existingNodes(
+  v: CompositeView,
+  def: CompositeTypeDef,
+  role: string,
+  ids: string[]
+): string[] {
+  const p = partDoc(v, def, role);
+  if (!p) return [];
+  const have = new Set(graphOf(p.doc).nodes.map((n) => n.id));
+  return ids.filter((id) => have.has(id));
+}
+
+/** One account setting for every platform node of a graph that exists (a
+ *  removed source has nothing to write into). */
+function accountSetting(
+  getDef: () => CompositeTypeDef,
+  role: string,
+  nodeIds: string[],
+  group: string
+): CompositeSetting {
+  return {
+    key: 'account',
+    control: 'account',
+    group,
+    get(v) {
+      const def = getDef();
+      const [first] = existingNodes(v, def, role, nodeIds);
+      if (!first) return undefined;
+      const cfg = graphNode(v, def, role, first)?.defaultConfig as Doc | undefined;
+      return typeof cfg?.account === 'string' ? cfg.account : '';
+    },
+    set(v, value) {
+      const def = getDef();
+      const p = partDoc(v, def, role);
+      if (!p) return [];
+      return existingNodes(v, def, role, nodeIds).map((id) => ({
+        rtype: 'logic' as const,
+        id: p.id,
+        path: `descriptor.nodes.${id}.defaultConfig.account`,
+        value,
+      }));
+    },
+  };
+}
+
+/** A two-way setting that is "on" when the edges are present. */
+function edgeSetting(
+  getDef: () => CompositeTypeDef,
+  role: string,
+  key: string,
+  group: string,
+  edges: GraphEdgeDescriptor[],
+  values: [on: string | boolean, off: string | boolean],
+  extra: Partial<CompositeSetting> = {}
+): CompositeSetting {
+  const toggle = typeof values[0] === 'boolean';
+  return {
+    key,
+    control: toggle ? 'toggle' : 'select',
+    group,
+    ...(toggle ? {} : { options: [values[0] as string, values[1] as string] }),
+    get(v) {
+      const p = partDoc(v, getDef(), role);
+      if (!p) return undefined;
+      return hasEdges(p.doc, edges) ? values[0] : values[1];
+    },
+    set(v, value) {
+      const p = partDoc(v, getDef(), role);
+      if (!p) return [];
+      return edgeToggleWrites(p.id, p.doc, edges, value === values[0]);
+    },
+    ...extra,
+  };
+}
+
+/** Feed-layer look: custom properties every widget's CSS declares. */
+const widgetLook = (withAccent: boolean, withTrack = false): CompositeSetting[] => [
+  {
+    key: 'fontFamily',
+    control: 'text',
+    group: 'look',
+    links: [{ part: 'panel', path: 'config.css', cssVar: '--w-font' }],
+  },
+  {
+    key: 'fontSize',
+    control: 'text',
+    group: 'look',
+    links: [{ part: 'panel', path: 'config.css', cssVar: '--w-size' }],
+  },
+  {
+    key: 'textColor',
+    control: 'color',
+    group: 'look',
+    links: [{ part: 'panel', path: 'config.css', cssVar: '--w-color' }],
+  },
+  ...(withAccent
+    ? [
+        {
+          key: 'accentColor',
+          control: 'color' as const,
+          group: 'look',
+          links: [{ part: 'panel', path: 'config.css', cssVar: '--w-accent' }],
+        },
+      ]
+    : []),
+  ...(withTrack
+    ? [
+        {
+          key: 'trackColor',
+          control: 'color' as const,
+          group: 'look',
+          links: [{ part: 'panel', path: 'config.css', cssVar: '--w-track' }],
+        },
+      ]
+    : []),
+];
+
+const cfgPath = (node: string, port: string) =>
+  `descriptor.nodes.${node}.defaultConfig.${port}`;
+
+/** Start / pause / resume / reset by named triggers `<base> start` etc. */
+const TIMER_TRIGGERS = [
+  ['tStart', 'start'],
+  ['tPause', 'pause'],
+  ['tResume', 'resume'],
+  ['tReset', 'reset'],
+] as const;
+
+function controlNameSetting(getDef: () => CompositeTypeDef, role: string): CompositeSetting {
+  return {
+    key: 'controlName',
+    control: 'text',
+    group: 'control',
+    get(v) {
+      const n = graphNode(v, getDef(), role, 'tStart');
+      const name = (n?.defaultConfig as Doc | undefined)?.name;
+      if (typeof name !== 'string') return n ? '' : undefined;
+      return name.replace(/ start$/, '');
+    },
+    set(v, value) {
+      const p = partDoc(v, getDef(), role);
+      if (!p) return [];
+      const base = String(value ?? '').trim();
+      return existingNodes(v, getDef(), role, TIMER_TRIGGERS.map(([id]) => id)).map(
+        (id) => ({
+          rtype: 'logic' as const,
+          id: p.id,
+          path: cfgPath(id, 'name'),
+          value: `${base} ${TIMER_TRIGGERS.find(([t]) => t === id)![1]}`,
+        })
+      );
+    },
+  };
+}
+
+const nodeExists = (getDef: () => CompositeTypeDef, role: string, id: string) =>
+  (v: CompositeView) => (graphNode(v, getDef(), role, id) ? true : undefined);
+
+/** Seconds settings stored elsewhere in another unit (e.g. per 100 bits). */
+function scaledSetting(
+  getDef: () => CompositeTypeDef,
+  key: string,
+  group: string,
+  role: string,
+  node: string,
+  port: string,
+  factor: number
+): CompositeSetting {
+  return {
+    key,
+    control: 'duration',
+    group,
+    get(v) {
+      const n = graphNode(v, getDef(), role, node);
+      if (!n) return undefined;
+      return num((n.defaultConfig as Doc | undefined)?.[port], 0) * factor;
+    },
+    set(v, value) {
+      const p = partDoc(v, getDef(), role);
+      const x = Number(value);
+      if (!p || !Number.isFinite(x)) return [];
+      return [{ rtype: 'logic', id: p.id, path: cfgPath(node, port), value: x / factor }];
+    },
+  };
+}
+
+// ── Goal ──
+// Shows a goal as a bar: the channel's Twitch goal, or a goal of your own
+// whose count is a project variable — counted from an event, set by hand in
+// the settings, or changed by any other graph.
+
+const GOAL_TWITCH_EDGES = [
+  gEdge('goal', 'event', 'sd', 'fire', 'event'),
+  gEdge('goal', 'current', 'sd', 'current'),
+  gEdge('goal', 'target', 'sd', 'target'),
+  gEdge('goal', 'description', 'sd', 'label'),
+];
+const GOAL_MANUAL_EDGES = [
+  gEdge('get', 'changed', 'sd', 'fire', 'event'),
+  gEdge('get', 'value', 'sd', 'current'),
+];
+export const GOAL_RESET_EDGES = [gEdge('online', 'event', 'zero', 'fire', 'event')];
+export const goalCountEdges = (src: EventSource) =>
+  sourceEdges('src', src, { fire: ['inc', 'fire'], amount: ['inc', 'by'] });
+
+const isManual = (read: (k: string) => unknown) => read('source') === 'manual';
+
+export const GOAL_COMPOSITE: CompositeTypeDef = {
+  type: 'goal',
+  rootRtype: 'compose_layer',
+  parts: { panel: 'compose_layer', flow: 'logic' },
+  settings: [
+    {
+      key: 'source',
+      control: 'select',
+      group: 'goal',
+      options: ['twitch', 'manual'],
+      get(v) {
+        const p = partDoc(v, GOAL_COMPOSITE, 'flow');
+        if (!p) return undefined;
+        return hasEdges(p.doc, GOAL_TWITCH_EDGES) ? 'twitch' : 'manual';
+      },
+      set(v, value) {
+        const p = partDoc(v, GOAL_COMPOSITE, 'flow');
+        if (!p) return [];
+        const twitch = value === 'twitch';
+        return [
+          ...edgeToggleWrites(p.id, p.doc, GOAL_MANUAL_EDGES, !twitch),
+          ...edgeToggleWrites(p.id, p.doc, GOAL_TWITCH_EDGES, twitch),
+        ];
+      },
+    },
+    accountSetting(() => GOAL_COMPOSITE, 'flow', ['goal', 'src', 'online'], 'goal'),
+    {
+      key: 'goalKind',
+      control: 'select',
+      group: 'goal',
+      options: [
+        '',
+        'follow',
+        'subscription',
+        'subscription_count',
+        'new_subscription',
+        'new_subscription_count',
+        'new_bit',
+        'new_cheerer',
+      ],
+      links: [{ part: 'flow', path: cfgPath('goal', 'kind') }],
+      when: (read) => read('source') === 'twitch',
+    },
+    {
+      key: 'label',
+      control: 'text',
+      group: 'goal',
+      links: [{ part: 'flow', path: cfgPath('sd', 'label') }],
+      when: isManual,
+    },
+    {
+      key: 'target',
+      control: 'number',
+      group: 'goal',
+      min: 0,
+      step: 1,
+      links: [{ part: 'flow', path: cfgPath('sd', 'target') }],
+      when: isManual,
+    },
+    {
+      key: 'current',
+      control: 'variable',
+      group: 'goal',
+      node: { part: 'flow', id: 'get' },
+      get: nodeExists(() => GOAL_COMPOSITE, 'flow', 'get'),
+      when: isManual,
+    },
+    {
+      key: 'count',
+      control: 'select',
+      group: 'goal',
+      options: ['none', ...EVENT_SOURCES],
+      get(v) {
+        if (!partDoc(v, GOAL_COMPOSITE, 'flow')) return undefined;
+        return readSource(graphNode(v, GOAL_COMPOSITE, 'flow', 'src')) ?? 'none';
+      },
+      set(v, value) {
+        const p = partDoc(v, GOAL_COMPOSITE, 'flow');
+        if (!p) return [];
+        const src = value as EventSource | 'none';
+        if (src === 'none') return swapNodeWrites(p.id, p.doc, 'src', null, []);
+        const spec = EVENT_SOURCE_SPECS[src];
+        if (!spec) return [];
+        if (readSource(graphNode(v, GOAL_COMPOSITE, 'flow', 'src')) === src) return [];
+        return swapNodeWrites(p.id, p.doc, 'src', spec, goalCountEdges(src));
+      },
+      when: isManual,
+    },
+    {
+      key: 'countTrigger',
+      control: 'text',
+      group: 'goal',
+      links: [{ part: 'flow', path: cfgPath('src', 'name') }],
+      when: (read) => isManual(read) && read('count') === 'named',
+    },
+    {
+      key: 'variable',
+      control: 'text',
+      group: 'goal',
+      links: [
+        { part: 'flow', path: cfgPath('get', 'name') },
+        { part: 'flow', path: cfgPath('inc', 'name') },
+        { part: 'flow', path: cfgPath('zero', 'name') },
+      ],
+      when: isManual,
+    },
+    edgeSetting(() => GOAL_COMPOSITE, 'flow', 'period', 'goal', GOAL_RESET_EDGES, ['stream', 'always'], {
+      when: isManual,
+    }),
+    ...widgetLook(true, true),
+  ],
+};
+
+// ── Countdown ──
+
+export const COUNTDOWN_UNTIL_EDGES = [gEdge('dt', 'fromNow', 'dl', 'duration')];
+
+export const COUNTDOWN_COMPOSITE: CompositeTypeDef = {
+  type: 'countdown',
+  rootRtype: 'compose_layer',
+  parts: { panel: 'compose_layer', timer: 'logic' },
+  settings: [
+    {
+      key: 'controls',
+      control: 'timer',
+      group: 'control',
+      node: { part: 'timer', id: 'dl' },
+      get: nodeExists(() => COUNTDOWN_COMPOSITE, 'timer', 'dl'),
+    },
+    edgeSetting(
+      () => COUNTDOWN_COMPOSITE,
+      'timer',
+      'mode',
+      'timer',
+      COUNTDOWN_UNTIL_EDGES,
+      ['until', 'duration']
+    ),
+    {
+      key: 'duration',
+      control: 'duration',
+      group: 'timer',
+      links: [{ part: 'timer', path: cfgPath('dl', 'duration') }],
+      when: (read) => read('mode') === 'duration',
+    },
+    {
+      key: 'until',
+      control: 'text',
+      group: 'timer',
+      links: [{ part: 'timer', path: cfgPath('dt', 'text') }],
+      when: (read) => read('mode') === 'until',
+    },
+    {
+      key: 'title',
+      control: 'text',
+      group: 'timer',
+      links: [{ part: 'timer', path: cfgPath('sd', 'title') }],
+    },
+    {
+      key: 'finishTrigger',
+      control: 'text',
+      group: 'control',
+      links: [{ part: 'timer', path: cfgPath('done', 'name') }],
+    },
+    controlNameSetting(() => COUNTDOWN_COMPOSITE, 'timer'),
+    ...widgetLook(false),
+  ],
+};
+
+// ── Subathon ──
+// Support adds time: each source's amount × its rate, times the factor of the
+// stage the total length has reached (soft limit), capped so the total never
+// passes the hard limit. Subs count without gifted ones (gift bombs add per
+// gifted sub).
+
+/** Stored hard cap meaning "none" (≈ 31 years). */
+export const NO_CAP = 1e9;
+
+export const SUBATHON_SOURCES = ['sub', 'gift', 'bits', 'tip', 'follow'] as const;
+
+export const SUBATHON_COMPOSITE: CompositeTypeDef = {
+  type: 'subathon',
+  rootRtype: 'compose_layer',
+  parts: { panel: 'compose_layer', flow: 'logic' },
+  settings: [
+    {
+      key: 'controls',
+      control: 'timer',
+      group: 'control',
+      node: { part: 'flow', id: 'dl' },
+      get: nodeExists(() => SUBATHON_COMPOSITE, 'flow', 'dl'),
+    },
+    accountSetting(
+      () => SUBATHON_COMPOSITE,
+      'flow',
+      ['sSub', 'sGift', 'sBits', 'sTip', 'sFollow'],
+      'timer'
+    ),
+    {
+      key: 'initial',
+      control: 'duration',
+      group: 'timer',
+      links: [{ part: 'flow', path: cfgPath('dl', 'duration') }],
+    },
+    {
+      key: 'title',
+      control: 'text',
+      group: 'timer',
+      links: [{ part: 'flow', path: cfgPath('sd', 'title') }],
+    },
+    {
+      key: 'perSub',
+      control: 'duration',
+      group: 'rates',
+      links: [{ part: 'flow', path: cfgPath('mSub', 'b') }],
+    },
+    {
+      key: 'perGift',
+      control: 'duration',
+      group: 'rates',
+      links: [{ part: 'flow', path: cfgPath('mGift', 'b') }],
+    },
+    scaledSetting(() => SUBATHON_COMPOSITE, 'per100Bits', 'rates', 'flow', 'mBits', 'b', 100),
+    {
+      key: 'perTip',
+      control: 'duration',
+      group: 'rates',
+      links: [{ part: 'flow', path: cfgPath('mTip', 'b') }],
+    },
+    {
+      key: 'perFollow',
+      control: 'duration',
+      group: 'rates',
+      links: [{ part: 'flow', path: cfgPath('mFollow', 'b') }],
+    },
+    {
+      key: 'hardCap',
+      control: 'duration',
+      group: 'limits',
+      // 0 = no cap, stored as NO_CAP.
+      get(v) {
+        const n = graphNode(v, SUBATHON_COMPOSITE, 'flow', 'cap');
+        if (!n) return undefined;
+        const a = num((n.defaultConfig as Doc | undefined)?.a, NO_CAP);
+        return a >= NO_CAP ? 0 : a;
+      },
+      set(v, value) {
+        const p = partDoc(v, SUBATHON_COMPOSITE, 'flow');
+        const x = Number(value);
+        if (!p || !Number.isFinite(x) || x < 0) return [];
+        return [{ rtype: 'logic', id: p.id, path: cfgPath('cap', 'a'), value: x === 0 ? NO_CAP : x }];
+      },
+    },
+    {
+      key: 'plannedStart',
+      control: 'text',
+      group: 'limits',
+      links: [{ part: 'flow', path: cfgPath('st', 'plannedStart') }],
+    },
+    {
+      key: 'stages',
+      control: 'stages',
+      group: 'limits',
+      links: [{ part: 'flow', path: cfgPath('st', 'steps') }],
+      plan: { initial: 'initial', start: 'plannedStart' },
+    },
+    controlNameSetting(() => SUBATHON_COMPOSITE, 'flow'),
+    ...widgetLook(false),
+  ],
+};
+
+// ── Recent events ──
+
+export const RECENT_SOURCES = ['follow', 'sub', 'gift', 'bits', 'tip', 'raid'] as const;
+export type RecentSource = (typeof RECENT_SOURCES)[number];
+const cap1 = (s: string) => s[0].toUpperCase() + s.slice(1);
+/** Graph node ids of one source of the recent-events list. */
+export const recentIds = (src: RecentSource) => ({
+  node: `s${cap1(src)}`,
+  pack: `p${cap1(src)}`,
+});
+export const RECENT_RESET_EDGES = [gEdge('online', 'event', 'tl', 'reset', 'event')];
+
+export const RECENT_EVENTS_COMPOSITE: CompositeTypeDef = {
+  type: 'recent_events',
+  rootRtype: 'compose_layer',
+  parts: { panel: 'compose_layer', flow: 'logic' },
+  settings: [
+    accountSetting(
+      () => RECENT_EVENTS_COMPOSITE,
+      'flow',
+      [...RECENT_SOURCES.map((s) => recentIds(s).node), 'online'],
+      'events'
+    ),
+    ...RECENT_SOURCES.flatMap((src): CompositeSetting[] => {
+      const { node, pack } = recentIds(src);
+      const show = `show${cap1(src)}`;
+      return [
+        edgeSetting(
+          () => RECENT_EVENTS_COMPOSITE,
+          'flow',
+          show,
+          'events',
+          [gEdge(node, 'event', pack, 'fire', 'event')],
+          [true, false]
+        ),
+        {
+          key: `label${cap1(src)}`,
+          control: 'text',
+          group: 'events',
+          links: [{ part: 'flow', path: cfgPath(pack, 'label') }],
+          when: (read) => read(show) === true,
+        },
+      ];
+    }),
+    {
+      key: 'maxEntries',
+      control: 'number',
+      group: 'list',
+      min: 1,
+      step: 1,
+      links: [{ part: 'flow', path: cfgPath('tl', 'keep') }],
+    },
+    edgeSetting(
+      () => RECENT_EVENTS_COMPOSITE,
+      'flow',
+      'period',
+      'list',
+      RECENT_RESET_EDGES,
+      ['stream', 'always']
+    ),
+    ...widgetLook(true),
+  ],
+};
+
+// ── Top supporters ──
+
+export const TOP_METRICS = ['bits', 'tip', 'gift', 'sub', 'raid'] as const;
+export type TopMetric = (typeof TOP_METRICS)[number];
+export const topEdges = (src: EventSource) =>
+  sourceEdges('src', src, {
+    fire: ['tl', 'add'],
+    user: ['tl', 'user'],
+    amount: ['tl', 'amount'],
+  });
+
+export const TOP_SUPPORTERS_COMPOSITE: CompositeTypeDef = {
+  type: 'top_supporters',
+  rootRtype: 'compose_layer',
+  parts: { panel: 'compose_layer', flow: 'logic' },
+  settings: [
+    {
+      key: 'metric',
+      control: 'select',
+      group: 'list',
+      options: [...TOP_METRICS],
+      get(v) {
+        if (!partDoc(v, TOP_SUPPORTERS_COMPOSITE, 'flow')) return undefined;
+        return readSource(graphNode(v, TOP_SUPPORTERS_COMPOSITE, 'flow', 'src'));
+      },
+      set(v, value) {
+        const p = partDoc(v, TOP_SUPPORTERS_COMPOSITE, 'flow');
+        const src = value as TopMetric;
+        const spec = EVENT_SOURCE_SPECS[src];
+        if (!p || !spec) return [];
+        if (readSource(graphNode(v, TOP_SUPPORTERS_COMPOSITE, 'flow', 'src')) === src)
+          return [];
+        return swapNodeWrites(p.id, p.doc, 'src', spec, topEdges(src));
+      },
+    },
+    accountSetting(() => TOP_SUPPORTERS_COMPOSITE, 'flow', ['src', 'online'], 'list'),
+    {
+      key: 'title',
+      control: 'text',
+      group: 'list',
+      links: [{ part: 'flow', path: cfgPath('sd', 'title') }],
+    },
+    {
+      key: 'maxEntries',
+      control: 'number',
+      group: 'list',
+      min: 1,
+      step: 1,
+      links: [{ part: 'flow', path: cfgPath('tl', 'topCount') }],
+    },
+    edgeSetting(
+      () => TOP_SUPPORTERS_COMPOSITE,
+      'flow',
+      'period',
+      'list',
+      RECENT_RESET_EDGES,
+      ['stream', 'always']
+    ),
+    ...widgetLook(true),
+  ],
+};
+
+// ── Ad break ──
+
+export const AD_BREAK_COMPOSITE: CompositeTypeDef = {
+  type: 'ad_break',
+  rootRtype: 'compose_layer',
+  parts: { panel: 'compose_layer', flow: 'logic' },
+  settings: [
+    accountSetting(() => AD_BREAK_COMPOSITE, 'flow', ['ad', 'end'], 'ad'),
+    {
+      key: 'message',
+      control: 'text',
+      group: 'ad',
+      links: [{ part: 'flow', path: cfgPath('sd', 'message') }],
+    },
+    ...widgetLook(true),
+  ],
+};
+
 export const COMPOSITE_TYPES: Record<string, CompositeTypeDef> = {
   [ALERT_COMPOSITE.type]: ALERT_COMPOSITE,
   [CHAT_OVERLAY_COMPOSITE.type]: CHAT_OVERLAY_COMPOSITE,
   [CHAT_OVERLAY_3D_COMPOSITE.type]: CHAT_OVERLAY_3D_COMPOSITE,
   [SCROLLING_CHAT_COMPOSITE.type]: SCROLLING_CHAT_COMPOSITE,
+  [GOAL_COMPOSITE.type]: GOAL_COMPOSITE,
+  [COUNTDOWN_COMPOSITE.type]: COUNTDOWN_COMPOSITE,
+  [SUBATHON_COMPOSITE.type]: SUBATHON_COMPOSITE,
+  [RECENT_EVENTS_COMPOSITE.type]: RECENT_EVENTS_COMPOSITE,
+  [TOP_SUPPORTERS_COMPOSITE.type]: TOP_SUPPORTERS_COMPOSITE,
+  [AD_BREAK_COMPOSITE.type]: AD_BREAK_COMPOSITE,
 };
 
 /** The type definition behind a marker, or undefined for an unknown type (a

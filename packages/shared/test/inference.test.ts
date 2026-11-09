@@ -138,3 +138,28 @@ describe('InferGraph.tryAddEdge', () => {
     ).toBe(true);
   });
 });
+
+describe('InferGraph on a graph with a loop', () => {
+  it('propagates to a fixpoint instead of recursing forever', () => {
+    const g = makeGraph();
+    g.addNode('src', 'source_string', {});
+    g.addNode('p1', 'passthrough', {});
+    g.addNode('p2', 'passthrough', {});
+    // p1 → p2 → p1: a loop, as a timer's `total` feeding its own `add`.
+    expect(
+      g.tryAddEdge({ fromNodeId: 'p2', fromPort: 'out', toNodeId: 'p1', toPort: 'in' }).ok
+    ).toBe(true);
+    expect(
+      g.tryAddEdge({ fromNodeId: 'p1', fromPort: 'out', toNodeId: 'p2', toPort: 'in' }).ok
+    ).toBe(true);
+    // A typed source into the loop settles every node on that type.
+    const res = g.tryAddEdge({
+      fromNodeId: 'src',
+      fromPort: 'out',
+      toNodeId: 'p1',
+      toPort: 'in',
+    });
+    expect(res.ok).toBe(true);
+    expect(g.outputType('p2', 'out')?.kind).toBe('primitive');
+  });
+});

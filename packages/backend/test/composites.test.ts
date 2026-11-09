@@ -12,7 +12,9 @@ import { getMeshCollection } from '../src/mesh/index.js';
 import { logicManager } from '../src/logic/manager.js';
 import {
   ALERT_COMPOSITE,
+  COMPOSITE_TYPES,
   compositeMarkerOf,
+  readSetting,
   PART_MOVE_REFUSED,
   writeSetting,
   type CompositeView,
@@ -75,6 +77,12 @@ describe('composites — listing and placing', () => {
       ['chat_overlay', 'compose_layer'],
       ['chat_overlay_3d', 'scene_node'],
       ['scrolling_chat', 'scene_node'],
+      ['goal', 'compose_layer'],
+      ['countdown', 'compose_layer'],
+      ['subathon', 'compose_layer'],
+      ['recent_events', 'compose_layer'],
+      ['top_supporters', 'compose_layer'],
+      ['ad_break', 'compose_layer'],
     ]);
     const presets = (await request(app).get('/api/presets/builtin')).body
       .data as Doc[];
@@ -116,7 +124,16 @@ describe('composites — listing and placing', () => {
     });
     const trigger = ALERT_COMPOSITE.settings.find((s) => s.key === 'trigger')!;
     const queueId = view().marker.parts.queue;
-    for (const next of ['named', 'sub', 'raid', 'tip', 'donation']) {
+    for (const next of [
+      'named',
+      'sub',
+      'gift',
+      'follow',
+      'raid',
+      'bits',
+      'tip',
+      'donation',
+    ]) {
       const writes = writeSetting(view(), ALERT_COMPOSITE, trigger, next);
       expect(writes.length, next).toBeGreaterThan(0);
       const acks = writes.map(
@@ -136,12 +153,73 @@ describe('composites — listing and placing', () => {
           ? 'on_trigger'
           : next === 'sub'
             ? 'overlive_subscription'
-            : next === 'raid'
-              ? 'overlive_raid'
-              : 'overlive_redemption'
+            : next === 'gift'
+              ? 'overlive_gift_bomb'
+              : next === 'follow'
+                ? 'overlive_follow'
+                : next === 'raid'
+                  ? 'overlive_raid'
+                  : 'overlive_redemption'
       );
+      expect(
+        readSetting(view(), ALERT_COMPOSITE, trigger),
+        next
+      ).toBe(next);
     }
   });
+
+  it.each([
+    ['goal', 'flow'],
+    ['countdown', 'timer'],
+    ['subathon', 'flow'],
+    ['recent_events', 'flow'],
+    ['top_supporters', 'flow'],
+    ['ad_break', 'flow'],
+  ])(
+    'places a %s widget whose every select / toggle keeps a running graph',
+    async (type, graphRole) => {
+      const target = await seed(app);
+      const id = `builtin:composite-${type.replace(/_/g, '-')}`;
+      const rootId = await place(app, id, target);
+      const def = COMPOSITE_TYPES[type];
+      const view = (): CompositeView => ({
+        rtype: 'compose_layer',
+        rootId,
+        marker: compositeMarkerOf('compose_layer', layers().get(rootId))!,
+        get: (rtype, docId) => getMeshCollection(rtype)!.get(docId),
+      });
+      const graphId = view().marker.parts[graphRole];
+      const running = () =>
+        logicManager.getRunningDescriptors().some((g) => g.id === graphId);
+      expect(running()).toBe(true);
+      // Every setting reads a value on a fresh widget (none "unavailable"
+      // that should be shown).
+      for (const s of def.settings)
+        expect(readSetting(view(), def, s), `${type}.${s.key}`).not.toBe(
+          undefined
+        );
+      for (const s of def.settings) {
+        const values =
+          s.control === 'toggle'
+            ? [false, true]
+            : s.control === 'select'
+              ? [...(s.options ?? [])].reverse()
+              : [];
+        for (const value of values) {
+          const writes = writeSetting(view(), def, s, value);
+          const acks = writes.map(
+            (w) => getMeshCollection(w.rtype)!.set(w.id, w.path, w.value).ack
+          );
+          for (const o of await Promise.all(acks))
+            expect(o.status, `${type}.${s.key}=${String(value)}`).toBe(
+              'acked'
+            );
+          expect(running(), `${type}.${s.key}=${String(value)}`).toBe(true);
+          expect(readSetting(view(), def, s), `${type}.${s.key}`).toBe(value);
+        }
+      }
+    }
+  );
 
   it('places the 3D composites with the marker on the node properties', async () => {
     const target = await seed(app);

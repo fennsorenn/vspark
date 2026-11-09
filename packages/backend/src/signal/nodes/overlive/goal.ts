@@ -91,11 +91,16 @@ export class OverliveGoal extends Node {
   /** Fetch the account's goals now; they arrive as events. */
   @eventIn('refresh', 'Trigger')
   onRefresh(): void {
-    const accountId = acctOrDefault(
-      this.account,
-      this.config as { account?: string; _projectId?: unknown } | undefined
-    );
-    if (accountId) void getOverliveManager().refreshGoals(accountId);
+    try {
+      const accountId = acctOrDefault(
+        this.account,
+        this.config as { account?: string; _projectId?: unknown } | undefined
+      );
+      if (accountId) void getOverliveManager().refreshGoals(accountId);
+    } catch {
+      // No Overlive manager (early boot, tests): nothing to fetch from; the
+      // account connecting fetches anyway.
+    }
   }
 
   protected override onBind(): void {
