@@ -1,6 +1,6 @@
 # Plan: Stream widgets (2D composites, batch 2)
 
-> **Status:** in progress
+> **Status:** shipped on `feature/stream-widgets` (not yet merged to `dev`) — see [`../modules/composites.md`](../modules/composites.md)
 
 > Branch: `feature/stream-widgets` (vspark, off `dev` after the composites merge 405d4ff);
 > `feature/goals` in `~/projects/overlive`.
@@ -40,7 +40,12 @@ second pass.
 - **[decided]** Prefer **general-purpose nodes**: `math`, `clamp`,
   `step_lookup`, `alarm`, `date_time`, plus **one small timer-state node**
   (`deadline`) that only owns the state — caps and stages are computed upstream
-  with the general nodes, not inside it.
+  with the general nodes, not inside it. (`alarm` was not built — see
+  Deviations.)
+- **[decided]** (user, 2026-11-09) **Tabs may write project variables.** The
+  editor's timer buttons and a goal count set by hand put the variable document
+  directly; the nodes holding the variable react. Recorded in
+  [`../modules/variables.md`](../modules/variables.md).
 - **[decided]** Subathon stage thresholds are measured against the timer's
   **total length** (initial time + everything added). The settings UI gets
   planning help: for each stage, the end time it corresponds to given the
@@ -128,6 +133,21 @@ vspark:
    persistent), ad break (shown between ad start and end, with remaining time).
    Each is a feed layer (+ group root) with a small logic graph.
 5. i18n + help + vs- handles + bless, frontend tests, one e2e spec, docs.
+
+## Deviations (as shipped)
+
+- **No `alarm` node.** `deadline` fires `finished` itself when its time runs
+  out (one timeout, re-armed whenever the end time moves), so nothing needed a
+  separate alarm. Claude's call during implementation, not a user decision.
+- `math` also has `multiply` (the plan listed add / subtract / min / max /
+  divide); the subathon uses it for the stage factor.
+- `overlive_goal` fetches current goals on graph start as well as on account
+  connect and `refresh`.
+- Two shared inference fixes were needed (see
+  [`../modules/signal-graph.md`](../modules/signal-graph.md)): propagation
+  reaches a fixpoint on looped graphs (the subathon's `total` feeds its own
+  add), and `pack_event` types an unwired field from its config literal.
+- **[observed]** The subathon's sub rate does not weight sub tiers.
 
 ## Acceptance / verification
 

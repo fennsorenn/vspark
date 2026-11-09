@@ -160,7 +160,7 @@ visible to it (`global ∪ its-own-layer-id`) by identity.
 
 **Template engine = `htm`** (`htm.bind(React.createElement)`). The template is
 the body of an htm tagged-template literal; `compileTemplate` wraps it in a
-`new Function('html','Emote','channels', 'with(channels){ return html`…` }')`
+`new Function('html','Emote','channels','Countdown', 'with(channels){ return html`…` }')`
 (memoised per source string) and re-renders are cheap. It produces **real React
 elements**, so reconciliation keys (`key=${m.id}`) handle per-item enter
 animation — no string diffing/morphdom. Every in-scope field is exposed to the
@@ -227,11 +227,24 @@ rates, like `text_canvas`.
 ### Shared template engine — `lib/feedTemplate.tsx`
 
 The htm template machinery is shared by both feed surfaces (2D layer + 3D node):
-`html` (htm bound to `createElement`), the `Emote` helper, `compileTemplate`
+`html` (htm bound to `createElement`), the `Emote` and `Countdown` helpers, `compileTemplate`
 (cached `new Function` compile), `FeedContent` (the try/catch render wrapper),
 `FeedErrorBoundary`, and the `FEED_DEFAULT_TEMPLATE`/`FEED_DEFAULT_CSS` chat
 defaults. `ComposeLayerStack.FeedLayer`, `Viewport.FeedCanvasNode`,
 `ComposeTree`, and `SceneGraph` all import from here.
+
+**`<Countdown>` helper** (added for the stream widgets,
+[composites.md](composites.md)). **Decided (user, 2026-11-09):** no per-second
+updates from the backend — a timer's graph publishes only when its end time changes
+(start, pause, time added), and the page counts down locally. `Countdown` takes
+`state` (a `deadline` node's `state` output: `endsAt`, `remaining`, `running`, and the
+publisher's `now`) or `to` (epoch seconds), plus `format` (`auto` = `M:SS` under an
+hour else `H:MM:SS`; `hh:mm:ss`; `mm:ss`) and `className`. While running it re-renders
+every 250 ms from `endsAt`, corrected by the skew between the publisher's `now` and the
+viewer's clock; while paused it shows the frozen `remaining`. Usage:
+`<${Countdown} state=${timer} />`. `formatCountdown` is exported alongside.
+`validateFeedTemplate` in `packages/shared/src/feedValidation.ts` mirrors the extra
+`Countdown` parameter, so templates using it validate.
 
 ### Frontend store + feeder — `store/editorStore.ts`, `sync/meshStoreFeeder.ts`
 `dataChannels: Record<scope, Record<field, value>>` slice with
