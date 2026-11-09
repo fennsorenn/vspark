@@ -99,6 +99,11 @@ count and another can show the count. To keep a variable to one automation, wire
 the **This Logic** node into its **scope**. Tick **persistent** to keep the value
 when vspark restarts; otherwise it starts over.
 
+As you type a variable's **name** or **scope**, the box suggests the names already
+used in that scope (and the project's automations, for a scope) — pick one to use
+the same variable, or type a new name. The same goes for cooldown **group** names
+and, below, trigger names.
+
 ## Cooldowns and combos {#combos}
 
 - **Cooldown** lets an event through at most once per number of seconds; events
@@ -118,7 +123,7 @@ same name — in any automation of this project — reacts to it. You can send s
 data along as the **payload**. This lets one automation start another, for
 example a chat command that sets off an alert built elsewhere. A trigger can't
 set itself off again while it is still being handled, so loops stop on their
-own.
+own. The **name** box suggests the trigger names already used in the project.
 
 ## Macros {#macros}
 

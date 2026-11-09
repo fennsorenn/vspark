@@ -60,8 +60,10 @@ A bar filling up towards a target.
   subs, gifted subs, bits, the tip amount, raid viewers or a named trigger), or
   _Nothing_ to set it only by hand. **Current count** sets it by hand at any
   time.
-- The count lives in a project **Variable** (named `goal` unless you change it),
-  so Actions and other logic can change it too.
+- The count lives in a project **Variable** — `goal`, or `goal 2`, `goal 3`, …
+  when that name is already taken, so two goals never share a count by accident.
+  Actions and other logic can change it too; the box suggests the variable
+  names already in use if you want two widgets to share one on purpose.
 - **Keep** — reset the count when the stream starts (**This stream**), or keep
   counting (**Across streams**).
 

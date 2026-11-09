@@ -172,7 +172,8 @@ the reply shows the number. **Step** is how much each use adds.
 
 - Without a name, the counter belongs to this action alone.
 - With a name, it is a shared counter: actions using the same name count
-  together, and any Logic can read it with a **Get Variable** node.
+  together, and any Logic can read it with a **Get Variable** node. The name
+  box suggests the shared names already in use.
 - **Keep after restart** stores the counter, so it survives restarting vspark.
 
 ## Account {#account}
@@ -186,7 +187,8 @@ account* is the project's default; pick another one if you have several.
 **Send trigger** sends a named *trigger* each time the action runs. Any
 [Logic](topic:logic) graph in the project can react to it with an **On Trigger**
 node of the same name — for example to show an alert. Leave the name empty to
-send nothing.
+send nothing. The box suggests the trigger names already used in the project;
+cooldown group names are suggested the same way.
 
 ## Sounds and videos {#media}
 

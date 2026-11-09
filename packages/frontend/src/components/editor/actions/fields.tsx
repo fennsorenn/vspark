@@ -4,6 +4,7 @@
  * through `onSetting` (the row decides whether that is a value write or a
  * confirmed rebuild). The draft input primitives live in `draftInputs.tsx`.
  */
+import { COOLDOWN_SCOPE, useVariableNames } from '../../../mesh/names';
 import type { CSSProperties, ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import { CHAT_RANKS, RESPONSE_TYPE_IDS } from '@vspark/shared/actions';
@@ -123,6 +124,7 @@ export function CooldownField({
   onSetting: OnSetting;
 }) {
   const { t } = useTranslation('actions');
+  const cooldownGroups = useVariableNames(COOLDOWN_SCOPE);
   const cd = isObj(value) ? value : {};
   return (
     <Field
@@ -141,6 +143,7 @@ export function CooldownField({
         value={typeof cd.group === 'string' ? cd.group : ''}
         placeholder={t('form.cooldownGroup')}
         width={90}
+        suggestions={cooldownGroups}
         onCommit={(v) => onSetting('cooldown.group', v)}
       />
     </Field>
@@ -155,6 +158,7 @@ export function CounterField({
   onSetting: OnSetting;
 }) {
   const { t } = useTranslation('actions');
+  const sharedNames = useVariableNames('');
   const c = isObj(value) ? value : {};
   const enabled = c.enabled === true;
   return (
@@ -177,6 +181,7 @@ export function CounterField({
               className="vs-action-counter-name"
               value={typeof c.name === 'string' ? c.name : ''}
               placeholder={t('form.counterName')}
+              suggestions={sharedNames}
               onCommit={(v) => onSetting('counter.name', v)}
             />
           </Field>

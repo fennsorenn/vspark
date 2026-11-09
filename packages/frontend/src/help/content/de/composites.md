@@ -68,8 +68,11 @@ Ein Balken, der sich bis zu einem Zielwert füllt.
   (Follows, Abos, verschenkte Abos, Bits, der Trinkgeldbetrag, Raid-Zuschauer
   oder ein benannter Auslöser) – oder _Nichts_, um es nur von Hand zu setzen.
   **Aktueller Stand** setzt es jederzeit von Hand.
-- Der Stand liegt in einer Projekt-**Variable** (`goal`, wenn du sie nicht
-  umbenennst), also können auch Aktionen und andere Logik ihn ändern.
+- Der Stand liegt in einer Projekt-**Variable** – `goal`, oder `goal 2`,
+  `goal 3`, …, wenn der Name schon vergeben ist, sodass sich zwei Ziele nie
+  versehentlich einen Stand teilen. Auch Aktionen und andere Logik können ihn
+  ändern; das Feld schlägt die schon verwendeten Variablennamen vor, falls zwei
+  Widgets sich absichtlich einen teilen sollen.
 - **Behalten** – den Stand beim Streamstart zurücksetzen (**Dieser Stream**)
   oder weiterzählen (**Über Streams hinweg**).
 

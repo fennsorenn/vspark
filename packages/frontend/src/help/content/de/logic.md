@@ -111,6 +111,12 @@ Variable nur einer Automatisierung gehören, verbinde den Knoten **This Logic**
 mit ihrem **scope**. Setze das Häkchen bei **persistent**, damit der Wert einen
 Neustart von vspark übersteht; sonst beginnt er von vorn.
 
+Beim Tippen von **name** oder **scope** schlägt das Feld die Namen vor, die in
+diesem Bereich schon verwendet werden (bei **scope** die Automatisierungen des
+Projekts) – wähle einen, um dieselbe Variable zu nutzen, oder tippe einen neuen
+Namen. Dasselbe gilt für **group**-Namen von Cooldowns und, weiter unten, für
+Auslösernamen.
+
 ## Abklingzeiten und Combos {#combos}
 
 - **Cooldown** lässt ein Ereignis höchstens einmal pro eingestellter Sekundenzahl
@@ -133,7 +139,8 @@ mit demselben Namen — in jeder Automatisierung dieses Projekts — reagiert da
 Als **payload** kannst du Daten mitschicken. So kann eine Automatisierung eine
 andere starten, zum Beispiel ein Chat-Befehl, der einen woanders gebauten Alarm
 auslöst. Ein Auslöser kann sich nicht erneut selbst auslösen, solange er noch
-verarbeitet wird — Schleifen brechen also von selbst ab.
+verarbeitet wird — Schleifen brechen also von selbst ab. Das Feld **name** schlägt
+die Auslösernamen vor, die im Projekt schon verwendet werden.
 
 ## Makros {#macros}
 

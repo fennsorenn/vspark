@@ -20,6 +20,7 @@ import { useEditorStore } from '../../../store/editorStore';
 import { HelpButton } from '../../../help/HelpButton';
 import { DraftNumber, DraftText } from '../actions/draftInputs';
 import { inputStyle } from '../actions/styles';
+import { triggerBases, useNameSuggestions } from '../../../mesh/names';
 import {
   DurationInput,
   StagesControl,
@@ -231,6 +232,17 @@ function SettingControl({
 }) {
   const { t } = useTranslation('composites');
   const assets = useEditorStore((st) => st.assets);
+  const names = useNameSuggestions(
+    s.suggest === 'variable'
+      ? { kind: 'variable', scope: '' }
+      : s.suggest
+        ? { kind: 'trigger' }
+        : null
+  );
+  const suggestions =
+    s.suggest === 'triggerBase' && names
+      ? triggerBases(names as string[])
+      : names;
   const accounts = useEditorStore((st) => st.overliveAccounts);
   const str = typeof value === 'string' ? value : '';
 
@@ -278,6 +290,7 @@ function SettingControl({
           className={`vs-composite-setting ${keyClass}`}
           value={str}
           onCommit={onChange}
+          suggestions={suggestions}
         />
       );
     case 'number':

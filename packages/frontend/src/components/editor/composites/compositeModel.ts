@@ -19,6 +19,12 @@ import {
 } from 'lucide-react';
 import type { CompositeRootRtype } from '@vspark/shared/composites';
 import { getBuiltinPreset, instantiatePreset } from '../../../api/client';
+import {
+  currentProjectDocs,
+  uniqueName,
+  VARIABLE_NODE_KINDS,
+  variableNames,
+} from '../../../mesh/names';
 
 export {
   commitSettingWrites,
@@ -38,6 +44,9 @@ export interface CompositeDef {
   icon: LucideIcon;
   /** English fallback; the label is `composites:type.<type>`. */
   label: string;
+  /** A shared-scope variable its graph names: renamed on placement to the
+   *  first free `<name>`, `<name> 2`, … so two of them don't share a value. */
+  uniqueVariable?: string;
 }
 
 export const COMPOSITE_DEFS: CompositeDef[] = [
@@ -61,6 +70,7 @@ export const COMPOSITE_DEFS: CompositeDef[] = [
     rootRtype: 'compose_layer',
     icon: Target,
     label: 'Goal',
+    uniqueVariable: 'goal',
   },
   {
     type: 'countdown',
@@ -126,8 +136,17 @@ export async function placeComposite(
 ): Promise<string> {
   const preset = await getBuiltinPreset(def.presetId);
   const compose = def.rootRtype === 'compose_layer';
+  let payload = preset.payload;
+  if (def.uniqueVariable) {
+    const taken = variableNames(target.projectId, '', currentProjectDocs());
+    payload = renameVariable(
+      payload,
+      def.uniqueVariable,
+      uniqueName(def.uniqueVariable, taken)
+    );
+  }
   const res = await instantiatePreset(
-    preset.payload,
+    payload,
     target.projectId,
     // The route needs a 3D scene id; it is unused for layer roots.
     compose ? (target.sceneId ?? '') : target.sceneId!,
@@ -135,4 +154,30 @@ export async function placeComposite(
     null
   );
   return res.rootId;
+}
+
+/** `payload` with every variable node naming `from` (in the shared scope:
+ *  no scope set) renamed to `to`. */
+export function renameVariable<P>(payload: P, from: string, to: string): P {
+  if (from === to) return payload;
+  const copy = JSON.parse(JSON.stringify(payload)) as {
+    logic?: { descriptor?: { nodes?: unknown } }[];
+  };
+  for (const g of copy.logic ?? []) {
+    const nodes = g.descriptor?.nodes;
+    const list = (
+      Array.isArray(nodes) ? nodes : Object.values(nodes ?? {})
+    ) as { kind?: string; defaultConfig?: Record<string, unknown> }[];
+    for (const n of list) {
+      const cfg = n.defaultConfig;
+      if (
+        n.kind &&
+        VARIABLE_NODE_KINDS.has(n.kind) &&
+        cfg?.name === from &&
+        !cfg.scope
+      )
+        cfg.name = to;
+    }
+  }
+  return copy as P;
 }

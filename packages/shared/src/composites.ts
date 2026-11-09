@@ -180,6 +180,11 @@ export interface CompositeSetting {
   /** `stages`: the planning inputs — the setting keys giving the initial
    *  length (seconds) and the planned start (date/time text). */
   plan?: { initial: string; start: string };
+  /** A text setting naming something the project may already use: the
+   *  editor suggests existing names (any new one is still taken). `variable`
+   *  is a name in the shared scope; `triggerBase` the common start of a set of
+   *  triggers (`<base> start`, `<base> pause`, …). */
+  suggest?: 'trigger' | 'triggerBase' | 'variable';
 }
 
 export interface CompositeTypeDef {
@@ -579,6 +584,7 @@ export const ALERT_COMPOSITE: CompositeTypeDef = {
       key: 'triggerName',
       control: 'text',
       group: 'trigger',
+      suggest: 'trigger',
       links: [{ part: 'queue', path: evPath('name') }],
       when: (read) => read('trigger') === 'named',
     },
@@ -1222,6 +1228,7 @@ function controlNameSetting(getDef: () => CompositeTypeDef, role: string): Compo
     key: 'controlName',
     control: 'text',
     group: 'control',
+    suggest: 'triggerBase',
     get(v) {
       const n = graphNode(v, getDef(), role, 'tStart');
       const name = (n?.defaultConfig as Doc | undefined)?.name;
@@ -1388,6 +1395,7 @@ export const GOAL_COMPOSITE: CompositeTypeDef = {
       key: 'countTrigger',
       control: 'text',
       group: 'goal',
+      suggest: 'trigger',
       links: [{ part: 'flow', path: cfgPath('src', 'name') }],
       when: (read) => isManual(read) && read('count') === 'named',
     },
@@ -1395,6 +1403,7 @@ export const GOAL_COMPOSITE: CompositeTypeDef = {
       key: 'variable',
       control: 'text',
       group: 'goal',
+      suggest: 'variable',
       links: [
         { part: 'flow', path: cfgPath('get', 'name') },
         { part: 'flow', path: cfgPath('inc', 'name') },
@@ -1457,6 +1466,7 @@ export const COUNTDOWN_COMPOSITE: CompositeTypeDef = {
       key: 'finishTrigger',
       control: 'text',
       group: 'control',
+      suggest: 'trigger',
       links: [{ part: 'timer', path: cfgPath('done', 'name') }],
     },
     controlNameSetting(() => COUNTDOWN_COMPOSITE, 'timer'),

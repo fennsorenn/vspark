@@ -163,6 +163,16 @@ function buildNodes(
       connectedInputs.set(e.toNodeId, new Set());
     connectedInputs.get(e.toNodeId)!.add(e.toPort);
   }
+  // Where each node's `scope` input comes from: This Logic (the graph's own
+  // id) or something only known at run time — for name suggestions.
+  const kindOf = new Map(descriptor.nodes.map((n) => [n.id, n.kind]));
+  const scopeSource = new Map<string, 'graph' | 'other'>();
+  for (const e of descriptor.edges)
+    if (e.toPort === 'scope')
+      scopeSource.set(
+        e.toNodeId,
+        kindOf.get(e.fromNodeId) === 'logic_id' ? 'graph' : 'other'
+      );
 
   return descriptor.nodes.map((n) => {
     const meta = kindMap.get(n.kind);
@@ -182,6 +192,7 @@ function buildNodes(
         inputPorts: resolved.inputPorts.map(resolvedToPortMeta),
         outputPorts: resolved.outputPorts.map(resolvedToPortMeta),
         connectedInputPorts: [...(connectedInputs.get(n.id) ?? [])],
+        scopeSource: scopeSource.get(n.id),
         readonly: descriptor.readonly,
         lastExecutedAt: state?.lastExecutedAt ?? null,
         portValues: state?.portValues ?? {},
