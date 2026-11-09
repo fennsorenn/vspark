@@ -1,0 +1,93 @@
+{
+  "section": "Settings",
+  "tag": "composite",
+  "tagTip": "A composite: one object with its own settings. Its parts stay in place until you dissolve it.",
+  "type": {
+    "alert": "Alert",
+    "chat_overlay": "Chat Overlay",
+    "chat_overlay_3d": "Chat Overlay (3D)",
+    "scrolling_chat": "Scrolling Chat (3D)"
+  },
+  "group": {
+    "trigger": "Trigger",
+    "text": "Text",
+    "badge": "Badge",
+    "sound": "Sound",
+    "timing": "Timing",
+    "chat": "Chat",
+    "look": "Look",
+    "motion": "Motion"
+  },
+  "setting": {
+    "trigger": "Trigger",
+    "triggerName": "Trigger name",
+    "account": "Account",
+    "currency": "Currency",
+    "rewardId": "Reward ID",
+    "tier": "Tier",
+    "gift": "Gifted",
+    "message": "Message",
+    "fontFamily": "Font",
+    "fontSize": "Font size",
+    "textColor": "Text colour",
+    "badgeType": "Badge type",
+    "image": "Image",
+    "video": "Video",
+    "sound": "Sound",
+    "volume": "Volume",
+    "showFor": "Show for (s)",
+    "gap": "Gap between (s)",
+    "maxMessages": "Messages shown",
+    "bubbleColor": "Bubble colour",
+    "crossTime": "Crossing time (s)",
+    "heightMin": "Lowest height",
+    "heightMax": "Highest height",
+    "depthMin": "Nearest depth",
+    "depthMax": "Farthest depth"
+  },
+  "option": {
+    "trigger": {
+      "donation": "Donation",
+      "tip": "Tip",
+      "sub": "Sub",
+      "raid": "Raid",
+      "named": "Named trigger"
+    },
+    "currency": {
+      "any": "Any",
+      "bits": "Bits",
+      "channel_points": "Channel points",
+      "superchat": "Super Chat"
+    },
+    "tier": {
+      "any": "Any",
+      "tier1": "Tier 1",
+      "tier2": "Tier 2",
+      "tier3": "Tier 3",
+      "prime": "Prime"
+    },
+    "gift": {
+      "any": "Either",
+      "true": "Gifted only",
+      "false": "Not gifted"
+    },
+    "badgeType": {
+      "image": "Image",
+      "video": "Video"
+    }
+  },
+  "unavailable": "not available (part removed)",
+  "noAsset": "— none —",
+  "defaultAccount": "Default account",
+  "missingAccount": "Unknown account",
+  "dissolve": "Dissolve composite",
+  "dissolveTip": "Turn this into a plain group: its parts can then be moved and deleted freely, and the settings disappear.",
+  "partNote": "Part of “{{name}}” — it stays in place until that composite is dissolved.",
+  "partMoveRefused": "This is part of a composite and stays where it is. Dissolve the composite to move it.",
+  "partDeleteRefused": "This is part of a composite and can’t be deleted on its own. Delete the whole composite, or dissolve it first.",
+  "help": {
+    "settings": "These settings write straight into the composite's parts.",
+    "dissolve": "What dissolving does.",
+    "parts": "Why a composite's parts stay in place."
+  }
+}

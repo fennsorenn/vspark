@@ -101,6 +101,8 @@ Placeholders that don't match (e.g. a Twitch account id referenced from inside a
 
 Two things are deliberately not documents on this path: assets are materialized into `asset_files` by `assets.ts` (no collection), and a graph's `node_state` is written to the row directly after the commit — it is runtime scratch owned by the running graph, which is why the `logic` DTO leaves it out.
 
+**Imported graphs are committed in document form.** `deserialize.ts` commits a logic graph's descriptor as `toDescriptorDoc(toGraphDescriptor(...))` — nodes keyed by id. Before this fix (on `feature/composites`) it committed the preset's list form, so per-element paths such as `descriptor.nodes.<id>…` (used by the graph editor and composite settings) addressed a list until a restart re-keyed the document from the row.
+
 Track-clip lanes, keyframes and events are **keyed children of the clip document**, not separate documents: the whole clip goes in as one commit and the tap writes the three tables from it. See [track-clips.md](track-clips.md).
 
 ## Frontend — `components/editor/PresetLibrary.tsx`
@@ -116,3 +118,4 @@ Preset payloads also flow through the clipboard for copy/paste of scene-node and
 - [project-graphs.md](project-graphs.md) — logic are nested into preset payloads at the right owner scope.
 - [track-clips.md](track-clips.md) — track clips owned by nodes / layers in the subtree are serialised with lanes + keyframes.
 - [clipboard.md](clipboard.md) — uses `presets/serialize` + `presets/instantiate` to copy/paste scene-node and compose-layer subtrees within and across projects.
+- [composites.md](composites.md) — built-in alert and chat templates packaged as one object with linked settings; their payloads (`builtin_presets/composites.ts`) are instantiated through this preset path and resolved by `getBuiltinPreset`, but listed by `GET /api/presets/composites`, not `GET /api/presets/builtin`.

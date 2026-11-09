@@ -6,7 +6,11 @@ import {
   serializeComposeLayerSubtree,
 } from '../presets/serialize.js';
 import { instantiatePreset } from '../presets/deserialize.js';
-import { BUILTIN_PRESETS, getBuiltinPreset } from '../presets/builtins.js';
+import {
+  BUILTIN_COMPOSITES,
+  BUILTIN_PRESETS,
+  getBuiltinPreset,
+} from '../presets/builtins.js';
 
 const router: ReturnType<typeof Router> = Router();
 
@@ -121,6 +125,22 @@ router.get('/presets/builtin', (_req, res) => {
       name: p.name,
       description: p.description,
       rootKind: p.rootKind,
+      builtin: true,
+    })),
+  });
+});
+
+// Built-in composites — listed for the create palette; their payloads come
+// from GET /presets/builtin/:id like any built-in.
+router.get('/presets/composites', (_req, res) => {
+  res.json({
+    ok: true,
+    data: BUILTIN_COMPOSITES.map((p) => ({
+      id: p.id,
+      name: p.name,
+      description: p.description,
+      rootKind: p.rootKind,
+      composite: p.composite,
       builtin: true,
     })),
   });

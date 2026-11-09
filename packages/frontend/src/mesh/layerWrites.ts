@@ -16,6 +16,13 @@ import { meshBatch } from './peer';
 import { actionLabel, reportRejected } from './writeFeedback';
 import { collectionOf, createDoc, patchDoc, removeDoc, setField } from './docs';
 import { composeAllNow, composeScenesNow } from './compose';
+import {
+  isCompositeRoot,
+  markerPath,
+  partDeleteBlocked,
+  partMoveBlocked,
+  refusePartMove,
+} from './composites';
 import { useEditorStore, type StageObject } from '../store/editorStore';
 import type { ComposeLayerRecord } from '../api/client';
 
@@ -66,21 +73,35 @@ export function previewLayerFields(
     col.set(id, path, value, { channel: 'preview' });
 }
 
-export const commitLayerPath = (
+// A composite's part stays in its container and goes only with the composite
+// (mesh/composites.ts): every move and delete below checks first.
+
+export function commitLayerPath(
   id: string,
   path: string,
   value: unknown
-): void => void setField(RTYPE, id, path, value);
+): void {
+  if (
+    path === 'parentId' &&
+    partMoveBlocked(RTYPE, id, (value as string | null) ?? null)
+  )
+    return;
+  setField(RTYPE, id, path, value);
+}
 
-export const commitLayerPatch = (
+export function commitLayerPatch(
   id: string,
   patch: Partial<ComposeLayerRecord>
-): void => void patchDoc(RTYPE, id, patch);
+): void {
+  if ('parentId' in patch && partMoveBlocked(RTYPE, id, patch.parentId ?? null))
+    return;
+  patchDoc(RTYPE, id, patch);
+}
 
 /** Delete a layer and everything under it as ONE undo action. A compose scene
  *  is just a layer with children, so this covers deleting a whole scene. */
 export const commitLayerDelete = (id: string): Promise<boolean> =>
-  removeDoc(RTYPE, id);
+  partDeleteBlocked(RTYPE, id) ? Promise.resolve(false) : removeDoc(RTYPE, id);
 
 /** Detach a layer's direct children onto `newParentId`, then delete it — one
  *  undo action, so the reparents don't unwind separately. */
@@ -90,8 +111,13 @@ export async function commitLayerDeleteKeepChildren(
 ): Promise<boolean> {
   const col = collectionOf(RTYPE);
   if (!col.get(id)) return false;
+  if (partDeleteBlocked(RTYPE, id)) return false;
   const children = all().filter((l) => (l.parentId ?? null) === id);
+  // Keeping a composite's parts means dissolving it first, in the same undo
+  // action — otherwise its parts couldn't leave it.
+  const composite = isCompositeRoot(RTYPE, id);
   const acks = meshBatch(() => [
+    ...(composite ? [col.set(id, markerPath(RTYPE), null).ack] : []),
     ...children.map((c) => col.set(c.id, 'parentId', newParentId).ack),
     col.remove(id).ack,
   ]);
@@ -155,6 +181,8 @@ export async function commitPromoteLayerToNode(
   node: StageObject,
   layerId: string
 ): Promise<StageObject> {
+  // Promoting removes the layer; a composite's part stays where it is.
+  if (refusePartMove(RTYPE, layerId)) throw new Error('composite part');
   const nodeCol = collectionOf('scene_node');
   const layerCol = collectionOf(RTYPE);
   const subtree = [

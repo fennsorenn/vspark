@@ -83,6 +83,12 @@ import {
   Clapperboard,
   ExternalLink,
 } from 'lucide-react';
+import {
+  dissolveComposite,
+  isCompositeRoot,
+  partDeleteBlocked,
+} from '../../mesh/composites';
+import { CompositeTag } from './composites/CompositeTag';
 
 /** Inline scene-node kind icon (lucide), replacing the old emoji map. */
 function KindIcon({ kind, size = 14 }: { kind: string; size?: number }) {
@@ -885,6 +891,26 @@ function SceneNodeContextMenu({
           }}
         >
           {t('context.unparent')}
+        </div>
+      )}
+
+      {isCompositeRoot('scene_node', menu.nodeId) && (
+        <div
+          className="vs-node-ctx-dissolve"
+          style={itemStyle}
+          onMouseEnter={(e) =>
+            ((e.currentTarget as HTMLDivElement).style.background = '#2a2a2a')
+          }
+          onMouseLeave={(e) =>
+            ((e.currentTarget as HTMLDivElement).style.background =
+              'transparent')
+          }
+          onClick={() => {
+            dissolveComposite('scene_node', menu.nodeId);
+            onClose();
+          }}
+        >
+          {t('composites:dissolve')}
         </div>
       )}
 
@@ -2547,6 +2573,8 @@ export function SceneGraph() {
   const handleDelete = async (nodeId: string) => {
     const node = sceneNodes.find((n) => n.id === nodeId);
     if (!node) return;
+    // A composite's part goes only with the composite.
+    if (partDeleteBlocked('scene_node', nodeId)) return;
     const directChildren = sceneNodes.filter((n) => n.parentId === nodeId);
 
     try {
@@ -2988,6 +3016,7 @@ export function SceneGraph() {
               >
                 {node.name}
               </span>
+              {isCompositeRoot('scene_node', node.id) && <CompositeTag />}
               {/* Opaque container for a peer's shared object: editable
                   placement, but its contents live on the owner's server
                   (read-only internals). */}

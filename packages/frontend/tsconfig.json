@@ -37,7 +37,8 @@
       "@vspark/shared/clipPlayback": ["../shared/src/clipPlayback.ts"],
       "@vspark/shared/idMap": ["../shared/src/idMap.ts"],
       "@vspark/shared/live2d": ["../shared/src/live2d.ts"],
-      "@vspark/shared/actions": ["../shared/src/actions.ts"]
+      "@vspark/shared/actions": ["../shared/src/actions.ts"],
+      "@vspark/shared/composites": ["../shared/src/composites.ts"]
     }
   },
   "include": ["src"]

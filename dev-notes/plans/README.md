@@ -45,7 +45,7 @@ Design → executed → follow-ups. Each supersedes roughly what came before it.
 | [`mesh-drop-legacy-sync-and-undo.md`](./mesh-drop-legacy-sync-and-undo.md) | in progress — undo (B) shipped; envelope retirement (A) → W7 of `mesh-sole-channel.md`      |
 | [`mesh-frontend-writes.md`](./mesh-frontend-writes.md)                     | shipped — in `dev` at 77bfdb4                                                               |
 | [`mesh-sole-channel.md`](./mesh-sole-channel.md)                           | **in progress — LIVE** (principles 7–9; supersedes §12)                                     |
-| [`mesh-store-surface.md`](./mesh-store-surface.md)                         | shipped (steps 1–4, in `dev` 2026-10-04) — sequences the rest of `mesh-sole-channel.md` |
+| [`mesh-store-surface.md`](./mesh-store-surface.md)                         | shipped (steps 1–4, in `dev` 2026-10-04) — sequences the rest of `mesh-sole-channel.md`     |
 
 ## Multiplayer
 
@@ -65,6 +65,7 @@ Design → executed → follow-ups. Each supersedes roughly what came before it.
 | [`forearm-twist-bone.md`](./forearm-twist-bone.md) | shipped — see [`../modules/twist-bones.md`](../modules/twist-bones.md)               |
 | [`material-editor.md`](./material-editor.md)       | shipped — see [`../modules/material-overrides.md`](../modules/material-overrides.md) |
 | [`phase3-data-feeds.md`](./phase3-data-feeds.md)   | shipped — data channels + template feed layer                                        |
+| [`composites.md`](./composites.md)                 | shipped on `feature/composites` (not yet in `dev`) — see [`../modules/composites.md`](../modules/composites.md) |
 | [`video-audio-assets.md`](./video-audio-assets.md) | shipped — `video`/`audio` node kinds, media bus, clip event lane                     |
 | [`tracking-mix.md`](./tracking-mix.md)             | shipped — migration `044`, see [`../modules/animation.md`](../modules/animation.md)  |
 | [`actions.md`](./actions.md)                       | **design-only** — project-level preauthored workflows (Actions) + the nodes they need; editable Behavior graphs |

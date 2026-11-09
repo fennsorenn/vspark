@@ -141,9 +141,9 @@ The shared `handleOverliveEvent(...)` helper in `signal/nodes/overlive/_helpers.
 | Kind | Source event | Filter inputs (beyond account/channel) | Notable outputs |
 |---|---|---|---|
 | `overlive_redemption` | Bits / channel points / tip / superchat | `currencyKind`, `rewardId` | `username`, `displayName`, `currencyKind`, `amount`, `rewardTitle`, `rewardId`, `redemptionId` (channel points: the event id, i.e. Twitch's redemption id), `message`, `data` (all outputs as one record) |
-| `overlive_subscription` | New / resub | `tier`, `isGift` | `username`, `tier`, `months`, `isGift`, `message` |
+| `overlive_subscription` | New / resub | `tier`, `isGift` | `username`, `tier`, `months`, `isGift`, `message`, `data` (all outputs as one record) |
 | `overlive_gift_bomb` | Multi-gift sub | `tier` | `gifter`, `count`, `tier` |
-| `overlive_raid` | Incoming raid | min viewers | `raider`, `viewers` |
+| `overlive_raid` | Incoming raid | — | `fromUsername`, `fromDisplayName`, `viewerCount`, `data` (all outputs as one record, plus `username` / `displayName` aliases of the raider) |
 | `overlive_follow` | New follow | — | `username`, `displayName` |
 | `overlive_chat_message` | Chat message | (user/contains/badges via downstream nodes) | `username`, `displayName`, `text`, `html`, `color`, `isMod`, `isSub`, `isBroadcaster`, `isAction`, `isHighlighted`, `cheerAmount`, `data` (all outputs as one record) |
 | `overlive_chat_command` | Chat message starting with the prefix | `command` (case-insensitive, no prefix; empty = any) | `command`, `args` (space-joined), `text`, `isMod`/`isSub`/`isBroadcaster` |

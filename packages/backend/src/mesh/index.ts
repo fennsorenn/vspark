@@ -64,6 +64,7 @@ import {
   type GraphDescriptorDoc,
 } from '@vspark/shared/signal';
 import { validateFeedConfig } from '@vspark/shared/feedValidation';
+import { guardPartMove } from '../composites/guard.js';
 import { broadcastBus } from '../broadcast/bus.js';
 import { isClientParticipant } from '@vspark/shared/sync';
 import { MODELS } from '@vspark/shared/models';
@@ -82,7 +83,7 @@ interface RtypeBinding {
    *  the write is nacked and rolled back on its author. Return a different
    *  document to correct it. `origin` is the participant the write came from
    *  (our own id for local writes). */
-  validate?: (data: unknown, ctx: { origin: string }) => Dto;
+  validate?: (data: unknown, ctx: { origin: string; prev?: Dto }) => Dto;
   /** Whether a committed doc belongs to THIS server's data (persist it) or is
    *  a remote projection riding a placed-object subscription (replica-only:
    *  fans out to our tabs, never touches SQLite). §9 step D. */
@@ -180,8 +181,13 @@ const BINDINGS: RtypeBinding[] = [
     // local path in the interim (so a converged _shared URL isn't clobbered),
     // and a node with no prior path takes the owner path verbatim until the
     // follow-up corrects it.
-    validate: (data, { origin: originId }) => {
+    validate: (data, { origin: originId, prev }) => {
       let d = { ...(data as Dto) };
+      // Composite parts stay in their container, whoever writes (see
+      // composites/guard.ts).
+      guardPartMove('scene_node', d, prev, (id) =>
+        COLLECTIONS.get('scene_node')?.get(id)
+      );
       // Writes from a browser tab bypass the REST route, so its
       // server-authoritative checks run here instead, on the document the
       // write would leave behind — a throw nacks the write and the client
@@ -278,10 +284,13 @@ const BINDINGS: RtypeBinding[] = [
     // re-derived here instead. Collab peers are servers, not clients. A feed
     // layer's template/css must compile whoever wrote it: refusing it nacks
     // the write instead of storing markup that renders nothing.
-    validate: (data, { origin }) => {
+    validate: (data, { origin, prev }) => {
       const d = isClientParticipant(origin)
         ? guardClientComposeLayer({ ...(data as Dto) })
         : (data as Dto);
+      guardPartMove('compose_layer', d, prev, (id) =>
+        COLLECTIONS.get('compose_layer')?.get(id)
+      );
       const err = validateFeedConfig(d.config);
       if (err) throw new Error(err);
       return d;

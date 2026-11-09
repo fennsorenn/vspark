@@ -32,6 +32,14 @@ import {
   useComposeScenes,
 } from '../../mesh/compose';
 import { useSceneNodes } from '../../mesh/nodes';
+import {
+  dissolveComposite,
+  isCompositeRoot,
+  owningCompositeId,
+  partDeleteBlocked,
+  refusePartMove,
+} from '../../mesh/composites';
+import { CompositeTag } from './composites/CompositeTag';
 
 // Monochrome SVG icons (stroke = currentColor) so the button `color` actually
 // applies — unlike the coloured emoji they replace, which ignore CSS colour.
@@ -198,6 +206,9 @@ async function transferComposeLayer(
   onError: (msg: string) => void,
   errFallback: string
 ) {
+  // A move re-creates the subtree elsewhere and deletes the original — not
+  // for a composite's part, which stays where it is.
+  if (!copy && refusePartMove('compose_layer', draggedId)) return;
   try {
     const preset = await api.serializePreset('compose_layer', draggedId, true);
     await api.instantiatePreset(
@@ -267,6 +278,7 @@ function LayerRow({
   const choose = useChoose();
   const confirm = useConfirm();
   const handleDelete = async () => {
+    if (partDeleteBlocked('compose_layer', layer.id)) return;
     const directChildren = layersByParent.get(layer.id) ?? [];
 
     // Leaf layer: a simple confirm.
@@ -389,7 +401,14 @@ function LayerRow({
         onClick: () => void handlePasteLogicAtLayer(),
       });
     }
-    if (canSendTo3D(layer)) {
+    if (isCompositeRoot('compose_layer', layer.id)) {
+      items.push({
+        kind: 'item',
+        label: t('composites:dissolve'),
+        onClick: () => dissolveComposite('compose_layer', layer.id),
+      });
+    }
+    if (canSendTo3D(layer) && !owningCompositeId('compose_layer', layer.id)) {
       items.push({
         kind: 'item',
         label: t('tree.ctx.sendTo3d'),
@@ -569,6 +588,7 @@ function LayerRow({
         >
           {label}
         </span>
+        {isCompositeRoot('compose_layer', layer.id) && <CompositeTag />}
         {layer.kind === 'camera_view' && (
           <button
             className="vs-layer-lock3d"
