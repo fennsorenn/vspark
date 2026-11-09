@@ -124,6 +124,33 @@ no-op unsubscribe.
 Unit tests that don't start the mesh and the window before `initBackendMesh` have no
 collections: reads return `undefined`, writes are no-ops, warned once.
 
+## Name suggestions (editor)
+
+- **Decided (user, 2026-11-09):** inputs that name a variable, a scope or a named
+  trigger suggest the names already in use (on that scope) and still accept any new
+  name typed freely — in Actions, logic node default inputs and composite settings
+  (and behaviors, should they get such inputs).
+- `packages/frontend/src/mesh/names.ts` collects the names from the tab's replica:
+  stored variables (`variable` / `runtime_variable`); the `name` / `scope` config of
+  nodes in `VARIABLE_NODE_KINDS` (`variable`, `set_variable`, `increment_variable`,
+  `deadline`, `tally`), with the scope taken from the `scope` setting, or the graph's
+  id when wired from `logic_id` (a scope wired from anything else is unknown and the
+  node is not listed); `cooldown` groups (scope `COOLDOWN_SCOPE` = `__cooldown`);
+  `send_trigger` / `on_trigger` names; and Actions settings (`counter.name` in the
+  shared scope, `cooldown.group`, `trigger`). Exports `variableNames`,
+  `triggerNames`, `scopeOptions`, `uniqueName` (first free `<base>`, `<base> 2`, …),
+  `triggerBases` (`<base>` of `<base> start|pause|resume|reset` sets),
+  `nodePortNameSpec`, `useNameSuggestions(spec)` and `currentProjectDocs()`
+  (non-hook snapshot).
+- Rendered as a `<datalist>` (the blendshape-name input in `PropertiesPanel` was the
+  precedent): `DraftText`'s `suggestions` prop / the exported `SuggestionList`
+  (`components/editor/actions/draftInputs.tsx`); `SignalNodeCard`'s StaticInput for
+  String ports via `nodePortNameSpec` (`SignalGraphCanvas` passes each node's
+  `scopeSource`: `'graph'` | `'other'`); composite settings via their `suggest` field
+  ([composites.md](composites.md)); Actions' trigger / counter name / cooldown group
+  fields ([actions.md](actions.md)).
+- Test: `packages/frontend/test/names.test.tsx`.
+
 ## Cleanup
 
 Deleting a Logic graph deletes every variable (both collections, all projects) whose
@@ -139,6 +166,7 @@ shared namespace (`''`) is never bulk-deleted.
   `sameRef` (+ re-exported naming).
 - `packages/backend/src/mesh/index.ts` — the `variable` binding and `guardVariable`.
 - `packages/frontend/src/mesh/variables.ts` — `useVariable`, `writeVariable`.
+- `packages/frontend/src/mesh/names.ts` — names in use, for input suggestions.
 - `packages/backend/src/mesh/variables.ts` — the `runtime_variable` collection.
 - `packages/backend/src/signal/nodes/variable.ts` — the three variable nodes;
   `deadline.ts`, `tally.ts` — the state nodes.

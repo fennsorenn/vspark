@@ -63,6 +63,12 @@ Batch 2 (stream widgets) — the plan's `[decided]` items are the user's:
   lives in a project variable.
 - **Decided (user, 2026-11-09):** tabs may write project variables (the timer buttons,
   a goal set by hand) — see [variables.md](variables.md).
+- **Decided (user, 2026-11-09):** a widget's shared variable is unique on creation —
+  placing a second goal gives it `goal 2`, not the first goal's `goal`. Timer widgets'
+  trigger base names (`countdown start` …) are not made unique (not asked; raised by
+  Claude as an open question).
+- **Decided (user, 2026-11-09):** variable / trigger-name settings suggest names in
+  use and accept new ones — see [variables.md](variables.md#name-suggestions-editor).
 
 ## Shared model — `packages/shared/src/composites.ts`
 
@@ -100,6 +106,10 @@ the id.
   `timer` / `variable`; a `scope` wired from a `logic_id` node resolves to the graph
   part's id. `plan: { initial, start }` names the setting keys a `stages` control
   reads for its planning help.
+  `suggest?: 'trigger' | 'triggerBase' | 'variable'` makes a text setting offer names
+  in use (`triggerBase`: the `<base>` of timer trigger sets, via `triggerBases`);
+  set on alert `triggerName`, goal `countTrigger` + `variable`, countdown / subathon
+  `finishTrigger` + `controlName`.
 - `FieldWrite { rtype, id, path, value }` — one dotted-path write on a part document;
   `null` deletes a keyed element.
 
@@ -232,7 +242,9 @@ Shared helpers in `composites.ts` for these definitions:
   refuses a part.
 - `components/editor/composites/`:
   - `compositeModel.ts` — `COMPOSITE_DEFS` (palette entries) and `placeComposite`
-    (`getBuiltinPreset` + `instantiatePreset`).
+    (`getBuiltinPreset` + `instantiatePreset`). A def's `uniqueVariable` (goal:
+    `'goal'`) makes `placeComposite` rename the payload's shared-scope variable nodes
+    to `uniqueName(...)` of the names in use (`renameVariable`).
   - `CompositeSettings.tsx` — the Settings section and `CompositePartNote`; mounted in
     `ComposeLayerProperties` and `PropertiesPanel`. Its header carries a per-type
     `HelpButton` (`TYPE_ANCHOR`: type → help anchor).
@@ -269,9 +281,10 @@ and Benannter Auslöser were chosen by Claude and are not yet confirmed.
 - backend `packages/backend/test/composites.test.ts` (each widget places, and every
   select / toggle setting keeps a valid, running graph) and
   `packages/backend/test/nodes.widgets.test.ts` (the new nodes)
-- frontend `packages/frontend/test/composites.test.tsx`
+- frontend `packages/frontend/test/composites.test.tsx`, `names.test.tsx`
 - e2e `e2e/tests/cov-composites.spec.ts` (third test: timer buttons, stages, goal by
-  hand, list toggles)
+  hand, list toggles; a second goal gets `goal 2` and its variable input suggests
+  `goal`)
 
 ## Adding a composite type
 

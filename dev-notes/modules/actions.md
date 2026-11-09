@@ -366,6 +366,10 @@ like the numeric inputs they are registered in `COMPONENTS` of
 is excluded in `e2e/coverage-ignore.json`. The account select lists the editor store's `overliveAccounts`
 with "Default account" (empty) first.
 
+The trigger, counter name and cooldown group fields suggest names in use
+(`DraftText` `suggestions` → `<datalist>`) while accepting new ones — see
+[variables.md](variables.md#name-suggestions-editor).
+
 `vs-` handles: `vs-tab-actions`, `vs-action-add`, `vs-action-add-kind`
 (`-<kind>`), `vs-action-group-add`, `vs-action-enable`, `vs-action-row` (select),
 `vs-action-editor-enable`, `vs-action-name`, `vs-action-shortcut`,
