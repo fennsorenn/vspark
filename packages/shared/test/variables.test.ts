@@ -4,6 +4,7 @@ import {
   TALLY_EMPTY,
   deadlineOps,
   deadlineStateOf,
+  parseDateTime,
   persistentVariableId,
   remainingOf,
   runtimeVariableId,
@@ -72,5 +73,40 @@ describe('tally state', () => {
     s = tallyAdd(s, 'c', 1, '', 5, 3);
     s = tallyAdd(s, 'c', 1, '', 5, 4);
     expect(tallyTop(s, 3).map((e) => e.name)).toEqual(['c', 'a', 'b']);
+  });
+});
+
+
+describe('date / time text', () => {
+  const now = new Date(2026, 10, 9, 18, 0, 0).getTime();
+  it('a time of day is its next occurrence; a full date that moment', () => {
+    expect(parseDateTime('20:00', now)).toBe(new Date(2026, 10, 9, 20).getTime() / 1000);
+    expect(parseDateTime('17:30:15', now)).toBe(
+      new Date(2026, 10, 10, 17, 30, 15).getTime() / 1000
+    );
+    expect(parseDateTime('18:00', now)).toBe(new Date(2026, 10, 10, 18).getTime() / 1000);
+    expect(parseDateTime('12:61', now)).toBeNull();
+    expect(parseDateTime('2026-11-09T20:00:00Z')).toBe(Date.UTC(2026, 10, 9, 20) / 1000);
+    expect(parseDateTime('nope')).toBeNull();
+    expect(parseDateTime('  ')).toBeNull();
+    expect(parseDateTime(42)).toBeNull();
+  });
+});
+
+describe('deadline transitions', () => {
+  it('start, add, pause, resume, finish', () => {
+    let s = deadlineOps.start(600, 1000);
+    expect(s).toEqual({ endsAt: 1600, remaining: 600, total: 600, running: true, finished: false });
+    s = deadlineOps.add(s, 120, 1100);
+    expect(s).toMatchObject({ endsAt: 1720, total: 720 });
+    s = deadlineOps.pause(s, 1200);
+    expect(s).toMatchObject({ endsAt: null, remaining: 520, running: false });
+    expect(remainingOf(s, 9999)).toBe(520);
+    s = deadlineOps.add(s, -1000, 1300);
+    expect(s).toMatchObject({ remaining: 0, total: 200 });
+    expect(deadlineOps.resume(s, 1400)).toBe(s); // nothing left to resume
+    const f = deadlineOps.finish(deadlineOps.start(5, 0));
+    expect(f).toMatchObject({ finished: true, running: false, remaining: 0 });
+    expect(deadlineOps.add(f, 10)).toBe(f);
   });
 });
