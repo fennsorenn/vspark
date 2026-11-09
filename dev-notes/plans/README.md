@@ -65,7 +65,7 @@ Design → executed → follow-ups. Each supersedes roughly what came before it.
 | [`forearm-twist-bone.md`](./forearm-twist-bone.md) | shipped — see [`../modules/twist-bones.md`](../modules/twist-bones.md)               |
 | [`material-editor.md`](./material-editor.md)       | shipped — see [`../modules/material-overrides.md`](../modules/material-overrides.md) |
 | [`phase3-data-feeds.md`](./phase3-data-feeds.md)   | shipped — data channels + template feed layer                                        |
-| [`composites.md`](./composites.md)                 | shipped on `feature/composites` (not yet in `dev`) — see [`../modules/composites.md`](../modules/composites.md) |
+| [`composites.md`](./composites.md)                 | shipped — in `dev` (merge 405d4ff) — see [`../modules/composites.md`](../modules/composites.md) |
 | [`stream-widgets.md`](./stream-widgets.md)         | **in progress** on `feature/stream-widgets` — composites batch 2 (goals, timers, tallies, ad break) |
 | [`video-audio-assets.md`](./video-audio-assets.md) | shipped — `video`/`audio` node kinds, media bus, clip event lane                     |
 | [`tracking-mix.md`](./tracking-mix.md)             | shipped — migration `044`, see [`../modules/animation.md`](../modules/animation.md)  |

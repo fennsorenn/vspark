@@ -50,8 +50,9 @@ second pass.
   graphs (and Actions) can change. **Auto** goals are the channel's Twitch goals.
 - **[observed]** The `feed` compose layer (htm template + scoped CSS, fed by
   `set_data`) can render bars, timers and lists, so no new layer kind is needed.
-  Its templates only re-render when published data changes, so anything that
-  ticks publishes once per second from the graph.
+  Its templates only re-render when published data changes — which is why the
+  ticking display is a page-side `<Countdown>` helper (see the decision above)
+  rather than per-second publishes.
 - **[observed]** Overlive's EventSub client checks the token's scopes before
   subscribing and skips subscriptions it can't make, so accounts without the
   new `channel:read:goals` scope keep working (and get no goal events until

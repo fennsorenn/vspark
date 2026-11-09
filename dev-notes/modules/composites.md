@@ -1,6 +1,6 @@
 # Composites
 
-**Status: Implemented on `feature/composites`** (not yet merged to `dev`). Plan:
+**Status: Implemented** (in `dev`, merge 405d4ff). Plan:
 [../plans/composites.md](../plans/composites.md).
 
 A composite is a built-in template placed as **one object** in the scene tree or the
