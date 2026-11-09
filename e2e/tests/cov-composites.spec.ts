@@ -228,6 +228,9 @@ test('cov-composites: stream widgets — timer buttons, stages, goal by hand, li
 
   /** Place a widget from the palette; resolves to its marker's parts. */
   async function placeWidget(label: string, type: string) {
+    const before = new Set(
+      (await layersOf(request, composeSceneId)).map((l) => l.id)
+    );
     await page.locator('.vs-tab-create').click();
     await page
       .locator('.vs-palette-composite')
@@ -237,7 +240,7 @@ test('cov-composites: stream widgets — timer buttons, stages, goal by hand, li
     await expect
       .poll(async () => {
         root = (await layersOf(request, composeSceneId)).find(
-          (l) => marker(l, 'config')?.type === type
+          (l) => !before.has(l.id) && marker(l, 'config')?.type === type
         );
         return !!root;
       })
