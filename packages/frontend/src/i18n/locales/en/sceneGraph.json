@@ -3,7 +3,6 @@
     "stage": "Stage",
     "compose": "Compose",
     "logic": "Logic",
-    "macros": "Macros",
     "actions": "Actions"
   },
   "sections": {

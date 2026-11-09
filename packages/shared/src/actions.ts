@@ -112,7 +112,7 @@ function valueEdge(
   return { fromNodeId, fromPort: 'value', toNodeId, toPort };
 }
 
-// ── responses (the Macros panel's response set) ─────────────────────────────
+// ── responses ───────────────────────────────────────────────────────────────
 
 /** Entity kinds a response field can reference (resolved to names by the UI). */
 export type ResponseRefKind =
@@ -132,8 +132,8 @@ export interface ResponseTypeDef {
   fields: readonly string[];
 }
 
-/** The response set, by id — the same ids, sinks and fields as the Macros
- *  panel's `actionRegistry.ts`, so its field editors can be reused. */
+/** The response set, by id. The editor's field controls for each type are in
+ *  the frontend's `actions/responseFields.ts` (same ids and fields). */
 export const RESPONSE_TYPES: Readonly<Record<string, ResponseTypeDef>> = {
   play_clip: { nodeKind: 'start_clip', entryPort: 'fire', fields: ['clipId'] },
   spawn_clip: { nodeKind: 'spawn_clip', entryPort: 'fire', fields: ['clipId'] },
@@ -282,7 +282,7 @@ export type ComboMode = 'threshold' | 'timeout';
 export const COMBO_MODES: readonly ComboMode[] = ['threshold', 'timeout'];
 
 /** Human-readable shortcut, e.g. "Ctrl + Shift + F8" (same format as the
- *  Macros recorder). Empty string for no key. */
+ *  shortcut recorder). Empty string for no key. */
 export function formatHotkeyCombo(c: Partial<HotkeyComboSettings>): string {
   const key = typeof c.key === 'string' ? c.key.trim() : '';
   if (!key) return '';

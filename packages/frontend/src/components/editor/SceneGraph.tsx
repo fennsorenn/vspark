@@ -31,7 +31,6 @@ import {
   commitSceneDelete,
 } from '../../mesh/writes';
 import { ComposeTree } from './ComposeTree';
-import { MacrosPanel } from './macros/MacrosPanel';
 import { ActionsPanel } from './actions/ActionsPanel';
 import { ClipsSection } from './ClipsSection';
 import { LogicSection } from './LogicSection';
@@ -3600,13 +3599,6 @@ export function SceneGraph() {
           {t('tabs.logic')}
         </button>
         <button
-          className="vs-tab-macros"
-          style={tabStyle(dockTab === 'macros')}
-          onClick={() => setDockTab('macros')}
-        >
-          {t('tabs.macros')}
-        </button>
-        <button
           className="vs-tab-actions"
           style={tabStyle(dockTab === 'actions')}
           onClick={() => setDockTab('actions')}
@@ -3617,7 +3609,6 @@ export function SceneGraph() {
       </div>
 
       {dockTab === 'graphs' && <LogicListPanel />}
-      {dockTab === 'macros' && <MacrosPanel />}
       {dockTab === 'actions' && <ActionsPanel />}
       {dockTab === 'compose' && <ComposeTree />}
 

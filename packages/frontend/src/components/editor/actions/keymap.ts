@@ -10,7 +10,23 @@
  * node's config. Names match `IGlobalKey` in node-global-key-listener.
  */
 
-import type { HotkeyCombo } from './types.js';
+/** The combo carried by a `system_hotkey` node's config. */
+export interface HotkeyCombo {
+  key: string;
+  ctrl: boolean;
+  shift: boolean;
+  alt: boolean;
+  meta: boolean;
+}
+
+/** No key, no modifiers (an unset shortcut). */
+export const EMPTY_COMBO: HotkeyCombo = {
+  key: '',
+  ctrl: false,
+  shift: false,
+  alt: false,
+  meta: false,
+};
 
 /** Codes that are modifiers only — never the "main" key of a combo. */
 const MODIFIER_CODES = new Set([
@@ -102,7 +118,7 @@ export function comboFromKeyboardEvent(e: {
   };
 }
 
-/** True when the combo names a real key (a saveable macro shortcut). */
+/** True when the combo names a real key (a saveable shortcut). */
 export function isCompleteCombo(combo: HotkeyCombo): boolean {
   return combo.key.trim().length > 0;
 }

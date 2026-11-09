@@ -141,25 +141,3 @@ andere starten, zum Beispiel ein Chat-Befehl, der einen woanders gebauten Alarm
 auslöst. Ein Auslöser kann sich nicht erneut selbst auslösen, solange er noch
 verarbeitet wird — Schleifen brechen also von selbst ab. Das Feld **name** schlägt
 die Auslösernamen vor, die im Projekt schon verwendet werden.
-
-## Makros {#macros}
-
-Der **Makros**-Tab ist der einfache Weg, um eine ganze Reihe von Tastenkürzeln
-einzurichten, ohne die Knoten-Leinwand anzufassen. Jedes Makro liest sich wie
-ein Satz: *Wenn ich [Kürzel] drücke → [Aktion ausführen]*.
-
-- Klicke auf **Makro hinzufügen**, dann auf die Kürzel-Schaltfläche und drücke
-  die gewünschten Tasten (z. B. `Strg + Umschalt + 1`). Wähle eine Aktion —
-  einen Clip abspielen, einen Ausdruck setzen, etwas ein- oder ausblenden, ein
-  Video steuern — und fülle die Details aus.
-- Das Kontrollkästchen **An** aktiviert oder deaktiviert ein Makro, ohne es zu
-  löschen.
-
-Makros sind nur eine benutzerfreundliche Ansicht der Logik: Jedes ist im
-Hintergrund eigentlich ein *System-Tastenkürzel*-Knoten, der mit einem
-Aktions-Knoten verbunden ist. Alles, was du auf der Leinwand baust und mit
-einem Tastenkürzel beginnt, erscheint also auch hier, und Änderungen bleiben in
-beide Richtungen synchron. Wenn ein Makro etwas tut, das die einfache Ansicht
-nicht darstellen kann — ein Umschalten oder eine handverdrahtete Kette — zeigt
-die Zeile das an und bietet **Im Graph öffnen**, um es mit voller Kontrolle zu
-bearbeiten.

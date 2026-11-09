@@ -5,10 +5,10 @@
 import { describe, it, expect, vi } from 'vitest';
 import { fireEvent } from '@testing-library/react';
 import { renderWithProviders } from './helpers/render';
-import { FieldEditor } from '../src/components/editor/macros/MacrosPanel';
-import type { MacroField } from '../src/components/editor/macros/types';
+import { FieldEditor } from '../src/components/editor/actions/FieldEditor';
+import type { ResponseField } from '../src/components/editor/actions/responseFields';
 
-const volume: MacroField = {
+const volume: ResponseField = {
   key: 'volume',
   labelKey: 'field.volume',
   control: 'slider',
@@ -24,6 +24,7 @@ describe('slider field', () => {
     const { container } = renderWithProviders(
       <FieldEditor
         field={volume}
+        className="vs-action-field"
         value={undefined}
         values={{}}
         onChange={() => {}}
@@ -39,7 +40,13 @@ describe('slider field', () => {
   it('commits once, when the drag ends', () => {
     const onChange = vi.fn();
     const { container } = renderWithProviders(
-      <FieldEditor field={volume} value={0.5} values={{}} onChange={onChange} />
+      <FieldEditor
+        field={volume}
+        className="vs-action-field"
+        value={0.5}
+        values={{}}
+        onChange={onChange}
+      />
     );
     const input = container.querySelector(
       'input[type=range]'

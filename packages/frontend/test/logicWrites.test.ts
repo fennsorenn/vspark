@@ -293,42 +293,4 @@ describe('logic writes', () => {
       ['a', 'b']
     );
   });
-
-  it('commitGraphDiff writes only what changed', async () => {
-    const { commitGraphDiff } = await import('../src/mesh/logicWrites');
-    await seed('g');
-    const pos = { x: 0, y: 0 };
-    const keep = { id: 'keep', kind: 'clock', position: pos };
-    const gone = { id: 'gone', kind: 'clock', position: pos };
-    const changed = { id: 'chg', kind: 'log', position: pos };
-    const added = { id: 'new', kind: 'log', position: pos };
-    const oldEdge = {
-      fromNodeId: 'gone',
-      fromPort: 'tick',
-      toNodeId: 'chg',
-      toPort: 'event',
-      kind: 'event' as const,
-    };
-    const newEdge = { ...oldEdge, fromNodeId: 'keep', toNodeId: 'new' };
-
-    commitGraphDiff(
-      'g',
-      { nodes: [keep, gone, changed], edges: [oldEdge] },
-      {
-        nodes: [keep, { ...changed, defaultConfig: { level: 'warn' } }, added],
-        edges: [newEdge],
-      }
-    );
-
-    const paths = writes.map((w) => [w.path, w.value === null ? null : 'set']);
-    expect(paths).toEqual([
-      [expect.stringMatching(/^descriptor\.edges\./), null],
-      ['descriptor.nodes.gone', null],
-      ['descriptor.nodes.chg', 'set'],
-      ['descriptor.nodes.new', 'set'],
-      [expect.stringMatching(/^descriptor\.edges\./), 'set'],
-    ]);
-    // The untouched node is never re-sent.
-    expect(writes.some((w) => w.path === 'descriptor.nodes.keep')).toBe(false);
-  });
 });

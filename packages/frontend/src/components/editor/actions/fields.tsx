@@ -10,8 +10,8 @@ import { useTranslation } from 'react-i18next';
 import { CHAT_RANKS, RESPONSE_TYPE_IDS } from '@vspark/shared/actions';
 import { useEditorStore } from '../../../store/editorStore';
 import { HelpButton } from '../../../help/HelpButton';
-import { FieldEditor, effectiveFields } from '../macros/MacrosPanel';
-import type { MacroFieldValue } from '../macros/types';
+import { FieldEditor } from './FieldEditor';
+import { effectiveFields, type ResponseFieldValue } from './responseFields';
 import { inputStyle, labelStyle } from './styles';
 import { SettingCheck, DraftNumber, DraftText } from './draftInputs';
 
@@ -231,8 +231,7 @@ export function TemplateField({
 
 /**
  * A response picker (type = shape setting) with the type's typed value
- * controls (the Macros panel's field editors, incl. the paramPath-typed
- * property value). `path` is the slot's settings path (`responses.0`,
+ * controls (FieldEditor, incl. the paramPath-typed property value). `path` is the slot's settings path (`responses.0`,
  * `response`). With `allowNone` the empty choice ("no response") is
  * selectable; otherwise it is only a prompt.
  */
@@ -250,7 +249,7 @@ export function ResponseEditor({
   onSetting: OnSetting;
 }) {
   const { t } = useTranslation('actions');
-  const values = (isObj(slot) ? slot : {}) as Record<string, MacroFieldValue>;
+  const values = (isObj(slot) ? slot : {}) as Record<string, ResponseFieldValue>;
   const type = typeof values.type === 'string' ? values.type : '';
   return (
     <div
@@ -290,7 +289,7 @@ export function ResponseEditor({
         />
       )}
       {type &&
-        effectiveFields({ defId: type, values }).map((f) => (
+        effectiveFields(type, values).map((f) => (
           <FieldEditor
             key={f.key}
             field={f}

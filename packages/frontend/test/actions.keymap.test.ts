@@ -4,7 +4,7 @@ import {
   comboFromKeyboardEvent,
   formatCombo,
   isCompleteCombo,
-} from '../src/components/editor/macros/keymap';
+} from '../src/components/editor/actions/keymap';
 
 describe('browserCodeToHotkeyKey', () => {
   it('maps letters, digits, F-keys, and numpad by rule', () => {

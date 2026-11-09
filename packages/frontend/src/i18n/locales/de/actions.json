@@ -173,5 +173,25 @@
     "timeout": "Nach Ablauf",
     "thresholdHint": "Läuft, sobald die Zahl die Schwelle erreicht.",
     "timeoutHint": "Läuft, wenn die Combo endet (so lange keine Nachricht), sofern die Zahl die Schwelle erreicht hat."
+  },
+  "shortcut": {
+    "set": "Tastenkürzel festlegen…",
+    "recording": "Tastenkürzel drücken…"
+  },
+  "field": {
+    "clip": "Clip",
+    "avatar": "Avatar",
+    "expression": "Ausdruck",
+    "weight": "Gewicht",
+    "target": "Ziel",
+    "layer": "Ebene",
+    "property": "Eigenschaft",
+    "value": "Wert",
+    "action": "Aktion",
+    "sound": "Sound",
+    "volume": "Lautstärke",
+    "video": "Video",
+    "videoTarget": "Auf",
+    "choose": "Auswählen…"
   }
 }

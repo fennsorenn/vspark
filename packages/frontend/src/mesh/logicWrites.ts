@@ -136,39 +136,6 @@ export function commitGraphPaste(
   });
 }
 
-/**
- * Write the difference between two versions of a graph as ONE undo action:
- * removed edges and nodes become nulls, added or changed ones are written whole,
- * unchanged ones are not touched. For callers that edit a graph as a whole
- * descriptor (the Macros panel's transforms) — sending only what changed keeps
- * concurrent edits elsewhere in the same graph intact.
- */
-export function commitGraphDiff(
-  logicId: string,
-  before: { nodes: GraphNodeDescriptor[]; edges: GraphEdgeDescriptor[] },
-  after: { nodes: GraphNodeDescriptor[]; edges: GraphEdgeDescriptor[] }
-): void {
-  const oldNodes = new Map(before.nodes.map((n) => [n.id, n]));
-  const newNodes = new Map(after.nodes.map((n) => [n.id, n]));
-  const oldEdges = new Map(before.edges.map((e) => [edgeKey(e), e]));
-  const newEdges = new Map(after.edges.map((e) => [edgeKey(e), e]));
-  const same = (a: unknown, b: unknown) =>
-    JSON.stringify(a) === JSON.stringify(b);
-  meshBatch(() => {
-    // Edges first on removal, nodes first on addition, so no step of the batch
-    // names an edge whose endpoint is missing.
-    for (const [key, e] of oldEdges)
-      if (!newEdges.has(key)) commitGraphEdgeDelete(logicId, e);
-    for (const id of oldNodes.keys())
-      if (!newNodes.has(id))
-        commitLogicPath(logicId, `descriptor.nodes.${id}`, null);
-    for (const [id, n] of newNodes)
-      if (!same(oldNodes.get(id), n)) commitGraphNode(logicId, n);
-    for (const [key, e] of newEdges)
-      if (!same(oldEdges.get(key), e)) commitGraphEdge(logicId, e);
-  });
-}
-
 /** Create a graph on any owner. */
 export function commitLogicCreate(
   owner: LogicOwner,
