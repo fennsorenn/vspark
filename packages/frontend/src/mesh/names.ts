@@ -35,6 +35,35 @@ export interface ProjectDocs {
   variables: Doc[];
   logic: Doc[];
   actions: Doc[];
+  /** A document by type and id (a graph's owner, to tell its project). */
+  lookup: (rtype: string, id: string) => Doc | undefined;
+}
+
+/** The project a graph belongs to. A graph document has no project of its
+ *  own: it belongs to its owner — the project itself, an action, a layer, a
+ *  scene node, or a behavior (whose node has the project). */
+export function graphProject(g: Doc, lookup: ProjectDocs['lookup']): string {
+  const id = typeof g.ownerId === 'string' ? g.ownerId : '';
+  const of = (rtype: string, docId: string) => {
+    const p = lookup(rtype, docId)?.projectId;
+    return typeof p === 'string' ? p : '';
+  };
+  switch (g.ownerKind) {
+    case 'project':
+      return id;
+    case 'action':
+      return of('action', id);
+    case 'compose_layer':
+      return of('compose_layer', id);
+    case 'scene_node':
+      return of('scene_node', id);
+    case 'behavior': {
+      const node = lookup('behavior', id)?.nodeId;
+      return typeof node === 'string' ? of('scene_node', node) : '';
+    }
+    default:
+      return typeof g.projectId === 'string' ? g.projectId : '';
+  }
 }
 
 const str = (v: unknown) => (typeof v === 'string' ? v.trim() : '');
@@ -42,9 +71,9 @@ const sorted = (s: Set<string>) =>
   [...s].filter((x) => x !== '').sort((a, b) => a.localeCompare(b));
 
 /** Each node of each graph of the project, with the scope it addresses. */
-function* projectNodes(projectId: string, logic: Doc[]) {
-  for (const g of logic) {
-    if (g.projectId !== projectId || !g.descriptor) continue;
+function* projectNodes(projectId: string, docs: ProjectDocs) {
+  for (const g of docs.logic) {
+    if (!g.descriptor || graphProject(g, docs.lookup) !== projectId) continue;
     let d;
     try {
       d = toGraphDescriptor(
@@ -87,14 +116,14 @@ export function variableNames(
   const out = new Set<string>();
   for (const v of docs.variables)
     if (v.projectId === projectId && v.scope === scope) out.add(str(v.name));
-  for (const n of projectNodes(projectId, docs.logic))
+  for (const n of projectNodes(projectId, docs))
     if (VARIABLE_NODE_KINDS.has(n.kind) && !n.scopeUnknown && n.scope === scope)
       out.add(str(n.cfg.name));
   if (scope === '')
     for (const s of actionSettings(projectId, docs.actions))
       out.add(str((s.counter as Doc | undefined)?.name));
   if (scope === COOLDOWN_SCOPE) {
-    for (const n of projectNodes(projectId, docs.logic))
+    for (const n of projectNodes(projectId, docs))
       if (n.kind === 'cooldown') out.add(str(n.cfg.group));
     for (const s of actionSettings(projectId, docs.actions))
       out.add(str((s.cooldown as Doc | undefined)?.group));
@@ -105,7 +134,7 @@ export function variableNames(
 /** Named triggers in use (sent or listened for). */
 export function triggerNames(projectId: string, docs: ProjectDocs): string[] {
   const out = new Set<string>();
-  for (const n of projectNodes(projectId, docs.logic))
+  for (const n of projectNodes(projectId, docs))
     if (TRIGGER_NODE_KINDS.has(n.kind)) out.add(str(n.cfg.name));
   for (const s of actionSettings(projectId, docs.actions))
     out.add(str(s.trigger));
@@ -121,13 +150,13 @@ export interface ScopeOption {
  *  (a graph's own scope is its id; the label is its name). */
 export function scopeOptions(
   projectId: string,
-  logic: Doc[],
+  docs: ProjectDocs,
   sharedLabel: string
 ): ScopeOption[] {
   return [
     { value: '', label: sharedLabel },
-    ...logic
-      .filter((g) => g.projectId === projectId)
+    ...docs.logic
+      .filter((g) => graphProject(g, docs.lookup) === projectId)
       .map((g) => ({ value: String(g.id), label: str(g.name) || String(g.id) }))
       .sort((a, b) => a.label.localeCompare(b.label)),
   ];
@@ -142,12 +171,20 @@ export function uniqueName(base: string, taken: Iterable<string>): string {
 
 // ── Live (hooks) and one-off (current replica) reads ────────────────────────
 
+const lookup: ProjectDocs['lookup'] = (rtype, id) => {
+  try {
+    return collectionOf<Doc>(rtype).get(id);
+  } catch {
+    return undefined;
+  }
+};
+
 function useProjectDocs(): ProjectDocs {
   const persistent = useMeshAll(useCollection<Doc>('variable'));
   const runtime = useMeshAll(useCollection<Doc>('runtime_variable'));
   const logic = useMeshAll(useCollection<Doc>('logic'));
   const actions = useMeshAll(useCollection<Doc>('action'));
-  return { variables: [...persistent, ...runtime], logic, actions };
+  return { variables: [...persistent, ...runtime], logic, actions, lookup };
 }
 
 /** The replica's documents right now (outside React). */
@@ -159,6 +196,7 @@ export function currentProjectDocs(): ProjectDocs {
     ],
     logic: collectionOf<Doc>('logic').all(),
     actions: collectionOf<Doc>('action').all(),
+    lookup,
   };
 }
 
@@ -174,7 +212,7 @@ export function useTriggerNames(): string[] {
 
 export function useScopeOptions(sharedLabel: string): ScopeOption[] {
   const projectId = useEditorStore((s) => s.projectId) ?? '';
-  return scopeOptions(projectId, useProjectDocs().logic, sharedLabel);
+  return scopeOptions(projectId, useProjectDocs(), sharedLabel);
 }
 
 /** What a name input names. */
@@ -195,7 +233,7 @@ export function useNameSuggestions(
     return variableNames(projectId, spec.scope, docs);
   if (spec.kind === 'trigger') return triggerNames(projectId, docs);
   // The shared namespace is the empty scope — an empty input; offer graphs.
-  return scopeOptions(projectId, docs.logic, spec.sharedLabel).filter(
+  return scopeOptions(projectId, docs, spec.sharedLabel).filter(
     (o) => o.value !== ''
   );
 }

@@ -37,7 +37,8 @@ const docs: ProjectDocs = {
   logic: [
     {
       id: 'g1',
-      projectId: 'p1',
+      ownerKind: 'compose_layer',
+      ownerId: 'layer1',
       name: 'Countdown',
       descriptor: {
         nodes: {
@@ -56,7 +57,17 @@ const docs: ProjectDocs = {
         },
       },
     },
-    { id: 'g2', projectId: 'p2', name: 'Other', descriptor: { nodes: {}, edges: {} } },
+    { id: 'g2', ownerKind: 'project', ownerId: 'p2', name: 'Other', descriptor: { nodes: {}, edges: {} } },
+    {
+      id: 'g3',
+      ownerKind: 'behavior',
+      ownerId: 'b1',
+      name: 'Behavior graph',
+      descriptor: {
+        nodes: { t: node('t', 'on_trigger', { name: 'wave' }) },
+        edges: {},
+      },
+    },
   ],
   actions: [
     {
@@ -65,6 +76,12 @@ const docs: ProjectDocs = {
       settings: { counter: { name: 'deaths' }, cooldown: { group: 'hype' }, trigger: 'clip' },
     },
   ],
+  lookup: (rtype, id) =>
+    ({
+      'compose_layer:layer1': { projectId: 'p1' },
+      'behavior:b1': { nodeId: 'n1' },
+      'scene_node:n1': { projectId: 'p1' },
+    })[`${rtype}:${id}`],
 };
 
 describe('names in use', () => {
@@ -79,13 +96,14 @@ describe('names in use', () => {
 
   it('triggers sent or listened for, and their timer bases', () => {
     const names = triggerNames('p1', docs);
-    expect(names).toEqual(['alert', 'clip', 'countdown start']);
+    expect(names).toEqual(['alert', 'clip', 'countdown start', 'wave']);
     expect(triggerBases(names)).toEqual(['countdown']);
   });
 
   it('scopes: shared plus each graph of the project by name', () => {
-    expect(scopeOptions('p1', docs.logic, 'Shared')).toEqual([
+    expect(scopeOptions('p1', docs, 'Shared')).toEqual([
       { value: '', label: 'Shared' },
+      { value: 'g3', label: 'Behavior graph' },
       { value: 'g1', label: 'Countdown' },
     ]);
   });
