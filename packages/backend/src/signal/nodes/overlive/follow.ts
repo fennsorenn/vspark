@@ -26,6 +26,8 @@ export class OverliveFollow extends Node {
 
   @valueOut('username', 'String') username = (): string => this._out().username;
   @valueOut('displayName', 'String') displayName = (): string => this._out().displayName;
+  /** The whole record, e.g. for a Text Format's values. */
+  @valueOut('data', 'Any') data = (): FollowOut => ({ ...this._out() });
 
   @eventIn('event', 'Any')
   onEvent(ev: Event<unknown>): void {
