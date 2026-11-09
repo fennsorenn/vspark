@@ -64,9 +64,9 @@ Batch 2 (stream widgets) — the plan's `[decided]` items are the user's:
 - **Decided (user, 2026-11-09):** tabs may write project variables (the timer buttons,
   a goal set by hand) — see [variables.md](variables.md).
 - **Decided (user, 2026-11-09):** a widget's shared variable is unique on creation —
-  placing a second goal gives it `goal 2`, not the first goal's `goal`. Timer widgets'
-  trigger base names (`countdown start` …) are not made unique (not asked; raised by
-  Claude as an open question).
+  placing a second goal gives it `goal 2`, not the first goal's `goal`. Likewise the
+  timer widgets' control triggers: a second countdown gets `countdown 2 start` …
+  (`CompositeDef.uniqueTriggerBase`, `renameTriggerBase` in `compositeModel.ts`).
 - **Decided (user, 2026-11-09):** variable / trigger-name settings suggest names in
   use and accept new ones — see [variables.md](variables.md#name-suggestions-editor).
 

@@ -137,7 +137,9 @@ collections: reads return `undefined`, writes are no-ops, warned once.
   id when wired from `logic_id` (a scope wired from anything else is unknown and the
   node is not listed); `cooldown` groups (scope `COOLDOWN_SCOPE` = `__cooldown`);
   `send_trigger` / `on_trigger` names; and Actions settings (`counter.name` in the
-  shared scope, `cooldown.group`, `trigger`). Exports `variableNames`,
+  shared scope, `cooldown.group`, `trigger`). A graph document carries no project
+  id: `graphProject` resolves it from the owner (project, action, layer, scene node,
+  or a behavior's node). Exports `variableNames`,
   `triggerNames`, `scopeOptions`, `uniqueName` (first free `<base>`, `<base> 2`, …),
   `triggerBases` (`<base>` of `<base> start|pause|resume|reset` sets),
   `nodePortNameSpec`, `useNameSuggestions(spec)` and `currentProjectDocs()`
