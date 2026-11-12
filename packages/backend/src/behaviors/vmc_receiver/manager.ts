@@ -30,6 +30,8 @@ import { BehaviorKind } from '../decorator.js';
 import { trackingGraceMs } from '../tracking_grace.js';
 import { publishTracking } from '../../mesh/status.js';
 
+const ARKIT_SHAPE_SET: ReadonlySet<string> = new Set(ARKIT_SHAPES);
+
 // ---------- Minimal OSC parser ----------
 
 type OscArg = string | number;
@@ -216,6 +218,8 @@ interface Receiver {
    *  is only broadcast once this has stood for the behavior's grace period, so
    *  a brief dropout no longer snaps the avatar to idle. See `checkTimeouts`. */
   quietSince: number | null;
+  /** /VMC/Ext/Blend/Val values (ARKit names) waiting for /VMC/Ext/Blend/Apply. */
+  pendingBlend: Record<string, number>;
 }
 
 @BehaviorKind({
@@ -482,6 +486,7 @@ export class VmcManager {
       prevBodyArgs: [],
       trackingActive: null,
       quietSince: null,
+      pendingBlend: {},
     };
     this.receivers.set(behaviorId, info);
 
@@ -554,6 +559,19 @@ export class VmcManager {
           } else if (info.quietSince === null) {
             info.quietSince = Date.now();
           }
+        } else if (
+          msg.address === '/VMC/Ext/Blend/Val' &&
+          msg.args.length >= 2
+        ) {
+          // Standard VMC blendshapes, applied on /VMC/Ext/Blend/Apply. Only
+          // ARKit names ("perfect sync", as Learned Tracking sends them) feed
+          // the ARKit chain; VRM clip names from other senders are ignored.
+          const name = msg.args[0] as string;
+          if (ARKIT_SHAPE_SET.has(name))
+            info.pendingBlend[name] = msg.args[1] as number;
+        } else if (msg.address === '/VMC/Ext/Blend/Apply') {
+          Object.assign(rawArkit, info.pendingBlend);
+          info.pendingBlend = {};
         } else if (msg.address === '/Face' && msg.args.length >= 52) {
           for (let i = 0; i < ARKIT_SHAPES.length && i < msg.args.length; i++) {
             rawArkit[ARKIT_SHAPES[i]] = msg.args[i] as number;

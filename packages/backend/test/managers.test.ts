@@ -1807,4 +1807,63 @@ describe('VmcManager /MT/Present', () => {
       tracking: false,
     });
   });
+
+  /** An OSC bundle of messages, each [address, ...args] with string or float args. */
+  const oscBundle = (msgs: Array<[string, ...(string | number)[]]>): Buffer => {
+    const pad = (s: string) => {
+      const b = Buffer.from(s + '\0', 'utf8');
+      return Buffer.concat([b, Buffer.alloc((4 - (b.length % 4)) % 4)]);
+    };
+    const parts = msgs.map(([address, ...args]) => {
+      const tags =
+        ',' + args.map((a) => (typeof a === 'string' ? 's' : 'f')).join('');
+      const data = args.map((a) => {
+        if (typeof a === 'string') return pad(a);
+        const f = Buffer.alloc(4);
+        f.writeFloatBE(a);
+        return f;
+      });
+      const m = Buffer.concat([pad(address), pad(tags), ...data]);
+      const len = Buffer.alloc(4);
+      len.writeInt32BE(m.length);
+      return Buffer.concat([len, m]);
+    });
+    return Buffer.concat([pad('#bundle'), Buffer.alloc(8), ...parts]);
+  };
+
+  it('feeds /VMC/Ext/Blend/Val ARKit shapes into the arkit chain on Blend/Apply', () => {
+    manager.startReceiver('lt1', 39541);
+    const graph = (
+      manager as unknown as {
+        graphs: Map<string, { fire: (...a: unknown[]) => void }>;
+      }
+    ).graphs.get('lt1')!;
+    const fire = vi.spyOn(graph, 'fire');
+    const arkitFired = () =>
+      fire.mock.calls.filter((c) => c[0] === 'vmc' && c[1] === 'arkit');
+    // Values without Apply wait; a VRM clip name is ignored.
+    listener()(
+      oscBundle([
+        ['/VMC/Ext/Blend/Val', 'eyeBlinkLeft', 0.5],
+        ['/VMC/Ext/Blend/Val', 'Blink_L', 1],
+      ]),
+      rinfo
+    );
+    expect(arkitFired()).toHaveLength(0);
+    listener()(
+      oscBundle([
+        ['/VMC/Ext/Blend/Val', 'jawOpen', 0.25],
+        ['/VMC/Ext/Blend/Apply'],
+      ]),
+      rinfo
+    );
+    expect(arkitFired()).toHaveLength(1);
+    const ev = arkitFired()[0][2] as {
+      payload: { entries(): IterableIterator<[string, number]> };
+    };
+    expect(Object.fromEntries(ev.payload.entries())).toEqual({
+      eyeBlinkLeft: 0.5,
+      jawOpen: 0.25,
+    });
+  });
 });

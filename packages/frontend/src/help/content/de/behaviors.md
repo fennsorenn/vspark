@@ -161,8 +161,9 @@ sich gut), und schalte jeweils eine Option um.
 Gelerntes Tracking schätzt **Oberkörper, Kopf, Schultern und Arme** per Webcam
 mit einem gelernten Modell statt mit handgeschriebenen Regeln. Ziel ist ein
 ruhigeres Ergebnis als beim Kamera-Tracking, besonders wenn deine Arme unterhalb
-des Bildes ruhen. Hände, Finger und Mimik gehören (noch) nicht dazu: Kombiniere
-es dafür mit anderen Behaviors.
+des Bildes ruhen. Außerdem steuert es deine **Finger** und deine **Mimik**,
+vorerst noch mit herkömmlichen statt gelernten Verfahren. Die Mimik wird wie beim
+[VMC-Empfänger](topic:behaviors#vmc) zugeordnet.
 
 Es läuft als eigenes Programm, die **motiontracker-Runtime**, die vspark für
 dich startet und beendet. Es braucht:

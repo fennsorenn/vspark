@@ -150,8 +150,9 @@ well) and toggle one option at a time.
 Learned tracking estimates your **torso, head, shoulders and arms** from a
 webcam with a learned model instead of hand-written rules. It aims for a calmer
 result than camera tracking, especially with your arms resting below the frame.
-Hands, fingers and facial expressions are not part of it (yet): combine it with
-other behaviors for those.
+It also drives your **fingers** and **facial expressions**, for now with
+conventional methods rather than learned ones. Expressions are mapped like the
+[VMC receiver](topic:behaviors#vmc)'s.
 
 It runs as a separate program, the **motiontracker runtime**, which vspark
 starts and stops for you. It needs:
