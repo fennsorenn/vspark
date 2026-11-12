@@ -245,7 +245,7 @@ interface Receiver {
   label: 'Learned Tracking',
   icon: '🧠',
   description:
-    'Body tracking from the webcam with a learned model (motiontracker runtime): drives torso, head, shoulders and arms. Runs as a separate process started from a local motiontracker checkout.',
+    'Body tracking from the webcam with a learned model (motiontracker runtime): drives torso, head, shoulders and arms, plus fingers and facial expressions. Runs as a separate process started from a local motiontracker checkout.',
   applicableTo: ['avatar'],
   defaultConfig: { camera: 0, port: LEARNED_TRACKER_PORT, mirror: false },
 })
