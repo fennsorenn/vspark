@@ -199,7 +199,7 @@ Available anchors per topic:
 | `overview` | `pieces`, `first-session`, `language` |
 | `avatar` | `loading`, `animation`, `expressions`, `materials`, `calibration` |
 | `scene` | `nodes`, `hierarchy`, `cameras`, `lights`, `compose` |
-| `behaviors` | `vmc`, `tracking`, `lipsync`, `breathing`, `expression-limits`, `devices`, `api` |
+| `behaviors` | `behaviors`, `graph`, `vmc`, `ifacialmocap`, `ifacialmocap-firewall`, `eye-range`, `tracking`, `arm-solve`, `lipsync`, `breathing`, `stylized`, `expression-limits`, `devices`, `api` |
 | `logic` | `automations`, `nodes`, `events`, `triggers`, `hotkeys`, `conditions`, `variables`, `combos`, `custom-triggers`, `macros` |
 | `actions` | `overview`, `add`, `hotkey`, `value-shape`, `modified`, `reset`, `graph` |
 
