@@ -186,7 +186,7 @@ Editing goes through the generic Logic routes / mesh (`PUT /api/logic/:id`).
 
 ## VmcManager — `vmc_receiver/manager.ts`
 
-Manages VMC/RhyLive motion capture receivers. Each behavior owns a `SignalGraph` and shares the process-wide UDP socket pool for transport.
+Manages VMC/RhyLive motion capture receivers. Each behavior owns a `SignalGraph` and shares the process-wide UDP socket pool for transport. Runs three kinds (`VMC_MANAGER_KINDS`): `vmc_receiver`, `vmc_receiver_2d` (Live2D) and `learned_tracker` — a 3D VMC receiver whose sender is a child process the manager starts itself (`LearnedRuntime`, motiontracker's `mtservice`); see [learned-tracker.md](learned-tracker.md).
 
 **Input**: UDP OSC packets on a configurable port  
 **Output**: `vmc_pose` and `vmc_blendshapes` WebSocket broadcasts
@@ -197,6 +197,7 @@ Manages VMC/RhyLive motion capture receivers. Each behavior owns a `SignalGraph`
 - `/VMC/Ext/Bone/Pos` — Unity HumanBodyBones rotation array
 - `/Body` — RhyLive 220+ float array
 - `/Face` — ARKit 52-shape weight array
+- `/MT/Present` — motiontracker's presence flag (0/1), sent by the Learned Tracking runtime; drives tracking on/off for any VMC kind (see Tracking detection)
 
 **Graph template** (`VMC_PIPELINE_TEMPLATE`; what a new behavior's stored graph is generated from) wires:
 ```
@@ -205,7 +206,7 @@ vmc_packet_source → rhylive_bone_mapper → body_calibration → arm_ik_calibr
 ```
 `eye_range_map` is inserted after `arm_ik_calib` by `withEyeRangeStage` (`behaviors/eyeRange.ts`), default **off** for VMC (`eyeRange.enabled` / `eyeRange.inputMaxDeg` behavior config; "Gaze" section in `VmcReceiverProps`). The Live2D `VMC_2D_PIPELINE_TEMPLATE` derives from `VMC_BASE_TEMPLATE` and has no eye range stage (the Gaze section is hidden for `vmc_receiver_2d`). See [ifacialmocap.md](ifacialmocap.md#gaze--eye-range).
 
-**Tracking detection** (two loss paths, one grace period): the `/Body` handler sums the frame-to-frame delta over the RhyLive float array against `TRACKING_THRESHOLD` — motion clears `Receiver.quietSince` and re-latches tracking, going still only *stamps* `quietSince`. Packets going away is the second path, detected off `lastSeen`. The 250ms `checkTimeouts()` sweep resolves both from `Math.min(quietSince ?? now, lastSeen)` against the avatar node's grace period, so whichever dropout started first drives the window. Connection status (the grey dot) keeps its own fixed 3s window — reachability is a separate question from tracking. See [animation.md](animation.md) (Tracking-loss grace period).
+**Tracking detection** (two loss paths, one grace period): the `/Body` handler sums the frame-to-frame delta over the RhyLive float array against `TRACKING_THRESHOLD` — motion clears `Receiver.quietSince` and re-latches tracking, going still only *stamps* `quietSince`. Packets going away is the second path, detected off `lastSeen`. The 250ms `checkTimeouts()` sweep resolves both from `Math.min(quietSince ?? now, lastSeen)` against the avatar node's grace period, so whichever dropout started first drives the window. `/MT/Present` is a third trigger on the same fields: `1` clears `quietSince` and latches tracking, `0` stamps `quietSince`. Plain `/VMC/Ext/Bone/Pos` carries no tracking signal, so a sender with neither `/Body` nor `/MT/Present` never turns tracking on (observed gap, predates Learned Tracking, unchanged). Connection status (the grey dot) keeps its own fixed 3s window — reachability is a separate question from tracking. See [animation.md](animation.md) (Tracking-loss grace period).
 
 **`setTracking(behaviorId, tracking)`** is the single transition point: collapses no-op repeats, publishes the `tracking` field of the behavior's `server_status` document (`publishTracking`, see [mesh.md](mesh.md#runtime-state-the-runtime-channel)), and on loss calls `broadcastBus.removeBehavior(behaviorId)` — which (if it leaves the nodeMap empty) emits a final fallback frame so the frontend ramps back to pure animation. Resume is automatic: the next `publishBones` re-creates the per-behavior slot. Add new transition triggers by calling this, not by mutating `trackingActive` directly.
 
@@ -217,7 +218,9 @@ vmc_packet_source → rhylive_bone_mapper → body_calibration → arm_ik_calibr
 
 **Manual triggers**: `fireGraphEvent(behaviorId, nodeId, port)` — used by calibration buttons in the UI via `POST /api/signal/graphs/:id/fire` (substrate monitoring route, unchanged).
 
-**Re-sync covers both kinds**: `refreshVmc()` (the mesh tap's re-sync) selects `vmc_receiver` **and** `vmc_receiver_2d` rows — it used to select only the 3D kind, so any behavior write stopped every 2D receiver until restart. `routes/signal.ts` also strips the `vmc-pipeline-2d:` prefix now (2D node states and calibration fires used the wrong behavior id before).
+**Re-sync covers every kind**: `refreshVmc()` (the mesh tap's re-sync) and the startup query in `index.ts` select `vmc_receiver`, `vmc_receiver_2d` **and** `learned_tracker` rows — it used to select only the 3D kind, so any behavior write stopped every 2D receiver until restart. `routes/signal.ts` also strips the `vmc-pipeline-2d:` and `learned-tracker:` prefixes (2D node states and calibration fires used the wrong behavior id before the 2D prefix was added). A new kind run by this manager needs adding to all three lists.
+
+**Learned Tracking** (`learned_tracker`): same `VMC_PIPELINE_TEMPLATE` under graph prefix `learned-tracker:`, default port `LEARNED_TRACKER_PORT` = 39541. `syncBehaviors` additionally calls `_applyRuntime`, which keeps one `LearnedRuntime` per behavior and hands it camera, port, checkout dir and the avatar's model file path; `stopReceiver` stops it. Runtime state is published as `runtime` on the behavior's tracking status. Details: [learned-tracker.md](learned-tracker.md).
 
 ---
 
