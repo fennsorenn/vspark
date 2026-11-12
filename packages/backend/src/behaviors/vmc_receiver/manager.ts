@@ -20,6 +20,11 @@ import {
 import { loadVrmSkeleton } from '../../vrm/skeleton.js';
 import type { VrmSkeletonData } from '../../vrm/skeleton.js';
 import { join } from 'path';
+import {
+  LearnedRuntime,
+  learnedRuntimeDir,
+  type RuntimeStatus,
+} from '../learned_tracker/runtime.js';
 import { getDb } from '../../db/index.js';
 import { BehaviorKind } from '../decorator.js';
 import { trackingGraceMs } from '../tracking_grace.js';
@@ -182,6 +187,18 @@ const RHYLIVE_BONES = [
 
 // ---------- Receiver ----------
 
+/** Default UDP port between a Learned Tracking runtime and its receiver. Not
+ *  39539 (the VMC Receiver default), so both can run side by side. */
+export const LEARNED_TRACKER_PORT = 39541;
+
+/** Kinds this manager runs. `learned_tracker` is a VMC receiver whose source
+ *  is a child process it starts itself (../learned_tracker/runtime.ts). */
+export const VMC_MANAGER_KINDS = [
+  'vmc_receiver',
+  'vmc_receiver_2d',
+  'learned_tracker',
+] as const;
+
 interface Receiver {
   /** Returned by udpSocketPool.subscribe — drops our listener and closes the
    *  shared socket if we were the last subscriber on that port. */
@@ -219,6 +236,15 @@ interface Receiver {
   applicableTo: ['live2d'],
   defaultConfig: { host: '0.0.0.0', port: 39539, mirror: false },
 })
+@BehaviorKind({
+  kind: 'learned_tracker',
+  label: 'Learned Tracking',
+  icon: '🧠',
+  description:
+    'Body tracking from the webcam with a learned model (motiontracker runtime): drives torso, head, shoulders and arms. Runs as a separate process started from a local motiontracker checkout.',
+  applicableTo: ['avatar'],
+  defaultConfig: { camera: 0, port: LEARNED_TRACKER_PORT, mirror: false },
+})
 export class VmcManager {
   private readonly receivers = new Map<string, Receiver>();
   private readonly graphs = new Map<string, SignalGraph>();
@@ -238,6 +264,8 @@ export class VmcManager {
   private readonly nodeStates = new Map<string, Map<string, unknown>>();
   // Interceptor unregister callbacks: behaviorId → list of cleanup fns
   private readonly interceptorCleanups = new Map<string, Array<() => void>>();
+  // learned_tracker only: behaviorId → its runtime process
+  private readonly runtimes = new Map<string, LearnedRuntime>();
   private readonly timer: ReturnType<typeof setInterval>;
 
   constructor(private readonly ws: WSSync) {
@@ -516,6 +544,16 @@ export class VmcManager {
               msg.args[i * 4 + 3] as number,
             ];
           }
+        } else if (msg.address === '/MT/Present' && msg.args.length >= 1) {
+          // motiontracker's presence flag (Learned Tracking): a body is in view.
+          // Plain /VMC/Ext/Bone/Pos carries no such signal, and the /Body
+          // frame-diff below is RhyLive's.
+          if (msg.args[0] === 1) {
+            info.quietSince = null;
+            this.setTracking(behaviorId, true);
+          } else if (info.quietSince === null) {
+            info.quietSince = Date.now();
+          }
         } else if (msg.address === '/Face' && msg.args.length >= 52) {
           for (let i = 0; i < ARKIT_SHAPES.length && i < msg.args.length; i++) {
             rawArkit[ARKIT_SHAPES[i]] = msg.args[i] as number;
@@ -549,6 +587,8 @@ export class VmcManager {
   }
 
   stopReceiver(behaviorId: string) {
+    this.runtimes.get(behaviorId)?.stop();
+    this.runtimes.delete(behaviorId);
     const info = this.receivers.get(behaviorId);
     if (!info) return;
     info.unsubscribe();
@@ -582,7 +622,7 @@ export class VmcManager {
     const active = new Set<string>();
     for (const c of comps) {
       if (
-        (c.kind !== 'vmc_receiver' && c.kind !== 'vmc_receiver_2d') ||
+        !(VMC_MANAGER_KINDS as readonly string[]).includes(c.kind) ||
         !c.enabled
       )
         continue;
@@ -604,8 +644,11 @@ export class VmcManager {
       // node it's attached to has none). Only the 3D receiver loads one.
       if (c.kind === 'vmc_receiver_2d') this.behaviorSkeletons.set(c.id, null);
       else this._loadSkeletonForBehavior(c.id, c.nodeId);
-      const port = (c.config.port as number) ?? 39539;
+      const learned = c.kind === 'learned_tracker';
+      const port =
+        (c.config.port as number) ?? (learned ? LEARNED_TRACKER_PORT : 39539);
       this.startReceiver(c.id, port);
+      if (learned) this._applyRuntime(c.id, c.nodeId, c.config, port);
       // Its stored graph was edited (or reset): rebuild the running one.
       if (
         programChanged(
@@ -625,6 +668,40 @@ export class VmcManager {
         this.behaviorConfigs.set(c.id, c.config);
         this.behaviorNodeIds.set(c.id, c.nodeId);
       }
+    }
+  }
+
+  /** Start the behavior's runtime, or hand it changed settings. */
+  private _applyRuntime(
+    behaviorId: string,
+    sceneNodeId: string,
+    config: Record<string, unknown>,
+    port: number
+  ): void {
+    let rt = this.runtimes.get(behaviorId);
+    if (!rt) {
+      rt = new LearnedRuntime(behaviorId, (status: RuntimeStatus) =>
+        publishTracking({ behaviorId, runtime: status })
+      );
+      this.runtimes.set(behaviorId, rt);
+    }
+    rt.apply({
+      runtimeDir: learnedRuntimeDir(),
+      camera: Math.max(0, Math.round((config.camera as number) ?? 0)),
+      port,
+      vrmPath: this._avatarFilePath(sceneNodeId),
+    });
+  }
+
+  /** Absolute path of the scene node's model file (the avatar), if any. */
+  private _avatarFilePath(sceneNodeId: string): string | null {
+    try {
+      const row = getDb()
+        .prepare('SELECT file_path FROM scene_nodes WHERE id = ?')
+        .get(sceneNodeId) as { file_path: string | null } | undefined;
+      return row?.file_path ? join(process.cwd(), row.file_path) : null;
+    } catch {
+      return null;
     }
   }
 

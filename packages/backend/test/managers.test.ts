@@ -1741,3 +1741,70 @@ describe('PoseStylizerManager', () => {
     expect(manager.getDefaultRig().head.drivers.headYaw).toBeDefined();
   });
 });
+
+// ── VmcManager: motiontracker's /MT/Present (Learned Tracking) ─────────────────
+// A plain /VMC/Ext/Bone/Pos stream carries no tracking signal (the /Body
+// frame-diff is RhyLive's), so the Learned Tracking runtime sends /MT/Present.
+
+describe('VmcManager /MT/Present', () => {
+  let manager: VmcManager;
+
+  /** One OSC message with a single int argument. */
+  const oscInt = (address: string, v: number): Buffer => {
+    const pad = (s: string) => {
+      const b = Buffer.from(s + '\0', 'utf8');
+      return Buffer.concat([b, Buffer.alloc((4 - (b.length % 4)) % 4)]);
+    };
+    const arg = Buffer.alloc(4);
+    arg.writeInt32BE(v);
+    return Buffer.concat([pad(address), pad(',i'), arg]);
+  };
+  const rinfo = { address: '127.0.0.1', port: 1, family: 'IPv4', size: 0 };
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    mockSubscribe.mockClear();
+    statusEvents.mockClear();
+    manager = new VmcManager({
+      broadcast: vi.fn(),
+      onClientConnected: vi.fn(),
+      sendTo: vi.fn(),
+    } as never);
+  });
+
+  afterEach(() => {
+    manager.close();
+    vi.useRealTimers();
+  });
+
+  const listener = () =>
+    mockSubscribe.mock.calls.at(-1)![1] as unknown as (
+      b: Buffer,
+      r: typeof rinfo
+    ) => void;
+
+  it('present = 1 latches tracking on, present = 0 lets it lapse after the grace period', () => {
+    manager.startReceiver('lt1', 39541);
+    listener()(oscInt('/MT/Present', 1), rinfo);
+    expect(statusEvents).toHaveBeenCalledWith('vmc_tracking_state', {
+      behaviorId: 'lt1',
+      tracking: true,
+    });
+    listener()(oscInt('/MT/Present', 0), rinfo);
+    vi.advanceTimersByTime(500);
+    // packets keep arriving with nobody in view
+    listener()(oscInt('/MT/Present', 0), rinfo);
+    expect(statusEvents).not.toHaveBeenCalledWith('vmc_tracking_state', {
+      behaviorId: 'lt1',
+      tracking: false,
+    });
+    for (let i = 0; i < 12; i++) {
+      vi.advanceTimersByTime(250);
+      listener()(oscInt('/MT/Present', 0), rinfo);
+    }
+    expect(statusEvents).toHaveBeenCalledWith('vmc_tracking_state', {
+      behaviorId: 'lt1',
+      tracking: false,
+    });
+  });
+});

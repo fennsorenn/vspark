@@ -78,6 +78,8 @@ const TEMPLATES = new Map<string, BehaviorTemplate>(
   [
     fixed('vmc_receiver', 'vmc-pipeline:', VMC_PIPELINE_TEMPLATE),
     fixed('vmc_receiver_2d', 'vmc-pipeline-2d:', VMC_2D_PIPELINE_TEMPLATE),
+    // Learned Tracking is a VMC receiver fed by its own runtime: same 3D pipeline.
+    fixed('learned_tracker', 'learned-tracker:', VMC_PIPELINE_TEMPLATE),
     fixed(
       'ifacialmocap_receiver',
       'ifacialmocap-pipeline:',

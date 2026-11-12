@@ -33,6 +33,8 @@ function _stripPrefix(graphId: string): string {
     // The 2D receiver's graphs (VmcManager); without it their node states
     // and calibration fires looked up the wrong behavior id.
     'vmc-pipeline-2d:',
+    // Learned Tracking graphs also run in VmcManager.
+    'learned-tracker:',
     'ifacialmocap-pipeline:',
     'breathing:',
     'manual_calibration:',
