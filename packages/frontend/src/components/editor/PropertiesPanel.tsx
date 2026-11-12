@@ -115,7 +115,11 @@ import {
   type EmissiveMapMode,
 } from './materialOverrides';
 import { useCollection, useMeshDoc } from '@vspark/mesh-react';
-import { useAnimationClips, useCameraEffects } from '../../mesh/hooks';
+import {
+  useAnimationClips,
+  useCameraEffects,
+  useTrackingStatuses,
+} from '../../mesh/hooks';
 import { useComposeLayers, useComposeScenes } from '../../mesh/compose';
 import { useSceneNode, useSceneNodes, useScenes } from '../../mesh/nodes';
 import {
@@ -2249,6 +2253,198 @@ function VmcReceiverProps({ comp }: { comp: Behavior }) {
         }
         arms={comp.kind !== 'vmc_receiver_2d'}
       />
+    </div>
+  );
+}
+
+// ── Learned Tracking props ────────────────────────────────────────────────────
+
+/** Learned Tracking's default port (backend vmc_receiver/manager.ts LEARNED_TRACKER_PORT). */
+const LEARNED_TRACKER_PORT = 39541;
+
+/**
+ * Learned Tracking: the backend runs motiontracker's runtime (webcam → learned
+ * body model → VMC) as a child process and receives its output on `port`.
+ * Settings: the camera the runtime opens and the port; a live runtime status
+ * line; the same calibration block as the VMC receiver (same pipeline graph,
+ * prefix `learned-tracker:`).
+ */
+function LearnedTrackerProps({ comp }: { comp: Behavior }) {
+  const { t } = useTranslation('properties');
+  const cfg = (comp.config ?? {}) as { camera?: number; port?: number };
+  const camera = cfg.camera ?? 0;
+  const [port, setPort] = useState(cfg.port ?? LEARNED_TRACKER_PORT);
+  const [cameras, setCameras] = useState<
+    Array<{ index: number; name: string }>
+  >([]);
+  const [camState, setCamState] = useState<'loading' | 'ok' | 'error'>(
+    'loading'
+  );
+  const [camError, setCamError] = useState('');
+  const status = useTrackingStatuses()[comp.id]?.runtime;
+
+  const loadCameras = () => {
+    setCamState('loading');
+    api
+      .getLearnedTrackerCameras()
+      .then((list) => {
+        setCameras(list);
+        setCamState('ok');
+      })
+      .catch((e: unknown) => {
+        setCamError(e instanceof Error ? e.message : String(e));
+        setCamState('error');
+      });
+  };
+
+  useEffect(() => {
+    setPort(cfg.port ?? LEARNED_TRACKER_PORT);
+    loadCameras();
+  }, [comp.id]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const save = (patch: Partial<Record<string, unknown>>) =>
+    commitBehaviorPatch(comp.id, { config: { ...comp.config, ...patch } });
+
+  const inputStyle: React.CSSProperties = {
+    flex: 1,
+    background: '#2a2a2a',
+    border: '1px solid #3a3a3a',
+    color: '#e0e0e0',
+    borderRadius: 4,
+    padding: '4px 8px',
+    fontSize: 12,
+    outline: 'none',
+  };
+  const labelStyle: React.CSSProperties = {
+    fontSize: 12,
+    color: '#888',
+    width: 72,
+    flexShrink: 0,
+  };
+  // The configured camera stays selectable even when the list doesn't have it
+  // (list still loading, or the camera is unplugged).
+  const options = cameras.some((c) => c.index === camera)
+    ? cameras
+    : [
+        { index: camera, name: t('learned.cameraIndex', { index: camera }) },
+        ...cameras,
+      ];
+
+  const stateColor: Record<string, string> = {
+    running: '#4ade80',
+    starting: '#facc15',
+    error: '#f87171',
+    stopped: '#666',
+  };
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+        <span style={labelStyle}>{t('learned.camera')}</span>
+        <select
+          className="vs-learned-camera"
+          style={{ ...inputStyle, cursor: 'pointer' }}
+          value={camera}
+          onChange={(e) => save({ camera: Number(e.target.value) })}
+        >
+          {options.map((c) => (
+            <option key={c.index} value={c.index}>
+              {c.name}
+            </option>
+          ))}
+        </select>
+        <button
+          className="vs-learned-refresh-cameras"
+          title={t('learned.refreshCameras')}
+          onClick={loadCameras}
+          disabled={camState === 'loading'}
+          style={{
+            background: '#1e1e1e',
+            border: '1px solid #2a2a2a',
+            color: '#aaa',
+            borderRadius: 4,
+            padding: '3px 8px',
+            fontSize: 11,
+            cursor: camState === 'loading' ? 'default' : 'pointer',
+          }}
+        >
+          {t('learned.refreshCameras')}
+        </button>
+      </div>
+      {camState === 'loading' && (
+        <div style={{ fontSize: 10, color: '#777' }}>
+          {t('learned.loadingCameras')}
+        </div>
+      )}
+      {camState === 'error' && (
+        <div style={{ fontSize: 10, color: '#f87171' }}>
+          {t('learned.camerasError', { message: camError })}
+        </div>
+      )}
+
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+        <span style={labelStyle}>{t('learned.port')}</span>
+        <NumInput
+          className="vs-learned-port"
+          value={port}
+          step={1}
+          min={1}
+          max={65535}
+          precision={0}
+          style={{ flex: 1 }}
+          onChange={(v) => setPort(Math.round(v))}
+          onCommit={(v) => {
+            const p = Math.round(v);
+            setPort(p);
+            save({ port: p });
+          }}
+        />
+      </div>
+
+      <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8 }}>
+        <span style={labelStyle}>{t('learned.runtime')}</span>
+        <div
+          className="vs-learned-status"
+          style={{ flex: 1, fontSize: 11, color: '#ccc', lineHeight: 1.4 }}
+        >
+          <span
+            style={{ color: stateColor[status?.state ?? 'stopped'] ?? '#666' }}
+          >
+            ● {t(`learned.state.${status?.state ?? 'stopped'}`)}
+          </span>
+          {status?.state === 'running' && status.fps !== undefined && (
+            <span style={{ color: '#888' }}>
+              {' · '}
+              {t('learned.stats', {
+                fps: status.fps,
+                latency: status.latencyMs ?? '–',
+                model: status.modelMs ?? '–',
+              })}
+              {status.present !== undefined && status.present < 0.5 && (
+                <> · {t('learned.noBody')}</>
+              )}
+            </span>
+          )}
+          {status?.message && (
+            <div
+              style={{
+                color: status.state === 'error' ? '#f87171' : '#888',
+                fontSize: 10,
+                wordBreak: 'break-word',
+              }}
+            >
+              {status.message}
+            </div>
+          )}
+        </div>
+      </div>
+
+      <div style={{ fontSize: 10, color: '#555', lineHeight: 1.4 }}>
+        {t('learned.cameraHint')}
+      </div>
+
+      <div style={{ height: 1, background: '#222', margin: '4px 0' }} />
+      <CalibrationSection comp={comp} graphPrefix="learned-tracker:" arms />
     </div>
   );
 }
@@ -4979,6 +5175,8 @@ function BehaviorProps({ comp }: { comp: Behavior }) {
       return <LipsyncProcessorProps comp={comp} />;
     case 'mediapipe_tracker':
       return <MediapipeTrackerProps comp={comp} />;
+    case 'learned_tracker':
+      return <LearnedTrackerProps comp={comp} />;
     case 'api_controller':
       return <ApiControllerProps comp={comp} />;
     case 'breathing':
@@ -6649,6 +6847,13 @@ export function PropertiesPanel() {
                   topic="behaviors"
                   anchor="stylized"
                   tip={t('help.stylizedTracking')}
+                />
+              )}
+              {selectedBehavior.kind === 'learned_tracker' && (
+                <HelpButton
+                  topic="behaviors"
+                  anchor="learned"
+                  tip={t('help.learnedTracking')}
                 />
               )}
               {selectedBehavior.kind === 'ifacialmocap_receiver' && (

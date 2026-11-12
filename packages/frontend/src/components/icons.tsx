@@ -11,6 +11,7 @@
 // effect kind to the lucide glyph the editor renders instead.
 import {
   Antenna,
+  BrainCircuit,
   Aperture,
   Blend,
   Box,
@@ -97,6 +98,7 @@ export const BEHAVIOR_ICON: Record<string, LucideIcon> = {
   vmc_receiver: Antenna,
   ifacialmocap_receiver: Smartphone,
   mediapipe_tracker: Camera,
+  learned_tracker: BrainCircuit,
   lipsync: Mic,
   lipsync_processor: Mic,
   breathing: Wind,

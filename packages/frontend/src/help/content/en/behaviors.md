@@ -145,6 +145,32 @@ while you move. Everything on is the recommended setting.
 To compare, hold a pose that gives you trouble (fingers toward the camera works
 well) and toggle one option at a time.
 
+## Learned tracking {#learned}
+
+Learned tracking estimates your **torso, head, shoulders and arms** from a
+webcam with a learned model instead of hand-written rules. It aims for a calmer
+result than camera tracking, especially with your arms resting below the frame.
+Hands, fingers and facial expressions are not part of it (yet): combine it with
+other behaviors for those.
+
+It runs as a separate program, the **motiontracker runtime**, which vspark
+starts and stops for you. It needs:
+
+- a local checkout of motiontracker. By default vspark looks for a
+  `motiontracker` folder next to the vspark folder; otherwise set
+  `learnedTracker.runtimePath` in `config.json`,
+- [uv](https://docs.astral.sh/uv/), which installs the runtime on first start
+  (this takes a few minutes once),
+- an exported model in that checkout.
+
+The runtime opens the **camera** itself, so turn off camera tracking on the same
+webcam. Pick the camera from the list; **Refresh** asks the runtime again. The
+status line shows whether the runtime is starting, running (frames per second,
+latency) or stopped with an error.
+
+The avatar follows only while a body is in view; the avatar's idle fallback
+takes over after that. Calibration works like the VMC receiver's.
+
 ## Lip sync {#lipsync}
 
 Lip sync listens to your **microphone** and turns speech into mouth shapes, so

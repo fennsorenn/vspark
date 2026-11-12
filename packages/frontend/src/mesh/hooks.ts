@@ -77,6 +77,20 @@ export function useAllBehaviors(): Behavior[] {
 export interface TrackingStatus {
   connected?: boolean;
   tracking?: boolean;
+  /** Learned Tracking only: its runtime process (backend
+   *  behaviors/learned_tracker/runtime.ts `RuntimeStatus`). */
+  runtime?: LearnedRuntimeStatus;
+}
+
+export interface LearnedRuntimeStatus {
+  state: 'starting' | 'running' | 'error' | 'stopped';
+  message?: string;
+  fps?: number;
+  latencyMs?: number | null;
+  detectMs?: number;
+  modelMs?: number;
+  present?: number;
+  model?: string;
 }
 
 /** Every receiver's status this tab holds, by behavior id. */

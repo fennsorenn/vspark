@@ -1005,6 +1005,13 @@ export const seekTrackClip = (id: string, t: number) =>
 export const getLocalIps = () =>
   request<{ ips: string[] }>('/system/local-ips').then((d) => d.ips);
 
+/** Cameras the Learned Tracking runtime can open. Slow on the very first call
+ *  (the backend has uv install the runtime). */
+export const getLearnedTrackerCameras = () =>
+  request<{ cameras: Array<{ index: number; name: string }> }>(
+    '/learned-tracker/cameras'
+  ).then((d) => d.cameras);
+
 /** Returns the uncalibrated NormalizedPose at the body_calibration node's
  *  input for this component.  Bone keys are VRMBoneNames. */
 export const getBodyCalibState = (behaviorId: string) =>
@@ -1581,6 +1588,7 @@ export const api = {
   resumeTrackClip,
   seekTrackClip,
   getLocalIps,
+  getLearnedTrackerCameras,
   getBodyCalibState,
   getSignalGraphs,
   getSignalNodeKinds,

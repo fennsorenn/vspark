@@ -100,8 +100,14 @@ describe('LearnedRuntime', () => {
     rt.apply(opts());
     await until(statuses, (s) => s.state === 'running');
     rt.apply(opts({ camera: 2, vrmPath: '/x/avatar.vrm' }));
-    await until(statuses, (s) => !!s.message?.includes('"cmd":"camera","index":2'));
-    await until(statuses, (s) => !!s.message?.includes('"vrm_path":"/x/avatar.vrm"'));
+    await until(
+      statuses,
+      (s) => !!s.message?.includes('"cmd":"camera","index":2')
+    );
+    await until(
+      statuses,
+      (s) => !!s.message?.includes('"vrm_path":"/x/avatar.vrm"')
+    );
     expect(statuses.filter((s) => s.state === 'starting')).toHaveLength(1);
   });
 
@@ -148,7 +154,10 @@ describe('LearnedRuntime', () => {
 
   it('reports a missing executable', async () => {
     const statuses: RuntimeStatus[] = [];
-    make(statuses, () => ({ cmd: 'definitely-not-a-command-xyz', args: [] })).apply(opts());
+    make(statuses, () => ({
+      cmd: 'definitely-not-a-command-xyz',
+      args: [],
+    })).apply(opts());
     const err = await until(statuses, (s) => s.state === 'error');
     expect(err.message).toContain('not found');
   });

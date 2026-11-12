@@ -2131,7 +2131,9 @@ function AvatarNode({
   const vmcComp =
     nodeBehaviors.find(
       (c) =>
-        (c.kind === 'vmc_receiver' || c.kind === 'mediapipe_tracker') &&
+        (c.kind === 'vmc_receiver' ||
+          c.kind === 'mediapipe_tracker' ||
+          c.kind === 'learned_tracker') &&
         c.enabled
     ) ?? null;
   useEffect(() => {

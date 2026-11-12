@@ -423,6 +423,24 @@
     "compatHint": "Works with iFacialMocap (iOS). Enter the Device IP above and vspark will ask the phone to stream, or leave it empty and point the app at one of the addresses above. Both ends use port {{port}}.",
     "firewallHint": "Port {{port}} needs to be open in your firewall."
   },
+  "learned": {
+    "camera": "Camera",
+    "refreshCameras": "Refresh",
+    "loadingCameras": "Looking for cameras… (the first time, the runtime is installed first; this can take a few minutes)",
+    "camerasError": "Couldn't list cameras: {{message}}",
+    "cameraIndex": "Camera {{index}}",
+    "port": "Port",
+    "runtime": "Runtime",
+    "state": {
+      "starting": "Starting",
+      "running": "Running",
+      "error": "Error",
+      "stopped": "Stopped"
+    },
+    "stats": "{{fps}} fps · {{latency}} ms latency · model {{model}} ms",
+    "noBody": "no body in view",
+    "cameraHint": "The runtime opens the camera itself. Turn off Camera tracking on the same webcam: two programs can't read one webcam at once."
+  },
   "lipsync": {
     "sensitivity": "Sensitivity",
     "openMediaInput": "🎤 Open Media Input",
@@ -783,6 +801,7 @@
     "trackingMixOrder": "Why the order of tracking sources matters",
     "baseAnimation": "The animation live tracking stacks onto while a source is connected; the avatar falls back to the idle when tracking drops",
     "stylizedTracking": "Learn how stylized tracking reshapes your motion",
+    "learnedTracking": "Learn what Learned Tracking needs and how it works",
     "ifacialmocap": "Learn how to connect the iFacialMocap iOS app",
     "ifmFirewall": "Why the app can say “connected” while nothing reaches vspark",
     "expressionLimits": "Learn how expression limits stop exaggerated or broken faces",

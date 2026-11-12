@@ -55,6 +55,7 @@
     "breathing": { "label": "Breathing", "description": "Adds procedural breathing motion to the chest and spine bones using a sine oscillator." },
     "lipsync_processor": { "label": "Lipsync", "description": "Receives microphone viseme weights from the browser and drives VRM blendshapes in real time." },
     "mediapipe_tracker": { "label": "MediaPipe Tracking", "description": "Receives face, hand, and body pose landmarks from the browser camera and drives VRM bones and blendshapes in real time." },
+    "learned_tracker": { "label": "Learned Tracking", "description": "Webcam body tracking with a learned model (motiontracker runtime): drives torso, head, shoulders and arms. Runs as a separate process from a local motiontracker checkout." },
     "api_controller": { "label": "API Controller", "description": "Drives the avatar via REST: set/queue animations and blendshape expressions." }
   }
 }

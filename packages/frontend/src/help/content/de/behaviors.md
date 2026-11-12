@@ -156,6 +156,33 @@ empfohlene Einstellung.
 Zum Vergleichen halte eine Pose, die Probleme macht (Finger zur Kamera eignet
 sich gut), und schalte jeweils eine Option um.
 
+## Gelerntes Tracking {#learned}
+
+Gelerntes Tracking schätzt **Oberkörper, Kopf, Schultern und Arme** per Webcam
+mit einem gelernten Modell statt mit handgeschriebenen Regeln. Ziel ist ein
+ruhigeres Ergebnis als beim Kamera-Tracking, besonders wenn deine Arme unterhalb
+des Bildes ruhen. Hände, Finger und Mimik gehören (noch) nicht dazu: Kombiniere
+es dafür mit anderen Behaviors.
+
+Es läuft als eigenes Programm, die **motiontracker-Runtime**, die vspark für
+dich startet und beendet. Es braucht:
+
+- einen lokalen motiontracker-Checkout. Standardmäßig sucht vspark einen Ordner
+  `motiontracker` neben dem vspark-Ordner; sonst setze
+  `learnedTracker.runtimePath` in der `config.json`,
+- [uv](https://docs.astral.sh/uv/), das die Runtime beim ersten Start
+  installiert (das dauert einmalig ein paar Minuten),
+- ein exportiertes Modell in diesem Checkout.
+
+Die Runtime öffnet die **Kamera** selbst, schalte also das Kamera-Tracking auf
+derselben Webcam aus. Wähle die Kamera aus der Liste; **Aktualisieren** fragt
+die Runtime erneut. Die Statuszeile zeigt, ob die Runtime startet, läuft (Bilder
+pro Sekunde, Latenz) oder mit einem Fehler gestoppt ist.
+
+Der Avatar folgt nur, solange ein Körper im Bild ist; danach übernimmt die
+Leerlauf-Animation des Avatars. Die Kalibrierung funktioniert wie beim
+VMC-Empfänger.
+
 ## Lippensynchronisation {#lipsync}
 
 Die Lippensynchronisation hört auf dein **Mikrofon** und wandelt Sprache in

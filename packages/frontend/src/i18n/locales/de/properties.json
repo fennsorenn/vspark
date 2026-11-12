@@ -423,6 +423,24 @@
     "compatHint": "Funktioniert mit iFacialMocap (iOS). Trage oben die Geräte-IP ein, dann fordert vspark den Stream beim Telefon an — oder lass sie leer und richte die App auf eine der obigen Adressen. Beide Seiten nutzen Port {{port}}.",
     "firewallHint": "Port {{port}} muss in deiner Firewall offen sein."
   },
+  "learned": {
+    "camera": "Kamera",
+    "refreshCameras": "Aktualisieren",
+    "loadingCameras": "Suche Kameras … (beim ersten Mal wird zuerst die Runtime installiert; das kann ein paar Minuten dauern)",
+    "camerasError": "Kameras konnten nicht aufgelistet werden: {{message}}",
+    "cameraIndex": "Kamera {{index}}",
+    "port": "Port",
+    "runtime": "Runtime",
+    "state": {
+      "starting": "Startet",
+      "running": "Läuft",
+      "error": "Fehler",
+      "stopped": "Gestoppt"
+    },
+    "stats": "{{fps}} fps · {{latency}} ms Latenz · Modell {{model}} ms",
+    "noBody": "kein Körper im Bild",
+    "cameraHint": "Die Runtime öffnet die Kamera selbst. Schalte das Kamera-Tracking auf derselben Webcam aus: Zwei Programme können eine Webcam nicht gleichzeitig lesen."
+  },
   "lipsync": {
     "sensitivity": "Empfindlichkeit",
     "openMediaInput": "🎤 Medieneingabe öffnen",
@@ -783,6 +801,7 @@
     "trackingMixOrder": "Warum die Reihenfolge der Tracking-Quellen zählt",
     "baseAnimation": "Die Animation, auf die Live-Tracking gestapelt wird, solange eine Quelle verbunden ist; bei Tracking-Verlust fällt der Avatar auf die Leerlauf-Animation zurück",
     "stylizedTracking": "Erfahre, wie stilisiertes Tracking deine Bewegung umformt",
+    "learnedTracking": "Erfahre, was Gelerntes Tracking braucht und wie es funktioniert",
     "ifacialmocap": "Erfahre, wie du die iFacialMocap-App (iOS) verbindest",
     "ifmFirewall": "Warum die App „verbunden“ melden kann, ohne dass etwas bei vspark ankommt",
     "expressionLimits": "Erfahren, wie Mimik-Begrenzungen übertriebene oder kaputte Gesichter verhindern",

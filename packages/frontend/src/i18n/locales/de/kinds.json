@@ -55,6 +55,7 @@
     "breathing": { "label": "Atmung", "description": "Fügt Brust- und Wirbelsäulenknochen prozedurale Atembewegung mittels eines Sinus-Oszillators hinzu." },
     "lipsync_processor": { "label": "Lippensynchronisation", "description": "Empfängt Mikrofon-Visemgewichte vom Browser und steuert VRM-Blendshapes in Echtzeit." },
     "mediapipe_tracker": { "label": "MediaPipe-Tracking", "description": "Empfängt Gesichts-, Hand- und Körperhaltungs-Landmarken von der Browser-Kamera und steuert VRM-Knochen und -Blendshapes in Echtzeit." },
+    "learned_tracker": { "label": "Gelerntes Tracking", "description": "Körper-Tracking per Webcam mit einem gelernten Modell (motiontracker-Runtime): steuert Oberkörper, Kopf, Schultern und Arme. Läuft als eigener Prozess aus einem lokalen motiontracker-Checkout." },
     "api_controller": { "label": "API-Controller", "description": "Steuert den Avatar per REST: Animationen und Blendshape-Mimik setzen oder einreihen." }
   }
 }
