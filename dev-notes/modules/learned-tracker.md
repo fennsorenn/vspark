@@ -2,10 +2,15 @@
 
 Webcam body tracking with a learned model. vspark runs the **motiontracker runtime**
 (`mtservice`: camera → MediaPipe Holistic → learned body model → VRM bone rotations) as a child
-process and receives its output as VMC over UDP on the normal 3D VMC pipeline. Drives torso, head,
-shoulders and arms; no hands/fingers, face or expressions (combine with other behaviors for those).
+process and receives its output as VMC over UDP on the normal 3D VMC pipeline. Since motiontracker
+v0.1.0 the runtime runs motiontracker's merger (mg3): torso, head, shoulders, arms, **legs** and
+**fingers**. It also sends hip position `/MT/Root` and up vector `/MT/Up`, which vspark ignores so
+far. Facial expressions arrive as standard VMC blendshapes (`Blend/Val`, ARKit names; commit
+fe18fbe2, not yet described in these notes). Leg influence can be turned down in the mixer when the
+legs are out of view.
 
-Status: **implemented** on `feature/learned-tracker` (backend a50750b, frontend a78cd6d).
+Status: **implemented** on `feature/learned-tracker` (backend a50750b, frontend a78cd6d; runtime
+download 92ec4c19 backend, 7e0c9f92 frontend, 8f6026d2 help).
 
 Related: [component-managers.md](component-managers.md#vmcmanager--vmc_receivermanagerts) (the
 manager that runs it), [mediapipe-tracker.md](mediapipe-tracker.md) (the in-browser camera
@@ -17,40 +22,55 @@ Runtime side: motiontracker repo, `service/README.md` (setup, CLI, stdio protoco
 
 **Decided** (owner, 2026-11-12):
 
-- The runtime is **not bundled** into vspark. It is loaded lazily from a local motiontracker
-  checkout and started with `uv`, which installs its Python environment on first use.
+- The runtime is **not bundled** into vspark. It is loaded lazily and started with `uv`, which
+  installs its Python environment on first use.
 - It is its **own behavior kind**, so it feels native (not a configuration of the VMC receiver).
 - **VMC** is the transport for pose data.
 - **Control runs over stdio** (JSON lines on the child's stdin/stdout).
 - vspark's frontend **One Euro render filter stays on** for it for now (see
   [animation.md](animation.md); the runtime itself sends unsmoothed output at 10 FPS).
 
+**Decided** (owner, 2026-11-14):
+
+- The runtime can be **downloaded** from motiontracker's GitHub releases. The version is **pinned
+  by vspark** (`MOTIONTRACKER_RUNTIME`) and updated together with vspark, not "latest release".
+  A local checkout still works (see [Runtime location](#runtime-location)).
+
 Everything below describes the current implementation.
 
 ## Files
 
 - `packages/backend/src/behaviors/learned_tracker/runtime.ts` — `LearnedRuntime` (one child
-  process per behavior), `RuntimeStatus`, `learnedRuntimeDir()` (checkout lookup),
-  `isRuntimeDir()`, `uvCommand` (the spawn command; a `CommandBuilder` is injectable for tests).
+  process per behavior), `RuntimeStatus`,
+  `learnedRuntimeLocation()` / `learnedRuntimeDir()` (lookup), `isRuntimeDir()`, `uvCommand` (the
+  spawn command; a `CommandBuilder` is injectable for tests).
+- `packages/backend/src/behaviors/learned_tracker/download.ts` — `MOTIONTRACKER_RUNTIME` (the pin),
+  `ensureLearnedRuntime`, `startRuntimeDownload`, `downloadStatus`, `onRuntimeInstalled`
+  (see [Runtime download](#runtime-download)).
 - `packages/backend/src/behaviors/vmc_receiver/manager.ts` — the `learned_tracker`
   `@BehaviorKind` declaration, `LEARNED_TRACKER_PORT`, `VMC_MANAGER_KINDS`, `_applyRuntime`,
-  `_avatarFilePath`, the `/MT/Present` handler.
+  `_avatarFilePath`, `refreshLearnedRuntimes`, the `/MT/Present` handler.
 - `packages/backend/src/behaviors/templates.ts` — `learned_tracker` → graph prefix
   `learned-tracker:`, same `VMC_PIPELINE_TEMPLATE` as `vmc_receiver`.
-- `packages/backend/src/routes/learned-tracker.ts` — `GET /api/learned-tracker/cameras`.
+- `packages/backend/src/routes/learned-tracker.ts` — `GET /api/learned-tracker/cameras`,
+  `GET /api/learned-tracker/runtime`, `POST /api/learned-tracker/runtime/download`.
 - Kind lists that include it: `behaviors/refresh.ts` (`refreshVmc`), `index.ts` (startup
   `syncBehaviors` query), `routes/signal.ts` (`_stripPrefix` prefixes).
-- Frontend: `LearnedTrackerProps` in `components/editor/PropertiesPanel.tsx`;
+- Frontend: `LearnedTrackerProps` in `components/editor/PropertiesPanel.tsx` (incl. the Install
+  row);
   `TrackingStatus.runtime` / `LearnedRuntimeStatus` in `mesh/hooks.ts`;
-  `api.getLearnedTrackerCameras` in `api/client.ts`; icon `BrainCircuit` in
+  `api.getLearnedTrackerCameras`, `getLearnedRuntime`, `downloadLearnedRuntime` in `api/client.ts`; icon `BrainCircuit` in
   `components/icons.tsx`; connection dot in `SceneGraph.tsx`; `Viewport.tsx` counts it as a
   pose-driving behavior (`vmcComp`) alongside `vmc_receiver` and `mediapipe_tracker`.
-- i18n/help: `kinds.json`, `properties.json` (`learned.*`, `help.learnedTracking`),
-  `help/content/{en,de}/behaviors.md` section `{#learned}`.
+- i18n/help: `kinds.json`, `properties.json` (`learned.*` incl. `learned.install*` and
+  `learned.download*`, `help.learnedTracking`), `help/content/{en,de}/behaviors.md` section
+  `{#learned}` (covers the download, legs and fingers).
 - Tests: `packages/backend/test/learned_tracker.runtime.test.ts` (a fake runtime script speaking
   the protocol: start/ready/status, live camera/avatar changes, restart on port change, crash +
-  restart, stop, missing checkout, missing executable, env override) and the
-  `VmcManager /MT/Present` block in `managers.test.ts`.
+  restart, stop, missing runtime, missing executable, env override) and the
+  `VmcManager /MT/Present` block in `managers.test.ts`; `learned_tracker.download.test.ts`
+  (8 tests: download, checksum, unpack, marker, state). No Playwright spec: the learned controls had
+  none before, and a seeded behavior would start the real runtime.
 
 ## How it relates to VmcManager
 
@@ -60,7 +80,7 @@ receiver (load the avatar skeleton, `startReceiver(id, port)` on the shared UDP 
 the graph from the stored/template program) and additionally calls `_applyRuntime`, which creates
 the behavior's `LearnedRuntime` on first sight and passes it the current options:
 
-- `runtimeDir` — `learnedRuntimeDir()`
+- `runtimeDir` — `learnedRuntimeDir()` (see [Runtime location](#runtime-location))
 - `camera` — `config.camera` (rounded, ≥ 0)
 - `port` — `config.port`, default `LEARNED_TRACKER_PORT` = 39541 (not 39539, so it can run next to
   a VMC receiver on its default port)
@@ -90,7 +110,7 @@ tracking on. That gap predates this feature and is unchanged for other VMC apps.
 Started as:
 
 ```
-uv run --project <checkout>/service mtservice --stdio --camera <N> --vmc 127.0.0.1:<port> [--avatar-vrm <file>]
+uv run --project <runtime dir>/service mtservice --stdio --camera <N> --vmc 127.0.0.1:<port> [--avatar-vrm <file>]
 ```
 
 Protocol summary (authoritative: motiontracker `service/README.md` and `service/src/mtservice/cli.py`):
@@ -111,8 +131,8 @@ so it never outlives vspark), then SIGTERM after 3 s and SIGKILL 3 s after that 
 
 Unexpected exit: restart with backoff 2 s / 5 s / 10 s / 30 s (the last repeats); a run longer than
 60 s resets the backoff. A failed spawn (`uv` missing → ENOENT) is handled like a crash. A missing
-checkout (`service/pyproject.toml` not found) is reported as an error without spawning; the next
-`syncBehaviors` pass tries again.
+runtime (`service/pyproject.toml` not found) is reported as an error without spawning (the message
+points to the download); the next `syncBehaviors` pass tries again.
 
 ## Runtime status
 
@@ -141,22 +161,64 @@ edits `camera` (select filled from the runtime's camera list, with a Refresh but
 index stays selectable when the list lacks it) and `port`, and shows the VMC `CalibrationSection`
 on the `learned-tracker:` graph.
 
-Checkout location (`learnedRuntimeDir()`), first match wins:
+### Runtime location
 
-1. env `VSPARK_MOTIONTRACKER_PATH`
-2. `learnedTracker.runtimePath` in `config.json` (`VSPARK_CONFIG_PATH` or `<install dir>/config.json`;
-   relative paths resolve from the install dir)
-3. the nearest `motiontracker` folder containing `service/pyproject.toml` beside the install dir or
-   any of its parents (in dev the install dir is `packages/backend`, so `~/projects/motiontracker`
-   next to the vspark repo is found)
-4. fallback `<install dir>/../motiontracker` (reported as missing if it isn't a checkout)
+`learnedRuntimeLocation()` returns `{ dir, source }`; `learnedRuntimeDir()` is its `dir`. First
+match wins:
 
-The runtime also needs `uv` on PATH and an exported model bundle in the checkout (motiontracker
-`service/README.md`, Setup).
+1. `env` — env `VSPARK_MOTIONTRACKER_PATH`
+2. `config` — `learnedTracker.runtimePath` in `config.json` (`VSPARK_CONFIG_PATH` or
+   `<install dir>/config.json`; relative paths resolve from the install dir)
+3. `download` — the pinned runtime, if downloaded and verified (`isDownloaded()`)
+4. `checkout` — the nearest `motiontracker` folder containing `service/pyproject.toml` beside the
+   install dir or any of its parents (in dev the install dir is `packages/backend`, so
+   `~/projects/motiontracker` next to the vspark repo is found)
+5. `missing` — `dir` is where the download would go
+
+The runtime also needs `uv` on PATH. A checkout needs an exported model bundle (motiontracker
+`service/README.md`, Setup); the download includes the bundles.
+
+## Runtime download
+
+`download.ts`, same pattern as the output windows' Electron download (`output_window/runtime.ts`,
+see [compose.md](compose.md)):
+
+- **Pin** `MOTIONTRACKER_RUNTIME`: `version` (v0.1.0), `asset` (`motiontracker-runtime-v0.1.0.zip`),
+  `sha256`, `bytes` (~18 MB, shown before the download starts), `folder` (top folder in the zip,
+  `motiontracker-v0.1.0`), `repo` (`fennsorenn/motiontracker`). The zip holds `core/`, `service/`
+  and the model bundles; uv still builds the Python environment on first start.
+- **`ensureLearnedRuntime`**: fetches
+  `https://github.com/<repo>/releases/download/<version>/<asset>`, hashes while streaming, rejects a
+  SHA-256 mismatch, unpacks with `extract-zip` into a staging dir, checks for
+  `<folder>/service/pyproject.toml`, writes a `.vspark-verified` marker, then renames into
+  `<runtime cache>/<folder>`. Runtime cache: `VSPARK_RUNTIME_DIR`, else `<install dir>/runtime/`
+  (in dev `packages/backend/runtime/`, gitignored; in-app updates leave it alone). No-op when
+  already downloaded.
+- **`startRuntimeDownload`**: one download at a time (a second call joins it); `downloadStatus()`
+  is `idle` / `downloading` (+ `progress` 0..1) / `error` (+ `message`).
+- **`onRuntimeInstalled`** listeners run after a successful download. `VmcManager` registers
+  `refreshLearnedRuntimes()`, which re-applies every Learned Tracking runtime so it restarts on the
+  downloaded copy (a changed `runtimeDir` restarts the process).
+
+Routes:
+
+- `GET /api/learned-tracker/runtime` → `{ version, bytes, source, dir, downloaded, download }`
+  (`download` = `downloadStatus()`).
+- `POST /api/learned-tracker/runtime/download` starts the download in the background and returns
+  the same body; the client polls GET for progress.
+
+Frontend: the **Install** row in `LearnedTrackerProps` (`vs-learned-install`,
+`vs-learned-download`) shows where the runtime comes from, a **Download runtime** button with the
+size, progress (polls every 500 ms while downloading) and errors, and a hint when env/config
+overrides the download. The camera list reloads after the download.
+
+**Releasing a new runtime:** in motiontracker, `tools/release/package-runtime.sh <tag>` prints the
+zip and its SHA-256; upload the zip to the GitHub release; update `MOTIONTRACKER_RUNTIME`
+(`version`, `asset`, `sha256`, `bytes`, `folder`).
 
 ## Camera list route
 
-`GET /api/learned-tracker/cameras` runs `uv run --project <checkout>/service mtservice --list-cameras`
+`GET /api/learned-tracker/cameras` runs `uv run --project <runtime dir>/service mtservice --list-cameras`
 (timeout 5 min, since the first call may install the runtime) and returns
 `{ ok: true, data: { cameras: [{ index, name }] } }` from the last stdout line. Failures (uv missing,
 checkout broken, unparseable output) return 502 `RUNTIME_UNAVAILABLE` with a message.
@@ -172,4 +234,5 @@ vspark detects or prevents the conflict today.
 
 - Not merged to `dev` yet.
 - `/MT/Conf` confidences are not consumed.
+- `/MT/Root` (hip position) and `/MT/Up` are sent by the runtime but ignored by vspark.
 - The motiontracker OSC namespace (`/MT/*`) is marked provisional on the runtime side.

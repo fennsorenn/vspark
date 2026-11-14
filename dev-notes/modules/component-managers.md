@@ -220,7 +220,7 @@ vmc_packet_source → rhylive_bone_mapper → body_calibration → arm_ik_calibr
 
 **Re-sync covers every kind**: `refreshVmc()` (the mesh tap's re-sync) and the startup query in `index.ts` select `vmc_receiver`, `vmc_receiver_2d` **and** `learned_tracker` rows — it used to select only the 3D kind, so any behavior write stopped every 2D receiver until restart. `routes/signal.ts` also strips the `vmc-pipeline-2d:` and `learned-tracker:` prefixes (2D node states and calibration fires used the wrong behavior id before the 2D prefix was added). A new kind run by this manager needs adding to all three lists.
 
-**Learned Tracking** (`learned_tracker`): same `VMC_PIPELINE_TEMPLATE` under graph prefix `learned-tracker:`, default port `LEARNED_TRACKER_PORT` = 39541. `syncBehaviors` additionally calls `_applyRuntime`, which keeps one `LearnedRuntime` per behavior and hands it camera, port, checkout dir and the avatar's model file path; `stopReceiver` stops it. Runtime state is published as `runtime` on the behavior's tracking status. Details: [learned-tracker.md](learned-tracker.md).
+**Learned Tracking** (`learned_tracker`): same `VMC_PIPELINE_TEMPLATE` under graph prefix `learned-tracker:`, default port `LEARNED_TRACKER_PORT` = 39541. `syncBehaviors` additionally calls `_applyRuntime`, which keeps one `LearnedRuntime` per behavior and hands it camera, port, runtime dir and the avatar's model file path; `stopReceiver` stops it. `refreshLearnedRuntimes()` (registered via `onRuntimeInstalled`) re-applies every runtime after the runtime download finishes, so they restart on the downloaded copy. Runtime state is published as `runtime` on the behavior's tracking status. Details: [learned-tracker.md](learned-tracker.md).
 
 ---
 
