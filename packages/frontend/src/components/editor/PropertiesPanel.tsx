@@ -57,7 +57,11 @@ import {
   ComposeLayerProperties,
   ComposeSceneProperties,
 } from './ComposeLayerProperties';
-import type { AssetFile, CameraEffectRecord } from '../../api/client';
+import type {
+  AssetFile,
+  CameraEffectRecord,
+  LearnedRuntimeInfo,
+} from '../../api/client';
 import { setLive2dConsent } from '../../lib/puppet2d/live2d/coreLoader';
 import type { Live2dParamMap, ParamMapEntry } from '../../lib/live2dParamMap';
 import { MicCapture, type VowelTemplates } from '../../media/MicCapture';
@@ -2282,6 +2286,45 @@ function LearnedTrackerProps({ comp }: { comp: Behavior }) {
   );
   const [camError, setCamError] = useState('');
   const status = useTrackingStatuses()[comp.id]?.runtime;
+  const [rt, setRt] = useState<LearnedRuntimeInfo | null>(null);
+  const [rtError, setRtError] = useState('');
+
+  const loadRuntime = () =>
+    api
+      .getLearnedRuntime()
+      .then((info) => {
+        setRt(info);
+        setRtError('');
+        return info;
+      })
+      .catch((e: unknown) => {
+        setRtError(e instanceof Error ? e.message : String(e));
+        return null;
+      });
+
+  const startDownload = () => {
+    setRtError('');
+    api
+      .downloadLearnedRuntime()
+      .then(setRt)
+      .catch((e: unknown) =>
+        setRtError(e instanceof Error ? e.message : String(e))
+      );
+  };
+
+  // While a download runs, follow its progress; once it is there, list cameras
+  // again (the runtime that answers is the new one).
+  const downloading = rt?.download.state === 'downloading';
+  useEffect(() => {
+    if (!downloading) return;
+    const id = setInterval(() => {
+      void loadRuntime().then((info) => {
+        if (info && info.download.state !== 'downloading' && info.downloaded)
+          loadCameras();
+      });
+    }, 500);
+    return () => clearInterval(id);
+  }, [downloading]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const loadCameras = () => {
     setCamState('loading');
@@ -2300,6 +2343,7 @@ function LearnedTrackerProps({ comp }: { comp: Behavior }) {
   useEffect(() => {
     setPort(cfg.port ?? LEARNED_TRACKER_PORT);
     loadCameras();
+    void loadRuntime();
   }, [comp.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const save = (patch: Partial<Record<string, unknown>>) =>
@@ -2399,6 +2443,83 @@ function LearnedTrackerProps({ comp }: { comp: Behavior }) {
             save({ port: p });
           }}
         />
+      </div>
+
+      <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8 }}>
+        <span style={labelStyle}>{t('learned.install')}</span>
+        <div
+          className="vs-learned-install"
+          style={{ flex: 1, fontSize: 11, color: '#ccc', lineHeight: 1.4 }}
+        >
+          {rt && (
+            <div style={{ wordBreak: 'break-word' }}>
+              {rt.source === 'download'
+                ? t('learned.installDownloaded', { version: rt.version })
+                : rt.source === 'missing'
+                  ? t('learned.installMissing')
+                  : t('learned.installLocal', { dir: rt.dir })}
+            </div>
+          )}
+          {rt && downloading && (
+            <div style={{ color: '#facc15' }}>
+              {t('learned.downloading', {
+                percent: Math.round((rt.download.progress ?? 0) * 100),
+              })}
+            </div>
+          )}
+          {rt && !rt.downloaded && !downloading && (
+            <>
+              <button
+                className="vs-learned-download"
+                onClick={startDownload}
+                style={{
+                  marginTop: 4,
+                  background: '#1e3a5f',
+                  border: '1px solid #2c5282',
+                  color: '#e0e0e0',
+                  borderRadius: 4,
+                  padding: '3px 8px',
+                  fontSize: 11,
+                  cursor: 'pointer',
+                }}
+              >
+                {t('learned.download', {
+                  version: rt.version,
+                  size: Math.round(rt.bytes / 1e6),
+                })}
+              </button>
+              {(rt.source === 'env' || rt.source === 'config') && (
+                <div style={{ fontSize: 10, color: '#777' }}>
+                  {t('learned.downloadOverridden')}
+                </div>
+              )}
+            </>
+          )}
+          {rt?.download.state === 'error' && (
+            <div
+              style={{
+                fontSize: 10,
+                color: '#f87171',
+                wordBreak: 'break-word',
+              }}
+            >
+              {t('learned.downloadError', {
+                message: rt.download.message ?? '',
+              })}
+            </div>
+          )}
+          {rtError && (
+            <div
+              style={{
+                fontSize: 10,
+                color: '#f87171',
+                wordBreak: 'break-word',
+              }}
+            >
+              {rtError}
+            </div>
+          )}
+        </div>
       </div>
 
       <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8 }}>

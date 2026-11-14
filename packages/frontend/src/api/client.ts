@@ -1012,6 +1012,31 @@ export const getLearnedTrackerCameras = () =>
     '/learned-tracker/cameras'
   ).then((d) => d.cameras);
 
+/** Where the Learned Tracking runtime comes from (backend routes/learned-tracker.ts). */
+export interface LearnedRuntimeInfo {
+  /** The motiontracker release this vspark pins. */
+  version: string;
+  /** Its download size. */
+  bytes: number;
+  source: 'env' | 'config' | 'download' | 'checkout' | 'missing';
+  dir: string;
+  downloaded: boolean;
+  download: {
+    state: 'idle' | 'downloading' | 'error';
+    progress?: number;
+    message?: string;
+  };
+}
+
+export const getLearnedRuntime = () =>
+  request<LearnedRuntimeInfo>('/learned-tracker/runtime');
+
+/** Starts the download of the pinned runtime in the background; poll getLearnedRuntime. */
+export const downloadLearnedRuntime = () =>
+  request<LearnedRuntimeInfo>('/learned-tracker/runtime/download', {
+    method: 'POST',
+  });
+
 /** Returns the uncalibrated NormalizedPose at the body_calibration node's
  *  input for this component.  Bone keys are VRMBoneNames. */
 export const getBodyCalibState = (behaviorId: string) =>
@@ -1589,6 +1614,8 @@ export const api = {
   seekTrackClip,
   getLocalIps,
   getLearnedTrackerCameras,
+  getLearnedRuntime,
+  downloadLearnedRuntime,
   getBodyCalibState,
   getSignalGraphs,
   getSignalNodeKinds,

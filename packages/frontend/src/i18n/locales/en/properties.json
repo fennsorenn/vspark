@@ -439,7 +439,15 @@
     },
     "stats": "{{fps}} fps · {{latency}} ms latency · model {{model}} ms",
     "noBody": "no body in view",
-    "cameraHint": "The runtime opens the camera itself. Turn off Camera tracking on the same webcam: two programs can't read one webcam at once."
+    "cameraHint": "The runtime opens the camera itself. Turn off Camera tracking on the same webcam: two programs can't read one webcam at once.",
+    "install": "Install",
+    "installDownloaded": "Downloaded runtime {{version}}",
+    "installMissing": "Not installed yet",
+    "installLocal": "Local copy: {{dir}}",
+    "download": "Download runtime {{version}} ({{size}} MB)",
+    "downloading": "Downloading… {{percent}} %",
+    "downloadOverridden": "A path set for the runtime (config.json or VSPARK_MOTIONTRACKER_PATH) is used instead of the download.",
+    "downloadError": "Download failed: {{message}}"
   },
   "lipsync": {
     "sensitivity": "Sensitivity",
