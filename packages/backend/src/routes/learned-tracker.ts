@@ -1,7 +1,16 @@
 import { Router } from 'express';
 import { execFile } from 'child_process';
 import { join } from 'path';
-import { learnedRuntimeDir } from '../behaviors/learned_tracker/runtime.js';
+import {
+  learnedRuntimeDir,
+  learnedRuntimeLocation,
+} from '../behaviors/learned_tracker/runtime.js';
+import {
+  MOTIONTRACKER_RUNTIME,
+  downloadStatus,
+  isDownloaded,
+  startRuntimeDownload,
+} from '../behaviors/learned_tracker/download.js';
 
 const router = Router();
 
@@ -76,6 +85,78 @@ router.get('/learned-tracker/cameras', (_req, res) => {
       }
     }
   );
+});
+
+function runtimeInfo() {
+  const { dir, source } = learnedRuntimeLocation();
+  return {
+    version: MOTIONTRACKER_RUNTIME.version,
+    bytes: MOTIONTRACKER_RUNTIME.bytes,
+    source,
+    dir,
+    downloaded: isDownloaded(),
+    download: downloadStatus(),
+  };
+}
+
+/**
+ * @openapi
+ * /api/learned-tracker/runtime:
+ *   get:
+ *     tags: [behaviors]
+ *     summary: Where the Learned Tracking runtime comes from, and the state of its download
+ *     description: >
+ *       `source`: env (VSPARK_MOTIONTRACKER_PATH), config (config.json learnedTracker.runtimePath),
+ *       download (the pinned motiontracker release, downloaded into the install's runtime/ folder),
+ *       checkout (a motiontracker folder beside the install) or missing. `version` is the pinned release.
+ *     responses:
+ *       200:
+ *         description: Runtime info
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 ok:   { type: boolean, enum: [true] }
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     version:    { type: string }
+ *                     bytes:      { type: integer, description: download size }
+ *                     source:     { type: string, enum: [env, config, download, checkout, missing] }
+ *                     dir:        { type: string }
+ *                     downloaded: { type: boolean }
+ *                     download:
+ *                       type: object
+ *                       properties:
+ *                         state:    { type: string, enum: [idle, downloading, error] }
+ *                         progress: { type: number, description: 0..1 while downloading }
+ *                         message:  { type: string }
+ */
+router.get('/learned-tracker/runtime', (_req, res) => {
+  res.json({ ok: true, data: runtimeInfo() });
+});
+
+/**
+ * @openapi
+ * /api/learned-tracker/runtime/download:
+ *   post:
+ *     tags: [behaviors]
+ *     summary: Download the pinned Learned Tracking runtime from GitHub (background)
+ *     description: >
+ *       Downloads the motiontracker release asset this vspark version pins, verifies its SHA-256
+ *       and unpacks it into the install's runtime/ folder; running Learned Tracking behaviors then
+ *       restart on it. Returns at once; poll GET /api/learned-tracker/runtime for progress.
+ *     responses:
+ *       200:
+ *         description: Download started (or already running / done); same body as GET /api/learned-tracker/runtime
+ */
+router.post('/learned-tracker/runtime/download', (_req, res) => {
+  if (!isDownloaded())
+    startRuntimeDownload().catch((e: unknown) =>
+      console.error('[LearnedTracker] runtime download failed:', e)
+    );
+  res.json({ ok: true, data: runtimeInfo() });
 });
 
 export default router;

@@ -2,12 +2,14 @@ import { spawn, type ChildProcess } from 'child_process';
 import { existsSync, readFileSync } from 'fs';
 import { dirname, join, resolve } from 'path';
 import { getInstallDir } from '../../routes/update.js';
+import { downloadedRuntimeDir, isDownloaded } from './download.js';
 
 /**
  * The Learned Tracking runtime: motiontracker's `mtservice` (camera → MediaPipe
  * Holistic → learned body model → VRM bones as VMC over UDP), run as a child
- * process. It is not bundled with vspark: it is started with `uv` from a local
- * motiontracker checkout, so `uv` installs its Python environment on first use.
+ * process. It is not bundled with vspark: it is started with `uv` from the pinned
+ * release the behavior downloads (download.ts) or a local motiontracker checkout,
+ * so `uv` installs its Python environment on first use.
  *
  * Control runs over the child's stdin/stdout as JSON lines (motiontracker
  * `service/src/mtservice/cli.py`): commands `avatar` / `camera` / `stop` in,
@@ -56,16 +58,28 @@ export function isRuntimeDir(dir: string): boolean {
   return existsSync(join(dir, 'service', 'pyproject.toml'));
 }
 
+export type RuntimeSource =
+  | 'env'
+  | 'config'
+  | 'download'
+  | 'checkout'
+  | 'missing';
+
 /**
- * Where the motiontracker checkout is: env `VSPARK_MOTIONTRACKER_PATH`, else
- * config.json `learnedTracker.runtimePath` (relative paths from the install
- * dir), else the nearest `motiontracker` folder beside the install dir or one
- * of its parents (in dev the install dir is packages/backend, so a checkout
- * next to the vspark repo is found too).
+ * Where the motiontracker runtime is, and why there: env
+ * `VSPARK_MOTIONTRACKER_PATH`, else config.json `learnedTracker.runtimePath`
+ * (relative paths from the install dir), else the pinned runtime downloaded by
+ * the behavior's "Download runtime" button (download.ts), else the nearest
+ * `motiontracker` checkout beside the install dir or one of its parents (in dev
+ * the install dir is packages/backend, so a checkout next to the vspark repo is
+ * found too). Missing: where the download would go.
  */
-export function learnedRuntimeDir(): string {
+export function learnedRuntimeLocation(): {
+  dir: string;
+  source: RuntimeSource;
+} {
   const env = process.env.VSPARK_MOTIONTRACKER_PATH;
-  if (env) return resolve(env);
+  if (env) return { dir: resolve(env), source: 'env' };
   const installDir = getInstallDir();
   try {
     const cfgPath =
@@ -74,15 +88,21 @@ export function learnedRuntimeDir(): string {
       learnedTracker?: { runtimePath?: string };
     };
     const p = cfg.learnedTracker?.runtimePath;
-    if (p) return resolve(installDir, p);
+    if (p) return { dir: resolve(installDir, p), source: 'config' };
   } catch {
     /* no config: search below */
   }
+  if (isDownloaded())
+    return { dir: downloadedRuntimeDir(), source: 'download' };
   for (let d = resolve(installDir); dirname(d) !== d; d = dirname(d)) {
     const candidate = join(dirname(d), 'motiontracker');
-    if (isRuntimeDir(candidate)) return candidate;
+    if (isRuntimeDir(candidate)) return { dir: candidate, source: 'checkout' };
   }
-  return resolve(installDir, '..', 'motiontracker');
+  return { dir: downloadedRuntimeDir(), source: 'missing' };
+}
+
+export function learnedRuntimeDir(): string {
+  return learnedRuntimeLocation().dir;
 }
 
 /** The command that starts the runtime (overridable for tests). */
@@ -204,7 +224,7 @@ export class LearnedRuntime {
     if (!this.checkDir(opts.runtimeDir)) {
       this.setStatus({
         state: 'error',
-        message: `motiontracker runtime not found at ${opts.runtimeDir} (set learnedTracker.runtimePath in config.json)`,
+        message: `motiontracker runtime not found at ${opts.runtimeDir}: download it in the behavior's properties (or set learnedTracker.runtimePath in config.json)`,
       });
       return;
     }

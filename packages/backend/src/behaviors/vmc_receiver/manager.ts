@@ -25,6 +25,7 @@ import {
   learnedRuntimeDir,
   type RuntimeStatus,
 } from '../learned_tracker/runtime.js';
+import { onRuntimeInstalled } from '../learned_tracker/download.js';
 import { getDb } from '../../db/index.js';
 import { BehaviorKind } from '../decorator.js';
 import { trackingGraceMs } from '../tracking_grace.js';
@@ -279,6 +280,8 @@ export class VmcManager {
     // configured window starts at 0.1s. A 2s tick would round every short "Idle
     // after" setting up to its own period.
     this.timer = setInterval(() => this.checkTimeouts(), 250);
+    // A finished "Download runtime": restart Learned Tracking on it.
+    onRuntimeInstalled(() => this.refreshLearnedRuntimes());
   }
 
   // ── graph management ───────────────────────────────────────────────────────
@@ -686,6 +689,19 @@ export class VmcManager {
         this.behaviorConfigs.set(c.id, c.config);
         this.behaviorNodeIds.set(c.id, c.nodeId);
       }
+    }
+  }
+
+  /** Re-resolve the runtime location for every running Learned Tracking
+   *  behavior (after a download): a new location restarts its runtime, one that
+   *  had failed to start is started again. */
+  refreshLearnedRuntimes(): void {
+    for (const id of this.runtimes.keys()) {
+      const cfg = this.behaviorConfigs.get(id) ?? {};
+      const nodeId = this.behaviorNodeIds.get(id);
+      if (!nodeId) continue;
+      const port = (cfg.port as number) ?? LEARNED_TRACKER_PORT;
+      this._applyRuntime(id, nodeId, cfg, port);
     }
   }
 

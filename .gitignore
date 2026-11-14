@@ -29,3 +29,5 @@ packages/frontend/vite.config.b.ts
 # runtime config written by the config route at the install dir
 packages/backend/config.json
 config.json
+# Learned Tracking runtime downloaded in dev (install dir = packages/backend)
+packages/backend/runtime/
