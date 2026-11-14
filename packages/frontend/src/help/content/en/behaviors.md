@@ -147,22 +147,24 @@ well) and toggle one option at a time.
 
 ## Learned tracking {#learned}
 
-Learned tracking estimates your **torso, head, shoulders and arms** from a
-webcam with a learned model instead of hand-written rules. It aims for a calmer
-result than camera tracking, especially with your arms resting below the frame.
-It also drives your **fingers** and **facial expressions**, for now with
-conventional methods rather than learned ones. Expressions are mapped like the
+Learned tracking estimates your **torso, head, shoulders, arms, hands and
+fingers**, and your **legs**, from a webcam with learned models instead of
+hand-written rules. It aims for a calmer result than camera tracking, especially
+with your arms resting below the frame. If your legs are out of view (at a desk,
+say), turn the legs' influence down in the mixer. Your **facial expressions**
+come, for now, from conventional methods; they are mapped like the
 [VMC receiver](topic:behaviors#vmc)'s.
 
 It runs as a separate program, the **motiontracker runtime**, which vspark
 starts and stops for you. It needs:
 
-- a local checkout of motiontracker. By default vspark looks for a
-  `motiontracker` folder next to the vspark folder; otherwise set
-  `learnedTracker.runtimePath` in `config.json`,
-- [uv](https://docs.astral.sh/uv/), which installs the runtime on first start
-  (this takes a few minutes once),
-- an exported model in that checkout.
+- the runtime itself: **Download runtime** in the behavior's properties fetches
+  the version this vspark was tested with (about 18 MB, models included) and
+  starts it. A local motiontracker copy works too: a `motiontracker` folder next
+  to the vspark folder is used when nothing is downloaded, and a path set as
+  `learnedTracker.runtimePath` in `config.json` always wins,
+- [uv](https://docs.astral.sh/uv/), which installs the runtime's Python
+  environment on first start (this takes a few minutes once).
 
 The runtime opens the **camera** itself, so turn off camera tracking on the same
 webcam. Pick the camera from the list; **Refresh** asks the runtime again. The

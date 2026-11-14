@@ -158,22 +158,25 @@ sich gut), und schalte jeweils eine Option um.
 
 ## Gelerntes Tracking {#learned}
 
-Gelerntes Tracking schätzt **Oberkörper, Kopf, Schultern und Arme** per Webcam
-mit einem gelernten Modell statt mit handgeschriebenen Regeln. Ziel ist ein
-ruhigeres Ergebnis als beim Kamera-Tracking, besonders wenn deine Arme unterhalb
-des Bildes ruhen. Außerdem steuert es deine **Finger** und deine **Mimik**,
-vorerst noch mit herkömmlichen statt gelernten Verfahren. Die Mimik wird wie beim
-[VMC-Empfänger](topic:behaviors#vmc) zugeordnet.
+Gelerntes Tracking schätzt **Oberkörper, Kopf, Schultern, Arme, Hände und
+Finger** sowie deine **Beine** per Webcam mit gelernten Modellen statt mit
+handgeschriebenen Regeln. Ziel ist ein ruhigeres Ergebnis als beim
+Kamera-Tracking, besonders wenn deine Arme unterhalb des Bildes ruhen. Sind deine
+Beine nicht im Bild (etwa am Schreibtisch), dreh den Einfluss der Beine im Mixer
+herunter. Deine **Mimik** kommt vorerst aus herkömmlichen Verfahren; sie wird wie
+beim [VMC-Empfänger](topic:behaviors#vmc) zugeordnet.
 
 Es läuft als eigenes Programm, die **motiontracker-Runtime**, die vspark für
 dich startet und beendet. Es braucht:
 
-- einen lokalen motiontracker-Checkout. Standardmäßig sucht vspark einen Ordner
-  `motiontracker` neben dem vspark-Ordner; sonst setze
-  `learnedTracker.runtimePath` in der `config.json`,
-- [uv](https://docs.astral.sh/uv/), das die Runtime beim ersten Start
-  installiert (das dauert einmalig ein paar Minuten),
-- ein exportiertes Modell in diesem Checkout.
+- die Runtime selbst: **Runtime herunterladen** in den Eigenschaften des
+  Verhaltens holt die Version, mit der dieses vspark getestet wurde (etwa 18 MB,
+  Modelle inklusive), und startet sie. Eine lokale motiontracker-Kopie geht auch:
+  Ein Ordner `motiontracker` neben dem vspark-Ordner wird verwendet, solange
+  nichts heruntergeladen ist, und ein in der `config.json` gesetzter Pfad
+  `learnedTracker.runtimePath` hat immer Vorrang,
+- [uv](https://docs.astral.sh/uv/), das die Python-Umgebung der Runtime beim
+  ersten Start installiert (das dauert einmalig ein paar Minuten).
 
 Die Runtime öffnet die **Kamera** selbst, schalte also das Kamera-Tracking auf
 derselben Webcam aus. Wähle die Kamera aus der Liste; **Aktualisieren** fragt
