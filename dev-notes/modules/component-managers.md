@@ -197,6 +197,7 @@ Manages VMC/RhyLive motion capture receivers. Each behavior owns a `SignalGraph`
 - `/VMC/Ext/Bone/Pos` — Unity HumanBodyBones rotation array
 - `/Body` — RhyLive 220+ float array
 - `/Face` — ARKit 52-shape weight array
+- `/VMC/Ext/Blend/Val` + `/VMC/Ext/Blend/Apply` — standard VMC blendshapes. Values whose name is an ARKit shape are collected in `Receiver.pendingBlend` and fired on `Apply` into the same ARKit chain as `/Face`; other names (VRM clips) are ignored. Learned Tracking sends its face this way (see [learned-tracker.md](learned-tracker.md#face))
 - `/MT/Present` — motiontracker's presence flag (0/1), sent by the Learned Tracking runtime; drives tracking on/off for any VMC kind (see Tracking detection)
 
 **Graph template** (`VMC_PIPELINE_TEMPLATE`; what a new behavior's stored graph is generated from) wires:

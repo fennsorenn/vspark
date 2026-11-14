@@ -5,8 +5,8 @@ Webcam body tracking with a learned model. vspark runs the **motiontracker runti
 process and receives its output as VMC over UDP on the normal 3D VMC pipeline. Since motiontracker
 v0.1.0 the runtime runs motiontracker's merger (mg3): torso, head, shoulders, arms, **legs** and
 **fingers**. It also sends hip position `/MT/Root` and up vector `/MT/Up`, which vspark ignores so
-far. Facial expressions arrive as standard VMC blendshapes (`Blend/Val`, ARKit names; commit
-fe18fbe2, not yet described in these notes). Leg influence can be turned down in the mixer when the
+far. Facial expressions arrive as standard VMC blendshapes (`Blend/Val`, ARKit names; see
+[Face](#face)). Leg influence can be turned down in the mixer when the
 legs are out of view.
 
 Status: **implemented** on `feature/learned-tracker` (backend a50750b, frontend a78cd6d; runtime
@@ -68,7 +68,7 @@ Everything below describes the current implementation.
 - Tests: `packages/backend/test/learned_tracker.runtime.test.ts` (a fake runtime script speaking
   the protocol: start/ready/status, live camera/avatar changes, restart on port change, crash +
   restart, stop, missing runtime, missing executable, env override) and the
-  `VmcManager /MT/Present` block in `managers.test.ts`; `learned_tracker.download.test.ts`
+  `VmcManager /MT/Present` block and the `/VMC/Ext/Blend/Val` test in `managers.test.ts`; `learned_tracker.download.test.ts`
   (8 tests: download, checksum, unpack, marker, state). No Playwright spec: the learned controls had
   none before, and a seeded behavior would start the real runtime.
 
@@ -93,6 +93,15 @@ From the UDP side on, it is an ordinary VMC receiver: packets go through `vmc_pa
 rhylive_bone_mapper → body_calibration → arm_ik_calibration → eye_range_map → pose_broadcast`
 (graph id prefix `learned-tracker:`). It was checked end to end by hand with the real runtime on a
 video: the poses coming out of `rhylive_bone_mapper` matched the runtime's output.
+
+<a id="face"></a>**Face**: the runtime sends facial expressions as standard VMC blendshapes, one
+`/VMC/Ext/Blend/Val <name> <value>` per ARKit shape followed by `/VMC/Ext/Blend/Apply`. The VMC
+receiver (any VMC kind, commit fe18fbe2) collects values whose name is an ARKit shape in
+`Receiver.pendingBlend` and, on `Apply`, fires them as the same `arkit` event RhyLive's `/Face`
+produces, so they take the usual `arkit_vrm_mapper ×3 → blendshapes_sum → blendshapes_broadcast`
+path. Names that are not ARKit shapes (VRM clip names from other VMC senders) are ignored. The
+runtime filters the face itself (blink and eye handling, `mtcore.face_filter`) and sends it at its
+own rate (60 Hz, interpolated between camera frames), separately from the 10 FPS bone packets.
 
 **Tracking on/off** comes from motiontracker's `/MT/Present` flag (handled for any VMC kind):
 `1` clears `quietSince` and sets tracking on; `0` stamps `quietSince`, and the existing 250 ms
@@ -234,5 +243,7 @@ vspark detects or prevents the conflict today.
 
 - Not merged to `dev` yet.
 - `/MT/Conf` confidences are not consumed.
+- Whether vspark should also interpolate face values itself is open (the runtime already glides
+  them at 60 Hz).
 - `/MT/Root` (hip position) and `/MT/Up` are sent by the runtime but ignored by vspark.
 - The motiontracker OSC namespace (`/MT/*`) is marked provisional on the runtime side.
