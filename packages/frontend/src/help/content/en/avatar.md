@@ -73,6 +73,11 @@ and so on. Use it to, for example, play a dance animation on the **legs** while
 live tracking drives the **upper body**, or to let webcam tracking steer the
 head while a VMC sender does the arms.
 
+A behavior is listed when its graph sends something to the avatar: a **Send
+Pose** node gives it a **Body** column, a **Send Blendshapes** node a **Face**
+column. If you edit a behavior's graph and remove those nodes, it leaves the
+mixer (its weights are kept and come back with the node).
+
 In the sidebar every source has one slider that sets its weight everywhere.
 Click **Open mixer…** for the full editor:
 

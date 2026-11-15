@@ -79,6 +79,12 @@ Tanz-Animation auf den **Beinen** abspielen, während Live-Tracking den
 **Oberkörper** steuert, oder das Webcam-Tracking den Kopf lenken lassen,
 während ein VMC-Sender die Arme übernimmt.
 
+Ein Verhalten erscheint im Mixer, wenn sein Graph etwas an den Avatar sendet:
+ein **Send Pose**-Knoten gibt ihm eine Spalte unter **Körper**, ein **Send
+Blendshapes**-Knoten eine unter **Gesicht**. Entfernst du diese Knoten aus dem
+Graphen eines Verhaltens, verschwindet es aus dem Mixer (seine Gewichte bleiben
+erhalten und kommen mit dem Knoten zurück).
+
 In der Seitenleiste hat jede Quelle einen Regler, der ihr Gewicht überall
 setzt. Klicke auf **Mixer öffnen…** für den vollständigen Editor:
 
