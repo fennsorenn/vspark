@@ -35,22 +35,37 @@ export const ANIMATION_SOURCE = 'animation';
 export const MIX_WEIGHT_MIN = 0;
 export const MIX_WEIGHT_MAX = 2;
 
-/** Behavior kinds that publish bones to the bus (tracking-mix Body columns). */
-export const BONE_SOURCE_KINDS = [
-  'vmc_receiver',
-  'ifacialmocap_receiver',
-  'mediapipe_tracker',
-  'breathing',
-] as const;
+// ── Sources ──────────────────────────────────────────────────────────────────
+//
+// A behavior is a mix source because of what its signal graph publishes, not
+// because of its kind: every behavior reaches the bus only through broadcast
+// nodes in its (stored, editable) graph, under its own behavior id.
+// **Decided (user, 2026-11-15):** behaviors publish to the bus only through
+// graph broadcast nodes, so the graph is the one place this is read from.
 
-/** Behavior kinds that publish blendshapes to the bus (Face columns). */
-export const BLENDSHAPE_SOURCE_KINDS = [
-  'vmc_receiver',
-  'ifacialmocap_receiver',
-  'mediapipe_tracker',
-  'lipsync_processor',
-  'api_controller',
-] as const;
+/** Graph node kinds that publish bones under the behavior's id. */
+export const BONE_OUTPUT_NODE_KINDS: readonly string[] = ['pose_broadcast'];
+
+/** Graph node kinds that publish blendshapes under the behavior's id. */
+export const BLENDSHAPE_OUTPUT_NODE_KINDS: readonly string[] = [
+  'blendshapes_broadcast',
+];
+
+/** What a behavior contributes to the mix: Body and/or Face columns. */
+export interface MixOutputs {
+  bones: boolean;
+  blendshapes: boolean;
+}
+
+/** What a behavior graph publishes, from its node kinds. */
+export function graphMixOutputs(nodeKinds: Iterable<string>): MixOutputs {
+  const out: MixOutputs = { bones: false, blendshapes: false };
+  for (const k of nodeKinds) {
+    if (BONE_OUTPUT_NODE_KINDS.includes(k)) out.bones = true;
+    if (BLENDSHAPE_OUTPUT_NODE_KINDS.includes(k)) out.blendshapes = true;
+  }
+  return out;
+}
 
 // ── Body regions ─────────────────────────────────────────────────────────────
 

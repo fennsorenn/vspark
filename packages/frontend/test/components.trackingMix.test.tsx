@@ -44,13 +44,70 @@ import {
   buildFaceGroups,
   buildMixSources,
 } from '../src/components/editor/TrackingMix';
-import { docsOf, seedEditor } from './helpers/mesh';
+import { docsOf, seedEditor, testPeer } from './helpers/mesh';
+import type { MixOutputs } from '@vspark/shared/trackingMix';
 
 const tp = (key: string, opts?: Record<string, unknown>) =>
   i18n.t(key, { ns: 'properties', ...opts });
 
 const beh = (id: string, kind: string): Behavior =>
   ({ id, nodeId: 'avatar-1', kind, enabled: true, config: {} }) as Behavior;
+
+/** What each test kind's template graph publishes (mirrors the backend
+ *  templates' broadcast nodes). */
+const KIND_OUTPUT_NODES: Record<string, string[]> = {
+  vmc_receiver: ['pose_broadcast', 'blendshapes_broadcast'],
+  learned_tracker: ['pose_broadcast', 'blendshapes_broadcast'],
+  breathing: ['pose_broadcast'],
+  lipsync_processor: ['blendshapes_broadcast'],
+  api_controller: ['blendshapes_broadcast'],
+  pose_stylizer: ['on_pose_broadcast'],
+};
+
+let graphClock = 0;
+/** Put a behavior's graph (document form) into the test peer. */
+function seedGraph(behaviorId: string, nodeKinds: string[]) {
+  const nodes = Object.fromEntries(
+    ['behavior_id', ...nodeKinds].map((kind, i) => [
+      `n${i}`,
+      { id: `n${i}`, kind, position: { x: 0, y: 0 } },
+    ])
+  );
+  testPeer()
+    .collection<{ id: string }>('logic')
+    .put(
+      {
+        id: `g:${behaviorId}`,
+        ownerKind: 'behavior',
+        ownerId: behaviorId,
+        name: 'g',
+        enabled: true,
+        descriptor: {
+          id: `g:${behaviorId}`,
+          label: 'g',
+          readonly: false,
+          nodes,
+          edges: {},
+        },
+      } as { id: string },
+      { v: { t: ++graphClock, c: 0, n: 'seed' } }
+    );
+}
+
+/** buildMixSources' outputs, as the template graphs of these behaviors give. */
+const outputsFor = (bs: Behavior[]): Record<string, MixOutputs> =>
+  Object.fromEntries(
+    bs.map((b) => {
+      const n = KIND_OUTPUT_NODES[b.kind] ?? [];
+      return [
+        b.id,
+        {
+          bones: n.includes('pose_broadcast'),
+          blendshapes: n.includes('blendshapes_broadcast'),
+        },
+      ];
+    })
+  );
 
 function seed(
   trackingMix?: Record<string, unknown>,
@@ -74,6 +131,14 @@ function seed(
     selectedBehaviorId: null,
     behaviors,
     behaviorKinds: [
+      {
+        kind: 'learned_tracker',
+        label: 'Learned Tracking',
+        icon: '',
+        description: '',
+        applicableTo: ['avatar'],
+        defaultConfig: {},
+      },
       {
         kind: 'vmc_receiver',
         label: 'VMC Receiver',
@@ -111,6 +176,7 @@ function seed(
     leftTab: 'scene',
     activeLogicId: null,
   } as never);
+  for (const b of behaviors) seedGraph(b.id, KIND_OUTPUT_NODES[b.kind] ?? []);
 }
 
 const storedMix = () =>
@@ -138,13 +204,15 @@ function slide(container: Element, value: number) {
 describe('buildMixSources', () => {
   const label = (k: string) => k.toUpperCase();
   it('lists animation first, then bone/shape sources by legacy priority', () => {
+    const bs = [
+      beh('br', 'breathing'),
+      beh('v1', 'vmc_receiver'),
+      beh('x', 'pose_stylizer'),
+      beh('lip', 'lipsync_processor'),
+    ];
     const s = buildMixSources(
-      [
-        beh('br', 'breathing'),
-        beh('v1', 'vmc_receiver'),
-        beh('x', 'pose_stylizer'),
-        beh('lip', 'lipsync_processor'),
-      ],
+      bs,
+      outputsFor(bs),
       label,
       'Anim',
       undefined
@@ -160,14 +228,31 @@ describe('buildMixSources', () => {
     });
   });
   it('honours mix.order and numbers repeated kinds', () => {
+    const bs = [beh('a', 'vmc_receiver'), beh('b', 'vmc_receiver')];
     const s = buildMixSources(
-      [beh('a', 'vmc_receiver'), beh('b', 'vmc_receiver')],
+      bs,
+      outputsFor(bs),
       label,
       'Anim',
       { order: ['b', 'a'] }
     );
     expect(s.map((x) => x.id)).toEqual(['animation', 'b', 'a']);
     expect(s[1].label).toBe('VMC_RECEIVER 2');
+  });
+  it('takes a behavior as a source from what its graph publishes, not its kind', () => {
+    const s = buildMixSources(
+      [beh('lt', 'learned_tracker'), beh('odd', 'breathing')],
+      // `odd` is a breathing behavior whose graph was edited to send faces.
+      {
+        lt: { bones: true, blendshapes: true },
+        odd: { bones: false, blendshapes: true },
+      },
+      label,
+      'Anim',
+      undefined
+    );
+    expect(s.map((x) => x.id)).toEqual(['animation', 'lt', 'odd']);
+    expect(s[2]).toMatchObject({ bones: false, blendshapes: true });
   });
 });
 
@@ -273,6 +358,34 @@ describe('Tracking Mix modal', () => {
     expect(cells).toHaveLength(3); // mouth, eyes, emotions × 1 source
     slide(cells[0], 0);
     expect(storedMix().sources!.vmc.blendshapes).toEqual({ aa: 0 });
+  });
+
+  it('lists Learned Tracking and the API Controller from their graphs', () => {
+    seed(undefined, [
+      beh('vmc', 'vmc_receiver'),
+      beh('lt', 'learned_tracker'),
+      beh('api', 'api_controller'),
+    ]);
+    open();
+    const body = screen.getByRole('dialog');
+    expect(body.querySelector('thead')!.textContent).toContain(
+      'Learned Tracking'
+    );
+    fireEvent.click(document.querySelector('.vs-mix-tab-face')!);
+    const heads = [...screen.getByRole('dialog').querySelectorAll('th')].map(
+      (th) => th.textContent
+    );
+    expect(heads).toContain('Learned Tracking');
+    expect(heads.some((h) => h?.startsWith('api_controller'))).toBe(true);
+  });
+
+  it('a graph edit that removes its broadcast node drops the column', () => {
+    seed(undefined, [beh('vmc', 'vmc_receiver'), beh('lt', 'learned_tracker')]);
+    seedGraph('lt', []);
+    open();
+    expect(
+      screen.getByRole('dialog').querySelector('thead')!.textContent
+    ).not.toContain('Learned Tracking');
   });
 
   it('closes on the close button', () => {
