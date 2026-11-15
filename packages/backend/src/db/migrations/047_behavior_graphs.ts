@@ -18,7 +18,9 @@
 // starts unmodified. The templates are imported rather than frozen here (unlike
 // 044's frozen section map): a database that runs this later should get the
 // template of the code it runs with — an older copy would only be regenerated
-// again by the boot sync. Kinds without a graph (api_controller) are skipped.
+// again by the boot sync. Kinds without a template are skipped (api_controller
+// had none until 2026-11; a database migrated before that gets its graph from
+// the boot sync).
 //
 // Idempotent: the column is added only when missing, and a behavior that
 // already owns a graph keeps it.

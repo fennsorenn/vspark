@@ -6,7 +6,7 @@
  *   - PoseStylizerManager (graph + pose-interceptor registration)
  *   - LipsyncManager     (graph lifecycle + fireVisemes)
  *   - TrackingManager    (graph lifecycle + fireLandmarks)
- *   - ApiControllerManager (state-only, no graph)
+ *   - ApiControllerManager (graph lifecycle + REST blendshapes through it)
  *   - VmcManager         (UDP socket mocked via vi.mock)
  *   - IFacialMocapManager (same UDP mock; adds the device handshake)
  *
@@ -613,7 +613,7 @@ describe('TrackingManager tracking-loss grace period', () => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// ApiControllerManager (no signal graph — pure state machine)
+// ApiControllerManager (REST state + a graph its blendshapes go through)
 // ─────────────────────────────────────────────────────────────────────────────
 
 describe('ApiControllerManager', () => {
@@ -801,6 +801,27 @@ describe('ApiControllerManager', () => {
     ]);
     manager.setBlendshapes('ac1', { happy: 0.9 });
     expect(() => manager.clearBlendshapes('ac1')).not.toThrow();
+  });
+
+  it('runs a graph whose blendshapes_broadcast publishes the REST weights', () => {
+    manager.syncBehaviors([
+      { id: 'ac1', nodeId: 'n1', kind: 'api_controller', enabled: true, config: {} },
+    ]);
+    const d = manager.getGraphDescriptor('ac1');
+    expect(d!.id).toBe('api_controller:ac1');
+    expect(d!.nodes.map((n) => n.kind)).toContain('blendshapes_broadcast');
+    expect(manager.getStates('ac1')).not.toBeNull();
+
+    vi.mocked(broadcastBus.publishBlendshapes).mockClear();
+    manager.setBlendshapes('ac1', { happy: 0.7 });
+    const [nodeId, behaviorId, bs] = vi.mocked(broadcastBus.publishBlendshapes)
+      .mock.calls[0];
+    expect([nodeId, behaviorId]).toEqual(['n1', 'ac1']);
+    expect(bs.get('happy')).toBeCloseTo(0.7);
+
+    manager.clearBlendshapes('ac1');
+    const cleared = vi.mocked(broadcastBus.publishBlendshapes).mock.calls[1][2];
+    expect(cleared.size).toBe(0);
   });
 
   it('close() removes all active components', () => {

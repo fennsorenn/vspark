@@ -41,6 +41,7 @@ import { PoseApplyBone } from './nodes/pose_apply_bone.js';
 import { PoseMerge } from './nodes/pose_merge.js';
 // Lipsync nodes
 import { LipsyncSource } from './nodes/lipsync_source.js';
+import { ApiControllerSource } from './nodes/api_controller_source.js';
 import { VisemePassthrough } from './nodes/viseme_passthrough.js';
 // MediaPipe tracking nodes
 import { MediapipeSource } from './nodes/mediapipe_source.js';
@@ -191,6 +192,8 @@ const ALL_NODE_CLASSES: SignalNodeClass[] = [
   // Lipsync nodes
   LipsyncSource,
   VisemePassthrough,
+  // API Controller entry point
+  ApiControllerSource,
   // MediaPipe tracking nodes
   MediapipeSource,
   FaceLandmarksToBlendshapes,

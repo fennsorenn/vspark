@@ -9,6 +9,7 @@ import {
   _blendshapeLimiter,
   _lipsync,
   _tracking,
+  _apiController,
 } from './shared.js';
 import { logicManager } from '../logic/manager.js';
 
@@ -24,6 +25,7 @@ function _allGraphDescriptors() {
     ...(_blendshapeLimiter?.getAllGraphDescriptors() ?? []),
     ...(_lipsync?.getAllGraphDescriptors() ?? []),
     ...(_tracking?.getAllGraphDescriptors() ?? []),
+    ...(_apiController?.getAllGraphDescriptors() ?? []),
   ];
 }
 
@@ -42,6 +44,7 @@ function _stripPrefix(graphId: string): string {
     'blendshape_limiter:',
     'lipsync:',
     'mediapipe_tracker:',
+    'api_controller:',
   ];
   for (const p of prefixes)
     if (graphId.startsWith(p)) return graphId.slice(p.length);
@@ -117,7 +120,9 @@ router.get('/signal/graphs/:id/node-states', (req, res) => {
               ? _lipsync?.getStates(behaviorId)
               : graphId.startsWith('mediapipe_tracker:')
                 ? _tracking?.getStates(behaviorId)
-                : _vmc?.getStates(behaviorId);
+                : graphId.startsWith('api_controller:')
+                  ? _apiController?.getStates(behaviorId)
+                  : _vmc?.getStates(behaviorId);
   if (!states)
     return res.status(404).json({
       ok: false,
