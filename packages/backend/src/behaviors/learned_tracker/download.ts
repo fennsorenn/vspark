@@ -20,13 +20,13 @@ import { getInstallDir } from '../../routes/update.js';
  * Electron), where in-app updates leave it alone.
  */
 export const MOTIONTRACKER_RUNTIME = {
-  version: 'v0.1.0',
-  asset: 'motiontracker-runtime-v0.1.0.zip',
-  sha256: 'c6b33c080937e1921cdafe30a5c0d7be3884adee2cf8caa344dfc98dcf6e0a1e',
+  version: 'v0.1.1',
+  asset: 'motiontracker-runtime-v0.1.1.zip',
+  sha256: '6941054c07cb7124abafc62814ef34db6cc984a4026daa7d945822c631eae8d1',
   /** Download size, for the UI before the download starts. */
-  bytes: 18254834,
+  bytes: 16653741,
   /** Top-level folder inside the zip. */
-  folder: 'motiontracker-v0.1.0',
+  folder: 'motiontracker-v0.1.1',
   repo: 'fennsorenn/motiontracker',
 } as const;
 
