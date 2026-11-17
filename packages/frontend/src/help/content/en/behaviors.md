@@ -171,6 +171,13 @@ webcam. Pick the camera from the list; **Refresh** asks the runtime again. The
 status line shows whether the runtime is starting, running (frames per second,
 latency) or stopped with an error.
 
+**Fit to the avatar's proportions** (off by default) adjusts the arms so your
+hands keep their positions relative to your body and to each other, even when
+the avatar's proportions differ from yours. Without it the avatar copies your
+joint angles. It's experimental: it can keep hands apart when they should touch.
+It takes effect immediately, so you can switch it on and off to compare. It
+needs an avatar loaded from a VRM file.
+
 The avatar follows only while a body is in view; the avatar's idle fallback
 takes over after that. Calibration works like the VMC receiver's.
 

@@ -4,7 +4,7 @@
  * LearnedRuntime (behaviors/learned_tracker/runtime.ts) against a fake runtime: a small Node
  * script speaking the same JSON-lines protocol as motiontracker's `mtservice --stdio`. It
  * reports `ready` and a `status`, echoes every command it receives back as an `error` event
- * (so the test can see what was sent), crashes on `{"cmd":"crash"}` and exits when stdin
+ * (so the test can see what was sent), answers `retarget` with a `retarget` event, crashes on `{"cmd":"crash"}` and exits when stdin
  * closes, like the real runtime.
  */
 
@@ -33,6 +33,7 @@ process.stdin.on('data', (c) => {
     const cmd = JSON.parse(buf.slice(0, i)); buf = buf.slice(i + 1);
     if (cmd.cmd === 'crash') { process.stderr.write('[mtservice] error: boom\\n'); process.exit(3); }
     if (cmd.cmd === 'stop') continue;
+    if (cmd.cmd === 'retarget') out({ event: 'retarget', enabled: cmd.enabled, active: cmd.enabled, reason: null });
     out({ event: 'error', message: 'got ' + JSON.stringify(cmd) });
   }
 });
@@ -55,6 +56,7 @@ const opts = (patch: Partial<RuntimeOptions> = {}): RuntimeOptions => ({
   camera: 0,
   port: 39999,
   vrmPath: null,
+  retarget: false,
   ...patch,
 });
 
@@ -109,6 +111,27 @@ describe('LearnedRuntime', () => {
       (s) => !!s.message?.includes('"vrm_path":"/x/avatar.vrm"')
     );
     expect(statuses.filter((s) => s.state === 'starting')).toHaveLength(1);
+  });
+
+  it('switches retargeting over stdin, at start and live', async () => {
+    const statuses: RuntimeStatus[] = [];
+    const rt = make(statuses);
+    rt.apply(opts({ retarget: true }));
+    await until(statuses, (s) => s.retarget?.active === true);
+    rt.apply(opts({ retarget: false }));
+    await until(
+      statuses,
+      (s) => s.retarget?.enabled === false && s.retarget.active === false
+    );
+    expect(statuses.filter((s) => s.state === 'starting')).toHaveLength(1);
+  });
+
+  it('sends nothing about retargeting at start when it is off', async () => {
+    const statuses: RuntimeStatus[] = [];
+    make(statuses).apply(opts());
+    await until(statuses, (s) => s.fps === 10);
+    await new Promise((r) => setTimeout(r, 200));
+    expect(statuses.some((s) => s.retarget)).toBe(false);
   });
 
   it('restarts on a port change', async () => {

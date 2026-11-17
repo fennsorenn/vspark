@@ -724,6 +724,7 @@ export class VmcManager {
       camera: Math.max(0, Math.round((config.camera as number) ?? 0)),
       port,
       vrmPath: this._avatarFilePath(sceneNodeId),
+      retarget: config.retarget === true,
     });
   }
 

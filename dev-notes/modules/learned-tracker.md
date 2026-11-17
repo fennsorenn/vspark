@@ -85,7 +85,11 @@ the behavior's `LearnedRuntime` on first sight and passes it the current options
 - `port` — `config.port`, default `LEARNED_TRACKER_PORT` = 39541 (not 39539, so it can run next to
   a VMC receiver on its default port)
 - `vrmPath` — the avatar scene node's `file_path` made absolute (`join(process.cwd(), …)`), or
-  null. The runtime reads the avatar's rest pose from this file.
+  null. The runtime reads the avatar's rest pose (and, for retargeting, its mesh) from this file.
+- `retarget` — `config.retarget === true` (default off): the runtime retargets to the avatar's
+  proportions instead of copying rotations (motiontracker `mtcore.relretarget`, needs a VRM).
+  Always sent as the stdin `retarget` command, also at start (never as `--retarget`), so an older
+  runtime without it reports an unknown command instead of failing to start.
 
 `stopReceiver` stops and drops the runtime along with the receiver.
 
@@ -126,15 +130,17 @@ Protocol summary (authoritative: motiontracker `service/README.md` and `service/
 
 - **Commands** (vspark → stdin): `{"cmd":"camera","index":N}`,
   `{"cmd":"avatar","vrm_path":…}` or `{"cmd":"avatar","rest_positions":null}` (default rest pose),
-  `{"cmd":"stop"}`. The runtime also has `cameras`, unused by vspark (the camera list goes through
+  `{"cmd":"retarget","enabled":bool}` (sent at start only when on), `{"cmd":"stop"}`. The runtime also has `cameras`, unused by vspark (the camera list goes through
   `--list-cameras`, below).
 - **Events** (stdout, one JSON object per line): `ready` (carries `model.run`), `status` (about
-  once a second: `fps`, `latency_ms`, `detect_ms`, `model_ms`, `present`), `error` (`message`),
-  `stopped`. Non-JSON lines are ignored.
+  once a second: `fps`, `latency_ms`, `detect_ms`, `model_ms`, `present`), `retarget`
+  (`enabled`, `active`, `reason`; after start, each avatar change and each `retarget` command;
+  kept as `RuntimeStatus.retarget`, the properties panel shows the reason when it is requested
+  but not applied), `error` (`message`), `stopped`. Non-JSON lines are ignored.
 - stderr: lines starting `[mtservice]` are forwarded to vspark's log; the last 20 lines are kept
   for the crash message (MediaPipe's native `W0000`/`I0000` lines are filtered out of it).
 
-Option changes (`apply`): `camera` and `vrmPath` go to the running process over stdin; a new `port`
+Option changes (`apply`): `camera`, `vrmPath` and `retarget` go to the running process over stdin; a new `port`
 or `runtimeDir` restarts it. Stopping sends `stop`, closes stdin (the runtime exits on stdin EOF,
 so it never outlives vspark), then SIGTERM after 3 s and SIGKILL 3 s after that if it hangs.
 

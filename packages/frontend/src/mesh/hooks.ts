@@ -91,6 +91,7 @@ export interface LearnedRuntimeStatus {
   modelMs?: number;
   present?: number;
   model?: string;
+  retarget?: { enabled: boolean; active: boolean; reason: string | null };
 }
 
 /** Every receiver's status this tab holds, by behavior id. */

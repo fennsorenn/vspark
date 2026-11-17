@@ -447,7 +447,10 @@
     "download": "Download runtime {{version}} ({{size}} MB)",
     "downloading": "Downloading… {{percent}} %",
     "downloadOverridden": "A path set for the runtime (config.json or VSPARK_MOTIONTRACKER_PATH) is used instead of the download.",
-    "downloadError": "Download failed: {{message}}"
+    "downloadError": "Download failed: {{message}}",
+    "retarget": "Retarget",
+    "retargetLabel": "Fit to the avatar's proportions",
+    "retargetInactive": "Not applied: {{reason}}"
   },
   "lipsync": {
     "sensitivity": "Sensitivity",

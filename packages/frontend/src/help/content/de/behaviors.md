@@ -183,6 +183,14 @@ derselben Webcam aus. Wähle die Kamera aus der Liste; **Aktualisieren** fragt
 die Runtime erneut. Die Statuszeile zeigt, ob die Runtime startet, läuft (Bilder
 pro Sekunde, Latenz) oder mit einem Fehler gestoppt ist.
 
+**An die Proportionen des Avatars anpassen** (standardmäßig aus) passt die Arme
+so an, dass deine Hände ihre Lage zum Körper und zueinander behalten, auch wenn
+der Avatar anders proportioniert ist als du. Ohne diese Option übernimmt der
+Avatar deine Gelenkwinkel. Die Funktion ist experimentell: Hände, die sich
+berühren sollten, können dabei getrennt bleiben. Sie wirkt sofort, du kannst sie
+also zum Vergleichen ein- und ausschalten. Sie braucht einen Avatar aus einer
+VRM-Datei.
+
 Der Avatar folgt nur, solange ein Körper im Bild ist; danach übernimmt die
 Leerlauf-Animation des Avatars. Die Kalibrierung funktioniert wie beim
 VMC-Empfänger.

@@ -2269,14 +2269,20 @@ const LEARNED_TRACKER_PORT = 39541;
 /**
  * Learned Tracking: the backend runs motiontracker's runtime (webcam → learned
  * body model → VMC) as a child process and receives its output on `port`.
- * Settings: the camera the runtime opens and the port; a live runtime status
+ * Settings: the camera the runtime opens, the port and retargeting (switched
+ * live, for comparing it against plain rotation copy); a live runtime status
  * line; the same calibration block as the VMC receiver (same pipeline graph,
  * prefix `learned-tracker:`).
  */
 function LearnedTrackerProps({ comp }: { comp: Behavior }) {
   const { t } = useTranslation('properties');
-  const cfg = (comp.config ?? {}) as { camera?: number; port?: number };
+  const cfg = (comp.config ?? {}) as {
+    camera?: number;
+    port?: number;
+    retarget?: boolean;
+  };
   const camera = cfg.camera ?? 0;
+  const retarget = cfg.retarget ?? false;
   const [port, setPort] = useState(cfg.port ?? LEARNED_TRACKER_PORT);
   const [cameras, setCameras] = useState<
     Array<{ index: number; name: string }>
@@ -2443,6 +2449,44 @@ function LearnedTrackerProps({ comp }: { comp: Behavior }) {
             save({ port: p });
           }}
         />
+      </div>
+
+      <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8 }}>
+        <span style={labelStyle}>{t('learned.retarget')}</span>
+        <div style={{ flex: 1 }}>
+          <label
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 6,
+              cursor: 'pointer',
+              fontSize: 12,
+              color: '#ccc',
+            }}
+          >
+            <input
+              type="checkbox"
+              className="vs-learned-retarget"
+              checked={retarget}
+              onChange={(e) => save({ retarget: e.target.checked })}
+              style={{ cursor: 'pointer' }}
+            />
+            {t('learned.retargetLabel')}
+          </label>
+          {retarget &&
+            status?.state === 'running' &&
+            status.retarget &&
+            !status.retarget.active && (
+              <div
+                className="vs-learned-retarget-state"
+                style={{ fontSize: 10, color: '#facc15' }}
+              >
+                {t('learned.retargetInactive', {
+                  reason: status.retarget.reason ?? '',
+                })}
+              </div>
+            )}
+        </div>
       </div>
 
       <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8 }}>

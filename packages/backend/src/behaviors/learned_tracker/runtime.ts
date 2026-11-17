@@ -12,8 +12,8 @@ import { downloadedRuntimeDir, isDownloaded } from './download.js';
  * so `uv` installs its Python environment on first use.
  *
  * Control runs over the child's stdin/stdout as JSON lines (motiontracker
- * `service/src/mtservice/cli.py`): commands `avatar` / `camera` / `stop` in,
- * events `ready` / `status` / `error` / `stopped` out. Closing stdin stops it,
+ * `service/src/mtservice/cli.py`): commands `avatar` / `camera` / `retarget` /
+ * `stop` in, events `ready` / `status` / `retarget` / `error` / `stopped` out. Closing stdin stops it,
  * so it never outlives vspark. Pose data itself arrives over UDP at the
  * behavior's VMC receiver, not here.
  */
@@ -36,6 +36,9 @@ export interface RuntimeStatus {
   present?: number;
   /** Model run name, from the runtime's `ready` event. */
   model?: string;
+  /** Retargeting to the avatar's proportions, from the runtime's `retarget`
+   *  event: requested, applied, and why it is requested but not applied. */
+  retarget?: { enabled: boolean; active: boolean; reason: string | null };
 }
 
 export interface RuntimeOptions {
@@ -46,6 +49,10 @@ export interface RuntimeOptions {
   port: number;
   /** Absolute path of the driven avatar's .vrm, or null for the runtime's default rest pose. */
   vrmPath: string | null;
+  /** Retarget to the avatar's proportions instead of copying rotations (needs a
+   *  VRM). Sent over stdin, at start too, so a runtime without the command only
+   *  reports it as unknown instead of failing to start. */
+  retarget: boolean;
 }
 
 /** Restart delays after an unexpected exit; the last one repeats. */
@@ -151,8 +158,8 @@ export class LearnedRuntime {
     return this.status;
   }
 
-  /** Start, or apply changed options to the running process. Camera and
-   *  avatar changes go over stdin; a new port or checkout restarts it. */
+  /** Start, or apply changed options to the running process. Camera, avatar
+   *  and retarget changes go over stdin; a new port or checkout restarts it. */
   apply(opts: RuntimeOptions): void {
     const prev = this.opts;
     this.opts = opts;
@@ -177,6 +184,8 @@ export class LearnedRuntime {
           ? { cmd: 'avatar', vrm_path: opts.vrmPath }
           : { cmd: 'avatar', rest_positions: null }
       );
+    if (prev.retarget !== opts.retarget)
+      this.send({ cmd: 'retarget', enabled: opts.retarget });
   }
 
   stop(): void {
@@ -247,6 +256,8 @@ export class LearnedRuntime {
       return;
     }
     this.child = child;
+    // Read once the runtime is up (stdin is queued until then); off is its default.
+    if (opts.retarget) this.send({ cmd: 'retarget', enabled: true });
     let buf = '';
     child.stdout?.setEncoding('utf8');
     child.stdout?.on('data', (chunk: string) => {
@@ -306,6 +317,16 @@ export class LearnedRuntime {
           detectMs: ev.detect_ms as number,
           modelMs: ev.model_ms as number,
           present: ev.present as number,
+        });
+        break;
+      case 'retarget':
+        this.setStatus({
+          ...this.status,
+          retarget: {
+            enabled: !!ev.enabled,
+            active: !!ev.active,
+            reason: (ev.reason as string | null) ?? null,
+          },
         });
         break;
       case 'error':
