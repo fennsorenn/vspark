@@ -10,15 +10,34 @@ import {
   programChanged,
 } from '../storedGraph.js';
 import { broadcastBus } from '../../broadcast/bus.js';
+import { isValidTemplates } from '@vspark/shared/visemes';
+import { PipeWireLipsyncCapture, type SpawnFn } from './pipewireCapture.js';
+
+/** Where a lipsync behavior's audio comes from. */
+export type LipsyncInputMode = 'browser' | 'pipewire';
+
+/** The capture a behavior's config asks for, or null for browser input. */
+function captureSpec(
+  config: Record<string, unknown>
+): { source: string; key: string } | null {
+  if (config.inputMode !== 'pipewire') return null;
+  const source = String(config.pipewireSource ?? '').trim();
+  if (!source) return null;
+  const templates = isValidTemplates(config.vowelTemplates)
+    ? config.vowelTemplates
+    : undefined;
+  // Any change to the source or the templates restarts the capture.
+  return { source, key: JSON.stringify([source, templates ?? null]) };
+}
 
 @BehaviorKind({
   kind: 'lipsync_processor',
   label: 'Lipsync',
   icon: '🎤',
   description:
-    'Receives microphone viseme weights from the browser and drives VRM blendshapes in real time.',
+    'Turns speech into VRM mouth shapes in real time — from a browser microphone, or server-side from a PipeWire source.',
   applicableTo: ['avatar'],
-  defaultConfig: { sensitivity: 1.0 },
+  defaultConfig: { sensitivity: 1.0, inputMode: 'browser', pipewireSource: '' },
 })
 export class LipsyncManager {
   private readonly graphs = new Map<string, SignalGraph>();
@@ -26,6 +45,14 @@ export class LipsyncManager {
   private readonly nodeStates = new Map<string, Map<string, unknown>>();
   private readonly nodeIds = new Map<string, string>();
   private readonly configs = new Map<string, Record<string, unknown>>();
+  /** Server-side PipeWire captures, by behavior id, with the spec they run. */
+  private readonly captures = new Map<
+    string,
+    { capture: PipeWireLipsyncCapture; key: string }
+  >();
+
+  /** Injected in tests so no real `parec` is started. */
+  constructor(private readonly spawnFn?: SpawnFn) {}
 
   private createGraph(behaviorId: string): SignalGraph {
     // The behavior's stored (editable) graph; the template if none is stored.
@@ -110,6 +137,7 @@ export class LipsyncManager {
     // Release the nodes' own resources (timers etc.) before dropping it.
     this.graphs.get(behaviorId)?.dispose();
     this.graphs.delete(behaviorId);
+    this._stopCapture(behaviorId);
     broadcastBus.removeBehavior(behaviorId);
     console.log(`[Lipsync] Stopped component ${behaviorId}`);
   }
@@ -155,12 +183,64 @@ export class LipsyncManager {
       if (active.has(c.id)) {
         this.configs.set(c.id, c.config);
         this.nodeIds.set(c.id, c.nodeId);
+        this._syncCapture(c.id, c.config);
       }
     }
   }
 
-  /** Called by the WS handler for each lipsync_input message from the browser. */
+  /**
+   * Start, restart or stop the behavior's PipeWire capture to match its config.
+   * A settings change does not rebuild the graph, so this runs on every sync.
+   */
+  private _syncCapture(behaviorId: string, config: Record<string, unknown>) {
+    const spec = captureSpec(config);
+    const running = this.captures.get(behaviorId);
+    if (running && running.key === spec?.key) return;
+    this._stopCapture(behaviorId);
+    if (!spec) return;
+    const templates = isValidTemplates(config.vowelTemplates)
+      ? config.vowelTemplates
+      : undefined;
+    const capture = new PipeWireLipsyncCapture({
+      source: spec.source,
+      templates,
+      spawn: this.spawnFn,
+      onVisemes: (w) => this._fire(behaviorId, w),
+    });
+    this.captures.set(behaviorId, { capture, key: spec.key });
+    capture.start();
+  }
+
+  private _stopCapture(behaviorId: string): void {
+    const running = this.captures.get(behaviorId);
+    if (!running) return;
+    this.captures.delete(behaviorId);
+    running.capture.stop();
+  }
+
+  /** The input mode a running behavior is configured for. */
+  inputMode(behaviorId: string): LipsyncInputMode {
+    return this.configs.get(behaviorId)?.inputMode === 'pipewire'
+      ? 'pipewire'
+      : 'browser';
+  }
+
+  /** Whether a server-side capture is running for the behavior. */
+  isCapturing(behaviorId: string): boolean {
+    return this.captures.get(behaviorId)?.capture.running ?? false;
+  }
+
+  /**
+   * Called by the WS handler for each lipsync_input message from the browser.
+   * Ignored while the behavior takes its audio server-side, so a media-input
+   * tab left open cannot fight the PipeWire capture over the mouth.
+   */
   fireVisemes(behaviorId: string, visemes: Record<string, number>): void {
+    if (this.inputMode(behaviorId) === 'pipewire') return;
+    this._fire(behaviorId, visemes);
+  }
+
+  private _fire(behaviorId: string, visemes: Record<string, number>): void {
     const graph = this.graphs.get(behaviorId);
     if (!graph) return;
     const bs = Blendshapes.fromRecord(visemes);

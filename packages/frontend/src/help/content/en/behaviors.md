@@ -189,6 +189,17 @@ tracking, which is handy if you'd rather not be on camera.
 
 You can calibrate it to your own voice for sharper vowel shapes.
 
+**Audio input** picks where the voice comes from:
+
+- **Browser microphone** — open the media input window and choose a mic there.
+  The browser tab has to stay open.
+- **Server (PipeWire source)** — the vSpark server listens to an audio source on
+  this computer by itself, with no browser tab needed. Enter the source's name,
+  for example `my_sink.monitor` to follow everything played into the sink
+  `my_sink`. This is how another program, such as an AI character's voice,
+  drives the mouth. If OBS captures the same source, mouth and stream audio stay
+  in sync. Linux with PipeWire or PulseAudio only.
+
 ## Breathing {#breathing}
 
 Breathing adds a subtle, automatic rise-and-fall to the chest and shoulders so

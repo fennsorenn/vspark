@@ -458,7 +458,13 @@
     "vowelCalibHeader": "Vowel Calibration",
     "vowelCalibHint": "Hold each button while sustaining the vowel sound (~1s).",
     "save": "Save",
-    "resetDefaults": "Reset to defaults"
+    "resetDefaults": "Reset to defaults",
+    "inputMode": "Audio input",
+    "inputModeHelp": "Where the voice comes from: a microphone in a browser tab, or an audio source on this machine read by the server.",
+    "modeBrowser": "Browser microphone",
+    "modePipewire": "Server (PipeWire source)",
+    "pipewireSource": "Source",
+    "pipewireSourcePlaceholder": "e.g. my_sink.monitor"
   },
   "mediapipe": {
     "faceLandmarks": "Face landmarks",

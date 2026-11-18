@@ -458,7 +458,13 @@
     "vowelCalibHeader": "Vokal-Kalibrierung",
     "vowelCalibHint": "Halte jede Taste gedrückt, während du den Vokal aussprichst (~1 s).",
     "save": "Speichern",
-    "resetDefaults": "Auf Standardwerte zurücksetzen"
+    "resetDefaults": "Auf Standardwerte zurücksetzen",
+    "inputMode": "Audioeingang",
+    "inputModeHelp": "Woher die Stimme kommt: ein Mikrofon in einem Browser-Tab oder eine Audioquelle auf diesem Rechner, die der Server liest.",
+    "modeBrowser": "Browser-Mikrofon",
+    "modePipewire": "Server (PipeWire-Quelle)",
+    "pipewireSource": "Quelle",
+    "pipewireSourcePlaceholder": "z. B. mein_sink.monitor"
   },
   "mediapipe": {
     "faceLandmarks": "Gesichts-Landmarken",

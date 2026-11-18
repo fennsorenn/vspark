@@ -3031,8 +3031,14 @@ function LipsyncProcessorProps({ comp }: { comp: Behavior }) {
   const cfg = comp.config as {
     sensitivity?: number;
     vowelTemplates?: VowelTemplates;
+    inputMode?: 'browser' | 'pipewire';
+    pipewireSource?: string;
   };
   const [sensitivity, setSensitivity] = useState(cfg.sensitivity ?? 1.0);
+  const inputMode = cfg.inputMode === 'pipewire' ? 'pipewire' : 'browser';
+  const [pipewireSource, setPipewireSource] = useState(
+    cfg.pipewireSource ?? ''
+  );
 
   const save = (patch: Record<string, unknown>) => {
     const config = { ...comp.config, ...patch };
@@ -3063,6 +3069,38 @@ function LipsyncProcessorProps({ comp }: { comp: Behavior }) {
   return (
     <div>
       <div style={rowStyle}>
+        <span style={labelStyle}>{t('lipsync.inputMode')}</span>
+        <HelpButton
+          topic="behaviors"
+          anchor="lipsync"
+          tip={t('lipsync.inputModeHelp')}
+          size={12}
+        />
+        <select
+          className="vs-lipsync-input-mode"
+          style={{ ...inputStyle, width: 'auto', cursor: 'pointer' }}
+          value={inputMode}
+          onChange={(e) => save({ inputMode: e.target.value })}
+        >
+          <option value="browser">{t('lipsync.modeBrowser')}</option>
+          <option value="pipewire">{t('lipsync.modePipewire')}</option>
+        </select>
+      </div>
+      {inputMode === 'pipewire' && (
+        <div style={rowStyle}>
+          <span style={labelStyle}>{t('lipsync.pipewireSource')}</span>
+          <input
+            className="vs-lipsync-pipewire-source"
+            type="text"
+            style={{ ...inputStyle, width: 160 }}
+            placeholder={t('lipsync.pipewireSourcePlaceholder')}
+            value={pipewireSource}
+            onChange={(e) => setPipewireSource(e.target.value)}
+            onBlur={() => save({ pipewireSource: pipewireSource.trim() })}
+          />
+        </div>
+      )}
+      <div style={rowStyle}>
         <span style={labelStyle}>{t('lipsync.sensitivity')}</span>
         <input
           type="number"
@@ -3075,26 +3113,32 @@ function LipsyncProcessorProps({ comp }: { comp: Behavior }) {
           onBlur={() => save({ sensitivity })}
         />
       </div>
-      <div
-        style={{ marginTop: 8, borderTop: '1px solid #2a2a2a', paddingTop: 8 }}
-      >
-        <button
+      {inputMode === 'browser' && (
+        <div
           style={{
-            background: '#2a2a2a',
-            border: '1px solid #3a3a3a',
-            color: '#ccc',
-            borderRadius: 4,
-            padding: '4px 10px',
-            cursor: 'pointer',
-            fontSize: 12,
+            marginTop: 8,
+            borderTop: '1px solid #2a2a2a',
+            paddingTop: 8,
           }}
-          onClick={() =>
-            projectId && window.open(`/media-input/${projectId}`, '_blank')
-          }
         >
-          {t('lipsync.openMediaInput')}
-        </button>
-      </div>
+          <button
+            style={{
+              background: '#2a2a2a',
+              border: '1px solid #3a3a3a',
+              color: '#ccc',
+              borderRadius: 4,
+              padding: '4px 10px',
+              cursor: 'pointer',
+              fontSize: 12,
+            }}
+            onClick={() =>
+              projectId && window.open(`/media-input/${projectId}`, '_blank')
+            }
+          >
+            {t('lipsync.openMediaInput')}
+          </button>
+        </div>
+      )}
       <LipsyncCalibration
         templates={cfg.vowelTemplates}
         onSave={(t) => save({ vowelTemplates: t })}
