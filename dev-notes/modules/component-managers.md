@@ -276,9 +276,12 @@ Procedural sine-wave breathing published as an additive pose source through the 
 
 ## LipsyncManager — `lipsync/manager.ts`
 
-Drives VRM blendshapes from microphone viseme weights sent from the browser. Vowel classification is performed client-side; the manager only fans the resulting weights through the signal graph and broadcasts them.
+Drives VRM blendshapes from viseme weights. The behavior's `inputMode` config picks the source:
 
-**Input**: `lipsync_input` WebSocket message (kind + behaviorId + visemes map, already `Fcl_MTH_*` keyed)
+- `browser` (default) — vowel classification runs client-side; the manager only fans the weights it receives through the signal graph.
+- `pipewire` — the manager runs a `PipeWireLipsyncCapture` (`lipsync/pipewireCapture.ts`) on `config.pipewireSource`, which classifies server-side and fires the same entry point. `lipsync_input` from a browser is ignored for that behavior. Captures are reconciled on every `syncBehaviors` (a settings change does not rebuild the graph) and restart only when the source or valid `vowelTemplates` change.
+
+**Input**: `lipsync_input` WebSocket message (kind + behaviorId + visemes map, already `Fcl_MTH_*` keyed), or the PipeWire capture
 **Output**: `vmc_blendshapes` WebSocket broadcast
 
 **Entry point**: `fireVisemes(behaviorId, visemes)` — stores weights in `lipsync_source` node state, then fires the trigger event into the graph.
@@ -289,7 +292,7 @@ lipsync_source → unpack_event → viseme_passthrough → blendshapes_broadcast
 settings (field: sensitivity) ──→ viseme_passthrough.sensitivity
 ```
 
-See [lipsync.md](lipsync.md) for the frontend MFCC classification pipeline, per-behavior calibration, and config schema.
+See [lipsync.md](lipsync.md) for the MFCC classification pipeline, the PipeWire input mode, per-behavior calibration, and config schema.
 
 **Sensitivity** (fixed in Phase 4): the slider used to be a no-op — the `cfg_sensitivity` settings node was not wired and the manager never injected `_settings`. `viseme_passthrough` now has a `sensitivity` value input (falls back to `config.sensitivity`), the template wires `cfg_sensitivity` into it, and the manager injects `_settings` like the others.
 
