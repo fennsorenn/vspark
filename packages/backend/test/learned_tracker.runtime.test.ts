@@ -33,6 +33,8 @@ process.stdin.on('data', (c) => {
     const cmd = JSON.parse(buf.slice(0, i)); buf = buf.slice(i + 1);
     if (cmd.cmd === 'crash') { process.stderr.write('[mtservice] error: boom\\n'); process.exit(3); }
     if (cmd.cmd === 'stop') continue;
+    if (cmd.cmd === 'preview' && (cmd.image || cmd.landmarks))
+      out({ event: 'preview', t: 1, width: 320, height: 240, mirrored: true, image: cmd.image ? 'JPEG' : undefined });
     if (cmd.cmd === 'retarget') out({ event: 'retarget', enabled: cmd.enabled, active: cmd.enabled, reason: null });
     out({ event: 'error', message: 'got ' + JSON.stringify(cmd) });
   }
@@ -132,6 +134,22 @@ describe('LearnedRuntime', () => {
     await until(statuses, (s) => s.fps === 10);
     await new Promise((r) => setTimeout(r, 200));
     expect(statuses.some((s) => s.retarget)).toBe(false);
+  });
+
+  it('asks for the preview, also when set before start, and hands its frames on', async () => {
+    const statuses: RuntimeStatus[] = [];
+    const rt = make(statuses);
+    const frames: Array<Record<string, unknown>> = [];
+    rt.onPreview = (ev) => frames.push(ev);
+    rt.setPreview({ image: true, landmarks: false });
+    rt.apply(opts());
+    await until(statuses, () => frames.length > 0);
+    expect(frames[0]).toMatchObject({ image: 'JPEG', width: 320 });
+    rt.setPreview({ image: false, landmarks: false });
+    await until(
+      statuses,
+      (s) => !!s.message?.includes('"cmd":"preview","image":false')
+    );
   });
 
   it('restarts on a port change', async () => {

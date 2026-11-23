@@ -428,6 +428,9 @@ export interface EditorState {
   setAccountsModalOpen: (open: boolean) => void;
   mediaModalOpen: boolean;
   setMediaModalOpen: (open: boolean) => void;
+  /** Learned Tracking behavior whose camera preview window is open, if any. */
+  learnedPreviewBehavior: string | null;
+  setLearnedPreviewBehavior: (behaviorId: string | null) => void;
   connectionsModalOpen: boolean;
   setConnectionsModalOpen: (open: boolean) => void;
   updateDialogOpen: boolean;
@@ -681,6 +684,9 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   setAccountsModalOpen: (open) => set({ accountsModalOpen: open }),
   mediaModalOpen: false,
   setMediaModalOpen: (open) => set({ mediaModalOpen: open }),
+  learnedPreviewBehavior: null,
+  setLearnedPreviewBehavior: (behaviorId) =>
+    set({ learnedPreviewBehavior: behaviorId }),
   connectionsModalOpen: false,
   setConnectionsModalOpen: (open) => set({ connectionsModalOpen: open }),
   updateDialogOpen: false,

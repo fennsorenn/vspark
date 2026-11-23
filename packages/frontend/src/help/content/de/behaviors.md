@@ -191,6 +191,10 @@ berühren sollten, können dabei getrennt bleiben. Sie wirkt sofort, du kannst s
 also zum Vergleichen ein- und ausschalten. Sie braucht einen Avatar aus einer
 VRM-Datei.
 
+**Kameravorschau** öffnet ein schwebendes Fenster mit dem, was die Kamera der
+Runtime sieht: das Bild, die erkannten Landmarks oder beides. Die Runtime sendet
+es nur, solange das Fenster offen ist.
+
 Der Avatar folgt nur, solange ein Körper im Bild ist; danach übernimmt die
 Leerlauf-Animation des Avatars. Die Kalibrierung funktioniert wie beim
 VMC-Empfänger.

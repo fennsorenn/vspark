@@ -450,7 +450,18 @@
     "downloadError": "Download failed: {{message}}",
     "retarget": "Retarget",
     "retargetLabel": "Fit to the avatar's proportions",
-    "retargetInactive": "Not applied: {{reason}}"
+    "retargetInactive": "Not applied: {{reason}}",
+    "preview": {
+      "open": "Camera preview",
+      "closeButton": "Close camera preview",
+      "title": "Learned Tracking: camera",
+      "close": "Close",
+      "image": "Picture",
+      "landmarks": "Landmarks",
+      "nothing": "Pick picture, landmarks or both.",
+      "notRunning": "The runtime isn't running.",
+      "waiting": "Waiting for frames…"
+    }
   },
   "lipsync": {
     "sensitivity": "Sensitivity",

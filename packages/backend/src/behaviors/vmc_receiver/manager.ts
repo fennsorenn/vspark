@@ -26,6 +26,8 @@ import {
   type RuntimeStatus,
 } from '../learned_tracker/runtime.js';
 import { onRuntimeInstalled } from '../learned_tracker/download.js';
+import { PreviewHub } from '../learned_tracker/preview.js';
+import type { WebSocket } from 'ws';
 import { getDb } from '../../db/index.js';
 import { BehaviorKind } from '../decorator.js';
 import { trackingGraceMs } from '../tracking_grace.js';
@@ -271,6 +273,8 @@ export class VmcManager {
   private readonly interceptorCleanups = new Map<string, Array<() => void>>();
   // learned_tracker only: behaviorId → its runtime process
   private readonly runtimes = new Map<string, LearnedRuntime>();
+  // learned_tracker only: editor tabs watching a runtime's camera preview
+  private readonly previews = new PreviewHub<WebSocket>();
   private readonly timer: ReturnType<typeof setInterval>;
 
   constructor(private readonly ws: WSSync) {
@@ -282,6 +286,27 @@ export class VmcManager {
     this.timer = setInterval(() => this.checkTimeouts(), 250);
     // A finished "Download runtime": restart Learned Tracking on it.
     onRuntimeInstalled(() => this.refreshLearnedRuntimes());
+    // Learned Tracking preview windows (learned_tracker/preview.ts).
+    ws.onMessage((kind, msg, sock) => {
+      if (kind !== 'learned_preview') return;
+      const m = msg as {
+        behaviorId?: unknown;
+        image?: unknown;
+        landmarks?: unknown;
+      };
+      if (typeof m.behaviorId !== 'string') return;
+      const want = this.previews.set(m.behaviorId, sock, {
+        image: m.image === true,
+        landmarks: m.landmarks === true,
+      });
+      this.runtimes.get(m.behaviorId)?.setPreview(want);
+    });
+    ws.onClientConnected((sock) =>
+      sock.on('close', () => {
+        for (const id of this.previews.drop(sock))
+          this.runtimes.get(id)?.setPreview(this.previews.wanted(id));
+      })
+    );
   }
 
   // ── graph management ───────────────────────────────────────────────────────
@@ -717,6 +742,11 @@ export class VmcManager {
       rt = new LearnedRuntime(behaviorId, (status: RuntimeStatus) =>
         publishTracking({ behaviorId, runtime: status })
       );
+      rt.onPreview = (ev) => {
+        for (const [sock, frame] of this.previews.deliveries(behaviorId, ev))
+          this.ws.sendTo(sock, 'learned_preview_frame', frame);
+      };
+      rt.setPreview(this.previews.wanted(behaviorId));
       this.runtimes.set(behaviorId, rt);
     }
     rt.apply({

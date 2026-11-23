@@ -450,7 +450,18 @@
     "downloadError": "Download fehlgeschlagen: {{message}}",
     "retarget": "Retarget",
     "retargetLabel": "An die Proportionen des Avatars anpassen",
-    "retargetInactive": "Nicht aktiv: {{reason}}"
+    "retargetInactive": "Nicht aktiv: {{reason}}",
+    "preview": {
+      "open": "Kameravorschau",
+      "closeButton": "Kameravorschau schließen",
+      "title": "Gelerntes Tracking: Kamera",
+      "close": "Schließen",
+      "image": "Bild",
+      "landmarks": "Landmarks",
+      "nothing": "Wähle Bild, Landmarks oder beides.",
+      "notRunning": "Die Runtime läuft nicht.",
+      "waiting": "Warte auf Bilder…"
+    }
   },
   "lipsync": {
     "sensitivity": "Empfindlichkeit",

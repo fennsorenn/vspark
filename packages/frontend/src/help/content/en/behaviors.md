@@ -178,6 +178,10 @@ joint angles. It's experimental: it can keep hands apart when they should touch.
 It takes effect immediately, so you can switch it on and off to compare. It
 needs an avatar loaded from a VRM file.
 
+**Camera preview** opens a floating window with what the runtime's camera sees:
+the picture, the detected landmarks, or both. The runtime only sends it while
+the window is open.
+
 The avatar follows only while a body is in view; the avatar's idle fallback
 takes over after that. Calibration works like the VMC receiver's.
 

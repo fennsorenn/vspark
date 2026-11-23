@@ -130,7 +130,8 @@ Protocol summary (authoritative: motiontracker `service/README.md` and `service/
 
 - **Commands** (vspark → stdin): `{"cmd":"camera","index":N}`,
   `{"cmd":"avatar","vrm_path":…}` or `{"cmd":"avatar","rest_positions":null}` (default rest pose),
-  `{"cmd":"retarget","enabled":bool}` (sent at start only when on), `{"cmd":"stop"}`. The runtime also has `cameras`, unused by vspark (the camera list goes through
+  `{"cmd":"retarget","enabled":bool}` (sent at start only when on),
+  `{"cmd":"preview","image":bool,"landmarks":bool}` ([camera preview](#preview)), `{"cmd":"stop"}`. The runtime also has `cameras`, unused by vspark (the camera list goes through
   `--list-cameras`, below).
 - **Events** (stdout, one JSON object per line): `ready` (carries `model.run`), `status` (about
   once a second: `fps`, `latency_ms`, `detect_ms`, `model_ms`, `present`), `retarget`
@@ -143,6 +144,23 @@ Protocol summary (authoritative: motiontracker `service/README.md` and `service/
 Option changes (`apply`): `camera`, `vrmPath` and `retarget` go to the running process over stdin; a new `port`
 or `runtimeDir` restarts it. Stopping sends `stop`, closes stdin (the runtime exits on stdin EOF,
 so it never outlives vspark), then SIGTERM after 3 s and SIGKILL 3 s after that if it hangs.
+
+<a id="preview"></a>**Camera preview** (the runtime holds the webcam, so vspark can't show it itself): the
+**Camera preview** button in the behavior's properties opens `LearnedPreviewWindow` (frontend
+`components/LearnedPreviewWindow.tsx`, mounted by `TopBar` from `editorStore.learnedPreviewBehavior`), a
+draggable floating window with **Picture** / **Landmarks** checkboxes and a size (320/480/640 px), kept in
+`localStorage`. It subscribes over /ws with `{kind: 'learned_preview', behaviorId, image, landmarks}`, repeated
+every 3 s (survives reconnects), and sends both false when it closes. The backend's `PreviewHub`
+(`learned_tracker/preview.ts`, owned by the VMC manager) keeps subscriptions per behavior and socket (dropped on
+socket close) and sets the runtime to the union via `LearnedRuntime.setPreview` (stdin
+`{"cmd":"preview","image":bool,"landmarks":bool}`, resent at spawn; not a saved option). The runtime then sends
+a `preview` event per processed frame (~10/s: the detector's mirrored 320x240 frame as base64 JPEG, ~6 KB, and/or
+normalized 2D landmarks pose/hands/face, ~10 KB with the face mesh); `LearnedRuntime.onPreview` hands it to the
+hub, which sends `learned_preview_frame` only to subscribed sockets, stripped to what each asked for (not a
+broadcast: viewer pages and OBS sources are tabs too). The frontend routes it through `learnedPreviewStore.ts`
+to the window, which draws the picture and the overlay with `CameraCapture.drawLandmarksSync` (same colours and
+legend as the Media Input window). Nothing is sent while no window is open. Needs a runtime with the `preview`
+command (motiontracker after v0.2.0); an older one answers "unknown command".
 
 Unexpected exit: restart with backoff 2 s / 5 s / 10 s / 30 s (the last repeats); a run longer than
 60 s resets the backoff. A failed spawn (`uv` missing → ENOENT) is handled like a crash. A missing

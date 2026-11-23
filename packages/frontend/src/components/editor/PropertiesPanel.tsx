@@ -2283,6 +2283,10 @@ function LearnedTrackerProps({ comp }: { comp: Behavior }) {
   };
   const camera = cfg.camera ?? 0;
   const retarget = cfg.retarget ?? false;
+  const previewOpen = useEditorStore(
+    (s) => s.learnedPreviewBehavior === comp.id
+  );
+  const setPreview = useEditorStore((s) => s.setLearnedPreviewBehavior);
   const [port, setPort] = useState(cfg.port ?? LEARNED_TRACKER_PORT);
   const [cameras, setCameras] = useState<
     Array<{ index: number; name: string }>
@@ -2602,6 +2606,27 @@ function LearnedTrackerProps({ comp }: { comp: Behavior }) {
             </div>
           )}
         </div>
+      </div>
+
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+        <span style={labelStyle} />
+        <button
+          className="vs-learned-preview"
+          onClick={() => setPreview(previewOpen ? null : comp.id)}
+          style={{
+            background: previewOpen ? '#1a3a2a' : '#1e1e1e',
+            border: `1px solid ${previewOpen ? '#4ade80' : '#2a2a2a'}`,
+            color: previewOpen ? '#4ade80' : '#ccc',
+            borderRadius: 4,
+            padding: '3px 8px',
+            fontSize: 11,
+            cursor: 'pointer',
+          }}
+        >
+          {previewOpen
+            ? t('learned.preview.closeButton')
+            : t('learned.preview.open')}
+        </button>
       </div>
 
       <div style={{ fontSize: 10, color: '#555', lineHeight: 1.4 }}>

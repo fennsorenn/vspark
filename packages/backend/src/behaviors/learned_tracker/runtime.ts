@@ -3,6 +3,7 @@ import { existsSync, readFileSync } from 'fs';
 import { dirname, join, resolve } from 'path';
 import { getInstallDir } from '../../routes/update.js';
 import { downloadedRuntimeDir, isDownloaded } from './download.js';
+import { PREVIEW_OFF, type PreviewWanted } from './preview.js';
 
 /**
  * The Learned Tracking runtime: motiontracker's `mtservice` (camera → MediaPipe
@@ -13,7 +14,8 @@ import { downloadedRuntimeDir, isDownloaded } from './download.js';
  *
  * Control runs over the child's stdin/stdout as JSON lines (motiontracker
  * `service/src/mtservice/cli.py`): commands `avatar` / `camera` / `retarget` /
- * `stop` in, events `ready` / `status` / `retarget` / `error` / `stopped` out. Closing stdin stops it,
+ * `preview` / `stop` in, events `ready` / `status` / `retarget` / `preview` /
+ * `error` / `stopped` out. Closing stdin stops it,
  * so it never outlives vspark. Pose data itself arrives over UDP at the
  * behavior's VMC receiver, not here.
  */
@@ -146,6 +148,10 @@ export class LearnedRuntime {
   private startedAt = 0;
   private stderrTail: string[] = [];
   private status: RuntimeStatus = { state: 'stopped' };
+  /** Camera preview the runtime should send (preview.ts); not a saved option. */
+  private preview: PreviewWanted = { ...PREVIEW_OFF };
+  /** Receives the runtime's `preview` events. */
+  onPreview: ((ev: Record<string, unknown>) => void) | null = null;
 
   constructor(
     private readonly label: string,
@@ -186,6 +192,18 @@ export class LearnedRuntime {
       );
     if (prev.retarget !== opts.retarget)
       this.send({ cmd: 'retarget', enabled: opts.retarget });
+  }
+
+  /** Ask the runtime for picture and/or landmarks per frame (both false: none).
+   *  Kept across restarts. */
+  setPreview(want: PreviewWanted): void {
+    if (
+      want.image === this.preview.image &&
+      want.landmarks === this.preview.landmarks
+    )
+      return;
+    this.preview = { image: want.image, landmarks: want.landmarks };
+    this.send({ cmd: 'preview', ...this.preview });
   }
 
   stop(): void {
@@ -258,6 +276,8 @@ export class LearnedRuntime {
     this.child = child;
     // Read once the runtime is up (stdin is queued until then); off is its default.
     if (opts.retarget) this.send({ cmd: 'retarget', enabled: true });
+    if (this.preview.image || this.preview.landmarks)
+      this.send({ cmd: 'preview', ...this.preview });
     let buf = '';
     child.stdout?.setEncoding('utf8');
     child.stdout?.on('data', (chunk: string) => {
@@ -318,6 +338,9 @@ export class LearnedRuntime {
           modelMs: ev.model_ms as number,
           present: ev.present as number,
         });
+        break;
+      case 'preview':
+        this.onPreview?.(ev);
         break;
       case 'retarget':
         this.setStatus({

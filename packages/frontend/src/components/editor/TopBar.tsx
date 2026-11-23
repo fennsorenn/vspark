@@ -6,6 +6,7 @@ import { useConnectionsStore } from '../../store/connectionsStore';
 import { api, getConnectionStatus, getConnectionPeers } from '../../api/client';
 import { useTranslation } from 'react-i18next';
 import { MediaInputWindow } from '../MediaInputWindow';
+import { LearnedPreviewWindow } from '../LearnedPreviewWindow';
 import { ConnectionsWindow } from '../ConnectionsWindow';
 import { UpdateDialog } from './UpdateDialog';
 import { OverliveAccountsModal } from './OverliveAccountsModal';
@@ -46,6 +47,7 @@ export function TopBar() {
   // Store-driven open flags so the assistant can open these via a ui_action;
   // the *mounted* flags stay local (lazy-mount, keep alive while hidden).
   const mediaOpen = useEditorStore((s) => s.mediaModalOpen);
+  const learnedPreview = useEditorStore((s) => s.learnedPreviewBehavior);
   const setMediaOpen = useEditorStore((s) => s.setMediaModalOpen);
   const [mediaMounted, setMediaMounted] = useState(false);
   const connectionsOpen = useEditorStore((s) => s.connectionsModalOpen);
@@ -368,6 +370,12 @@ export function TopBar() {
         </div>
       </div>
       {mediaMounted && <MediaInputWindow visible={mediaOpen} />}
+      {learnedPreview && (
+        <LearnedPreviewWindow
+          key={learnedPreview}
+          behaviorId={learnedPreview}
+        />
+      )}
       {connectionsMounted && <ConnectionsWindow visible={connectionsOpen} />}
       {updateOpen && (
         <UpdateDialog
