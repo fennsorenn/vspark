@@ -122,6 +122,7 @@ import { useCollection, useMeshDoc } from '@vspark/mesh-react';
 import {
   useAnimationClips,
   useCameraEffects,
+  useServerCapabilities,
   useTrackingStatuses,
 } from '../../mesh/hooks';
 import { useComposeLayers, useComposeScenes } from '../../mesh/compose';
@@ -3039,10 +3040,23 @@ function LipsyncProcessorProps({ comp }: { comp: Behavior }) {
   const [pipewireSource, setPipewireSource] = useState(
     cfg.pipewireSource ?? ''
   );
+  // The PipeWire input is offered only where the server can capture (Linux
+  // with parec). A behavior already set to it keeps the option, with a warning.
+  const canPipewire = useServerCapabilities()?.pipewireLipsync === true;
+  const offerPipewire = canPipewire || inputMode === 'pipewire';
+  const capture = useTrackingStatuses()[comp.id]?.capture;
+  const savedSource = (cfg.pipewireSource ?? '').trim();
 
   const save = (patch: Record<string, unknown>) => {
     const config = { ...comp.config, ...patch };
     commitBehaviorPatch(comp.id, { config });
+  };
+
+  const captureColor: Record<string, string> = {
+    capturing: '#4ade80',
+    starting: '#facc15',
+    idle: '#888',
+    error: '#f87171',
   };
 
   const rowStyle: React.CSSProperties = {
@@ -3083,7 +3097,9 @@ function LipsyncProcessorProps({ comp }: { comp: Behavior }) {
           onChange={(e) => save({ inputMode: e.target.value })}
         >
           <option value="browser">{t('lipsync.modeBrowser')}</option>
-          <option value="pipewire">{t('lipsync.modePipewire')}</option>
+          {offerPipewire && (
+            <option value="pipewire">{t('lipsync.modePipewire')}</option>
+          )}
         </select>
       </div>
       {inputMode === 'pipewire' && (
@@ -3098,6 +3114,41 @@ function LipsyncProcessorProps({ comp }: { comp: Behavior }) {
             onChange={(e) => setPipewireSource(e.target.value)}
             onBlur={() => save({ pipewireSource: pipewireSource.trim() })}
           />
+        </div>
+      )}
+      {inputMode === 'pipewire' && (
+        <div
+          className="vs-lipsync-capture-status"
+          style={{ fontSize: 11, lineHeight: 1.4, marginBottom: 6 }}
+        >
+          {!canPipewire ? (
+            <span style={{ color: '#f87171' }}>
+              {t('lipsync.pipewireUnavailable')}
+            </span>
+          ) : !savedSource ? (
+            <span style={{ color: '#888' }}>{t('lipsync.noSource')}</span>
+          ) : (
+            <>
+              <span
+                style={{
+                  color: captureColor[capture?.state ?? 'starting'] ?? '#888',
+                }}
+              >
+                ● {t(`lipsync.captureState.${capture?.state ?? 'starting'}`)}
+              </span>
+              {capture?.message && (
+                <div
+                  style={{
+                    color: capture.state === 'error' ? '#f87171' : '#888',
+                    fontSize: 10,
+                    wordBreak: 'break-word',
+                  }}
+                >
+                  {capture.message}
+                </div>
+              )}
+            </>
+          )}
         </div>
       )}
       <div style={rowStyle}>

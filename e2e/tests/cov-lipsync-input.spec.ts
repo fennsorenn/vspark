@@ -14,8 +14,10 @@ import { seedProjectScene, seedNode } from '../fixtures/seed';
  *   vs-lipsync-input-mode       — browser / pipewire select (config.inputMode)
  *   vs-lipsync-pipewire-source  — source name, saved on blur (config.pipewireSource)
  *
- * The source used here does not exist, so the test backend's `parec` (or its
- * absence) only logs and retries; nothing is asserted about capture itself.
+ * The PipeWire option only exists where the test server can capture (Linux
+ * with parec); elsewhere the test is skipped after the browser-input checks.
+ * The source used here does not exist, so the capture fails and retries; the
+ * status line must then show the failure.
  */
 
 type LipsyncConfig = { inputMode?: string; pipewireSource?: string };
@@ -74,6 +76,17 @@ test('lipsync input: browser by default, PipeWire mode and source persist', asyn
   await expect(mediaInput).toBeVisible();
   await expect(source).toHaveCount(0);
 
+  // The PipeWire input is offered only when the test server can capture
+  // (Linux with parec); the status document arrives with the mesh snapshot.
+  const pipewireOption = page.locator(
+    '.vs-lipsync-input-mode option[value="pipewire"]'
+  );
+  await page.waitForTimeout(500);
+  test.skip(
+    (await pipewireOption.count()) === 0,
+    'this server cannot capture PipeWire (no parec): the option is hidden'
+  );
+
   await page.locator('.vs-lipsync-input-mode').selectOption('pipewire');
   await expect
     .poll(async () => (await readConfig(request, nodeId)).inputMode, {
@@ -91,6 +104,12 @@ test('lipsync input: browser by default, PipeWire mode and source persist', asyn
       timeout: 10_000,
     })
     .toBe('e2e_sink.monitor');
+
+  // The source does not exist: the status line reports the failure.
+  await expect(page.locator('.vs-lipsync-capture-status')).toContainText(
+    /Capture failed|Waiting for audio/,
+    { timeout: 10_000 }
+  );
 
   // Back to the browser: the source is kept for next time, the field hides.
   await page.locator('.vs-lipsync-input-mode').selectOption('browser');

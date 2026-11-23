@@ -275,7 +275,10 @@
     "close": "Schließen",
     "custom": "Individuell",
     "resetTo": "Alle auf {{value}} setzen",
-    "tab": { "body": "Körper", "face": "Gesicht" },
+    "tab": {
+      "body": "Körper",
+      "face": "Gesicht"
+    },
     "order": "Reihenfolge — von links nach rechts angewendet, auf der Animation",
     "moveEarlier": "Früher anwenden",
     "moveLater": "Später anwenden",
@@ -464,7 +467,15 @@
     "modeBrowser": "Browser-Mikrofon",
     "modePipewire": "Server (PipeWire-Quelle)",
     "pipewireSource": "Quelle",
-    "pipewireSourcePlaceholder": "z. B. mein_sink.monitor"
+    "pipewireSourcePlaceholder": "z. B. mein_sink.monitor",
+    "noSource": "Gib einen Quellnamen ein, um die Aufnahme zu starten.",
+    "pipewireUnavailable": "Dieser Server kann kein Audio aufnehmen: Dafür braucht es Linux mit PipeWire oder PulseAudio (das Programm parec). Wechsle zu Browser-Mikrofon.",
+    "captureState": {
+      "starting": "Aufnahme startet…",
+      "capturing": "Nimmt auf",
+      "idle": "Warte auf Audio (in die Quelle wird nichts abgespielt)",
+      "error": "Aufnahme fehlgeschlagen – neuer Versuch läuft"
+    }
   },
   "mediapipe": {
     "faceLandmarks": "Gesichts-Landmarken",

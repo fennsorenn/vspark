@@ -275,7 +275,10 @@
     "close": "Close",
     "custom": "Custom",
     "resetTo": "Set all to {{value}}",
-    "tab": { "body": "Body", "face": "Face" },
+    "tab": {
+      "body": "Body",
+      "face": "Face"
+    },
     "order": "Order — applied left to right, on top of the animation",
     "moveEarlier": "Apply earlier",
     "moveLater": "Apply later",
@@ -464,7 +467,15 @@
     "modeBrowser": "Browser microphone",
     "modePipewire": "Server (PipeWire source)",
     "pipewireSource": "Source",
-    "pipewireSourcePlaceholder": "e.g. my_sink.monitor"
+    "pipewireSourcePlaceholder": "e.g. my_sink.monitor",
+    "noSource": "Enter a source name to start capturing.",
+    "pipewireUnavailable": "This server can't capture audio: it needs Linux with PipeWire or PulseAudio (the parec tool). Switch to Browser microphone.",
+    "captureState": {
+      "starting": "Starting capture…",
+      "capturing": "Capturing",
+      "idle": "Waiting for audio (nothing is playing into the source)",
+      "error": "Capture failed — retrying"
+    }
   },
   "mediapipe": {
     "faceLandmarks": "Face landmarks",

@@ -198,7 +198,14 @@ You can calibrate it to your own voice for sharper vowel shapes.
   for example `my_sink.monitor` to follow everything played into the sink
   `my_sink`. This is how another program, such as an AI character's voice,
   drives the mouth. If OBS captures the same source, mouth and stream audio stay
-  in sync. Linux with PipeWire or PulseAudio only.
+  in sync. Linux with PipeWire or PulseAudio only: the option only appears
+  when the server can capture audio.
+
+  Below the source, a status line shows what the capture is doing:
+  **Capturing**, **Waiting for audio** (the source is fine but nothing is
+  playing into it), or **Capture failed** with the reason, for example an
+  unknown source name. A failed capture keeps retrying by itself. In the
+  scene graph, the behavior's dot lights up while audio arrives.
 
 ## Breathing {#breathing}
 
