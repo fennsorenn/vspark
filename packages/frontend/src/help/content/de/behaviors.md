@@ -195,6 +195,14 @@ VRM-Datei.
 Runtime sieht: das Bild, die erkannten Landmarks oder beides. Die Runtime sendet
 es nur, solange das Fenster offen ist.
 
+**Bildrate** legt fest, wie viele Kamerabilder pro Sekunde die Runtime
+verarbeitet. Höhere Raten reagieren schneller (mit 20 fps etwa doppelt so
+schnell wie mit 10), brauchen aber mehr CPU (bei 20 fps etwa doppelt so viel)
+und zeigen etwas mehr Zittern; die Voreinstellung Glatt im Bewegungsfilter des
+Avatars beruhigt das. **Verlaufsversatz** ist ein Experiment für 20 fps: Er
+verringert ein leichtes Flackern von einem Bild zum nächsten. Beides wirkt
+sofort.
+
 Der Avatar folgt nur, solange ein Körper im Bild ist; danach übernimmt die
 Leerlauf-Animation des Avatars. Die Kalibrierung funktioniert wie beim
 VMC-Empfänger.

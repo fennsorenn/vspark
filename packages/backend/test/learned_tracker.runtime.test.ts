@@ -35,6 +35,8 @@ process.stdin.on('data', (c) => {
     if (cmd.cmd === 'stop') continue;
     if (cmd.cmd === 'preview' && (cmd.image || cmd.landmarks))
       out({ event: 'preview', t: 1, width: 320, height: 240, mirrored: true, image: cmd.image ? 'JPEG' : undefined });
+    if (cmd.cmd === 'fps') out({ event: 'settings', fps: cmd.value, history_shift: 'none' });
+    if (cmd.cmd === 'history_shift') out({ event: 'settings', fps: 10, history_shift: cmd.mode });
     if (cmd.cmd === 'retarget') out({ event: 'retarget', enabled: cmd.enabled, active: cmd.enabled, reason: null });
     out({ event: 'error', message: 'got ' + JSON.stringify(cmd) });
   }
@@ -59,6 +61,8 @@ const opts = (patch: Partial<RuntimeOptions> = {}): RuntimeOptions => ({
   port: 39999,
   vrmPath: null,
   retarget: false,
+  fps: 10,
+  historyShift: 'none',
   ...patch,
 });
 
@@ -128,12 +132,23 @@ describe('LearnedRuntime', () => {
     expect(statuses.filter((s) => s.state === 'starting')).toHaveLength(1);
   });
 
+  it('sends frame rate and history shift at start when not the defaults, and live', async () => {
+    const statuses: RuntimeStatus[] = [];
+    const rt = make(statuses);
+    rt.apply(opts({ fps: 20 }));
+    await until(statuses, (s) => s.settings?.fps === 20);
+    rt.apply(opts({ fps: 20, historyShift: 'every' }));
+    await until(statuses, (s) => s.settings?.historyShift === 'every');
+    expect(statuses.filter((s) => s.state === 'starting')).toHaveLength(1);
+  });
+
   it('sends nothing about retargeting at start when it is off', async () => {
     const statuses: RuntimeStatus[] = [];
     make(statuses).apply(opts());
     await until(statuses, (s) => s.fps === 10);
     await new Promise((r) => setTimeout(r, 200));
     expect(statuses.some((s) => s.retarget)).toBe(false);
+    expect(statuses.some((s) => s.settings)).toBe(false); // defaults: nothing sent
   });
 
   it('asks for the preview, also when set before start, and hands its frames on', async () => {

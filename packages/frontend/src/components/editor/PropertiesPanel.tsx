@@ -2425,9 +2425,13 @@ function LearnedTrackerProps({ comp }: { comp: Behavior }) {
     camera?: number;
     port?: number;
     retarget?: boolean;
+    fps?: number;
+    historyShift?: 'none' | 'every' | 'alternate';
   };
   const camera = cfg.camera ?? 0;
   const retarget = cfg.retarget ?? false;
+  const fps = cfg.fps ?? 10;
+  const historyShift = cfg.historyShift ?? 'none';
   const previewOpen = useEditorStore(
     (s) => s.learnedPreviewBehavior === comp.id
   );
@@ -2632,6 +2636,59 @@ function LearnedTrackerProps({ comp }: { comp: Behavior }) {
               >
                 {t('learned.retargetInactive', {
                   reason: status.retarget.reason ?? '',
+                })}
+              </div>
+            )}
+        </div>
+      </div>
+
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+        <span style={labelStyle}>{t('learned.fps')}</span>
+        <select
+          className="vs-learned-fps"
+          style={{ ...inputStyle, cursor: 'pointer' }}
+          value={fps}
+          onChange={(e) => save({ fps: Number(e.target.value) })}
+        >
+          {[10, 15, 20, 30].map((f) => (
+            <option key={f} value={f}>
+              {t('learned.fpsOption', { fps: f })}
+            </option>
+          ))}
+        </select>
+      </div>
+
+      <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8 }}>
+        <span style={labelStyle}>{t('learned.historyShift')}</span>
+        <div style={{ flex: 1 }}>
+          <select
+            className="vs-learned-history-shift"
+            style={{ ...inputStyle, width: '100%', cursor: 'pointer' }}
+            value={historyShift}
+            onChange={(e) => save({ historyShift: e.target.value })}
+          >
+            {(['none', 'every', 'alternate'] as const).map((m) => (
+              <option key={m} value={m}>
+                {t(`learned.historyShiftOptions.${m}`)}
+              </option>
+            ))}
+          </select>
+          <div style={{ fontSize: 10, color: '#777', lineHeight: 1.4 }}>
+            {t('learned.historyShiftHint')}
+          </div>
+          {status?.state === 'running' &&
+            status.settings &&
+            (status.settings.fps !== fps ||
+              (status.settings.historyShift ?? 'none') !== historyShift) && (
+              <div
+                className="vs-learned-settings-state"
+                style={{ fontSize: 10, color: '#facc15' }}
+              >
+                {t('learned.settingsMismatch', {
+                  fps: status.settings.fps,
+                  shift: t(
+                    `learned.historyShiftOptions.${status.settings.historyShift ?? 'none'}`
+                  ),
                 })}
               </div>
             )}

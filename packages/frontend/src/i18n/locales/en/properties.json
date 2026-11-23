@@ -476,6 +476,16 @@
     "retarget": "Retarget",
     "retargetLabel": "Fit to the avatar's proportions",
     "retargetInactive": "Not applied: {{reason}}",
+    "fps": "Frame rate",
+    "fpsOption": "{{fps}} fps",
+    "historyShift": "History shift",
+    "historyShiftOptions": {
+      "none": "Off",
+      "every": "Every step",
+      "alternate": "Every other step"
+    },
+    "historyShiftHint": "Experimental, for 20 fps: calms a slight frame-to-frame flicker.",
+    "settingsMismatch": "The runtime runs at {{fps}} fps, shift: {{shift}} (it may not support this setting).",
     "preview": {
       "open": "Camera preview",
       "closeButton": "Close camera preview",

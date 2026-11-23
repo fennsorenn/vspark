@@ -755,6 +755,12 @@ export class VmcManager {
       port,
       vrmPath: this._avatarFilePath(sceneNodeId),
       retarget: config.retarget === true,
+      fps: Math.min(60, Math.max(1, Number(config.fps) || 10)),
+      historyShift: (['every', 'alternate'] as const).includes(
+        config.historyShift as 'every' | 'alternate'
+      )
+        ? (config.historyShift as 'every' | 'alternate')
+        : 'none',
     });
   }
 

@@ -476,6 +476,16 @@
     "retarget": "Retarget",
     "retargetLabel": "An die Proportionen des Avatars anpassen",
     "retargetInactive": "Nicht aktiv: {{reason}}",
+    "fps": "Bildrate",
+    "fpsOption": "{{fps}} fps",
+    "historyShift": "Verlaufsversatz",
+    "historyShiftOptions": {
+      "none": "Aus",
+      "every": "Jeder Schritt",
+      "alternate": "Jeder zweite Schritt"
+    },
+    "historyShiftHint": "Experimentell, für 20 fps: beruhigt ein leichtes Flackern von Bild zu Bild.",
+    "settingsMismatch": "Die Runtime läuft mit {{fps}} fps, Versatz: {{shift}} (sie unterstützt die Einstellung eventuell nicht).",
     "preview": {
       "open": "Kameravorschau",
       "closeButton": "Kameravorschau schließen",

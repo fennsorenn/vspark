@@ -182,6 +182,13 @@ needs an avatar loaded from a VRM file.
 the picture, the detected landmarks, or both. The runtime only sends it while
 the window is open.
 
+**Frame rate** sets how many camera frames per second the runtime processes.
+Higher rates respond faster (at 20 fps about twice as fast as at 10) but use
+more CPU (about twice as much at 20 fps) and show a little more shake; the
+Smooth preset of the avatar's motion filter calms that. **History shift** is an
+experiment for 20 fps: it reduces a slight flicker from one frame to the next.
+Both take effect immediately.
+
 The avatar follows only while a body is in view; the avatar's idle fallback
 takes over after that. Calibration works like the VMC receiver's.
 

@@ -14,8 +14,8 @@ import { PREVIEW_OFF, type PreviewWanted } from './preview.js';
  *
  * Control runs over the child's stdin/stdout as JSON lines (motiontracker
  * `service/src/mtservice/cli.py`): commands `avatar` / `camera` / `retarget` /
- * `preview` / `stop` in, events `ready` / `status` / `retarget` / `preview` /
- * `error` / `stopped` out. Closing stdin stops it,
+ * `preview` / `fps` / `history_shift` / `stop` in, events `ready` / `status` /
+ * `retarget` / `settings` / `preview` / `error` / `stopped` out. Closing stdin stops it,
  * so it never outlives vspark. Pose data itself arrives over UDP at the
  * behavior's VMC receiver, not here.
  */
@@ -41,7 +41,15 @@ export interface RuntimeStatus {
   /** Retargeting to the avatar's proportions, from the runtime's `retarget`
    *  event: requested, applied, and why it is requested but not applied. */
   retarget?: { enabled: boolean; active: boolean; reason: string | null };
+  /** Frame rate and history shift in effect, from the runtime's `settings`
+   *  event (historyShift null: the runtime has no merger model). */
+  settings?: { fps: number; historyShift: HistoryShift | null };
 }
+
+/** History shift (motiontracker `mtcore.merged.HISTORY_SHIFTS`): experiment
+ *  for 20 FPS, half a 10 FPS step older on every step but the newest
+ *  ('every') or every second step ('alternate'). */
+export type HistoryShift = 'none' | 'every' | 'alternate';
 
 export interface RuntimeOptions {
   /** motiontracker checkout (contains `service/`). */
@@ -55,6 +63,9 @@ export interface RuntimeOptions {
    *  VRM). Sent over stdin, at start too, so a runtime without the command only
    *  reports it as unknown instead of failing to start. */
   retarget: boolean;
+  /** Frames the runtime processes per second (its default: 10). */
+  fps: number;
+  historyShift: HistoryShift;
 }
 
 /** Restart delays after an unexpected exit; the last one repeats. */
@@ -192,6 +203,9 @@ export class LearnedRuntime {
       );
     if (prev.retarget !== opts.retarget)
       this.send({ cmd: 'retarget', enabled: opts.retarget });
+    if (prev.fps !== opts.fps) this.send({ cmd: 'fps', value: opts.fps });
+    if (prev.historyShift !== opts.historyShift)
+      this.send({ cmd: 'history_shift', mode: opts.historyShift });
   }
 
   /** Ask the runtime for picture and/or landmarks per frame (both false: none).
@@ -276,6 +290,11 @@ export class LearnedRuntime {
     this.child = child;
     // Read once the runtime is up (stdin is queued until then); off is its default.
     if (opts.retarget) this.send({ cmd: 'retarget', enabled: true });
+    // The runtime's defaults are 10 FPS and no shift; anything else goes over
+    // stdin too, so an older runtime only reports an unknown command.
+    if (opts.fps !== 10) this.send({ cmd: 'fps', value: opts.fps });
+    if (opts.historyShift !== 'none')
+      this.send({ cmd: 'history_shift', mode: opts.historyShift });
     if (this.preview.image || this.preview.landmarks)
       this.send({ cmd: 'preview', ...this.preview });
     let buf = '';
@@ -341,6 +360,15 @@ export class LearnedRuntime {
         break;
       case 'preview':
         this.onPreview?.(ev);
+        break;
+      case 'settings':
+        this.setStatus({
+          ...this.status,
+          settings: {
+            fps: Number(ev.fps),
+            historyShift: (ev.history_shift as HistoryShift | null) ?? null,
+          },
+        });
         break;
       case 'retarget':
         this.setStatus({

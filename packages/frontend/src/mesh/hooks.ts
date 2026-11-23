@@ -92,6 +92,10 @@ export interface LearnedRuntimeStatus {
   present?: number;
   model?: string;
   retarget?: { enabled: boolean; active: boolean; reason: string | null };
+  settings?: {
+    fps: number;
+    historyShift: 'none' | 'every' | 'alternate' | null;
+  };
 }
 
 /** Every receiver's status this tab holds, by behavior id. */
