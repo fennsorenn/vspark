@@ -95,6 +95,16 @@ the behavior's `LearnedRuntime` on first sight and passes it the current options
   proportions instead of copying rotations (motiontracker `mtcore.relretarget`, needs a VRM).
   Always sent as the stdin `retarget` command, also at start (never as `--retarget`), so an older
   runtime without it reports an unknown command instead of failing to start.
+- `fps` — `config.fps` (10/15/20/30 in the panel, clamped 1–60, default 10) and `historyShift` —
+  `config.historyShift` (`none` default / `every` / `alternate`; motiontracker's experiment for 20 FPS:
+  history steps half a step older so neighbouring outputs mix both sets of frames). Sent as the stdin
+  `fps` / `history_shift` commands, at start only when not the runtime's defaults (never as CLI flags, so
+  an older runtime reports an unknown command instead of failing to start), and live on change. The
+  runtime's `settings` event is kept as `RuntimeStatus.settings`; the panel notes when it differs from
+  the configured values. **Decided** (owner, 2026-11-23): switchable in vspark so the owner can compare
+  the shift modes live before choosing; which mode (if any) and the default rate are still open.
+  Measured (motiontracker PLAN.md): 20 FPS halves the end-to-end time to the rendered arm (107 → 57 ms
+  to halfway) at about twice the runtime's CPU, with a little more visible shake.
 
 `stopReceiver` stops and drops the runtime along with the receiver.
 
@@ -136,7 +146,8 @@ Protocol summary (authoritative: motiontracker `service/README.md` and `service/
 - **Commands** (vspark → stdin): `{"cmd":"camera","index":N}`,
   `{"cmd":"avatar","vrm_path":…}` or `{"cmd":"avatar","rest_positions":null}` (default rest pose),
   `{"cmd":"retarget","enabled":bool}` (sent at start only when on),
-  `{"cmd":"preview","image":bool,"landmarks":bool}` ([camera preview](#preview)), `{"cmd":"stop"}`. The runtime also has `cameras`, unused by vspark (the camera list goes through
+  `{"cmd":"preview","image":bool,"landmarks":bool}` ([camera preview](#preview)), `{"cmd":"fps","value":n}`,
+  `{"cmd":"history_shift","mode":…}` (answered by a `settings` event), `{"cmd":"stop"}`. The runtime also has `cameras`, unused by vspark (the camera list goes through
   `--list-cameras`, below).
 - **Events** (stdout, one JSON object per line): `ready` (carries `model.run`), `status` (about
   once a second: `fps`, `latency_ms`, `detect_ms`, `model_ms`, `present`), `retarget`
@@ -146,7 +157,7 @@ Protocol summary (authoritative: motiontracker `service/README.md` and `service/
 - stderr: lines starting `[mtservice]` are forwarded to vspark's log; the last 20 lines are kept
   for the crash message (MediaPipe's native `W0000`/`I0000` lines are filtered out of it).
 
-Option changes (`apply`): `camera`, `vrmPath` and `retarget` go to the running process over stdin; a new `port`
+Option changes (`apply`): `camera`, `vrmPath`, `retarget`, `fps` and `historyShift` go to the running process over stdin; a new `port`
 or `runtimeDir` restarts it. Stopping sends `stop`, closes stdin (the runtime exits on stdin EOF,
 so it never outlives vspark), then SIGTERM after 3 s and SIGKILL 3 s after that if it hangs.
 
