@@ -61,7 +61,12 @@ describe('LipsyncManager capture status', () => {
       capture: { state: 'starting' },
     });
 
-    children[0].stdout.emit('data', Buffer.alloc(4 * 1600));
+    // Sound (a 300 Hz tone), not just samples, reads as capturing.
+    const n = 1600 * 3;
+    const tone = Buffer.alloc(n * 4);
+    for (let i = 0; i < n; i++)
+      tone.writeFloatLE(0.3 * Math.sin((2 * Math.PI * 300 * i) / 48000), i * 4);
+    children[0].stdout.emit('data', tone);
     expect(publishTracking).toHaveBeenLastCalledWith({
       behaviorId: 'ls1',
       connected: true,

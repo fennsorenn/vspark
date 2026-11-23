@@ -225,17 +225,30 @@ describe('PipeWireLipsyncCapture', () => {
       return { cap, seen, states: () => seen.map((x) => x.state) };
     }
 
-    it('starting → capturing on samples → idle when they stop, once per change', () => {
+    it('starting → capturing on sound → idle when it stops, once per change', () => {
       const { spawn, children } = fakeSpawn();
-      const { cap, states } = withStatus(spawn, { staleMs: 100 });
+      const { cap, states } = withStatus(spawn, { staleMs: 100, idleMs: 300 });
       cap.start();
       expect(states()).toEqual(['starting']);
-      children[0].stdout.emit('data', f32(tone(1600)));
-      children[0].stdout.emit('data', f32(tone(1600)));
+      children[0].stdout.emit('data', f32(tone(1600 * 3)));
+      children[0].stdout.emit('data', f32(tone(1600 * 3)));
       expect(states()).toEqual(['starting', 'capturing']);
-      vi.advanceTimersByTime(250);
+      vi.advanceTimersByTime(500);
       expect(states()).toEqual(['starting', 'capturing', 'idle']);
       expect(cap.current).toEqual({ state: 'idle' });
+      cap.stop();
+    });
+
+    it('silence that keeps arriving reads idle, not capturing (a null-sink monitor)', () => {
+      const { spawn, children } = fakeSpawn();
+      const { cap, states } = withStatus(spawn, { staleMs: 100, idleMs: 300 });
+      cap.start();
+      for (let i = 0; i < 10; i++) {
+        children[0].stdout.emit('data', f32(new Float32Array(1600)));
+        vi.advanceTimersByTime(50);
+      }
+      expect(states()).not.toContain('capturing');
+      expect(states().at(-1)).toBe('idle');
       cap.stop();
     });
 

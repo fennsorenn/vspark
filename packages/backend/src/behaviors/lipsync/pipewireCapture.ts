@@ -38,9 +38,10 @@ export type SpawnFn = (
 /**
  * What the capture is doing, for the editor:
  *   - `starting`  — parec was just started;
- *   - `capturing` — samples are arriving;
- *   - `idle`      — parec runs but delivers nothing (nothing plays into the
- *                   source, or its sink is suspended);
+ *   - `capturing` — sound is arriving (a non-silent frame within `idleMs`);
+ *   - `idle`      — parec runs but there is no sound: silence (a null
+ *                   sink's monitor keeps delivering zeros) or no samples at
+ *                   all (a suspended sink);
  *   - `error`     — parec failed or exited; it is retried with backoff.
  *                   `message` is parec's last complaint (e.g. an unknown
  *                   source) or the spawn error (parec missing).
@@ -104,6 +105,8 @@ export interface PipeWireCaptureOptions {
   fps?: number;
   /** No samples for this long closes the mouth. */
   staleMs?: number;
+  /** No sound (silence or no samples) for this long reads `idle`. */
+  idleMs?: number;
   /** Injected in tests; `child_process.spawn` otherwise. */
   spawn?: SpawnFn;
   log?: (msg: string) => void;
@@ -127,6 +130,7 @@ export class PipeWireLipsyncCapture {
   private readonly sampleRate: number;
   private readonly hop: number;
   private readonly staleMs: number;
+  private readonly idleMs: number;
   private readonly spawnFn: SpawnFn;
   private readonly log: (msg: string) => void;
   private readonly onVisemes: (w: VisemeWeights) => void;
@@ -152,6 +156,7 @@ export class PipeWireLipsyncCapture {
   /** A float split across two stdout chunks. */
   private carry: Buffer = Buffer.alloc(0);
   private lastDataAt = 0;
+  private lastSoundAt = 0;
   private closed = true;
 
   constructor(opts: PipeWireCaptureOptions) {
@@ -159,6 +164,7 @@ export class PipeWireLipsyncCapture {
     this.sampleRate = opts.sampleRate ?? DEFAULT_SAMPLE_RATE;
     this.hop = Math.max(1, Math.round(this.sampleRate / (opts.fps ?? 30)));
     this.staleMs = opts.staleMs ?? 150;
+    this.idleMs = opts.idleMs ?? 2000;
     this.spawnFn = opts.spawn ?? (nodeSpawn as unknown as SpawnFn);
     this.log = opts.log ?? ((m) => console.log(`[Lipsync] ${m}`));
     this.onVisemes = opts.onVisemes;
@@ -291,7 +297,6 @@ export class PipeWireLipsyncCapture {
     if (n === 0) return;
     this.lastDataAt = Date.now();
     this.backoffMs = MIN_BACKOFF_MS;
-    this.setStatus('capturing');
     for (let i = 0; i < n; i++) {
       this.ring[this.ringPos] = buf.readFloatLE(i * 4);
       this.ringPos = (this.ringPos + 1) % FFT_SIZE;
@@ -309,6 +314,10 @@ export class PipeWireLipsyncCapture {
     this.frame.set(this.ring.subarray(0, this.ringPos), tail);
     const w = this.classifier.processSamples(this.frame);
     const quiet = isQuiet(w);
+    if (!quiet) {
+      this.lastSoundAt = Date.now();
+      this.setStatus('capturing');
+    }
     // Silence after silence carries nothing new; send the first closed frame
     // and then stay quiet until there is sound again.
     if (quiet && this.closed) return;
@@ -318,13 +327,11 @@ export class PipeWireLipsyncCapture {
 
   private checkStale(): void {
     const now = Date.now();
-    if (now - this.lastDataAt <= this.staleMs) return;
-    this.closeMouth();
-    // parec is up but silent. After a failure, only once it has stayed up.
-    if (
-      this.child &&
-      (this.status?.state !== 'error' || now - this.childSince > ERROR_CLEAR_MS)
-    )
+    if (now - this.lastDataAt > this.staleMs) this.closeMouth();
+    if (!this.child || now - this.lastSoundAt <= this.idleMs) return;
+    // parec is up but there is no sound. After a failure, only once it has
+    // stayed up.
+    if (this.status?.state !== 'error' || now - this.childSince > ERROR_CLEAR_MS)
       this.setStatus('idle');
   }
 

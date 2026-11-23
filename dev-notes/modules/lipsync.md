@@ -70,8 +70,8 @@ Per audio frame:
 | state | meaning |
 |---|---|
 | `starting` | `parec` is being started |
-| `capturing` | samples are arriving |
-| `idle` | `parec` is up but delivers no samples (nothing playing / sink suspended) |
+| `capturing` | sound is arriving: a non-silent frame within the last `idleMs` (2 s) |
+| `idle` | `parec` is up but there is no sound for `idleMs`: silence (a null sink's monitor keeps delivering zero samples while nothing plays — observed 2026-11-23, PipeWire 1.7.0) or no samples at all (suspended sink) |
 | `error` | `parec` missing, exited (`message` = its last stderr line), or the source is unknown (`Unknown source: X`); retried with backoff |
 
 A retry keeps showing `error` (rather than flipping back to `starting`) until `parec` has stayed up for 1 s (so a `parec` that keeps exiting right after start stays shown as `error`).
