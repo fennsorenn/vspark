@@ -62,7 +62,7 @@ After the Phase 2 re-architecture the engine is **wiring + lifecycle** over Node
 
 A graph executes when `fire(nodeId, portName, value)` is called from outside (by a manager). The event propagates forward through event subscriptions; each reached node pulls its value inputs on demand.
 
-**Source nodes** (`vmc_packet_source` / `ifacialmocap_packet_source` / `mediapipe_source` / `lipsync_source` / `api_controller_source`) declare `@eventOut` ports that are fired externally by their managers via `deliverExternal`. `clock` keeps a static `attach()`; `on_pose_broadcast` keeps a static `register()`.
+**Source nodes** (`vmc_packet_source` / `ifacialmocap_packet_source` / `mediapipe_source` / `lipsync_source` / `api_controller_source`) declare `@eventOut` ports that their behavior managers fire with `graph.fire(nodeId, port, value)`. (`deliverExternal` delivers to a node's event *input* from outside the topology; `LogicManager` uses it for external event sources.) `clock` keeps a static `attach()`; `on_pose_broadcast` keeps a static `register()`.
 
 **Value-input auto-fallback to `config.<port>`**: when a value-input port is unconnected, the engine resolves its pull-thunk to `defaultConfig.<portName>` from the descriptor. Nodes just read `this.port()` and get the config fallback for free. This is the preferred pattern; reserve `settings` nodes for values that must track live user edits at runtime. The breathing graph is the reference example (bone names / mode / priority / blend mode in per-port `defaultConfig`; only the two live-editable amplitudes remain `settings` nodes).
 
