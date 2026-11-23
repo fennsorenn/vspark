@@ -280,6 +280,8 @@ Drives VRM blendshapes from viseme weights. The behavior's `inputMode` config pi
 
 - `browser` (default) — vowel classification runs client-side; the manager only fans the weights it receives through the signal graph.
 - `pipewire` — the manager runs a `PipeWireLipsyncCapture` (`lipsync/pipewireCapture.ts`) on `config.pipewireSource`, which classifies server-side and fires the same entry point. `lipsync_input` from a browser is ignored for that behavior. Captures are reconciled on every `syncBehaviors` (a settings change does not rebuild the graph) and restart only when the source or valid `vowelTemplates` change.
+- The capture's state (`starting` / `capturing` / `idle` / `error`) is published as the behavior's `tracking` server status — `publishTracking({ behaviorId, connected: state === 'capturing', capture })` — and cleared (`clearStatus('tracking', behaviorId)`) when the capture stops. See [lipsync.md](lipsync.md#capture-status).
+- Constructor: `LipsyncManager(spawnFn?, sourceExists?)`. Both are test seams; the default source check (`pactlSourceExists`) is used only when `spawnFn` is not injected, so a test that injects `spawnFn` skips the source check unless it also injects `sourceExists`.
 
 **Input**: `lipsync_input` WebSocket message (kind + behaviorId + visemes map, already `Fcl_MTH_*` keyed), or the PipeWire capture
 **Output**: `vmc_blendshapes` WebSocket broadcast

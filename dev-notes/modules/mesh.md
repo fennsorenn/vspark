@@ -1372,7 +1372,11 @@ the server writes them.
 `output_window_status` and `overlive_account_status` WS messages and their
 per-producer "send current state to each new client" handlers. Kinds:
 `tracking` (mocap receivers — VMC, iFacialMocap, MediaPipe — keyed by behavior
-id), `obs_connection`, `overlive_account`, `output_window` (key `main`).
+id; also a lipsync behavior's server-side PipeWire capture, see
+[lipsync.md](lipsync.md#capture-status)), `capabilities` (key `main`: what this
+server can do, published once at boot — currently `pipewireLipsync`; read with
+`useServerCapabilities` in `mesh/hooks.ts`), `obs_connection`,
+`overlive_account`, `output_window` (key `main`).
 Producers call `publishStatus(kind, key, fields, of?)` (merges into the existing
 doc) or `publishTracking({ behaviorId, ... })`, and `clearStatus(kind, key)` to
 drop one. A status about a document names it in `of`, which becomes its

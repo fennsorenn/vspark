@@ -59,10 +59,47 @@ Per audio frame:
 - Silence after silence is not re-sent: the first closed frame goes out, then nothing until there is sound again.
 - A suspended null-sink's monitor delivers **no samples at all**; a watchdog (150 ms) closes the mouth when data stops, rather than leaving it frozen mid-vowel.
 - `parec` exiting, failing to spawn, or missing (ENOENT) restarts it with exponential backoff (1 s doubling to 30 s, reset once data arrives). `parec` stderr is logged.
+- Before each `parec` start the source is checked with `pactlSourceExists` (`pactl list short sources`, matched against the 2nd column). An unknown source is a capture error (`Unknown source: X`) and is retried with the same backoff, so a sink created later is picked up. If `pactl` cannot answer (`null`), the check is skipped and `parec` starts anyway. Reason: PipeWire's Pulse server accepts any `parec --device` and silently records the **default** source instead (observed on PipeWire 1.7.0, 2026-11-23 — a PipeWire behavior, not a vSpark decision), so a mistyped source would otherwise lip-sync from the wrong input.
 - While a behavior is in `pipewire` mode, `lipsync_input` from a browser is ignored for it, so a media-input tab left open cannot fight the capture.
 - Captures are reconciled on every `syncBehaviors`; a change to the source or to valid templates restarts the capture, other settings do not.
 
-**Platform**: Linux with PipeWire (pipewire-pulse) or PulseAudio — it needs `parec` on `PATH`.
+### Capture status
+
+`PipeWireLipsyncCapture` reports a `CaptureStatus` `{ state, message? }` through its `onStatus` callback, only when it changes:
+
+| state | meaning |
+|---|---|
+| `starting` | `parec` is being started |
+| `capturing` | samples are arriving |
+| `idle` | `parec` is up but delivers no samples (nothing playing / sink suspended) |
+| `error` | `parec` missing, exited (`message` = its last stderr line), or the source is unknown (`Unknown source: X`); retried with backoff |
+
+A retry keeps showing `error` (rather than flipping back to `starting`) until `parec` has stayed up for 1 s (so a `parec` that keeps exiting right after start stays shown as `error`).
+
+`LipsyncManager` publishes it as the behavior's `tracking` server status (`publishTracking({ behaviorId, connected: state === 'capturing', capture })`, see [mesh.md](mesh.md#runtime-state-the-runtime-channel)) and clears it when the capture stops. The frontend reads it from `TrackingStatus.capture` (`LipsyncCaptureStatus`, `mesh/hooks.ts`).
+
+### Capability gate
+
+`canCapturePipeWire()` (Linux and `parec --version` succeeds) is checked once at boot in `packages/backend/src/index.ts` and published as server status `capabilities:main` `{ pipewireLipsync }`. The frontend reads it with `useServerCapabilities()` (`mesh/hooks.ts`; `undefined` until the document arrives). Because it is checked only at boot, a `parec` installed later is presumably not noticed until the server restarts (inferred from the code, not tested).
+
+### UI
+
+In `LipsyncProcessorProps` ([PropertiesPanel.tsx](../../packages/frontend/src/components/editor/PropertiesPanel.tsx)):
+
+- The PipeWire input option is offered only when `pipewireLipsync` is true. A behavior already set to PipeWire keeps the option and shows an "unavailable" warning.
+- In PipeWire mode a status line (`.vs-lipsync-capture-status`) shows a hint when no source is set, otherwise a ● state indicator plus `parec`'s message.
+- Scene graph ([SceneGraph.tsx](../../packages/frontend/src/components/editor/SceneGraph.tsx)): a lipsync behavior in PipeWire mode gets a connection dot (lit while audio arrives, i.e. `connected`) and no tracking dot.
+- Strings in `properties` / `sceneGraph` namespaces (en/de); help in `help/content/{en,de}/behaviors.md#lipsync`.
+
+### Tests
+
+- Backend: `lipsync.pipewireCapture.test.ts` (status transitions, unknown source, `canCapturePipeWire`), `lipsync.captureStatus.test.ts` (manager publishes / clears the status).
+- Frontend: `components.lipsyncInput.test.tsx`.
+- e2e: `cov-lipsync-input.spec.ts` — skips the PipeWire part when the server reports it cannot capture.
+
+**Platform**: Linux with PipeWire (pipewire-pulse) or PulseAudio — it needs `parec` on `PATH` (and `pactl` for the source check).
+
+**Release bundle**: `packages/backend/bundle.mjs` aliases `@vspark/shared/visemes` (the manager and the capture import it; without the alias the bundle step failed).
 
 **Sync**: pointing OBS at the same source as the lipsync puts mouth and stream audio on one clock. This was the reason for capturing a source rather than taking PCM pushed over the network (decided by the user, 2026-11-18, for the ai_tuber AI-character integration).
 
