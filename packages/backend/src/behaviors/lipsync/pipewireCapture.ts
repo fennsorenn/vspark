@@ -16,6 +16,7 @@
  */
 
 import {
+  execFile,
   spawn as nodeSpawn,
   spawnSync as nodeSpawnSync,
   type ChildProcess,
@@ -69,6 +70,30 @@ export function canCapturePipeWire(
   }
 }
 
+/**
+ * Does the source exist? `pactl list short sources`, second column. Needed
+ * because PipeWire's Pulse server does not refuse an unknown `--device`: it
+ * records the DEFAULT source instead, so a typo would lip-sync from the wrong
+ * input without any error. Null when pactl cannot answer (check skipped).
+ */
+export function pactlSourceExists(source: string): Promise<boolean | null> {
+  return new Promise((resolve) => {
+    execFile(
+      'pactl',
+      ['list', 'short', 'sources'],
+      { timeout: 3000 },
+      (err, stdout) => {
+        if (err) return resolve(null);
+        const names = stdout
+          .split('\n')
+          .map((l) => l.split('\t')[1]?.trim())
+          .filter(Boolean);
+        resolve(names.includes(source));
+      }
+    );
+  });
+}
+
 export interface PipeWireCaptureOptions {
   /** PipeWire/Pulse source name, e.g. `my_sink.monitor`. */
   source: string;
@@ -84,6 +109,9 @@ export interface PipeWireCaptureOptions {
   log?: (msg: string) => void;
   /** Called when the capture state changes (not on every frame). */
   onStatus?: (status: CaptureStatus) => void;
+  /** Checked before each parec start (see `pactlSourceExists`); an unknown
+   *  source is an error, retried with backoff. Omitted: no check. */
+  sourceExists?: (source: string) => Promise<boolean | null>;
 }
 
 /** A restarted parec that has stayed up this long is no longer "failing". */
@@ -103,6 +131,7 @@ export class PipeWireLipsyncCapture {
   private readonly log: (msg: string) => void;
   private readonly onVisemes: (w: VisemeWeights) => void;
   private readonly onStatus: (s: CaptureStatus) => void;
+  private readonly sourceExists?: (s: string) => Promise<boolean | null>;
   private readonly classifier: VisemeClassifier;
   private status: CaptureStatus | null = null;
   /** parec's last stderr line, reported when it exits. */
@@ -134,6 +163,7 @@ export class PipeWireLipsyncCapture {
     this.log = opts.log ?? ((m) => console.log(`[Lipsync] ${m}`));
     this.onVisemes = opts.onVisemes;
     this.onStatus = opts.onStatus ?? (() => {});
+    this.sourceExists = opts.sourceExists;
     this.classifier = new VisemeClassifier(this.sampleRate, opts.templates);
   }
 
@@ -172,6 +202,25 @@ export class PipeWireLipsyncCapture {
   }
 
   private spawnChild(): void {
+    if (!this.sourceExists) return this.startParec();
+    void this.sourceExists(this.source).then(
+      (exists) => {
+        if (this.stopped || this.child) return;
+        if (exists === false) {
+          this.log(`unknown source ${this.source}; retrying`);
+          this.setStatus('error', `Unknown source: ${this.source}`);
+          this.scheduleRestart();
+          return;
+        }
+        this.startParec();
+      },
+      () => {
+        if (!this.stopped && !this.child) this.startParec();
+      }
+    );
+  }
+
+  private startParec(): void {
     const args = [
       `--device=${this.source}`,
       '--format=float32le',

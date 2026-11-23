@@ -105,11 +105,11 @@ test('lipsync input: browser by default, PipeWire mode and source persist', asyn
     })
     .toBe('e2e_sink.monitor');
 
-  // The source does not exist: the status line reports the failure.
-  await expect(page.locator('.vs-lipsync-capture-status')).toContainText(
-    /Capture failed|Waiting for audio/,
-    { timeout: 10_000 }
-  );
+  // The source does not exist: the status line reports it (PipeWire would
+  // otherwise record the default source instead).
+  const status = page.locator('.vs-lipsync-capture-status');
+  await expect(status).toContainText('Capture failed', { timeout: 10_000 });
+  await expect(status).toContainText('Unknown source: e2e_sink.monitor');
 
   // Back to the browser: the source is kept for next time, the field hides.
   await page.locator('.vs-lipsync-input-mode').selectOption('browser');

@@ -11,7 +11,11 @@ import {
 } from '../storedGraph.js';
 import { broadcastBus } from '../../broadcast/bus.js';
 import { isValidTemplates } from '@vspark/shared/visemes';
-import { PipeWireLipsyncCapture, type SpawnFn } from './pipewireCapture.js';
+import {
+  PipeWireLipsyncCapture,
+  pactlSourceExists,
+  type SpawnFn,
+} from './pipewireCapture.js';
 import { clearStatus, publishTracking } from '../../mesh/status.js';
 
 /** Where a lipsync behavior's audio comes from. */
@@ -52,8 +56,14 @@ export class LipsyncManager {
     { capture: PipeWireLipsyncCapture; key: string }
   >();
 
-  /** Injected in tests so no real `parec` is started. */
-  constructor(private readonly spawnFn?: SpawnFn) {}
+  /** Injected in tests so no real `parec` / `pactl` is started. A test that
+   *  injects `spawnFn` skips the source check unless it injects one too. */
+  constructor(
+    private readonly spawnFn?: SpawnFn,
+    private readonly sourceExists:
+      | ((source: string) => Promise<boolean | null>)
+      | undefined = spawnFn ? undefined : pactlSourceExists
+  ) {}
 
   private createGraph(behaviorId: string): SignalGraph {
     // The behavior's stored (editable) graph; the template if none is stored.
@@ -206,6 +216,7 @@ export class LipsyncManager {
       source: spec.source,
       templates,
       spawn: this.spawnFn,
+      sourceExists: this.sourceExists,
       onVisemes: (w) => this._fire(behaviorId, w),
       // The editor's status row and the scene graph's connection dot.
       onStatus: (status) =>

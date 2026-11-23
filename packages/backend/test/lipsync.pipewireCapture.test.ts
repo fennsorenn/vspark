@@ -267,6 +267,35 @@ describe('PipeWireLipsyncCapture', () => {
       cap.stop();
     });
 
+    it('an unknown source is an error, not a capture of the default source', async () => {
+      const { spawn, children } = fakeSpawn();
+      let exists = false;
+      const { cap, seen } = withStatus(spawn, {
+        sourceExists: async () => exists,
+      });
+      cap.start();
+      await vi.advanceTimersByTimeAsync(0);
+      expect(children).toHaveLength(0); // parec never started
+      expect(seen.at(-1)).toEqual({
+        state: 'error',
+        message: 'Unknown source: vmic.monitor',
+      });
+      // The sink appears later: the retry finds it and starts parec.
+      exists = true;
+      await vi.advanceTimersByTimeAsync(1000);
+      expect(children).toHaveLength(1);
+      cap.stop();
+    });
+
+    it('starts parec when the source check cannot answer', async () => {
+      const { spawn, children } = fakeSpawn();
+      const { cap } = withStatus(spawn, { sourceExists: async () => null });
+      cap.start();
+      await vi.advanceTimersByTimeAsync(0);
+      expect(children).toHaveLength(1);
+      cap.stop();
+    });
+
     it('a retry keeps the error until parec stays up, then reads idle', () => {
       const { spawn, children } = fakeSpawn();
       const { cap, states } = withStatus(spawn, { staleMs: 100 });
