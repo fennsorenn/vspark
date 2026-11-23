@@ -161,5 +161,9 @@
     "avatar": "Avatare laden und konfigurieren",
     "camera": "Kameras in der Szene verwenden",
     "lights": "Lichter hinzufügen und konfigurieren"
+  },
+  "lipsync": {
+    "audioArriving": "Server-Aufnahme: Audio kommt an",
+    "noAudio": "Server-Aufnahme: kein Audio"
   }
 }

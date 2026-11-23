@@ -7,6 +7,8 @@ import { EventEmitter } from 'events';
 import { FFT_SIZE, type VisemeWeights } from '@vspark/shared/visemes';
 import {
   PipeWireLipsyncCapture,
+  canCapturePipeWire,
+  type CaptureStatus,
   type SpawnFn,
 } from '../src/behaviors/lipsync/pipewireCapture.js';
 
@@ -214,5 +216,91 @@ describe('PipeWireLipsyncCapture', () => {
     expect(out).toHaveLength(n);
     vi.advanceTimersByTime(60000);
     expect(children).toHaveLength(1);
+  });
+
+  describe('status', () => {
+    function withStatus(spawn: SpawnFn, extra = {}) {
+      const seen: CaptureStatus[] = [];
+      const cap = make(spawn, { onStatus: (st: CaptureStatus) => seen.push(st), ...extra });
+      return { cap, seen, states: () => seen.map((x) => x.state) };
+    }
+
+    it('starting → capturing on samples → idle when they stop, once per change', () => {
+      const { spawn, children } = fakeSpawn();
+      const { cap, states } = withStatus(spawn, { staleMs: 100 });
+      cap.start();
+      expect(states()).toEqual(['starting']);
+      children[0].stdout.emit('data', f32(tone(1600)));
+      children[0].stdout.emit('data', f32(tone(1600)));
+      expect(states()).toEqual(['starting', 'capturing']);
+      vi.advanceTimersByTime(250);
+      expect(states()).toEqual(['starting', 'capturing', 'idle']);
+      expect(cap.current).toEqual({ state: 'idle' });
+      cap.stop();
+    });
+
+    it('reports a missing parec as an error with its message', () => {
+      const { spawn, children } = fakeSpawn();
+      const { cap, seen } = withStatus(spawn);
+      cap.start();
+      children[0].emit('error', new Error('spawn parec ENOENT'));
+      expect(seen.at(-1)).toEqual({
+        state: 'error',
+        message: 'spawn parec ENOENT',
+      });
+      cap.stop();
+    });
+
+    it("reports parec's last complaint when it exits (e.g. an unknown source)", () => {
+      const { spawn, children } = fakeSpawn();
+      const { cap, seen } = withStatus(spawn);
+      cap.start();
+      children[0].stderr.emit(
+        'data',
+        Buffer.from('Connecting\nStream error: No such entity\n')
+      );
+      children[0].emit('exit', 1);
+      expect(seen.at(-1)).toEqual({
+        state: 'error',
+        message: 'Stream error: No such entity',
+      });
+      cap.stop();
+    });
+
+    it('a retry keeps the error until parec stays up, then reads idle', () => {
+      const { spawn, children } = fakeSpawn();
+      const { cap, states } = withStatus(spawn, { staleMs: 100 });
+      cap.start();
+      children[0].emit('exit', 1);
+      vi.advanceTimersByTime(1000); // restarted
+      expect(children).toHaveLength(2);
+      vi.advanceTimersByTime(500); // up, but not long enough
+      expect(states().at(-1)).toBe('error');
+      vi.advanceTimersByTime(700);
+      expect(states().at(-1)).toBe('idle');
+      expect(states()).not.toContain('capturing');
+      cap.stop();
+    });
+  });
+});
+
+describe('canCapturePipeWire', () => {
+  const ok = () => ({ status: 0 });
+  it('needs Linux and a working parec', () => {
+    expect(canCapturePipeWire('linux', ok)).toBe(true);
+    expect(canCapturePipeWire('win32', ok)).toBe(false);
+    expect(canCapturePipeWire('darwin', ok)).toBe(false);
+    expect(
+      canCapturePipeWire('linux', () => ({
+        status: null,
+        error: new Error('ENOENT'),
+      }))
+    ).toBe(false);
+    expect(canCapturePipeWire('linux', () => ({ status: 1 }))).toBe(false);
+    expect(
+      canCapturePipeWire('linux', () => {
+        throw new Error('boom');
+      })
+    ).toBe(false);
   });
 });

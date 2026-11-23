@@ -15,7 +15,11 @@
  * closes the mouth when data stops rather than freezing it mid-vowel.
  */
 
-import { spawn as nodeSpawn, type ChildProcess } from 'child_process';
+import {
+  spawn as nodeSpawn,
+  spawnSync as nodeSpawnSync,
+  type ChildProcess,
+} from 'child_process';
 import {
   DEFAULT_SAMPLE_RATE,
   FFT_SIZE,
@@ -30,6 +34,41 @@ export type SpawnFn = (
   args: string[]
 ) => Pick<ChildProcess, 'stdout' | 'stderr' | 'on' | 'kill'>;
 
+/**
+ * What the capture is doing, for the editor:
+ *   - `starting`  — parec was just started;
+ *   - `capturing` — samples are arriving;
+ *   - `idle`      — parec runs but delivers nothing (nothing plays into the
+ *                   source, or its sink is suspended);
+ *   - `error`     — parec failed or exited; it is retried with backoff.
+ *                   `message` is parec's last complaint (e.g. an unknown
+ *                   source) or the spawn error (parec missing).
+ */
+export type CaptureState = 'starting' | 'capturing' | 'idle' | 'error';
+export interface CaptureStatus {
+  state: CaptureState;
+  message?: string;
+}
+
+/** Can this server capture a PipeWire/Pulse source? Linux with `parec` on
+ *  PATH. Checked once at boot; the editor offers the PipeWire input only
+ *  when it is true. */
+export function canCapturePipeWire(
+  platform: NodeJS.Platform = process.platform,
+  spawnSync: (
+    cmd: string,
+    args: string[]
+  ) => { status: number | null; error?: Error } = nodeSpawnSync
+): boolean {
+  if (platform !== 'linux') return false;
+  try {
+    const r = spawnSync('parec', ['--version']);
+    return !r.error && r.status === 0;
+  } catch {
+    return false;
+  }
+}
+
 export interface PipeWireCaptureOptions {
   /** PipeWire/Pulse source name, e.g. `my_sink.monitor`. */
   source: string;
@@ -43,7 +82,12 @@ export interface PipeWireCaptureOptions {
   /** Injected in tests; `child_process.spawn` otherwise. */
   spawn?: SpawnFn;
   log?: (msg: string) => void;
+  /** Called when the capture state changes (not on every frame). */
+  onStatus?: (status: CaptureStatus) => void;
 }
+
+/** A restarted parec that has stayed up this long is no longer "failing". */
+const ERROR_CLEAR_MS = 1000;
 
 const MIN_BACKOFF_MS = 1000;
 const MAX_BACKOFF_MS = 30000;
@@ -58,7 +102,12 @@ export class PipeWireLipsyncCapture {
   private readonly spawnFn: SpawnFn;
   private readonly log: (msg: string) => void;
   private readonly onVisemes: (w: VisemeWeights) => void;
+  private readonly onStatus: (s: CaptureStatus) => void;
   private readonly classifier: VisemeClassifier;
+  private status: CaptureStatus | null = null;
+  /** parec's last stderr line, reported when it exits. */
+  private lastStderr = '';
+  private childSince = 0;
 
   private child: ReturnType<SpawnFn> | null = null;
   private stopped = true;
@@ -84,11 +133,24 @@ export class PipeWireLipsyncCapture {
     this.spawnFn = opts.spawn ?? (nodeSpawn as unknown as SpawnFn);
     this.log = opts.log ?? ((m) => console.log(`[Lipsync] ${m}`));
     this.onVisemes = opts.onVisemes;
+    this.onStatus = opts.onStatus ?? (() => {});
     this.classifier = new VisemeClassifier(this.sampleRate, opts.templates);
   }
 
   get running(): boolean {
     return !this.stopped;
+  }
+
+  /** The current state (null before start). */
+  get current(): CaptureStatus | null {
+    return this.status;
+  }
+
+  private setStatus(state: CaptureState, message?: string): void {
+    if (this.status?.state === state && this.status.message === message)
+      return;
+    this.status = message === undefined ? { state } : { state, message };
+    this.onStatus(this.status);
   }
 
   start(): void {
@@ -123,23 +185,31 @@ export class PipeWireLipsyncCapture {
       child = this.spawnFn('parec', args);
     } catch (e) {
       this.log(`could not start parec: ${(e as Error).message}`);
+      this.setStatus('error', (e as Error).message);
       this.scheduleRestart();
       return;
     }
     this.child = child;
+    this.childSince = Date.now();
+    this.lastStderr = '';
     this.carry = Buffer.alloc(0);
+    // A retry keeps showing the error until it proves itself (checkStale).
+    if (this.status?.state !== 'error') this.setStatus('starting');
     child.stdout?.on('data', (chunk: Buffer) => {
       if (this.child === child) this.onData(chunk);
     });
     child.stderr?.on('data', (chunk: Buffer) => {
       const msg = chunk.toString().trim();
-      if (msg) this.log(`parec (${this.source}): ${msg}`);
+      if (!msg) return;
+      this.lastStderr = msg.split('\n').at(-1)!.trim();
+      this.log(`parec (${this.source}): ${msg}`);
     });
     // 'error' fires instead of 'exit' when the binary is missing (ENOENT).
     child.on('error', (err: Error) => {
       if (this.child !== child) return;
       this.log(`parec failed for ${this.source}: ${err.message}`);
       this.child = null;
+      this.setStatus('error', err.message);
       this.scheduleRestart();
     });
     child.on('exit', (code: number | null) => {
@@ -147,6 +217,7 @@ export class PipeWireLipsyncCapture {
       this.child = null;
       if (this.stopped) return;
       this.log(`parec for ${this.source} exited (${code}); restarting`);
+      this.setStatus('error', this.lastStderr || `parec exited (${code})`);
       this.scheduleRestart();
     });
     this.log(`capturing ${this.source}`);
@@ -171,6 +242,7 @@ export class PipeWireLipsyncCapture {
     if (n === 0) return;
     this.lastDataAt = Date.now();
     this.backoffMs = MIN_BACKOFF_MS;
+    this.setStatus('capturing');
     for (let i = 0; i < n; i++) {
       this.ring[this.ringPos] = buf.readFloatLE(i * 4);
       this.ringPos = (this.ringPos + 1) % FFT_SIZE;
@@ -196,7 +268,15 @@ export class PipeWireLipsyncCapture {
   }
 
   private checkStale(): void {
-    if (Date.now() - this.lastDataAt > this.staleMs) this.closeMouth();
+    const now = Date.now();
+    if (now - this.lastDataAt <= this.staleMs) return;
+    this.closeMouth();
+    // parec is up but silent. After a failure, only once it has stayed up.
+    if (
+      this.child &&
+      (this.status?.state !== 'error' || now - this.childSince > ERROR_CLEAR_MS)
+    )
+      this.setStatus('idle');
   }
 
   private closeMouth(): void {

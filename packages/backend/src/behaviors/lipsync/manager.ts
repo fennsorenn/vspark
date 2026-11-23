@@ -12,6 +12,7 @@ import {
 import { broadcastBus } from '../../broadcast/bus.js';
 import { isValidTemplates } from '@vspark/shared/visemes';
 import { PipeWireLipsyncCapture, type SpawnFn } from './pipewireCapture.js';
+import { clearStatus, publishTracking } from '../../mesh/status.js';
 
 /** Where a lipsync behavior's audio comes from. */
 export type LipsyncInputMode = 'browser' | 'pipewire';
@@ -206,6 +207,13 @@ export class LipsyncManager {
       templates,
       spawn: this.spawnFn,
       onVisemes: (w) => this._fire(behaviorId, w),
+      // The editor's status row and the scene graph's connection dot.
+      onStatus: (status) =>
+        publishTracking({
+          behaviorId,
+          connected: status.state === 'capturing',
+          capture: status,
+        }),
     });
     this.captures.set(behaviorId, { capture, key: spec.key });
     capture.start();
@@ -216,6 +224,7 @@ export class LipsyncManager {
     if (!running) return;
     this.captures.delete(behaviorId);
     running.capture.stop();
+    clearStatus('tracking', behaviorId);
   }
 
   /** The input mode a running behavior is configured for. */

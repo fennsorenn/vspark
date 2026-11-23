@@ -22,8 +22,11 @@ export const SERVER_STATUS_RTYPE = 'server_status';
 /** What a status document describes. */
 export type StatusKind =
   /** a mocap receiver behavior: `connected` (packets arriving) and
-   *  `tracking` (a pose is being produced). Key = behavior id. */
+   *  `tracking` (a pose is being produced); a lipsync behavior's server-side
+   *  capture: `connected` + `capture`. Key = behavior id. */
   | 'tracking'
+  /** what this server can do (key 'main'): `pipewireLipsync`. */
+  | 'capabilities'
   /** an obs-websocket connection: status / reason / message. Key = id. */
   | 'obs_connection'
   /** a streaming account: status / reason / message. Key = account id. */

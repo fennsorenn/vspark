@@ -80,6 +80,28 @@ export interface TrackingStatus {
   /** Learned Tracking only: its runtime process (backend
    *  behaviors/learned_tracker/runtime.ts `RuntimeStatus`). */
   runtime?: LearnedRuntimeStatus;
+  /** Lipsync only: its server-side PipeWire capture (backend
+   *  behaviors/lipsync/pipewireCapture.ts `CaptureStatus`). */
+  capture?: LipsyncCaptureStatus;
+}
+
+export interface LipsyncCaptureStatus {
+  state: 'starting' | 'capturing' | 'idle' | 'error';
+  message?: string;
+}
+
+/** What the server can do (`server_status` doc `capabilities:main`, published
+ *  at boot). Undefined until it arrives. */
+export interface ServerCapabilities {
+  /** The lipsync behavior can capture a PipeWire source server-side. */
+  pipewireLipsync?: boolean;
+}
+
+export function useServerCapabilities(): ServerCapabilities | undefined {
+  return useMeshDoc(
+    useCollection<{ id: string } & ServerCapabilities>('server_status'),
+    'capabilities:main'
+  );
 }
 
 export interface LearnedRuntimeStatus {
