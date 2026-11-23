@@ -293,7 +293,9 @@ describe('Tracking Mix sidebar', () => {
   it('shows Custom when a source differs across bones, reset uses the most common value', () => {
     seed({ sources: { vmc: { bones: { head: 0.3 } } } });
     const { container } = renderWithProviders(<PropertiesPanel />);
-    expect(screen.getAllByText(tp('trackingMix.custom')).length).toBe(1);
+    expect(screen.getAllByText(tp('trackingMix.custom'), {
+        ignore: 'option, script, style', // not the motion filter's Custom preset
+      }).length).toBe(1);
     fireEvent.click(container.querySelector('.vs-mix-master-reset')!);
     // 54 bones at 1 vs one at 0.3 → 1 everywhere, pruned away.
     expect(storedMix().sources?.vmc).toBeUndefined();
@@ -329,7 +331,9 @@ describe('Tracking Mix modal', () => {
     expect(dialog.querySelector('.vs-mix-group-reset')).toBeTruthy();
     expect(dialog.textContent).toContain(tp('trackingMix.custom'));
     // The sidebar master for VMC is mixed now too.
-    expect(screen.getAllByText(tp('trackingMix.custom'))).toHaveLength(2);
+    expect(screen.getAllByText(tp('trackingMix.custom'), {
+        ignore: 'option, script, style', // not the motion filter's Custom preset
+      })).toHaveLength(2);
 
     // Reset → most frequent (0.4, two bones) on every Head bone.
     fireEvent.click(dialog.querySelector('.vs-mix-group-reset')!);

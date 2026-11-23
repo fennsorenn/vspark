@@ -95,7 +95,7 @@ export default defineConfig({
         'src/animRegistry.ts',
         'src/calibration.ts',
         'src/modelThumb.ts',
-        'src/oneEuroFilter.ts',
+        'src/poseFilter.ts',
         'src/particleUtils.ts',
         'src/previewSmoother.ts',
       ],

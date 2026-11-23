@@ -140,11 +140,7 @@ import {
   readChroma,
   type VideoBlend3D,
 } from './videoFx';
-import { BoneFilterBank } from '../../oneEuroFilter';
-import {
-  BoneDynamicsBank,
-  DEFAULT_POSE_DYNAMICS,
-} from '../../secondOrderDynamics';
+import { PoseFilterBank, resolvePoseFilter } from '../../poseFilter';
 import {
   mergeParticleConfig,
   createParticlePool,
@@ -2086,9 +2082,8 @@ function AvatarNode({
   const vmcCompRef = useRef<Behavior | null>(null);
   const lipsyncCompRef = useRef<Behavior | null>(null);
   const vmcRetargetRef = useRef<VmcRetarget | null>(null);
-  const boneFiltersRef = useRef(new BoneFilterBank());
-  const boneDynamicsRef = useRef(new BoneDynamicsBank());
-  /** Last raw broadcast rotation per bone, so the dynamics can tell a new
+  const boneFiltersRef = useRef(new PoseFilterBank());
+  /** Last raw broadcast rotation per bone, so the pose filter can tell a new
    *  tracking sample from the bus re-sending (or the frame re-reading) the same
    *  one. */
   const lastRawRef = useRef(
@@ -3016,9 +3011,9 @@ function AvatarNode({
     //
     // This used to key off `trackedActive` going false, which is the *first* frame
     // of the exit, while modeWeight was still ~1 and the tracked path was still
-    // rendering at near-full weight. `BoneFilterBank.reset()` clears each One Euro
+    // rendering at near-full weight. `PoseFilterBank.reset()` clears each bone
     // filter's `initialized` flag, so the next `filter()` call returns the raw
-    // incoming sample verbatim instead of the smoothed one (oneEuroFilter.ts:39-43)
+    // incoming sample verbatim instead of the filtered one (poseFilter.ts)
     // — a one-frame jump from smoothed to raw at full tracking weight, which the
     // ramp could not absorb because it had not started yet. And
     // `resetNormalizedPose()` wiped the very pose the in-flight ramp was reading.
@@ -3189,12 +3184,9 @@ function AvatarNode({
       // Populated ⇒ latch it; empty/absent ⇒ replay the latch so the ramp has
       // something real to fade from.
       const posePopulated = pose != null && Object.keys(pose).length > 0;
-      // Second-order "snappiness" runs *after* the One Euro filter (which keeps
-      // absorbing jitter / uneven packet delivery). Disabled by default; reset
-      // when off so re-enabling starts cleanly from the current pose.
-      const dyn = node.properties?.poseDynamics ?? DEFAULT_POSE_DYNAMICS;
-      const dynamics = boneDynamicsRef.current;
-      if (!dyn.enabled) dynamics.reset();
+      // One per-avatar filter (poseFilter.ts): interpolation between tracking
+      // samples, optional jitter smoothing and optional spring, in one pass.
+      const poseFilter = resolvePoseFilter(node.properties?.poseFilter);
       const sourceEntries: Array<[string, [number, number, number, number]]> =
         posePopulated
           ? (Object.entries(pose!) as Array<
@@ -3222,20 +3214,9 @@ function AvatarNode({
             prevRaw[2] !== q[2] ||
             prevRaw[3] !== q[3]);
         if (newSample) lastRaw.set(boneName, [q[0], q[1], q[2], q[3]]);
-        // Skip the One Euro filter when replaying the latch: it is a held constant,
-        // and re-filtering it would drift the pose while the fade runs.
-        let s = posePopulated ? filters.filter(boneName, _q, delta) : _q;
-        if (dyn.enabled) {
-          s = dynamics.filter(
-            boneName,
-            s,
-            delta,
-            dyn.frequency,
-            dyn.damping,
-            dyn.response,
-            newSample
-          );
-        }
+        // The latch replay is a held constant (never a new sample): the filter
+        // just settles onto it, so the fade starts from where the avatar is.
+        const s = filters.filter(boneName, _q, delta, poseFilter, newSample);
         normalizedPose[boneName as VRMHumanBoneName] = {
           rotation: [s.x, s.y, s.z, s.w],
         };

@@ -300,8 +300,9 @@ your own precision back, reach for Blend.
 
 **Follow-through** is how far the body trails behind the drivers, in seconds.
 Larger is looser and more cartoon-like; 0 makes everything move together. If you
-want the motion to *overshoot* and settle rather than just catch up, turn on
-**Motion Snappiness** on the avatar itself — it layers on top of this.
+want the motion to *overshoot* and settle rather than just catch up, pick the
+**Springy** preset of the avatar's [motion filter](topic:avatar#motion-filter);
+it layers on top of this.
 
 **Rest bones the rig doesn't drive** sends everything outside the rig (fingers,
 legs) back to its neutral pose instead of passing tracking through. Reach for it

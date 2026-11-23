@@ -237,11 +237,33 @@
     "propertiesHeader": "Eigenschaften",
     "blendTransition": "Überblendzeit",
     "trackingGracePeriod": "Leerlauf nach",
-    "dynamicsHeader": "Bewegungsdynamik",
-    "dynamicsEnable": "Bewegung dynamischer machen",
-    "dynamicsFrequency": "Frequenz",
-    "dynamicsDamping": "Dämpfung",
-    "dynamicsResponse": "Reaktion",
+    "poseFilter": {
+      "header": "Bewegungsfilter",
+      "preset": "Voreinstellung",
+      "advanced": "Erweitert",
+      "presets": {
+        "minimal": "Minimal (Interpolation)",
+        "smooth": "Glatt",
+        "springy": "Federnd",
+        "custom": "Eigene"
+      },
+      "hints": {
+        "minimal": "Gleitet nur zwischen den Tracking-Updates. Reagiert am schnellsten; am besten für Gelerntes Tracking, das schon ruhig ist.",
+        "smooth": "Beruhigt Zittern, solange du stillhältst; schnelle Bewegungen bleiben flott. Für unruhige Quellen wie Kamera-Tracking.",
+        "springy": "Beruhigt Zittern in Ruhe und fügt etwas Überschwingen und Nachschwingen hinzu.",
+        "custom": "Deine eigenen Werte, einstellbar unter „Erweitert“."
+      },
+      "smoothing": "Glättung",
+      "adaptation": "Tempo-Anpassung",
+      "damping": "Dämpfung",
+      "response": "Reaktion",
+      "tips": {
+        "smoothing": "0 = nur zwischen Updates gleiten; 1 = starke Glättung im Stillstand",
+        "adaptation": "Wie schnell die Glättung bei schnelleren Bewegungen nachlässt (weniger Verzögerung)",
+        "damping": "1 = kommt ohne Überschwingen zur Ruhe; unter 1 = federndes Überschwingen; über 1 = träge",
+        "response": "0 = folgt; über 0 = reagiert der Bewegung voraus; unter 0 = holt erst aus"
+      }
+    },
     "debugHeader": "Debug",
     "showFbxModel": "FBX-Animationsmodell anzeigen",
     "modelHeader": "Modell",
@@ -275,7 +297,10 @@
     "close": "Schließen",
     "custom": "Individuell",
     "resetTo": "Alle auf {{value}} setzen",
-    "tab": { "body": "Körper", "face": "Gesicht" },
+    "tab": {
+      "body": "Körper",
+      "face": "Gesicht"
+    },
     "order": "Reihenfolge — von links nach rechts angewendet, auf der Animation",
     "moveEarlier": "Früher anwenden",
     "moveLater": "Später anwenden",
@@ -779,7 +804,7 @@
     "materials": "Avatar-Materialien und Shader anpassen",
     "animation": "Leerlauf-Animationen und Überblendzeiten verstehen",
     "trackingGracePeriod": "Verstehen, wie kurze Tracking-Aussetzer überbrückt werden, bevor der Avatar in den Leerlauf zurückkehrt",
-    "dynamics": "Mocap-Bewegungen dynamischer wirken lassen",
+    "poseFilter": "Wie der Bewegungsfilter getrackte Bewegung formt",
     "camera": "Kamera-Eigenschaften und Projektionen erkunden",
     "light": "Lichttypen und Schatteneinstellungen erkunden",
     "breathing": "Wie das Atemverhalten funktioniert",

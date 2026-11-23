@@ -79,12 +79,13 @@ export const sceneNodePropertiesSchema = z
     trackingGracePeriod: z.number().min(0.1).max(60).optional(),
     broadcastTickHz: z.number().min(1).max(240).optional(),
     sourceSceneId: z.string().optional(),
-    poseDynamics: z
+    poseFilter: z
       .object({
-        enabled: z.boolean(),
-        frequency: z.number().min(0.05).max(30),
-        damping: z.number().min(0).max(4),
-        response: z.number().min(-5).max(5),
+        preset: z.enum(['minimal', 'smooth', 'springy', 'custom']),
+        smoothing: z.number().min(0).max(1).optional(),
+        adaptation: z.number().min(0).max(6).optional(),
+        damping: z.number().min(0.1).max(3).optional(),
+        response: z.number().min(-2).max(4).optional(),
       })
       .optional(),
     forceTwistBone: z.boolean().optional(),

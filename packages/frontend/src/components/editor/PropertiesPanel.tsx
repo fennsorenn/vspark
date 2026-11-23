@@ -4,9 +4,12 @@ import { useTranslation } from 'react-i18next';
 import { HelpButton } from '../../help/HelpButton';
 import { BehaviorGraphBar } from './BehaviorGraphBar';
 import {
-  DEFAULT_POSE_DYNAMICS,
-  type PoseDynamicsConfig,
-} from '../../secondOrderDynamics';
+  POSE_FILTER_RANGES,
+  resolvePoseFilter,
+  type PoseFilterConfig,
+  type PoseFilterParams,
+  type PoseFilterPreset,
+} from '../../poseFilter';
 import { PARTICLE_DEFAULTS } from '../../particleUtils';
 import {
   getBuiltinParticleTextures,
@@ -277,6 +280,148 @@ const sectionHeader: React.CSSProperties = {
 // numeric controls were unified — see ./numericInputs.tsx.
 
 // ---------- Collapsible section ----------
+
+const POSE_FILTER_PRESET_ORDER: PoseFilterPreset[] = [
+  'minimal',
+  'smooth',
+  'springy',
+  'custom',
+];
+
+/** Per-avatar motion filter for tracking poses (poseFilter.ts): a preset
+ *  dropdown for casual use, the four parameters behind a collapsed "Advanced"
+ *  toggle. Editing a parameter switches the preset to Custom, starting from
+ *  the values the preset had. */
+function PoseFilterSection({ node }: { node: StageObject }) {
+  const { t } = useTranslation('properties');
+  const [advanced, setAdvanced] = useState(false);
+  const cfg = resolvePoseFilter(node.properties?.poseFilter);
+  const live = (next: PoseFilterConfig) =>
+    previewNodePath(node.id, 'properties.poseFilter', next);
+  const commit = (next: PoseFilterConfig) =>
+    commitNodePath(node.id, 'properties.poseFilter', next);
+  const custom = (key: keyof PoseFilterParams, v: number) => ({
+    ...cfg,
+    preset: 'custom' as const,
+    [key]: v,
+  });
+  const labelStyle = {
+    fontSize: 12,
+    color: '#888',
+    width: 110,
+    flexShrink: 0,
+  } as const;
+  const params: Array<{ key: keyof PoseFilterParams; step: number }> = [
+    { key: 'smoothing', step: 0.05 },
+    { key: 'adaptation', step: 0.1 },
+    { key: 'damping', step: 0.05 },
+    { key: 'response', step: 0.1 },
+  ];
+  return (
+    <>
+      <div
+        style={{
+          ...sectionHeader,
+          display: 'flex',
+          alignItems: 'center',
+          gap: 6,
+        }}
+      >
+        {t('avatar.poseFilter.header')}
+        <HelpButton
+          topic="avatar"
+          anchor="motion-filter"
+          tip={t('help.poseFilter')}
+        />
+      </div>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+        <span style={labelStyle}>{t('avatar.poseFilter.preset')}</span>
+        <select
+          className="vs-pose-filter-preset"
+          value={cfg.preset}
+          onChange={(e) => {
+            const preset = e.target.value as PoseFilterPreset;
+            // Custom keeps the values in effect; a preset brings its own.
+            commit(
+              preset === 'custom'
+                ? { ...cfg, preset }
+                : resolvePoseFilter({ preset })
+            );
+          }}
+          style={{
+            flex: 1,
+            minWidth: 0,
+            background: '#2a2a2a',
+            border: '1px solid #3a3a3a',
+            color: '#e0e0e0',
+            borderRadius: 4,
+            padding: '4px 8px',
+            fontSize: 12,
+            cursor: 'pointer',
+          }}
+        >
+          {POSE_FILTER_PRESET_ORDER.map((p) => (
+            <option key={p} value={p}>
+              {t(`avatar.poseFilter.presets.${p}`)}
+            </option>
+          ))}
+        </select>
+      </div>
+      <div style={{ fontSize: 10, color: '#777', lineHeight: 1.4 }}>
+        {t(`avatar.poseFilter.hints.${cfg.preset}`)}
+      </div>
+      <button
+        className="vs-pose-filter-advanced"
+        onClick={() => setAdvanced((a) => !a)}
+        style={{
+          alignSelf: 'flex-start',
+          background: 'none',
+          border: 'none',
+          color: '#888',
+          fontSize: 11,
+          cursor: 'pointer',
+          padding: 0,
+          display: 'flex',
+          alignItems: 'center',
+          gap: 6,
+        }}
+      >
+        <span
+          style={{
+            fontSize: 9,
+            display: 'inline-block',
+            transform: advanced ? 'rotate(90deg)' : 'none',
+            transition: 'transform 120ms',
+          }}
+        >
+          ▶
+        </span>
+        {t('avatar.poseFilter.advanced')}
+      </button>
+      {advanced &&
+        params.map(({ key, step }) => (
+          <div
+            key={key}
+            style={{ display: 'flex', alignItems: 'center', gap: 8 }}
+            title={t(`avatar.poseFilter.tips.${key}`)}
+          >
+            <span style={labelStyle}>{t(`avatar.poseFilter.${key}`)}</span>
+            <NumInput
+              className={`vs-pose-filter-${key}`}
+              value={cfg[key]}
+              step={step}
+              min={POSE_FILTER_RANGES[key].min}
+              max={POSE_FILTER_RANGES[key].max}
+              precision={2}
+              style={{ flex: 1, minWidth: 0 }}
+              onChange={(v) => live(custom(key, v))}
+              onCommit={(v) => commit(custom(key, v))}
+            />
+          </div>
+        ))}
+    </>
+  );
+}
 
 /** A section header that toggles its children open/closed. Reuses the flat
  *  `sectionHeader` look with a disclosure caret. Collapse state is ephemeral
@@ -10274,116 +10419,8 @@ export function PropertiesPanel() {
           </>
         )}
 
-        {/* Motion snappiness (second-order dynamics) — avatar only */}
-        {node.kind === 'avatar' &&
-          (() => {
-            const dyn: PoseDynamicsConfig = {
-              ...DEFAULT_POSE_DYNAMICS,
-              ...node.properties?.poseDynamics,
-            };
-            const liveDyn = (next: PoseDynamicsConfig) =>
-              previewNodePath(node.id, 'properties.poseDynamics', next);
-            const commitDyn = (next: PoseDynamicsConfig) =>
-              commitNodePath(node.id, 'properties.poseDynamics', next);
-            const labelStyle = {
-              fontSize: 12,
-              color: '#888',
-              width: 110,
-              flexShrink: 0,
-            } as const;
-            return (
-              <>
-                <div
-                  style={{
-                    ...sectionHeader,
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: 6,
-                  }}
-                >
-                  {t('avatar.dynamicsHeader')}
-                  <HelpButton
-                    topic="avatar"
-                    anchor="snappiness"
-                    tip={t('help.dynamics')}
-                  />
-                </div>
-                <label
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: 8,
-                    fontSize: 12,
-                    color: '#888',
-                    cursor: 'pointer',
-                    userSelect: 'none',
-                  }}
-                >
-                  <input
-                    type="checkbox"
-                    checked={dyn.enabled}
-                    onChange={(e) =>
-                      commitDyn({ ...dyn, enabled: e.target.checked })
-                    }
-                  />
-                  {t('avatar.dynamicsEnable')}
-                </label>
-                {dyn.enabled && (
-                  <>
-                    <div
-                      style={{ display: 'flex', alignItems: 'center', gap: 8 }}
-                    >
-                      <span style={labelStyle}>
-                        {t('avatar.dynamicsFrequency')}
-                      </span>
-                      <NumInput
-                        value={dyn.frequency}
-                        step={0.1}
-                        min={0.05}
-                        max={30}
-                        suffix="Hz"
-                        style={{ flex: 1, minWidth: 0 }}
-                        onChange={(v) => liveDyn({ ...dyn, frequency: v })}
-                        onCommit={(v) => commitDyn({ ...dyn, frequency: v })}
-                      />
-                    </div>
-                    <div
-                      style={{ display: 'flex', alignItems: 'center', gap: 8 }}
-                    >
-                      <span style={labelStyle}>
-                        {t('avatar.dynamicsDamping')}
-                      </span>
-                      <NumInput
-                        value={dyn.damping}
-                        step={0.05}
-                        min={0}
-                        max={4}
-                        style={{ flex: 1, minWidth: 0 }}
-                        onChange={(v) => liveDyn({ ...dyn, damping: v })}
-                        onCommit={(v) => commitDyn({ ...dyn, damping: v })}
-                      />
-                    </div>
-                    <div
-                      style={{ display: 'flex', alignItems: 'center', gap: 8 }}
-                    >
-                      <span style={labelStyle}>
-                        {t('avatar.dynamicsResponse')}
-                      </span>
-                      <NumInput
-                        value={dyn.response}
-                        step={0.1}
-                        min={-5}
-                        max={5}
-                        style={{ flex: 1, minWidth: 0 }}
-                        onChange={(v) => liveDyn({ ...dyn, response: v })}
-                        onCommit={(v) => commitDyn({ ...dyn, response: v })}
-                      />
-                    </div>
-                  </>
-                )}
-              </>
-            );
-          })()}
+        {/* Motion filter (poseFilter.ts) — avatar only */}
+        {node.kind === 'avatar' && <PoseFilterSection node={node} />}
 
         {/* Tracking Mix — per-source influence on bones / blendshapes (avatar only) */}
         {node.kind === 'avatar' && <TrackingMixSection node={node} />}

@@ -237,11 +237,33 @@
     "propertiesHeader": "Properties",
     "blendTransition": "Blend transition",
     "trackingGracePeriod": "Idle after",
-    "dynamicsHeader": "Motion Snappiness",
-    "dynamicsEnable": "Add snappiness to motion",
-    "dynamicsFrequency": "Frequency",
-    "dynamicsDamping": "Damping",
-    "dynamicsResponse": "Response",
+    "poseFilter": {
+      "header": "Motion filter",
+      "preset": "Preset",
+      "advanced": "Advanced",
+      "presets": {
+        "minimal": "Minimal (interpolation)",
+        "smooth": "Smooth",
+        "springy": "Springy",
+        "custom": "Custom"
+      },
+      "hints": {
+        "minimal": "Only glides between tracking updates. Quickest response; best for Learned Tracking, which is already smooth.",
+        "smooth": "Calms jitter while you hold still; fast moves stay quick. For noisy sources such as camera tracking.",
+        "springy": "Calms jitter at rest and adds a little overshoot and follow-through.",
+        "custom": "Your own values, set under Advanced."
+      },
+      "smoothing": "Smoothing",
+      "adaptation": "Speed adaptation",
+      "damping": "Damping",
+      "response": "Response",
+      "tips": {
+        "smoothing": "0 = only glide between updates; 1 = strong smoothing while still",
+        "adaptation": "How quickly smoothing fades as you move faster (less lag on fast moves)",
+        "damping": "1 = settles without overshoot; below 1 = springy overshoot; above 1 = sluggish",
+        "response": "0 = follows; above 0 = reacts ahead of the movement; below 0 = winds up first"
+      }
+    },
     "debugHeader": "Debug",
     "showFbxModel": "Show FBX animation model",
     "modelHeader": "Model",
@@ -275,7 +297,10 @@
     "close": "Close",
     "custom": "Custom",
     "resetTo": "Set all to {{value}}",
-    "tab": { "body": "Body", "face": "Face" },
+    "tab": {
+      "body": "Body",
+      "face": "Face"
+    },
     "order": "Order — applied left to right, on top of the animation",
     "moveEarlier": "Apply earlier",
     "moveLater": "Apply later",
@@ -779,7 +804,7 @@
     "materials": "Learn how to override avatar materials and shaders",
     "animation": "Learn about idle animations and blend timing",
     "trackingGracePeriod": "Learn how brief tracking dropouts are ridden out before the avatar returns to idle",
-    "dynamics": "Learn how to make motion-capture movement feel snappier",
+    "poseFilter": "How the motion filter shapes tracked movement",
     "camera": "Learn about camera properties and projections",
     "light": "Learn about light types and shadow settings",
     "breathing": "Learn how the breathing behavior works",

@@ -321,8 +321,8 @@ die Mischung.
 **Nachlauf** ist, wie weit der Körper den Steuerwerten hinterherläuft, in
 Sekunden. Größer ist lockerer und cartoonhafter; 0 lässt alles gleichzeitig
 laufen. Wenn die Bewegung *überschwingen* und ausschwingen soll, statt nur
-aufzuholen, schalte am Avatar selbst **Bewegungs-Schnappigkeit** ein — sie legt
-sich obendrauf.
+aufzuholen, wähle im [Bewegungsfilter](topic:avatar#motion-filter) des Avatars
+die Voreinstellung **Federnd**; sie legt sich obendrauf.
 
 **Nicht gesteuerte Knochen in Ruhelage** schickt alles außerhalb des Rigs
 (Finger, Beine) in seine neutrale Haltung zurück, statt das Tracking

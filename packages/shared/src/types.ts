@@ -124,10 +124,11 @@ export interface SceneNodeProperties {
   broadcastTickHz?: number;
   /** References another kind='scene' node. Applies to kind='scene_instance' nodes. */
   sourceSceneId?: string;
-  /** Second-order "snappiness" dynamics applied to broadcast bone rotations on
-   *  the frontend, after the jitter-smoothing filter. Applies to VRM avatar
-   *  nodes. Disabled by default. */
-  poseDynamics?: PoseDynamics;
+  /** Motion filter for broadcast (tracking) bone rotations on the frontend:
+   *  interpolation between samples, optional jitter smoothing and spring, in
+   *  one pass. Applies to VRM avatar nodes. Default: preset 'minimal'. Replaced
+   *  `poseDynamics` (snappiness on top of a fixed One Euro filter), 2026-11-23. */
+  poseFilter?: PoseFilter;
   /** Synthesize forearm twist bones when the model lacks them, so wrist
    *  pronation spreads along the forearm instead of pinching at the elbow.
    *  Models with their own twist bones are driven automatically regardless.
@@ -163,17 +164,19 @@ export interface TrackingMix {
   sources?: Record<string, TrackingMixSource>;
 }
 
-/** Per-bone second-order (spring–damper) dynamics that add anticipatory snap /
- *  overshoot to broadcast pose without becoming choppy. See the frontend
- *  `secondOrderDynamics` module for the implementation. */
-export interface PoseDynamics {
-  enabled: boolean;
-  /** Natural frequency in Hz. Higher = faster / snappier. */
-  frequency: number;
-  /** Damping ratio ζ. <1 overshoots, 1 critical, >1 sluggish. */
-  damping: number;
-  /** Response r. 0 = none, >0 anticipatory lead, <0 wind-up. */
-  response: number;
+/** Per-avatar motion filter for broadcast pose (frontend `poseFilter.ts`). A
+ *  preset other than 'custom' brings its own parameter values; the stored
+ *  numbers apply with 'custom'. */
+export interface PoseFilter {
+  preset: 'minimal' | 'smooth' | 'springy' | 'custom';
+  /** 0 = interpolation only … 1 = heavy smoothing at rest. */
+  smoothing?: number;
+  /** Follow-frequency increase per rad/s of movement speed. */
+  adaptation?: number;
+  /** Damping ratio ζ: <1 overshoots, 1 critical, >1 sluggish. */
+  damping?: number;
+  /** Response r: 0 none, >0 anticipation, <0 wind-up. */
+  response?: number;
 }
 
 // A node in a scene tree
