@@ -175,6 +175,7 @@ const withMarker = (g: GraphDescriptor): GraphDescriptor => ({
 const makeWs = () => ({
   broadcast: vi.fn(),
   onClientConnected: vi.fn(),
+  onMessage: vi.fn(),
   sendTo: vi.fn(),
 });
 

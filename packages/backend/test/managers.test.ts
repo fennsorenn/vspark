@@ -526,6 +526,7 @@ describe('TrackingManager tracking-loss grace period', () => {
   const makeWs = () => ({
     broadcast: vi.fn(),
     onClientConnected: vi.fn(),
+    onMessage: vi.fn(),
     sendTo: vi.fn(),
   });
 
@@ -848,6 +849,7 @@ describe('VmcManager (UDP mocked)', () => {
   const makeWs = () => ({
     broadcast: vi.fn(),
     onClientConnected: vi.fn(),
+    onMessage: vi.fn(),
     sendTo: vi.fn(),
   });
 
@@ -1218,6 +1220,7 @@ describe('IFacialMocapManager (UDP mocked)', () => {
   const makeWs = () => ({
     broadcast: vi.fn(),
     onClientConnected: vi.fn(),
+    onMessage: vi.fn(),
     sendTo: vi.fn(),
   });
 
@@ -1789,6 +1792,7 @@ describe('VmcManager /MT/Present', () => {
     manager = new VmcManager({
       broadcast: vi.fn(),
       onClientConnected: vi.fn(),
+      onMessage: vi.fn(),
       sendTo: vi.fn(),
     } as never);
   });
