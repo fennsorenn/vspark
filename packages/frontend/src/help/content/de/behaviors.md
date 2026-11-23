@@ -183,6 +183,10 @@ derselben Webcam aus. Wähle die Kamera aus der Liste; **Aktualisieren** fragt
 die Runtime erneut. Die Statuszeile zeigt, ob die Runtime startet, läuft (Bilder
 pro Sekunde, Latenz) oder mit einem Fehler gestoppt ist.
 
+Scheint die Runtime festzuhängen (etwa nachdem die Kamera abgesteckt war),
+beendet **Runtime neu starten** sie und startet sie neu. Nach einem Absturz
+versucht sie es außerdem alle paar Sekunden von selbst.
+
 **An die Proportionen des Avatars anpassen** (standardmäßig aus) passt die Arme
 so an, dass deine Hände ihre Lage zum Körper und zueinander behalten, auch wenn
 der Avatar anders proportioniert ist als du. Ohne diese Option übernimmt der

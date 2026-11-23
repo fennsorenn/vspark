@@ -167,6 +167,37 @@ describe('LearnedRuntime', () => {
     );
   });
 
+  it('restarts by hand: a new process, and at once while a crash retry is pending', async () => {
+    const statuses: RuntimeStatus[] = [];
+    const rt = make(statuses);
+    expect(rt.restartNow()).toBe(false); // not started
+    rt.apply(opts());
+    await until(statuses, (s) => s.state === 'running');
+    expect(rt.restartNow()).toBe(true);
+    await until(
+      statuses,
+      (s) => s.state === 'starting' && statuses.indexOf(s) > 0
+    );
+    await until(
+      statuses,
+      (s) =>
+        s.state === 'running' &&
+        statuses.filter((x) => x.state === 'starting').length === 2
+    );
+    // crash -> a retry is scheduled (2 s); restartNow starts it at once
+    (rt as unknown as { send: (c: object) => void }).send({ cmd: 'crash' });
+    await until(statuses, (s) => s.state === 'error');
+    const t0 = Date.now();
+    rt.restartNow();
+    await until(
+      statuses,
+      (s) =>
+        s.state === 'starting' &&
+        statuses.filter((x) => x.state === 'starting').length === 3
+    );
+    expect(Date.now() - t0).toBeLessThan(1000);
+  });
+
   it('restarts on a port change', async () => {
     const statuses: RuntimeStatus[] = [];
     const rt = make(statuses);

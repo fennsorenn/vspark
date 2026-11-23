@@ -2447,6 +2447,8 @@ function LearnedTrackerProps({ comp }: { comp: Behavior }) {
   const status = useTrackingStatuses()[comp.id]?.runtime;
   const [rt, setRt] = useState<LearnedRuntimeInfo | null>(null);
   const [rtError, setRtError] = useState('');
+  const [restarting, setRestarting] = useState(false);
+  const [restartError, setRestartError] = useState('');
 
   const loadRuntime = () =>
     api
@@ -2808,6 +2810,39 @@ function LearnedTrackerProps({ comp }: { comp: Behavior }) {
             </div>
           )}
         </div>
+      </div>
+
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+        <span style={labelStyle} />
+        <button
+          className="vs-learned-restart"
+          title={t('learned.restartHint')}
+          disabled={restarting || !status || status.state === 'stopped'}
+          onClick={() => {
+            setRestarting(true);
+            setRestartError('');
+            api
+              .restartLearnedRuntime(comp.id)
+              .catch((e: unknown) =>
+                setRestartError(e instanceof Error ? e.message : String(e))
+              )
+              .finally(() => setTimeout(() => setRestarting(false), 1500));
+          }}
+          style={{
+            background: '#1e1e1e',
+            border: '1px solid #2a2a2a',
+            color: '#ccc',
+            borderRadius: 4,
+            padding: '3px 8px',
+            fontSize: 11,
+            cursor: restarting ? 'default' : 'pointer',
+          }}
+        >
+          {restarting ? t('learned.restarting') : t('learned.restart')}
+        </button>
+        {restartError && (
+          <span style={{ fontSize: 10, color: '#f87171' }}>{restartError}</span>
+        )}
       </div>
 
       <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>

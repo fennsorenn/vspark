@@ -1031,6 +1031,13 @@ export interface LearnedRuntimeInfo {
 export const getLearnedRuntime = () =>
   request<LearnedRuntimeInfo>('/learned-tracker/runtime');
 
+/** Stops a Learned Tracking behavior's runtime and starts it again (e.g. after
+ *  the camera stopped sending frames). */
+export const restartLearnedRuntime = (behaviorId: string) =>
+  request<{ restarting: boolean }>(`/learned-tracker/${behaviorId}/restart`, {
+    method: 'POST',
+  });
+
 /** Starts the download of the pinned runtime in the background; poll getLearnedRuntime. */
 export const downloadLearnedRuntime = () =>
   request<LearnedRuntimeInfo>('/learned-tracker/runtime/download', {
@@ -1616,6 +1623,7 @@ export const api = {
   getLearnedTrackerCameras,
   getLearnedRuntime,
   downloadLearnedRuntime,
+  restartLearnedRuntime,
   getBodyCalibState,
   getSignalGraphs,
   getSignalNodeKinds,

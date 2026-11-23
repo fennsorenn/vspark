@@ -178,10 +178,18 @@ to the window, which draws the picture and the overlay with `CameraCapture.drawL
 legend as the Media Input window). Nothing is sent while no window is open. Needs a runtime with the `preview`
 command (motiontracker after v0.2.0); an older one answers "unknown command".
 
-Unexpected exit: restart with backoff 2 s / 5 s / 10 s / 30 s (the last repeats); a run longer than
+Unexpected exit: restart with backoff 2 s / 5 s (the last repeats; capped at 5 s, owner 2026-11-23: someone is
+usually waiting for it); a run longer than
 60 s resets the backoff. A failed spawn (`uv` missing → ENOENT) is handled like a crash. A missing
 runtime (`service/pyproject.toml` not found) is reported as an error without spawning (the message
 points to the download); the next `syncBehaviors` pass tries again.
+
+**Manual restart**: the panel's **Restart runtime** button (`vs-learned-restart`) calls
+`POST /api/learned-tracker/:behaviorId/restart` → `VmcManager.restartLearnedRuntime` →
+`LearnedRuntime.restartNow()`: a fresh process (also when one is running), at once when a crash retry
+is pending, backoff reset. Added 2026-11-23 after the webcam dropped off USB and the runtime waited on it:
+a runtime blocked waiting for camera frames doesn't read its stop command, so it ends by SIGTERM after
+3 s.
 
 ## Runtime status
 

@@ -717,6 +717,12 @@ export class VmcManager {
     }
   }
 
+  /** Restart a Learned Tracking behavior's runtime by hand; false when it has
+   *  none running. */
+  restartLearnedRuntime(behaviorId: string): boolean {
+    return this.runtimes.get(behaviorId)?.restartNow() ?? false;
+  }
+
   /** Re-resolve the runtime location for every running Learned Tracking
    *  behavior (after a download): a new location restarts its runtime, one that
    *  had failed to start is started again. */

@@ -69,7 +69,9 @@ export interface RuntimeOptions {
 }
 
 /** Restart delays after an unexpected exit; the last one repeats. */
-const BACKOFF_MS = [2000, 5000, 10000, 30000];
+// Capped at 5 s (owner, 2026-11-23): while Learned Tracking is on, someone is
+// usually waiting for it to come back, e.g. after replugging the camera.
+const BACKOFF_MS = [2000, 5000];
 /** A run this long resets the backoff. */
 const STABLE_MS = 60000;
 
@@ -227,6 +229,19 @@ export class LearnedRuntime {
     this.restartTimer = null;
     this.terminate();
     this.setStatus({ state: 'stopped' });
+  }
+
+  /** Restart by hand (the behavior's Restart button): a fresh process, also
+   *  when one is running, and at once when a retry after a crash is pending.
+   *  A runtime stuck waiting on a camera that sends nothing doesn't read its
+   *  stop command, so it ends by SIGTERM after 3 s. False when not started. */
+  restartNow(): boolean {
+    if (!this.opts || this.stopping) return false;
+    if (this.restartTimer) clearTimeout(this.restartTimer);
+    this.restartTimer = null;
+    this.attempt = 0;
+    this.restart();
+    return true;
   }
 
   private restart(): void {

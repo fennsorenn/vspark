@@ -171,6 +171,10 @@ webcam. Pick the camera from the list; **Refresh** asks the runtime again. The
 status line shows whether the runtime is starting, running (frames per second,
 latency) or stopped with an error.
 
+If the runtime seems stuck (for example after the camera was unplugged),
+**Restart runtime** stops it and starts it again. After a crash it also retries
+by itself every few seconds.
+
 **Fit to the avatar's proportions** (off by default) adjusts the arms so your
 hands keep their positions relative to your body and to each other, even when
 the avatar's proportions differ from yours. Without it the avatar copies your

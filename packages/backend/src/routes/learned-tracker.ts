@@ -11,6 +11,7 @@ import {
   isDownloaded,
   startRuntimeDownload,
 } from '../behaviors/learned_tracker/download.js';
+import { _vmc } from './shared.js';
 
 const router = Router();
 
@@ -157,6 +158,45 @@ router.post('/learned-tracker/runtime/download', (_req, res) => {
       console.error('[LearnedTracker] runtime download failed:', e)
     );
   res.json({ ok: true, data: runtimeInfo() });
+});
+
+/**
+ * @openapi
+ * /api/learned-tracker/{behaviorId}/restart:
+ *   post:
+ *     tags: [behaviors]
+ *     summary: Restart a Learned Tracking behavior's runtime process
+ *     description: >
+ *       Stops the runtime and starts it again (also skipping a pending retry after a crash), e.g.
+ *       when the camera stopped sending frames. The new process reports its state through the
+ *       behavior's tracking status as usual.
+ *     parameters:
+ *       - { in: path, name: behaviorId, required: true, schema: { type: string } }
+ *     responses:
+ *       200: { description: Restart started }
+ *       404: { description: No running Learned Tracking runtime for this behavior }
+ *       503: { description: VMC manager not ready }
+ */
+router.post('/learned-tracker/:behaviorId/restart', (req, res) => {
+  if (!_vmc)
+    return res.status(503).json({
+      ok: false,
+      error: {
+        status: 503,
+        message: 'VMC manager not ready',
+        code: 'NOT_READY',
+      },
+    });
+  if (!_vmc.restartLearnedRuntime(req.params.behaviorId))
+    return res.status(404).json({
+      ok: false,
+      error: {
+        status: 404,
+        message: 'no Learned Tracking runtime for this behavior',
+        code: 'NOT_FOUND',
+      },
+    });
+  res.json({ ok: true, data: { restarting: true } });
 });
 
 export default router;
