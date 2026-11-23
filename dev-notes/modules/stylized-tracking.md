@@ -19,7 +19,7 @@ off the performance and synthesize the skeleton back from them.**
 
 Status: implemented. Related: [component-managers.md](component-managers.md),
 [signal-graph.md](signal-graph.md), [animation.md](animation.md) (Motion
-snappiness, which composes on top of this).
+filter, which composes on top of this).
 
 ---
 
@@ -349,8 +349,8 @@ as a first-order lag on the summed Euler triple
 (`k = 1 - exp(-dt/tau)`, frame-rate independent). The stock rig staggers it down
 the chain — hips 2.6, spine 2.0, chest 1.5, upperChest 1.1, neck 0.5, head 0.2 —
 and that stagger is what produces the whip-and-settle that reads as alive.
-Overshoot is deliberately *not* done here; the avatar's frontend **Motion
-Snappiness** (second-order dynamics, see [animation.md](animation.md)) layers on
+Overshoot is deliberately *not* done here; the avatar's frontend **motion
+filter** (`poseFilter`, Springy preset; see [animation.md](animation.md)) layers on
 top if you want spring.
 
 ### Why the default rig is shaped the way it is

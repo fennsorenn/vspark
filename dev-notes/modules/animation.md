@@ -226,15 +226,14 @@ The frontend maintains `VmcRetarget` state per avatar:
 ```
 
 Per frame:
-1. Low-pass filter each incoming bone rotation (OneEuroFilter)
-1a. Optional **motion snappiness** — a per-bone second-order dynamics (spring–damper) filter layered *after* the One Euro filter. Off by default; gated on `node.properties.poseDynamics.enabled`. See "Motion snappiness" below.
+1. Run each incoming bone rotation through the per-avatar **motion filter** (`PoseFilterBank`, configured by `node.properties.poseFilter`, default Minimal = interpolation only). See "Motion filter" below.
 2. Apply arm reach calibration if active (correct wrist position, run IK)
 3. Blend with animation: slerp each bone toward the animation pose by `(1 - blendWeight)`. Ramp speed is `1 / blendTime` seconds.
 4. Write final rotations to `vrm.humanoid.setNormalizedPose()`
 
 **Blend ramping**: `blendWeight` moves toward 0 (animation) or 1 (VMC) each frame at `1/blendTime` rate. Prevents pops when mocap drops in/out. Default `blendTime`: 0.3s.
 
-**Pose timeout**: If no VMC frame has been received for `poseTimeout` seconds (default 2s), blend weight ramps back to 0. OneEuroFilter resets to prevent stale filtered values carrying over when mocap reconnects.
+**Pose timeout**: If no VMC frame has been received for `poseTimeout` seconds (default 2s), blend weight ramps back to 0. The motion filter bank resets to prevent stale filtered values carrying over when mocap reconnects.
 
 ### Tracking ↔ animation stacking
 
@@ -288,8 +287,8 @@ The unified path runs while the mode is engaged **or still ramping down**, which
 
 **Why the exit needed more than the ramp.** `modeWeight` scales the tracking *weight*; it cannot rescue tracking *data* that is already gone. Four separate mechanisms removed data or state in a single frame on the tracked→untracked exit, which is why entry looked smooth (data arrives before the ramp starts) while exit snapped:
 
-1. **The bus's empty-bones fallback frame.** When every producer drops out the bus emits one final frame with `bones: {}` (`bus.ts` `_emitFallback`). The pose object is non-null but empty, so composition ran and found no bones — every bone's tracking term went null and its weight 0 at once. Fixed by `TrackedPoseLatch`: the last *populated* (and filtered) pose is held and replayed while `modeWeight > 0`, so the ramp fades from a real pose. The latch ignores empty updates and is released on the settle edge. Replayed frames skip the One Euro filter — the latch is a held constant, and re-filtering it would drift.
-2. **The transition reset fired at the start of the exit.** It keyed off `trackedActive` going false — the *first* exit frame, with `modeWeight` still ~1 and the tracked path still rendering. `BoneFilterBank.reset()` clears each filter's `initialized` flag, so the next `filter()` returns the **raw** sample instead of the smoothed one, and `resetNormalizedPose()` wiped the pose the ramp was reading. Now fires on the `modeWeight >0 → 0` edge, i.e. once the fade has finished.
+1. **The bus's empty-bones fallback frame.** When every producer drops out the bus emits one final frame with `bones: {}` (`bus.ts` `_emitFallback`). The pose object is non-null but empty, so composition ran and found no bones — every bone's tracking term went null and its weight 0 at once. Fixed by `TrackedPoseLatch`: the last *populated* (and filtered) pose is held and replayed while `modeWeight > 0`, so the ramp fades from a real pose. The latch ignores empty updates and is released on the settle edge. Replayed frames still run through the motion filter, with `newSample = false` (the latch is a held constant), so the fade starts from where the avatar actually is (changed 2026-11-23; previously replays skipped the One Euro filter).
+2. **The transition reset fired at the start of the exit.** It keyed off `trackedActive` going false — the *first* exit frame, with `modeWeight` still ~1 and the tracked path still rendering. The filter bank's `reset()` (then the One Euro `BoneFilterBank`, now `PoseFilterBank`) clears each filter's state, so the next `filter()` returns the **raw** sample instead of the smoothed one, and `resetNormalizedPose()` wiped the pose the ramp was reading. Now fires on the `modeWeight >0 → 0` edge, i.e. once the fade has finished.
 3. **Tracking faded quadratically.** `tw = inf.track * blend` was then scaled again by `modeWeight` inside `composeBonePose`, and `blend === modeWeight` (identical ramps), giving `inf.track * modeWeight²` — a collapse in the final third that read as a late snap. `blend` is gone; `composeBonePose` owns the mode scaling, and the duplicate `blendWeightRef` ramp was removed.
 4. **The base slot was torn down before the fade could capture it.** `setTrackingActive(false)` → `baseSlotUrl` null → the slot effect called `teardownSlot('base')` in its **body**, which React commits before the next frame. `fade.from` then pointed at a missing slot, the freeze fell through to `clear()`, and `crossfadeAnimPose` with a null `from` returns `slerp(rest, to, k)` — rest at `k=0`, not the outgoing pose — so the base→idle animation cross-fade was silently skipped and the baseline cut. Slots are now **retired** (`retireSlot`) rather than torn down: excluded from source selection but kept loaded and ticked, and dropped by the frame loop once no fade reads them. A small `else` branch remains for `pose == null` (no producer has ever published, so there is no pose object to read); it is `modeWeight = 0` by construction.
 
@@ -351,26 +350,40 @@ Before this landed, the vmc_receiver carried a `poseTimeout` config field (UI la
 
 **Tests.** 12 grace-period tests across both managers in `packages/backend/test/managers.test.ts`; 8 migration tests in `packages/backend/test/db.migrations.test.ts`.
 
-### Motion snappiness (second-order dynamics)
+### Motion filter (`poseFilter`)
 
-**Status:** implemented (2026-06-19). Frontend-only, per-avatar-node, disabled by default.
+**Status:** implemented (2026-11-23, commit 842944e6 on `feature/pose-filter`). Frontend-only, one filter per avatar node.
 
-A configurable second-order dynamics (spring–damper) filter applied per bone to the broadcast pose, layered **after** the One Euro filter rather than replacing it. The One Euro filter stays responsible for jitter and uneven/low-frequency packet delivery; the dynamics layer adds "snap"/"follow-through". Unlike a low-pass filter (which can only lag the target), a second-order system can **lead and overshoot** the target, so motion reads as snappy without going choppy (output stays C¹-continuous).
+Replaced two stacked filters: the hardcoded One Euro `BoneFilterBank` (`oneEuroFilter.ts`, min cutoff 1 Hz, beta 0.3) and the optional Motion Snappiness second-order dynamics (`secondOrderDynamics.ts`, `properties.poseDynamics`). Both files and `test/secondOrderDynamics.test.ts` are deleted; stored `poseDynamics` values are dropped (zod strips unknown keys). Reason: the stack added a lot of easing with Learned Tracking. Measured end to end (virtual camera → motiontracker runtime v0.3.0 → vspark → headless Chrome at 60 fps, Fenn_2, 45 arm steps): rendered arm halfway point after the camera change 189 ms with the old filters (One Euro + that avatar's snappiness 2.65 Hz / ζ 1.5 / r 1.9) → 107 ms with Minimal. Most of the old easing came from the snappiness settings; the One Euro alone was ~33 ms to halfway in simulation. With Minimal the filter reaches 90% of a received pose ~66 ms after it arrives (10 Hz input).
 
-**Why frontend, not a backend pose-interceptor.** The deliberate placement is the frontend avatar node, not the backend `on_pose_broadcast`/`pose_interceptor_broadcast` chain, because the One Euro filter must stay in place at the consumer to absorb unreliable/low-frequency packet delivery — the dynamics layer assumes an already-de-jittered, frame-rate-paced input.
+**Decided** (owner, 2026-11-23): one filter per avatar, not per tracking source; Minimal is the default for every avatar; casual users get a preset dropdown, the parameter fields sit behind a collapsed "Advanced" toggle.
 
-**Module:** `packages/frontend/src/secondOrderDynamics.ts` — exports `SecondOrderDynamicsQuat` (single-bone filter), `BoneDynamicsBank` (one lazily-created filter per bone name, `.reset()` resets all), `PoseDynamicsConfig`, and `DEFAULT_POSE_DYNAMICS` (`{ enabled: false, frequency: 3.0, damping: 0.6, response: 1.2 }`).
+**Module:** `packages/frontend/src/poseFilter.ts` — `PoseFilterQuat` (one bone), `PoseFilterBank` (one lazily created filter per bone name, `.reset()`), `PoseFilterPreset`, `PoseFilterParams`, `PoseFilterConfig`, `POSE_FILTER_PRESETS`, `DEFAULT_POSE_FILTER`, `POSE_FILTER_RANGES`, `resolvePoseFilter()`.
 
-**Math.** The standard semi-implicit-Euler second-order formulation (t3ssel8r, "Giving Personality to Procedural Animations using Math") adapted from scalar to SO(3): spring error, target velocity, and output velocity are all world-frame rotation vectors (axis·angle), and the output orientation is integrated through the quaternion exponential map. `k2` is stability-clamped so the integrator stays stable at large `dt` (low frame rates). Parameters:
-- `frequency` (Hz) — natural frequency; higher = quicker reaction / snappier.
-- `damping` (ζ) — `<1` overshoots (snap/bounce), `1` critical (no overshoot), `>1` sluggish.
-- `response` (r) — `0` no anticipation, `>0` anticipatory lead, `<0` winds up before moving.
+**Math.** Adaptive second-order (spring–damper) filter on SO(3): t3ssel8r semi-implicit Euler formulation with rotation vectors and the quaternion exponential map (same base as the old snappiness filter).
+- Follow frequency `f = min(glideHz, rest + adaptation · |smoothed input velocity|)`, with `rest = glideHz · (0.5 / glideHz)^smoothing`.
+- `glideHz = 4.74 / (2π · interval)`, clamped 2–30 Hz; `interval` is an EMA of sample intervals. Gaps > 0.25 s are ignored, so a held pose or a tracking pause doesn't slow the glide. The fastest setting is therefore an automatic glide matched to the incoming pose rate.
+- Target velocity is estimated per new **sample** (not per frame), smoothed (tau 0.15 s), and used both for the adaptation and for the response term (raw velocity would amplify jitter).
 
-**Wiring** (`Viewport.tsx`, `AvatarNode` `useFrame`, Step 2 broadcast pose composition): a `boneDynamicsRef` (`BoneDynamicsBank`) runs immediately after the `boneFiltersRef` One Euro `BoneFilterBank`. Reads `node.properties.poseDynamics ?? DEFAULT_POSE_DYNAMICS`; when `enabled` is false the bank is `.reset()` each frame so re-enabling starts cleanly from the current pose.
+**Parameters / ranges:** `smoothing` 0–1, `adaptation` 0–6, `damping` 0.1–3, `response` −2–4.
 
-**Per-sample target velocity.** `SecondOrderDynamicsQuat.filter` takes a `newSample` flag (default `true`). The target velocity used by the `response` term is estimated once per input sample (rotation change since the previous sample ÷ time since that sample), held between samples, and zeroed when no sample arrives for `max(0.1 s, 2 × last sample interval)`. `Viewport.tsx` flags a bone as a new sample only when its raw broadcast rotation differs from the previous one, because the bus re-emits identical values every tick and latch replays are never new. This replaced per-frame estimation, which spiked the velocity on update frames and zeroed it in between when tracking updated slower than rendering, so with heavy damping (observed at 1.3 Hz / ζ 3.75 / r 1.1) the bone snapped back and forth every frame (fix cf498e4; regression test `packages/frontend/test/secondOrderDynamics.test.ts`).
+**Presets** (`{smoothing, adaptation, damping, response}`):
+- `minimal` `{0, 0, 1, 0}` — interpolation between tracking samples only. Default.
+- `smooth` `{0.9, 3, 1, 0}` — tuned offline against the old filters: no more jitter than the old One Euro at rest and less lag (10 Hz step halfway 17 ms vs 33; 1 Hz swing lag 50 vs 67 ms).
+- `springy` `{0.9, 1, 0.7, 1}` — about 6° overshoot on a 50° step.
+- `custom` — uses the stored parameters.
 
-**Config** is persisted as the per-node `poseDynamics` property: typed as `PoseDynamics` on shared `SceneNodeProperties` (`packages/shared/src/types.ts`), Zod-validated in `sceneNodePropertiesSchema` (`packages/shared/src/schema.ts`), and mirrored in both frontend `NodeProperties` interfaces (`store/editorStore.ts`, `api/client.ts`). UI is a "Motion Snappiness" section in the PropertiesPanel avatar block (enable checkbox + frequency/damping/response `NumInput`s + `HelpButton`). i18n keys under `avatar.*` and `help.dynamics` in `properties.json`; help section `{#snappiness}` in `help/content/{en,de}/avatar.md`.
+`resolvePoseFilter(config)`: a non-custom preset brings its own values (stored parameters are ignored); `custom` uses the stored ones.
+
+**Wiring** (`Viewport.tsx`, `AvatarNode` `useFrame`, Step 2 broadcast pose composition): `boneFiltersRef = useRef(new PoseFilterBank())`; per bone `filters.filter(bone, q, delta, resolvePoseFilter(node.properties?.poseFilter), newSample)`. `newSample` is true only when the bone's raw broadcast rotation changed (the bus re-emits identical values every tick). The filter also runs during the `TrackedPoseLatch` replay with `newSample = false`. The bank is reset on the `modeWeight > 0 → 0` edge (see "Why the exit needed more than the ramp").
+
+**Config:** `properties.poseFilter` = `{ preset, smoothing?, adaptation?, damping?, response? }` — `PoseFilter` in shared `packages/shared/src/types.ts`, Zod in `schema.ts`, mirrored as `Partial<PoseFilterConfig>` in both frontend `NodeProperties` (`store/editorStore.ts`, `api/client.ts`). Missing = Minimal.
+
+**UI:** `PoseFilterSection` in the PropertiesPanel avatar block (see [frontend.md](frontend.md)). i18n `avatar.poseFilter.*` + `help.poseFilter` (en/de); help section "Motion filter" `{#motion-filter}` in `help/content/{en,de}/avatar.md` (replaced `{#snappiness}`); the pose stylizer follow-through text in `behaviors.md` links to it.
+
+**Tests:** `packages/frontend/test/poseFilter.test.ts` (12); e2e `cov-properties.spec.ts` test 9 (preset + Advanced → Custom, REST read-back).
+
+**Extending:** a new preset touches `POSE_FILTER_PRESETS` + the `PoseFilterPreset` union, the shared `PoseFilter` type and the `z.enum` in `schema.ts`, the `PoseFilterSection` dropdown and en/de i18n labels. A new parameter touches `PoseFilterParams`, `POSE_FILTER_RANGES`, every preset, the shared type + Zod object, and the Advanced field list in `PoseFilterSection` (handle `vs-pose-filter-<name>`, i18n `avatar.poseFilter.<name>` + `avatar.poseFilter.tips.<name>`; re-bless the controls manifest). Choosing a preset in the dropdown commits that preset's resolved values; choosing Custom keeps the values in effect.
 
 ## Shared, scheduled, content-addressed playback
 
