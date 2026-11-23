@@ -27,8 +27,13 @@ Runtime side: motiontracker repo, `service/README.md` (setup, CLI, stdio protoco
 - It is its **own behavior kind**, so it feels native (not a configuration of the VMC receiver).
 - **VMC** is the transport for pose data.
 - **Control runs over stdio** (JSON lines on the child's stdin/stdout).
-- vspark's frontend **One Euro render filter stays on** for it for now (see
-  [animation.md](animation.md); the runtime itself sends unsmoothed output at 10 FPS).
+- ~~vspark's frontend **One Euro render filter stays on** for it for now~~ — superseded
+  2026-11-23: the One Euro filter and Motion Snappiness were merged into one per-avatar
+  **motion filter** (`poseFilter.ts`, see [animation.md](animation.md)). **Decided** (owner,
+  2026-11-23): every avatar defaults to its **Minimal** preset (interpolation only), which suits
+  Learned Tracking: the runtime's output is already temporally smooth and arrives at 10 FPS.
+  Measured end to end (virtual camera → runtime → rendered arm): halfway point 189 ms with the old
+  filters → 107 ms with Minimal.
 
 **Decided** (owner, 2026-11-14):
 
