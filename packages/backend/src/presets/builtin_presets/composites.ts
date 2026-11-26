@@ -44,6 +44,8 @@ import {
 export interface BuiltinComposite extends BuiltinPreset {
   /** The composite type the root's marker names. */
   composite: string;
+  /** Set for composites a plugin registered (`registerBuiltinComposite`). */
+  plugin?: string;
 }
 
 const marker = (type: string, parts: Record<string, string>) => ({

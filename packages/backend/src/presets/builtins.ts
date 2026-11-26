@@ -22,7 +22,10 @@ import {
 import { PARTICLE_PRESETS } from './builtin_presets/particles.js';
 import { CHAT_PRESETS } from './builtin_presets/chat.js';
 import { ALERT_PRESETS } from './builtin_presets/alerts.js';
-import { BUILTIN_COMPOSITES } from './builtin_presets/composites.js';
+import {
+  BUILTIN_COMPOSITES,
+  type BuiltinComposite,
+} from './builtin_presets/composites.js';
 
 export type { BuiltinPreset } from './builtin_presets/helpers.js';
 export type { BuiltinComposite } from './builtin_presets/composites.js';
@@ -84,6 +87,26 @@ export const BUILTIN_PRESETS: BuiltinPreset[] = [
  *  same lookup so the editor places them through the ordinary preset path;
  *  they are listed separately (GET /api/presets/composites), not in the
  *  preset library. */
+/** Add a plugin's placeable composite payload. Its id must be
+ *  `plugin:<pluginId>:<name>` and its composite type `<pluginId>_…`. */
+export function registerBuiltinComposite(
+  pluginId: string,
+  payload: BuiltinComposite
+): void {
+  if (!payload.id.startsWith(`plugin:${pluginId}:`))
+    throw new Error(`composite payload "${payload.id}" of plugin "${pluginId}" must start with "plugin:${pluginId}:"`);
+  if (!payload.composite.startsWith(`${pluginId}_`))
+    throw new Error(`composite type "${payload.composite}" of plugin "${pluginId}" must start with "${pluginId}_"`);
+  if (getBuiltinPreset(payload.id)) throw new Error(`preset "${payload.id}" already exists`);
+  BUILTIN_COMPOSITES.push({ ...payload, plugin: pluginId });
+}
+
+/** Remove a plugin's composite payloads. */
+export function unregisterBuiltinComposites(pluginId: string): void {
+  for (let i = BUILTIN_COMPOSITES.length - 1; i >= 0; i--)
+    if (BUILTIN_COMPOSITES[i]!.plugin === pluginId) BUILTIN_COMPOSITES.splice(i, 1);
+}
+
 export function getBuiltinPreset(id: string): BuiltinPreset | undefined {
   return (
     BUILTIN_PRESETS.find((p) => p.id === id) ??

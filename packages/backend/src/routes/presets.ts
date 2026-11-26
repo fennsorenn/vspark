@@ -142,6 +142,7 @@ router.get('/presets/composites', (_req, res) => {
       rootKind: p.rootKind,
       composite: p.composite,
       builtin: true,
+      ...(p.plugin ? { plugin: p.plugin } : {}),
     })),
   });
 });

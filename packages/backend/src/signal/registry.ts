@@ -7,6 +7,7 @@ import { getNodeDisplay } from '@vspark/shared/signal';
 import { getPortMeta, type PortMeta } from '@vspark/shared/node';
 import { typeTagToResolved } from '@vspark/shared/signal_types';
 import { INFER_BY_KIND } from '@vspark/shared/infer_nodes';
+import { checkContributionId, RegistrationError } from '@vspark/shared/actions';
 import { BehaviorId } from './nodes/behavior_id.js';
 import { SettingsNode } from './nodes/settings.js';
 import { SceneEntity } from './nodes/scene_entity.js';
@@ -314,9 +315,59 @@ const ALL_NODE_CLASSES: SignalNodeClass[] = [
   SetExpression,
 ];
 
-export const NODE_REGISTRY: ReadonlyMap<string, SignalNodeClass> = new Map(
+const registry = new Map<string, SignalNodeClass>(
   ALL_NODE_CLASSES.map((cls) => [cls.kind, cls])
 );
+
+/** Every node kind: the built-ins, then plugin kinds in registration order.
+ *  Consumers hold this map, so kinds registered later are seen by them. */
+export const NODE_REGISTRY: ReadonlyMap<string, SignalNodeClass> = registry;
+
+/** kind → plugin id, for kinds a plugin registered. */
+const PLUGIN_OF = new Map<string, string>();
+
+/**
+ * Add a plugin's node kinds. Each kind must start with `<pluginId>_` and the
+ * class must be decorated with the host's `@SignalNode` (a plugin that bundled
+ * its own copy of the decorators produces classes the engine cannot see the
+ * ports of — refused here rather than failing later in a graph).
+ * All-or-nothing: nothing is registered when one class is refused.
+ */
+export function registerNodeKinds(
+  pluginId: string,
+  classes: readonly SignalNodeClass[]
+): void {
+  const seen = new Set<string>();
+  for (const cls of classes) {
+    checkContributionId(pluginId, cls.kind, 'node kind');
+    if (registry.has(cls.kind) || seen.has(cls.kind))
+      throw new RegistrationError(`node kind "${cls.kind}" already exists`);
+    if (!getNodeDisplay(cls))
+      throw new RegistrationError(
+        `node kind "${cls.kind}" is not decorated with the host's @SignalNode`
+      );
+    seen.add(cls.kind);
+  }
+  for (const cls of classes) {
+    registry.set(cls.kind, cls);
+    PLUGIN_OF.set(cls.kind, pluginId);
+  }
+}
+
+/** Remove a plugin's node kinds (a failed activation, tests). Graphs that use
+ *  them load the nodes as unknown kinds. */
+export function unregisterNodeKinds(pluginId: string): void {
+  for (const [kind, p] of PLUGIN_OF) {
+    if (p !== pluginId) continue;
+    registry.delete(kind);
+    PLUGIN_OF.delete(kind);
+  }
+}
+
+/** The plugin that registered `kind`, or undefined for a built-in kind. */
+export function pluginOfNodeKind(kind: string): string | undefined {
+  return PLUGIN_OF.get(kind);
+}
 
 function toPortMeta(p: PortMeta): NodePortMeta {
   return {
@@ -328,14 +379,16 @@ function toPortMeta(p: PortMeta): NodePortMeta {
 }
 
 export function getAllNodeKindMeta(): NodeKindMeta[] {
-  return ALL_NODE_CLASSES.map((cls) => {
+  return [...registry.values()].map((cls) => {
     const ports = getPortMeta(cls);
+    const plugin = PLUGIN_OF.get(cls.kind);
     return {
       kind: cls.kind,
       inputPorts: ports.filter((p) => p.direction === 'in').map(toPortMeta),
       outputPorts: ports.filter((p) => p.direction === 'out').map(toPortMeta),
       display: getNodeDisplay(cls),
       dynamic: cls.kind in INFER_BY_KIND,
+      ...(plugin ? { plugin } : {}),
     };
   });
 }

@@ -765,6 +765,8 @@ export interface NodeKindMeta {
   display: NodeDisplay | undefined;
   /** True if the kind has a custom inferPorts (ports may grow/shrink at edit time). */
   dynamic?: boolean;
+  /** The plugin that registered the kind; absent for built-in kinds. */
+  plugin?: string;
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
