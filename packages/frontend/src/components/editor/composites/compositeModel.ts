@@ -6,13 +6,28 @@
  */
 import {
   Bell,
+  History,
+  Hourglass,
+  Megaphone,
   MessageSquare,
   MessagesSquare,
   MessageSquareText,
+  Target,
+  Timer,
+  Trophy,
   type LucideIcon,
 } from 'lucide-react';
 import type { CompositeRootRtype } from '@vspark/shared/composites';
 import { getBuiltinPreset, instantiatePreset } from '../../../api/client';
+import {
+  currentProjectDocs,
+  triggerBases,
+  triggerNames,
+  uniqueName,
+  TRIGGER_NODE_KINDS,
+  VARIABLE_NODE_KINDS,
+  variableNames,
+} from '../../../mesh/names';
 
 export {
   commitSettingWrites,
@@ -32,6 +47,13 @@ export interface CompositeDef {
   icon: LucideIcon;
   /** English fallback; the label is `composites:type.<type>`. */
   label: string;
+  /** A shared-scope variable its graph names: renamed on placement to the
+   *  first free `<name>`, `<name> 2`, … so two of them don't share a value. */
+  uniqueVariable?: string;
+  /** The base of its control triggers (`<base> start|pause|resume|reset`):
+   *  renamed on placement to the first free `<base>`, `<base> 2`, … so a
+   *  trigger meant for one timer doesn't start another. */
+  uniqueTriggerBase?: string;
 }
 
 export const COMPOSITE_DEFS: CompositeDef[] = [
@@ -48,6 +70,51 @@ export const COMPOSITE_DEFS: CompositeDef[] = [
     rootRtype: 'compose_layer',
     icon: MessageSquare,
     label: 'Chat Overlay',
+  },
+  {
+    type: 'goal',
+    presetId: 'builtin:composite-goal',
+    rootRtype: 'compose_layer',
+    icon: Target,
+    label: 'Goal',
+    uniqueVariable: 'goal',
+  },
+  {
+    type: 'countdown',
+    presetId: 'builtin:composite-countdown',
+    rootRtype: 'compose_layer',
+    icon: Timer,
+    label: 'Countdown',
+    uniqueTriggerBase: 'countdown',
+  },
+  {
+    type: 'subathon',
+    presetId: 'builtin:composite-subathon',
+    rootRtype: 'compose_layer',
+    icon: Hourglass,
+    label: 'Subathon Timer',
+    uniqueTriggerBase: 'subathon',
+  },
+  {
+    type: 'recent_events',
+    presetId: 'builtin:composite-recent-events',
+    rootRtype: 'compose_layer',
+    icon: History,
+    label: 'Recent Events',
+  },
+  {
+    type: 'top_supporters',
+    presetId: 'builtin:composite-top-supporters',
+    rootRtype: 'compose_layer',
+    icon: Trophy,
+    label: 'Top Supporters',
+  },
+  {
+    type: 'ad_break',
+    presetId: 'builtin:composite-ad-break',
+    rootRtype: 'compose_layer',
+    icon: Megaphone,
+    label: 'Ad Break',
   },
   {
     type: 'chat_overlay_3d',
@@ -78,8 +145,27 @@ export async function placeComposite(
 ): Promise<string> {
   const preset = await getBuiltinPreset(def.presetId);
   const compose = def.rootRtype === 'compose_layer';
+  let payload = preset.payload;
+  if (def.uniqueVariable) {
+    const taken = variableNames(target.projectId, '', currentProjectDocs());
+    payload = renameVariable(
+      payload,
+      def.uniqueVariable,
+      uniqueName(def.uniqueVariable, taken)
+    );
+  }
+  if (def.uniqueTriggerBase) {
+    const taken = triggerBases(
+      triggerNames(target.projectId, currentProjectDocs())
+    );
+    payload = renameTriggerBase(
+      payload,
+      def.uniqueTriggerBase,
+      uniqueName(def.uniqueTriggerBase, taken)
+    );
+  }
   const res = await instantiatePreset(
-    preset.payload,
+    payload,
     target.projectId,
     // The route needs a 3D scene id; it is unused for layer roots.
     compose ? (target.sceneId ?? '') : target.sceneId!,
@@ -87,4 +173,60 @@ export async function placeComposite(
     null
   );
   return res.rootId;
+}
+
+/** The graph nodes of a preset payload, whichever form they are in. */
+function payloadNodes(copy: {
+  logic?: { descriptor?: { nodes?: unknown } }[];
+}): { kind?: string; defaultConfig?: Record<string, unknown> }[] {
+  return (copy.logic ?? []).flatMap((g) => {
+    const nodes = g.descriptor?.nodes;
+    return (Array.isArray(nodes) ? nodes : Object.values(nodes ?? {})) as {
+      kind?: string;
+      defaultConfig?: Record<string, unknown>;
+    }[];
+  });
+}
+
+/** `payload` with its control triggers `<from> start|pause|resume|reset`
+ *  (on / send trigger nodes) renamed to `<to> …`. */
+export function renameTriggerBase<P>(payload: P, from: string, to: string): P {
+  if (from === to) return payload;
+  const copy = JSON.parse(JSON.stringify(payload)) as Parameters<
+    typeof payloadNodes
+  >[0];
+  for (const n of payloadNodes(copy)) {
+    const cfg = n.defaultConfig;
+    if (!n.kind || !TRIGGER_NODE_KINDS.has(n.kind) || typeof cfg?.name !== 'string')
+      continue;
+    const m = /^(.+) (start|pause|resume|reset)$/.exec(cfg.name);
+    if (m && m[1] === from) cfg.name = `${to} ${m[2]}`;
+  }
+  return copy as P;
+}
+
+/** `payload` with every variable node naming `from` (in the shared scope:
+ *  no scope set) renamed to `to`. */
+export function renameVariable<P>(payload: P, from: string, to: string): P {
+  if (from === to) return payload;
+  const copy = JSON.parse(JSON.stringify(payload)) as {
+    logic?: { descriptor?: { nodes?: unknown } }[];
+  };
+  for (const g of copy.logic ?? []) {
+    const nodes = g.descriptor?.nodes;
+    const list = (
+      Array.isArray(nodes) ? nodes : Object.values(nodes ?? {})
+    ) as { kind?: string; defaultConfig?: Record<string, unknown> }[];
+    for (const n of list) {
+      const cfg = n.defaultConfig;
+      if (
+        n.kind &&
+        VARIABLE_NODE_KINDS.has(n.kind) &&
+        cfg?.name === from &&
+        !cfg.scope
+      )
+        cfg.name = to;
+    }
+  }
+  return copy as P;
 }

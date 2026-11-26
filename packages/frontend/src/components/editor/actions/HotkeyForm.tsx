@@ -1,8 +1,7 @@
 /**
  * Settings form of the Hotkey action kind: shortcut (value), mode and number
  * of cycle positions (shape), and per position a response — its type is a
- * shape setting, its fields are values. Reuses the Macros panel's shortcut
- * recorder and response field editors.
+ * shape setting, its fields are values.
  */
 import { useTranslation } from 'react-i18next';
 import {
@@ -12,19 +11,11 @@ import {
   hotkeyPositionCount,
 } from '@vspark/shared/actions';
 import type { ActionRecord } from '../../../mesh/actions';
-import { ShortcutRecorder } from '../macros/MacrosPanel';
-import type { HotkeyCombo } from '../macros/types';
+import { ShortcutRecorder } from './ShortcutRecorder';
+import { EMPTY_COMBO, type HotkeyCombo } from './keymap';
 import { HelpButton } from '../../../help/HelpButton';
 import { inputStyle, labelStyle } from './styles';
 import { ResponseEditor, isObj } from './fields';
-
-const EMPTY_COMBO: HotkeyCombo = {
-  key: '',
-  ctrl: false,
-  shift: false,
-  alt: false,
-  meta: false,
-};
 
 export function HotkeyForm({
   action,

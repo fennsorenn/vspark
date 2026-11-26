@@ -6,7 +6,13 @@
     "alert": "Alert",
     "chat_overlay": "Chat Overlay",
     "chat_overlay_3d": "Chat Overlay (3D)",
-    "scrolling_chat": "Scrolling Chat (3D)"
+    "scrolling_chat": "Scrolling Chat (3D)",
+    "goal": "Goal",
+    "countdown": "Countdown",
+    "subathon": "Subathon Timer",
+    "recent_events": "Recent Events",
+    "top_supporters": "Top Supporters",
+    "ad_break": "Ad Break"
   },
   "group": {
     "trigger": "Trigger",
@@ -16,7 +22,15 @@
     "timing": "Timing",
     "chat": "Chat",
     "look": "Look",
-    "motion": "Motion"
+    "motion": "Motion",
+    "goal": "Goal",
+    "timer": "Timer",
+    "control": "Control",
+    "rates": "Time added per",
+    "limits": "Limits",
+    "events": "Events",
+    "list": "List",
+    "ad": "Ad break"
   },
   "setting": {
     "trigger": "Trigger",
@@ -43,13 +57,57 @@
     "heightMin": "Lowest height",
     "heightMax": "Highest height",
     "depthMin": "Nearest depth",
-    "depthMax": "Farthest depth"
+    "depthMax": "Farthest depth",
+    "source": "Goal from",
+    "goalKind": "Twitch goal",
+    "label": "Label",
+    "target": "Target",
+    "current": "Current count",
+    "count": "Count",
+    "countTrigger": "Trigger name",
+    "variable": "Variable",
+    "period": "Keep",
+    "accentColor": "Accent colour",
+    "trackColor": "Bar background",
+    "controls": "Timer",
+    "mode": "Count down",
+    "duration": "Length",
+    "until": "Until (time)",
+    "title": "Title",
+    "finishTrigger": "At zero, send trigger",
+    "controlName": "Trigger names",
+    "initial": "Starting time",
+    "perSub": "Sub",
+    "perGift": "Gifted sub",
+    "per100Bits": "100 bits",
+    "perTip": "1 tip (currency unit)",
+    "perFollow": "Follow",
+    "hardCap": "Hard cap (total)",
+    "plannedStart": "Planned start",
+    "stages": "Soft limit stages",
+    "showFollow": "Follows",
+    "showSub": "Subs",
+    "showGift": "Gift subs",
+    "showBits": "Bits",
+    "showTip": "Tips",
+    "showRaid": "Raids",
+    "labelFollow": "Follow text",
+    "labelSub": "Sub text",
+    "labelGift": "Gift text",
+    "labelBits": "Bits text",
+    "labelTip": "Tip text",
+    "labelRaid": "Raid text",
+    "maxEntries": "Entries shown",
+    "metric": "Ranked by"
   },
   "option": {
     "trigger": {
       "donation": "Donation",
       "tip": "Tip",
+      "bits": "Bits",
       "sub": "Sub",
+      "gift": "Gift subs",
+      "follow": "Follow",
       "raid": "Raid",
       "named": "Named trigger"
     },
@@ -74,6 +132,45 @@
     "badgeType": {
       "image": "Image",
       "video": "Video"
+    },
+    "source": {
+      "twitch": "Twitch goal",
+      "manual": "My own goal"
+    },
+    "goalKind": {
+      "any": "Any",
+      "follow": "Followers",
+      "subscription": "Sub points",
+      "subscription_count": "Subs",
+      "new_subscription": "New sub points",
+      "new_subscription_count": "New subs",
+      "new_bit": "Bits",
+      "new_cheerer": "New cheerers"
+    },
+    "count": {
+      "none": "Nothing (set by hand)",
+      "follow": "Follows",
+      "sub": "Subs",
+      "gift": "Gifted subs",
+      "bits": "Bits",
+      "tip": "Tips (amount)",
+      "raid": "Raid viewers",
+      "named": "Named trigger"
+    },
+    "period": {
+      "stream": "This stream",
+      "always": "Across streams"
+    },
+    "mode": {
+      "duration": "A set time",
+      "until": "To a time of day"
+    },
+    "metric": {
+      "bits": "Bits",
+      "tip": "Tips",
+      "gift": "Gifted subs",
+      "sub": "Subs",
+      "raid": "Raid viewers"
     }
   },
   "unavailable": "not available (part removed)",
@@ -88,6 +185,26 @@
   "help": {
     "settings": "These settings write straight into the composite's parts.",
     "dissolve": "What dissolving does.",
-    "parts": "Why a composite's parts stay in place."
+    "parts": "Why a composite's parts stay in place.",
+    "widgets": "What this composite does and how to set it up."
+  },
+  "timer": {
+    "start": "Start",
+    "restart": "Restart",
+    "pause": "Pause",
+    "resume": "Resume",
+    "reset": "Reset",
+    "running": "running",
+    "paused": "paused",
+    "idle": "not started",
+    "finished": "finished"
+  },
+  "stages": {
+    "noPlan": "Enter a planned start to see when each stage is reached.",
+    "plan": "Starts {{start}}; the starting time ({{initial}}) ends {{end}}.",
+    "past": "past",
+    "endsAt": "≈ when it would end {{when}}",
+    "remove": "Remove stage",
+    "add": "Add stage"
   }
 }

@@ -2,12 +2,15 @@
 
 Named values shared by a project's Logic graphs: counters, last-seen values, cooldown
 timestamps. Read and written by the signal nodes `variable`, `set_variable`,
-`increment_variable` (and `cooldown` for named groups) — see
+`increment_variable` (and `cooldown` for named groups), and used as the state store of
+`deadline` (timer state) and `tally` (per-viewer totals) — see
 [signal-graph.md](signal-graph.md#logic-helpers--conditions-text-variables-triggers-combos).
 Added in phase 1 of the Actions plan ([plans/actions.md](../plans/actions.md)).
 
-**Status:** implemented (store + nodes). No UI yet — the plan's Actions panel is
-expected to list and reset variables.
+**Status:** implemented (store + nodes). Tab reads and writes are implemented on
+`feature/stream-widgets` (not yet merged to `dev`) for the stream-widget composites
+([composites.md](composites.md)). No general variables UI yet — the plan's Actions
+panel is expected to list and reset variables.
 
 ## Identity
 
@@ -27,6 +30,26 @@ A variable is identified by **(project, scope, name)**.
   Redemption counter is `<name>` in the shared scope, or — unnamed — `count`
   in the graph's own scope; the Keyword combo keeps a graph-local short-lived
   `comboReached` flag.
+
+## Naming — `@vspark/shared/variables`
+
+The naming helpers live in the shared subpath `@vspark/shared/variables` (registered in
+the shared `package.json` exports, backend + frontend `tsconfig` paths, frontend
+`vite.config.ts` + `vitest.config.ts` aliases and backend `bundle.mjs`), because the
+editor addresses the same documents: `VariableRef`, `variableRef(projectId, scope,
+name)` (normalizes; null without a project or name), `persistentVariableId`,
+`runtimeVariableId`. `backend/src/variables/store.ts` re-exports them for existing
+importers.
+
+The same subpath holds the value shapes and pure transitions of the state nodes, so
+the editor's buttons apply exactly what the nodes apply:
+
+- **Deadline** — `DeadlineState { endsAt, remaining, total, running, finished }`,
+  `DEADLINE_IDLE`, `deadlineStateOf` (any stored value → a valid state),
+  `remainingOf`, `deadlineOps.start / pause / resume / add / finish / reset`.
+- **Tally** — `TallyState { totals, recent }`, `TALLY_EMPTY`, `tallyStateOf`,
+  `tallyAdd`, `tallyTop`.
+- `parseDateTime` (used by `date_time` and the countdown's Start button).
 
 ## Storage — `backend/src/variables/store.ts`
 
@@ -66,16 +89,69 @@ interleave with. Committed writes pass `undo: false` (they are not document edit
 must not land on the backend peer's undo stack). Each persistent write is one SQLite
 upsert plus the legacy `sync.document` echo every persisted rtype gets.
 
+### Change notifications
+
+`onVariableChange(cb)` calls `cb(ref)` for every change or removal in either
+collection, whatever its origin (a graph here or a tab). It is synchronous, so a node
+can skip its own write by setting a flag around it (`deadline` and `tally` do, with a
+`writing` field). A removal carries no document; the ref is recovered from the id
+with `refFromId`. `sameRef` compares two refs. Before the mesh is up it returns a
+no-op unsubscribe.
+
 ### Tabs
 
-The backend grants its tabs `{ read: true }` on both collections. They are not in
-`TAB_MODELS` yet, so tabs do not open them; a variables UI would add them there (and
-widen the grant if it resets values from the tab).
+- **Decided (user, 2026-11-09):** tabs may **write** project variables. The editor's
+  timer buttons (Start / Pause / Resume / Reset) and a goal count set by hand put the
+  variable document directly; the nodes holding the variable react through
+  `onVariableChange`.
+- `variable` and `runtime_variable` are in `TAB_MODELS` (`packages/shared/src/models.ts`),
+  so tabs open both collections.
+- `variable` binding (`mesh/index.ts`): `clients: TAB_AUTHORED`, with
+  `validate: guardVariable(data, 'var')` — the document's id must be the one its
+  (project, scope, name) gives in that collection's scheme, and the project must
+  exist; otherwise the write is rejected.
+- `runtime_variable` (`mesh/variables.ts`): the tab grant is read + create + update +
+  delete, with no validation (observed; under the local single-user trust model).
+- Frontend `packages/frontend/src/mesh/variables.ts`: `useVariable(ref)` (live value;
+  the persistent copy wins if both exist) and `writeVariable(ref, value, persistent)`,
+  which writes the named collection and removes the copy in the other, like the
+  backend store. Writes pass `undo: false` — runtime state, not document edits (the
+  same rule the backend store follows). Callers: `CompositeControls.tsx`
+  (`TimerControl`, `VariableControl`).
 
 ### Without a mesh
 
 Unit tests that don't start the mesh and the window before `initBackendMesh` have no
 collections: reads return `undefined`, writes are no-ops, warned once.
+
+## Name suggestions (editor)
+
+- **Decided (user, 2026-11-09):** inputs that name a variable, a scope or a named
+  trigger suggest the names already in use (on that scope) and still accept any new
+  name typed freely — in Actions, logic node default inputs and composite settings
+  (and behaviors, should they get such inputs).
+- `packages/frontend/src/mesh/names.ts` collects the names from the tab's replica:
+  stored variables (`variable` / `runtime_variable`); the `name` / `scope` config of
+  nodes in `VARIABLE_NODE_KINDS` (`variable`, `set_variable`, `increment_variable`,
+  `deadline`, `tally`), with the scope taken from the `scope` setting, or the graph's
+  id when wired from `logic_id` (a scope wired from anything else is unknown and the
+  node is not listed); `cooldown` groups (scope `COOLDOWN_SCOPE` = `__cooldown`);
+  `send_trigger` / `on_trigger` names; and Actions settings (`counter.name` in the
+  shared scope, `cooldown.group`, `trigger`). A graph document carries no project
+  id: `graphProject` resolves it from the owner (project, action, layer, scene node,
+  or a behavior's node). Exports `variableNames`,
+  `triggerNames`, `scopeOptions`, `uniqueName` (first free `<base>`, `<base> 2`, …),
+  `triggerBases` (`<base>` of `<base> start|pause|resume|reset` sets),
+  `nodePortNameSpec`, `useNameSuggestions(spec)` and `currentProjectDocs()`
+  (non-hook snapshot).
+- Rendered as a `<datalist>` (the blendshape-name input in `PropertiesPanel` was the
+  precedent): `DraftText`'s `suggestions` prop / the exported `SuggestionList`
+  (`components/editor/actions/draftInputs.tsx`); `SignalNodeCard`'s StaticInput for
+  String ports via `nodePortNameSpec` (`SignalGraphCanvas` passes each node's
+  `scopeSource`: `'graph'` | `'other'`); composite settings via their `suggest` field
+  ([composites.md](composites.md)); Actions' trigger / counter name / cooldown group
+  fields ([actions.md](actions.md)).
+- Test: `packages/frontend/test/names.test.tsx`.
 
 ## Cleanup
 
@@ -85,9 +161,17 @@ shared namespace (`''`) is never bulk-deleted.
 
 ## Key files
 
-- `packages/backend/src/variables/store.ts` — `variableRef`, `readVariable`,
-  `writeVariable`, `incrementVariable`, `deleteVariablesInScope`, id helpers.
+- `packages/shared/src/variables.ts` — naming, deadline / tally state and
+  transitions, `parseDateTime`.
+- `packages/backend/src/variables/store.ts` — `readVariable`, `writeVariable`,
+  `incrementVariable`, `deleteVariablesInScope`, `onVariableChange`, `refFromId`,
+  `sameRef` (+ re-exported naming).
+- `packages/backend/src/mesh/index.ts` — the `variable` binding and `guardVariable`.
+- `packages/frontend/src/mesh/variables.ts` — `useVariable`, `writeVariable`.
+- `packages/frontend/src/mesh/names.ts` — names in use, for input suggestions.
 - `packages/backend/src/mesh/variables.ts` — the `runtime_variable` collection.
-- `packages/backend/src/signal/nodes/variable.ts` — the three nodes.
+- `packages/backend/src/signal/nodes/variable.ts` — the three variable nodes;
+  `deadline.ts`, `tally.ts` — the state nodes.
 - `packages/backend/src/db/migrations/046_variables.sql` — the table.
-- Tests: `packages/backend/test/nodes.variables.test.ts`.
+- Tests: `packages/backend/test/nodes.variables.test.ts`,
+  `packages/backend/test/nodes.widgets.test.ts`, `packages/shared/test/variables.test.ts`.

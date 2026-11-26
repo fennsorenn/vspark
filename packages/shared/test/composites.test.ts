@@ -1,7 +1,18 @@
 import { describe, it, expect } from 'vitest';
 import {
+  AD_BREAK_COMPOSITE,
   ALERT_COMPOSITE,
   CHAT_OVERLAY_COMPOSITE,
+  COMPOSITE_TYPES,
+  COUNTDOWN_COMPOSITE,
+  EVENT_SOURCE_SPECS,
+  GOAL_COMPOSITE,
+  NO_CAP,
+  RECENT_EVENTS_COMPOSITE,
+  SUBATHON_COMPOSITE,
+  TOP_SUPPORTERS_COMPOSITE,
+  readSource,
+  swapNodeWrites,
   SCROLLING_CHAT_COMPOSITE,
   alertTriggerEdges,
   compositeMarkerOf,
@@ -559,5 +570,319 @@ describe('settings edge cases', () => {
         () => null
       )
     ).toBeNull();
+  });
+});
+
+// ── Stream widgets ──────────────────────────────────────────────────────────
+
+
+const gnode = (id: string, kind: string, defaultConfig: Doc = {}) => ({
+  id,
+  kind,
+  position: { x: 0, y: 0 },
+  defaultConfig,
+});
+const keyed = (list: { id: string }[]) =>
+  Object.fromEntries(list.map((x) => [x.id, x]));
+const edges = (list: Parameters<typeof edgeKey>[0][]) =>
+  Object.fromEntries(list.map((e) => [edgeKey(e), e]));
+
+function widget(type: string, role: string, nodes: ReturnType<typeof gnode>[], es: Parameters<typeof edgeKey>[0][]) {
+  const docs: Record<string, Doc> = {
+    root: {
+      id: 'root',
+      kind: 'feed',
+      config: {
+        css: '.w { --w-font: a; --w-size: 20px; --w-color: #fff; --w-accent: #f0f; --w-track: #000; }',
+        composite: { type, parts: { panel: 'root', [role]: 'g' } },
+      },
+    },
+    g: { id: 'g', descriptor: { nodes: keyed(nodes), edges: edges(es) } },
+  };
+  return { docs, ...world(docs, 'root', 'compose_layer') };
+}
+const graphNodes = (docs: Record<string, Doc>) =>
+  (docs.g.descriptor as Doc).nodes as Record<string, Doc>;
+const graphEdges = (docs: Record<string, Doc>) =>
+  Object.keys((docs.g.descriptor as Doc).edges as Doc);
+
+describe('goal widget', () => {
+  const make = () =>
+    widget(
+      'goal',
+      'flow',
+      [
+        gnode('goal', 'overlive_goal', { account: 'a1' }),
+        gnode('src', 'overlive_follow', { account: 'a1' }),
+        gnode('inc', 'increment_variable', { name: 'goal' }),
+        gnode('get', 'variable', { name: 'goal' }),
+        gnode('online', 'overlive_stream_online', { account: 'a1' }),
+        gnode('zero', 'set_variable', { name: 'goal' }),
+        gnode('sd', 'set_data', { fields: ['current', 'target', 'label'] }),
+      ],
+      [
+        { fromNodeId: 'get', fromPort: 'changed', toNodeId: 'sd', toPort: 'fire', kind: 'event' },
+        { fromNodeId: 'get', fromPort: 'value', toNodeId: 'sd', toPort: 'current', kind: 'value' },
+        { fromNodeId: 'src', fromPort: 'event', toNodeId: 'inc', toPort: 'fire', kind: 'event' },
+      ]
+    );
+
+  it('switches between a Twitch goal and a manual one by its edges', () => {
+    const w = make();
+    expect(w.read(GOAL_COMPOSITE, 'source')).toBe('manual');
+    w.write(GOAL_COMPOSITE, 'source', 'twitch');
+    expect(w.read(GOAL_COMPOSITE, 'source')).toBe('twitch');
+    expect(graphEdges(w.docs).some((k) => k.startsWith('get:changed'))).toBe(false);
+    expect(
+      settingVisible(w.view(), GOAL_COMPOSITE, GOAL_COMPOSITE.settings.find((s) => s.key === 'target')!)
+    ).toBe(false);
+  });
+
+  it('swaps the counted event, removes it for "none", carries the account', () => {
+    const w = make();
+    expect(w.read(GOAL_COMPOSITE, 'count')).toBe('follow');
+    w.write(GOAL_COMPOSITE, 'count', 'bits');
+    expect(graphNodes(w.docs).src.kind).toBe('overlive_redemption');
+    expect((graphNodes(w.docs).src.defaultConfig as Doc).account).toBe('a1');
+    expect(graphEdges(w.docs)).toContain('src:amount:inc:by');
+    expect(w.read(GOAL_COMPOSITE, 'count')).toBe('bits');
+    expect(w.write(GOAL_COMPOSITE, 'count', 'bits')).toEqual([]);
+    w.write(GOAL_COMPOSITE, 'count', 'none');
+    expect(graphNodes(w.docs).src).toBeUndefined();
+    expect(graphEdges(w.docs).some((k) => k.startsWith('src:'))).toBe(false);
+    expect(w.read(GOAL_COMPOSITE, 'count')).toBe('none');
+    // The account now writes only the nodes that exist.
+    const writes = w.write(GOAL_COMPOSITE, 'account', 'a2');
+    expect(writes.map((x) => x.path)).toEqual([
+      'descriptor.nodes.goal.defaultConfig.account',
+      'descriptor.nodes.online.defaultConfig.account',
+    ]);
+  });
+
+  it('per stream resets on stream start; always keeps', () => {
+    const w = make();
+    expect(w.read(GOAL_COMPOSITE, 'period')).toBe('always');
+    w.write(GOAL_COMPOSITE, 'period', 'stream');
+    expect(graphEdges(w.docs)).toContain('online:event:zero:fire');
+    expect(w.read(GOAL_COMPOSITE, 'period')).toBe('stream');
+  });
+});
+
+describe('timer widgets', () => {
+  const make = () =>
+    widget(
+      'subathon',
+      'flow',
+      [
+        gnode('dl', 'deadline', { duration: 3600 }),
+        gnode('mBits', 'math', { b: 0.6 }),
+        gnode('cap', 'math', { a: NO_CAP }),
+        gnode('st', 'step_lookup', { steps: [] }),
+        gnode('tStart', 'on_trigger', { name: 'subathon start' }),
+        gnode('tPause', 'on_trigger', { name: 'subathon pause' }),
+        gnode('tResume', 'on_trigger', { name: 'subathon resume' }),
+        gnode('tReset', 'on_trigger', { name: 'subathon reset' }),
+      ],
+      []
+    );
+
+  it('names all four control triggers from one base name', () => {
+    const w = make();
+    expect(w.read(SUBATHON_COMPOSITE, 'controlName')).toBe('subathon');
+    w.write(SUBATHON_COMPOSITE, 'controlName', 'marathon');
+    expect((graphNodes(w.docs).tPause.defaultConfig as Doc).name).toBe('marathon pause');
+    expect(w.read(SUBATHON_COMPOSITE, 'controlName')).toBe('marathon');
+  });
+
+  it('shows bits per 100 and no cap as 0', () => {
+    const w = make();
+    expect(w.read(SUBATHON_COMPOSITE, 'per100Bits')).toBeCloseTo(60);
+    w.write(SUBATHON_COMPOSITE, 'per100Bits', 120);
+    expect((graphNodes(w.docs).mBits.defaultConfig as Doc).b).toBeCloseTo(1.2);
+    expect(w.read(SUBATHON_COMPOSITE, 'hardCap')).toBe(0);
+    w.write(SUBATHON_COMPOSITE, 'hardCap', 86400);
+    expect(w.read(SUBATHON_COMPOSITE, 'hardCap')).toBe(86400);
+    w.write(SUBATHON_COMPOSITE, 'hardCap', 0);
+    expect((graphNodes(w.docs).cap.defaultConfig as Doc).a).toBe(NO_CAP);
+    expect(w.write(SUBATHON_COMPOSITE, 'hardCap', -1)).toEqual([]);
+    expect(w.read(SUBATHON_COMPOSITE, 'controls')).toBe(true);
+  });
+
+  it('a countdown counts to a time of day when the until edge is there', () => {
+    const w = widget(
+      'countdown',
+      'timer',
+      [gnode('dl', 'deadline'), gnode('dt', 'date_time', { text: '20:00' })],
+      []
+    );
+    expect(w.read(COUNTDOWN_COMPOSITE, 'mode')).toBe('duration');
+    w.write(COUNTDOWN_COMPOSITE, 'mode', 'until');
+    expect(graphEdges(w.docs)).toEqual(['dt:fromNow:dl:duration']);
+    expect(w.read(COUNTDOWN_COMPOSITE, 'until')).toBe('20:00');
+    // No trigger nodes: the control name reads as gone.
+    expect(w.read(COUNTDOWN_COMPOSITE, 'controlName')).toBeUndefined();
+  });
+});
+
+describe('recent events widget', () => {
+  it('a source is shown when its event reaches the list; its label only then', () => {
+    const w = widget(
+      'recent_events',
+      'flow',
+      [gnode('sFollow', 'overlive_follow'), gnode('pFollow', 'pack_event', { label: 'followed' })],
+      [{ fromNodeId: 'sFollow', fromPort: 'event', toNodeId: 'pFollow', toPort: 'fire', kind: 'event' }]
+    );
+    const label = RECENT_EVENTS_COMPOSITE.settings.find((s) => s.key === 'labelFollow')!;
+    expect(w.read(RECENT_EVENTS_COMPOSITE, 'showFollow')).toBe(true);
+    expect(settingVisible(w.view(), RECENT_EVENTS_COMPOSITE, label)).toBe(true);
+    w.write(RECENT_EVENTS_COMPOSITE, 'showFollow', false);
+    expect(w.read(RECENT_EVENTS_COMPOSITE, 'showFollow')).toBe(false);
+    expect(settingVisible(w.view(), RECENT_EVENTS_COMPOSITE, label)).toBe(false);
+    // A source whose nodes are gone reads as off, not as broken.
+    expect(w.read(RECENT_EVENTS_COMPOSITE, 'showRaid')).toBe(false);
+  });
+});
+
+describe('event sources', () => {
+  it('reads a node as its source, money nodes by currency', () => {
+    for (const [k, spec] of Object.entries(EVENT_SOURCE_SPECS))
+      expect(readSource(gnode('x', spec.kind, spec.defaultConfig) as never)).toBe(k);
+    expect(
+      readSource(gnode('x', 'overlive_redemption', { currencyKind: 'channel_points' }) as never)
+    ).toBeUndefined();
+    expect(readSource(undefined)).toBeUndefined();
+  });
+
+  it('swapping in a node with nothing before puts it and its edges', () => {
+    const docs = { g: { descriptor: { nodes: {}, edges: {} } } as Doc };
+    const writes = swapNodeWrites('g', docs.g, 'src', EVENT_SOURCE_SPECS.raid, []);
+    expect(writes).toHaveLength(1);
+    expect(writes[0].path).toBe('descriptor.nodes.src');
+    expect(swapNodeWrites('g', docs.g, 'src', null, [])).toEqual([]);
+  });
+});
+
+describe('more widget settings', () => {
+  it('top supporters swaps its ranked source and keeps the account', () => {
+    const w = widget(
+      'top_supporters',
+      'flow',
+      [
+        gnode('src', 'overlive_redemption', { account: 'a1', currencyKind: 'bits' }),
+        gnode('online', 'overlive_stream_online', { account: 'a1' }),
+        gnode('tl', 'tally', { topCount: 5 }),
+        gnode('sd', 'set_data', { title: 'Top' }),
+      ],
+      []
+    );
+    expect(w.read(TOP_SUPPORTERS_COMPOSITE, 'metric')).toBe('bits');
+    expect(w.read(TOP_SUPPORTERS_COMPOSITE, 'account')).toBe('a1');
+    w.write(TOP_SUPPORTERS_COMPOSITE, 'metric', 'gift');
+    expect(graphNodes(w.docs).src.kind).toBe('overlive_gift_bomb');
+    expect(graphEdges(w.docs).sort()).toEqual([
+      'src:count:tl:amount',
+      'src:event:tl:add',
+      'src:gifterDisplayName:tl:user',
+    ]);
+    expect(w.write(TOP_SUPPORTERS_COMPOSITE, 'metric', 'gift')).toEqual([]);
+    expect(w.write(TOP_SUPPORTERS_COMPOSITE, 'metric', 'bogus')).toEqual([]);
+    w.write(TOP_SUPPORTERS_COMPOSITE, 'period', 'stream');
+    expect(w.read(TOP_SUPPORTERS_COMPOSITE, 'period')).toBe('stream');
+    expect(w.read(TOP_SUPPORTERS_COMPOSITE, 'title')).toBe('Top');
+    expect(w.read(TOP_SUPPORTERS_COMPOSITE, 'accentColor')).toBe('#f0f');
+  });
+
+  it('ad break: account over both ad nodes, the message', () => {
+    const w = widget(
+      'ad_break',
+      'flow',
+      [gnode('ad', 'overlive_ad_start', { account: '' }), gnode('end', 'overlive_ad_end', { account: '' }), gnode('sd', 'set_data', { message: 'Ads' })],
+      []
+    );
+    expect(w.read(AD_BREAK_COMPOSITE, 'account')).toBe('');
+    expect(w.write(AD_BREAK_COMPOSITE, 'account', 'a9')).toHaveLength(2);
+    expect(w.read(AD_BREAK_COMPOSITE, 'message')).toBe('Ads');
+  });
+
+  it('a widget whose graph is gone reads every graph setting as unavailable', () => {
+    const w = widget('subathon', 'flow', [], []);
+    delete w.docs.g;
+    for (const key of ['controls', 'account', 'per100Bits', 'hardCap', 'controlName'])
+      expect(w.read(SUBATHON_COMPOSITE, key), key).toBeUndefined();
+    expect(w.write(SUBATHON_COMPOSITE, 'per100Bits', 10)).toEqual([]);
+    expect(w.write(SUBATHON_COMPOSITE, 'hardCap', 10)).toEqual([]);
+    expect(w.write(SUBATHON_COMPOSITE, 'controlName', 'x')).toEqual([]);
+    expect(w.write(SUBATHON_COMPOSITE, 'account', 'x')).toEqual([]);
+    expect(w.read(GOAL_COMPOSITE, 'source')).toBeUndefined();
+    expect(w.write(GOAL_COMPOSITE, 'source', 'twitch')).toEqual([]);
+    expect(w.read(GOAL_COMPOSITE, 'count')).toBeUndefined();
+    expect(w.write(GOAL_COMPOSITE, 'count', 'sub')).toEqual([]);
+    expect(w.read(GOAL_COMPOSITE, 'period')).toBeUndefined();
+    expect(w.write(GOAL_COMPOSITE, 'period', 'stream')).toEqual([]);
+    expect(w.read(TOP_SUPPORTERS_COMPOSITE, 'metric')).toBeUndefined();
+    expect(w.write(TOP_SUPPORTERS_COMPOSITE, 'metric', 'bits')).toEqual([]);
+  });
+
+  it('the goal shows its Twitch kind only for a Twitch goal; the counted named trigger only then', () => {
+    const w = widget(
+      'goal',
+      'flow',
+      [
+        gnode('goal', 'overlive_goal', { kind: 'follow' }),
+        gnode('src', 'on_trigger', { name: 'goal' }),
+        gnode('get', 'variable', { name: 'goal' }),
+        gnode('inc', 'increment_variable', { name: 'goal' }),
+        gnode('zero', 'set_variable', { name: 'goal' }),
+        gnode('sd', 'set_data', {}),
+      ],
+      []
+    );
+    expect(w.read(GOAL_COMPOSITE, 'count')).toBe('named');
+    expect(w.visible(GOAL_COMPOSITE, 'countTrigger')).toBe(true);
+    expect(w.visible(GOAL_COMPOSITE, 'goalKind')).toBe(false);
+    expect(w.read(GOAL_COMPOSITE, 'current')).toBe(true);
+    w.write(GOAL_COMPOSITE, 'variable', 'subs');
+    for (const id of ['get', 'inc', 'zero'])
+      expect((graphNodes(w.docs)[id].defaultConfig as Doc).name).toBe('subs');
+    w.write(GOAL_COMPOSITE, 'source', 'twitch');
+    expect(w.visible(GOAL_COMPOSITE, 'goalKind')).toBe(true);
+    expect(w.visible(GOAL_COMPOSITE, 'countTrigger')).toBe(false);
+    expect(w.read(GOAL_COMPOSITE, 'goalKind')).toBe('follow');
+  });
+});
+
+describe('every composite type', () => {
+  it('reads and decides the visibility of every setting without throwing, even on an empty graph', () => {
+    for (const def of Object.values(COMPOSITE_TYPES)) {
+      const roles = Object.keys(def.parts);
+      const graphRole = roles.find((r) => def.parts[r] === 'logic');
+      const docs: Record<string, Doc> = {
+        root: {
+          id: 'root',
+          config: {
+            composite: {
+              type: def.type,
+              parts: Object.fromEntries(
+                roles.map((r) => [r, r === graphRole ? 'g' : 'root'])
+              ),
+            },
+          },
+          properties: {
+            composite: {
+              type: def.type,
+              parts: Object.fromEntries(
+                roles.map((r) => [r, r === graphRole ? 'g' : 'root'])
+              ),
+            },
+          },
+        },
+        g: { id: 'g', descriptor: { nodes: {}, edges: {} } },
+      };
+      const w = world(docs, 'root', def.rootRtype);
+      for (const s of def.settings) {
+        expect(() => readSetting(w.view(), def, s), `${def.type}.${s.key}`).not.toThrow();
+        expect(typeof settingVisible(w.view(), def, s)).toBe('boolean');
+      }
+    }
   });
 });

@@ -4,6 +4,7 @@
  * setting except a response's type and the combo mode (see
  * @vspark/shared/actions), so editing the others never rebuilds the graph.
  */
+import { useTriggerNames } from '../../../mesh/names';
 import { useTranslation } from 'react-i18next';
 import { COMBO_MODES } from '@vspark/shared/actions';
 import type { ActionRecord } from '../../../mesh/actions';
@@ -132,6 +133,7 @@ function KeywordsField({ action, onSetting }: KindFormProps) {
 
 function TriggerField({ action, onSetting }: KindFormProps) {
   const { t } = useTranslation('actions');
+  const triggers = useTriggerNames();
   return (
     <Field
       label={t('form.trigger')}
@@ -141,6 +143,7 @@ function TriggerField({ action, onSetting }: KindFormProps) {
       <DraftText
         className="vs-action-trigger"
         value={str(action.settings.trigger)}
+        suggestions={triggers}
         onCommit={(v) => onSetting('trigger', v)}
       />
     </Field>

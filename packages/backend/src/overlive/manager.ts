@@ -25,7 +25,11 @@ import { OverliveKit, type AdapterStateSnapshot } from '@overlive/core';
 import { TwitchAdapter } from '@overlive/twitch';
 import { SEAdapter } from '@overlive/se';
 import { revokeAccessToken } from '@overlive/twitch-oauth';
-import type { AdapterEmittedEvent, ChatMessageEvent } from '@overlive/core';
+import type {
+  AdapterEmittedEvent,
+  ChatMessageEvent,
+  GoalEvent,
+} from '@overlive/core';
 import { tokensToHtml } from '@overlive/emotes';
 import { mkEvent } from '@vspark/shared/signal';
 import { getDb } from '../db/index.js';
@@ -315,6 +319,69 @@ export class OverliveManager {
     }
   }
 
+  // ─── Creator goals ──────────────────────────────────────────────────────────
+
+  private goalWarned = new Set<string>();
+
+  /**
+   * Fetch the account's active creator goals and route each into the
+   * project's `overlive_goal` nodes as a `progress` goal event. Called when an
+   * account connects and when a goal node starts or is refreshed. Quiet for
+   * accounts that can't have goals (not Twitch, not connected yet — connecting
+   * fetches anyway); a failed fetch (e.g. the token predates the
+   * `channel:read:goals` scope) is logged once per account.
+   */
+  async refreshGoals(accountId: string): Promise<void> {
+    if (!accountId) return;
+    const row = getDb()
+      .prepare(
+        'SELECT project_id, platform, broadcaster_login, broadcaster_id FROM overlive_accounts WHERE id = ?'
+      )
+      .get(accountId) as
+      | Pick<AccountRow, 'project_id' | 'platform' | 'broadcaster_login' | 'broadcaster_id'>
+      | undefined;
+    if (!row || row.platform !== 'twitch') return;
+    const adapter = this.projects.get(row.project_id)?.kit.adapter(accountId);
+    if (!(adapter instanceof TwitchAdapter)) return;
+    let goals;
+    try {
+      goals = await adapter.rest.getGoals();
+    } catch (e) {
+      if (!this.goalWarned.has(accountId)) {
+        this.goalWarned.add(accountId);
+        console.warn(
+          `[Overlive] could not fetch goals for ${accountId} (reconnect the account to grant goal access):`,
+          e instanceof Error ? e.message : e
+        );
+      }
+      return;
+    }
+    this.goalWarned.delete(accountId);
+    for (const g of goals) {
+      const event: GoalEvent = {
+        id: `goal-fetch-${g.id}-${Date.now()}`,
+        type: 'goal',
+        platform: 'twitch',
+        sourceInstanceId: accountId,
+        channel: row.broadcaster_login ?? '',
+        ...(row.broadcaster_id ? { channelId: row.broadcaster_id } : {}),
+        timestamp: new Date(),
+        raw: g,
+        data: {
+          goalId: g.id,
+          kind: g.kind,
+          description: g.description,
+          current: g.current,
+          target: g.target,
+          phase: 'progress',
+          achieved: false,
+          ...(g.startedAt ? { startedAt: g.startedAt } : {}),
+        },
+      };
+      this.routeEvent(row.project_id, event);
+    }
+  }
+
   // ─── Outbound actions ───────────────────────────────────────────────────────
   //
   // One method per Twitch action, each driven by a signal node. All are
@@ -582,6 +649,9 @@ export class OverliveManager {
         snap.reason ?? null,
         snap.message ?? null
       );
+      // Goals only arrive as events when they change; fetch where they
+      // stand now so goal nodes show them straight away.
+      if (status === 'connected') void this.refreshGoals(accountId);
     });
 
     // Subscribe to every event type so the manager can route them into
@@ -868,6 +938,7 @@ const OVERLIVE_KIND_BY_EVENT: Record<string, string> = {
   ban: 'overlive_ban',
   'stream.online': 'overlive_stream_online',
   'stream.offline': 'overlive_stream_offline',
+  goal: 'overlive_goal',
 };
 
 function safeJson(raw: string): Record<string, unknown> {

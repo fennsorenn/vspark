@@ -100,7 +100,7 @@ export interface ComposeLayerOverride {
 export type RuntimeOverrideValue = number | string | boolean;
 export type RuntimeOverrideMap = Record<string, RuntimeOverrideValue>;
 
-export type LeftDockTab = 'scene' | 'compose' | 'graphs' | 'macros' | 'actions';
+export type LeftDockTab = 'scene' | 'compose' | 'graphs' | 'actions';
 export type BottomDockTab =
   | 'create'
   | 'models'
@@ -142,7 +142,6 @@ const LEFT_TABS: LeftDockTab[] = [
   'scene',
   'compose',
   'graphs',
-  'macros',
   'actions',
 ];
 const BOTTOM_TABS: BottomDockTab[] = [

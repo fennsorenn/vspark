@@ -37,6 +37,10 @@ import { Time } from './nodes/time.js';
 import { SineWave } from './nodes/sine_wave.js';
 import { EulerToQuaternion } from './nodes/euler_to_quaternion.js';
 import { Multiply } from './nodes/multiply.js';
+import { MathNode, Clamp, StepLookup } from './nodes/math.js';
+import { DateTime } from './nodes/date_time.js';
+import { Deadline } from './nodes/deadline.js';
+import { Tally } from './nodes/tally.js';
 import { PoseApplyBone } from './nodes/pose_apply_bone.js';
 import { PoseMerge } from './nodes/pose_merge.js';
 // Lipsync nodes
@@ -70,6 +74,7 @@ import { OverliveSubscription } from './nodes/overlive/subscription.js';
 import { OverliveGiftBomb } from './nodes/overlive/gift_bomb.js';
 import { OverliveRaid } from './nodes/overlive/raid.js';
 import { OverliveFollow } from './nodes/overlive/follow.js';
+import { OverliveGoal } from './nodes/overlive/goal.js';
 import { OverliveChatMessage } from './nodes/overlive/chat_message.js';
 import { OverliveChatFeed } from './nodes/overlive/chat_feed.js';
 import { OverliveChatCommand } from './nodes/overlive/chat_command.js';
@@ -186,6 +191,12 @@ const ALL_NODE_CLASSES: SignalNodeClass[] = [
   SineWave,
   EulerToQuaternion,
   Multiply,
+  MathNode,
+  Clamp,
+  StepLookup,
+  DateTime,
+  Deadline,
+  Tally,
   PoseApplyBone,
   PoseMerge,
   // Lipsync nodes
@@ -224,6 +235,7 @@ const ALL_NODE_CLASSES: SignalNodeClass[] = [
   OverliveGiftBomb,
   OverliveRaid,
   OverliveFollow,
+  OverliveGoal,
   OverliveChatMessage,
   OverliveChatFeed,
   OverliveChatCommand,

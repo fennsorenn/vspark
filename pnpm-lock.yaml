@@ -39,8 +39,8 @@ importers:
         specifier: ^1.29.0
         version: 1.29.0(zod@4.4.3)
       '@overlive/core':
-        specifier: ^0.3.0
-        version: 0.3.0
+        specifier: ^0.4.0
+        version: 0.4.0
       '@overlive/emotes':
         specifier: ^0.2.0
         version: 0.2.0
@@ -48,11 +48,11 @@ importers:
         specifier: ^0.2.0
         version: 0.2.0
       '@overlive/twitch':
+        specifier: ^0.4.0
+        version: 0.4.0
+      '@overlive/twitch-oauth':
         specifier: ^0.3.0
         version: 0.3.0
-      '@overlive/twitch-oauth':
-        specifier: ^0.2.0
-        version: 0.2.0
       '@vspark/mesh':
         specifier: workspace:*
         version: link:../mesh
@@ -1060,8 +1060,8 @@ packages:
   '@overlive/core@0.2.0':
     resolution: {integrity: sha512-3ZZyXQ4cgS0hktddjKWtjjAibNvl/A32uwt8dee9EQBotU1U0J06Vbjbn+EJSQaZHhH1x5MfTeDk0tdpsojurw==}
 
-  '@overlive/core@0.3.0':
-    resolution: {integrity: sha512-Xz782WwFUeFfc9Z3WJOsghyL8rbcDqklkcD8+EHK6AERXqx25ML+Mi3qbqirh7UBhcmk8FOWRuJmy6KZ9LjDJQ==}
+  '@overlive/core@0.4.0':
+    resolution: {integrity: sha512-vf9QWlyhKiSY+Sl949r4hs+5FUjahKj04Q8GSjle7lckd6lvBZmioCzWF3EX+G3idm31DC2F7r+9Ud9uI9HPRQ==}
 
   '@overlive/emotes@0.2.0':
     resolution: {integrity: sha512-k+X2Jfn9rZxtwRaFmSyOe39JPpSag8jvOgIYgpEi/NTBtReGb2Ll+PGyOhh19Md7sAS0bsTzJAEabdGPumJ7pg==}
@@ -1069,11 +1069,11 @@ packages:
   '@overlive/se@0.2.0':
     resolution: {integrity: sha512-bjPl2Q0p4fx4uAbQdmKVuy8rm1Oh3TsNjBW3eTsNzg6ufF3DEoloUMpiqn7rtXE3gqsh/eGZ0vCJrmDvsUvu8w==}
 
-  '@overlive/twitch-oauth@0.2.0':
-    resolution: {integrity: sha512-ZPlTLGEx9y5Oy6l8KNQ0qMO6sq0ot1dP1tnDwREZu5PHHtGZ/9dKmJWb3xuMHZdAdmQ0J8iJWq+cuXuDHPYVjA==}
+  '@overlive/twitch-oauth@0.3.0':
+    resolution: {integrity: sha512-EkC1Dsqn4BdzSvbH4aif/0O6rt5tgmONEItZ3Bnyax4joIwgSREKNQa1a6qDreOsNSdNO1S+Qz5kfjQ9zF3iCg==}
 
-  '@overlive/twitch@0.3.0':
-    resolution: {integrity: sha512-KVnHWWr97WaXEgrQ/QrqbNez2rzwk8ufcvLynTm+VknXvoZ4LOzNbghwEf5j/HsJr8JEnADjKY+vteVz3CScuw==}
+  '@overlive/twitch@0.4.0':
+    resolution: {integrity: sha512-M75iRfbxF5bmupZtUks/a+UxpKsF60YC+u2pc/Xp/ZgQeyRYZPH1QA6Qx4R+xrpzK3aKlFadpJ/AXInop2dtkA==}
 
   '@paralleldrive/cuid2@2.3.1':
     resolution: {integrity: sha512-XO7cAxhnTZl0Yggq6jOgjiOHhbgcO4NqFqwSmQpjK3b6TEE6Uj/jfSk6wzYyemh3+I0sHirKSetjQwn5cZktFw==}
@@ -4591,7 +4591,7 @@ snapshots:
 
   '@overlive/core@0.2.0': {}
 
-  '@overlive/core@0.3.0': {}
+  '@overlive/core@0.4.0': {}
 
   '@overlive/emotes@0.2.0':
     dependencies:
@@ -4606,12 +4606,12 @@ snapshots:
       - supports-color
       - utf-8-validate
 
-  '@overlive/twitch-oauth@0.2.0': {}
+  '@overlive/twitch-oauth@0.3.0': {}
 
-  '@overlive/twitch@0.3.0':
+  '@overlive/twitch@0.4.0':
     dependencies:
-      '@overlive/core': 0.3.0
-      '@overlive/twitch-oauth': 0.2.0
+      '@overlive/core': 0.4.0
+      '@overlive/twitch-oauth': 0.3.0
 
   '@paralleldrive/cuid2@2.3.1':
     dependencies:

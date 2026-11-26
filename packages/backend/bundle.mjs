@@ -33,6 +33,7 @@ const SHARED_ALIAS = {
   '@vspark/shared/live2d':          '../shared/src/live2d.ts',
   '@vspark/shared/actions':         '../shared/src/actions.ts',
   '@vspark/shared/composites':      '../shared/src/composites.ts',
+  '@vspark/shared/variables':       '../shared/src/variables.ts',
   '@vspark/shared':                 '../shared/src/types.ts',
 };
 

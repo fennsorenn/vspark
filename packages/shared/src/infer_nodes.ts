@@ -35,6 +35,14 @@ interface PackEventConfig {
 
 const TRAILING_SLOT = '';
 
+/** The type of a config literal: text, number or yes/no; unknown otherwise. */
+function literalType(v: unknown): ResolvedType {
+  if (typeof v === 'string') return RT.primitive('String');
+  if (typeof v === 'number') return RT.primitive('Float');
+  if (typeof v === 'boolean') return RT.primitive('Bool');
+  return RT.unknown();
+}
+
 export const inferPackEvent: InferPortsFn = (ctx: InferCtx): InferResult => {
   const cfg = (ctx.config ?? {}) as PackEventConfig;
   const fields = (cfg.fields ?? []).filter((f) => f.length > 0);
@@ -43,10 +51,14 @@ export const inferPackEvent: InferPortsFn = (ctx: InferCtx): InferResult => {
     { name: 'fire', type: RT.event(RT.primitive('Trigger')) },
   ];
   const recordFields: Record<string, ResolvedType> = {};
+  const cfgAll = (ctx.config ?? {}) as Record<string, unknown>;
   for (const name of fields) {
     const t = ctx.resolvedInputs[name] ?? RT.unknown();
     inputPorts.push({ name, type: t });
-    if (t.kind !== 'unknown') recordFields[name] = t;
+    // An unwired field falls back to its config value at fire time (the
+    // engine's config fallback), so a configured literal types the field too.
+    const packed = t.kind !== 'unknown' ? t : literalType(cfgAll[name]);
+    if (packed.kind !== 'unknown') recordFields[name] = packed;
   }
   // Always-present empty slot for adding the next field.
   inputPorts.push({ name: TRAILING_SLOT, type: RT.unknown() });

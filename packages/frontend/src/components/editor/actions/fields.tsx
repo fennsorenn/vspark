@@ -4,13 +4,14 @@
  * through `onSetting` (the row decides whether that is a value write or a
  * confirmed rebuild). The draft input primitives live in `draftInputs.tsx`.
  */
+import { COOLDOWN_SCOPE, useVariableNames } from '../../../mesh/names';
 import type { CSSProperties, ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import { CHAT_RANKS, RESPONSE_TYPE_IDS } from '@vspark/shared/actions';
 import { useEditorStore } from '../../../store/editorStore';
 import { HelpButton } from '../../../help/HelpButton';
-import { FieldEditor, effectiveFields } from '../macros/MacrosPanel';
-import type { MacroFieldValue } from '../macros/types';
+import { FieldEditor } from './FieldEditor';
+import { effectiveFields, type ResponseFieldValue } from './responseFields';
 import { inputStyle, labelStyle } from './styles';
 import { SettingCheck, DraftNumber, DraftText } from './draftInputs';
 
@@ -123,6 +124,7 @@ export function CooldownField({
   onSetting: OnSetting;
 }) {
   const { t } = useTranslation('actions');
+  const cooldownGroups = useVariableNames(COOLDOWN_SCOPE);
   const cd = isObj(value) ? value : {};
   return (
     <Field
@@ -141,6 +143,7 @@ export function CooldownField({
         value={typeof cd.group === 'string' ? cd.group : ''}
         placeholder={t('form.cooldownGroup')}
         width={90}
+        suggestions={cooldownGroups}
         onCommit={(v) => onSetting('cooldown.group', v)}
       />
     </Field>
@@ -155,6 +158,7 @@ export function CounterField({
   onSetting: OnSetting;
 }) {
   const { t } = useTranslation('actions');
+  const sharedNames = useVariableNames('');
   const c = isObj(value) ? value : {};
   const enabled = c.enabled === true;
   return (
@@ -177,6 +181,7 @@ export function CounterField({
               className="vs-action-counter-name"
               value={typeof c.name === 'string' ? c.name : ''}
               placeholder={t('form.counterName')}
+              suggestions={sharedNames}
               onCommit={(v) => onSetting('counter.name', v)}
             />
           </Field>
@@ -226,8 +231,7 @@ export function TemplateField({
 
 /**
  * A response picker (type = shape setting) with the type's typed value
- * controls (the Macros panel's field editors, incl. the paramPath-typed
- * property value). `path` is the slot's settings path (`responses.0`,
+ * controls (FieldEditor, incl. the paramPath-typed property value). `path` is the slot's settings path (`responses.0`,
  * `response`). With `allowNone` the empty choice ("no response") is
  * selectable; otherwise it is only a prompt.
  */
@@ -245,7 +249,7 @@ export function ResponseEditor({
   onSetting: OnSetting;
 }) {
   const { t } = useTranslation('actions');
-  const values = (isObj(slot) ? slot : {}) as Record<string, MacroFieldValue>;
+  const values = (isObj(slot) ? slot : {}) as Record<string, ResponseFieldValue>;
   const type = typeof values.type === 'string' ? values.type : '';
   return (
     <div
@@ -285,7 +289,7 @@ export function ResponseEditor({
         />
       )}
       {type &&
-        effectiveFields({ defId: type, values }).map((f) => (
+        effectiveFields(type, values).map((f) => (
           <FieldEditor
             key={f.key}
             field={f}

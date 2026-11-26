@@ -5,7 +5,7 @@
  * the Settings section writes every link of a setting as one undo step; and
  * Dissolve drops the marker. See @vspark/shared/composites.
  */
-import { describe, expect, it, beforeEach } from 'vitest';
+import { describe, expect, it, beforeEach, afterEach, vi } from 'vitest';
 import { act, fireEvent, render, screen } from '@testing-library/react';
 import { MeshProvider } from '@vspark/mesh-react';
 import { compositeMarkerOf } from '@vspark/shared/composites';
@@ -22,6 +22,15 @@ import {
   CompositePartNote,
   CompositeSettings,
 } from '../src/components/editor/composites/CompositeSettings';
+import {
+  formatDuration,
+  parseDuration,
+} from '../src/components/editor/composites/CompositeControls';
+import { Countdown, formatCountdown } from '../src/lib/feedTemplate';
+import {
+  persistentVariableId,
+  type DeadlineState,
+} from '@vspark/shared/variables';
 import '../src/i18n';
 
 type Doc = Record<string, unknown>;
@@ -284,5 +293,166 @@ describe('composite settings section', () => {
   it('renders nothing for a plain layer', () => {
     renderSettings('other');
     expect(document.querySelector('.vs-composite-settings')).toBeNull();
+  });
+});
+
+// ── Stream widgets ──────────────────────────────────────────────────────────
+
+
+describe('durations and countdowns', () => {
+  it('parses typed durations and shows seconds as H:MM:SS', () => {
+    expect(parseDuration('1:30:00')).toBe(5400);
+    expect(parseDuration('5:00')).toBe(300);
+    expect(parseDuration('90')).toBe(5400); // a plain number is minutes
+    expect(parseDuration('1h 30m')).toBe(5400);
+    expect(parseDuration('45s')).toBe(45);
+    expect(parseDuration('5:75')).toBeNull();
+    expect(parseDuration('soon')).toBeNull();
+    expect(parseDuration('')).toBeNull();
+    expect(formatDuration(5400)).toBe('1:30:00');
+    expect(formatDuration(30 * 3600)).toBe('30:00:00');
+    expect(formatCountdown(65)).toBe('1:05');
+    expect(formatCountdown(3665)).toBe('1:01:05');
+    expect(formatCountdown(65, 'mm:ss')).toBe('01:05');
+    expect(formatCountdown(-3)).toBe('0:00');
+  });
+
+  afterEach(() => vi.useRealTimers());
+
+  it('<Countdown> counts down on the page from the end time, or holds a pause', () => {
+    vi.useFakeTimers({ now: 1_000_000 });
+    const running: DeadlineState & { now: number } = {
+      endsAt: 1000 + 90,
+      remaining: 90,
+      total: 90,
+      running: true,
+      finished: false,
+      now: 1000,
+    };
+    const { container, rerender } = render(<Countdown state={running} />);
+    expect(container.textContent).toBe('1:30');
+    act(() => {
+      vi.advanceTimersByTime(30_000);
+    });
+    expect(container.textContent).toBe('1:00');
+    rerender(
+      <Countdown state={{ ...running, running: false, endsAt: null, remaining: 42 }} />
+    );
+    expect(container.textContent).toBe('0:42');
+  });
+});
+
+describe('widget controls', () => {
+  beforeEach(() => {
+    seedEditor({
+      projectId: 'p1',
+      composeLayers: [
+        layer('cs', null, { kind: 'compose_scene', rootComposeSceneId: 'cs' }),
+        layer('cd', 'cs', {
+          name: 'Countdown',
+          kind: 'feed',
+          config: {
+            css: '.c { --w-font: a; --w-size: 48px; --w-color: #fff; }',
+            composite: { type: 'countdown', parts: { panel: 'cd', timer: 'tg' } },
+          },
+        }),
+      ],
+    });
+    testPeer()
+      .collection<{ id: string }>('logic')
+      .put(
+        {
+          id: 'tg',
+          ownerKind: 'compose_layer',
+          ownerId: 'cd',
+          name: 'Countdown',
+          enabled: true,
+          descriptor: {
+            id: 'tg',
+            label: 'c',
+            readonly: false,
+            nodes: {
+              lid: { id: 'lid', kind: 'logic_id', position: { x: 0, y: 0 } },
+              dl: {
+                id: 'dl',
+                kind: 'deadline',
+                position: { x: 0, y: 0 },
+                defaultConfig: { name: 'countdown', persistent: true, duration: 300 },
+              },
+              dt: {
+                id: 'dt',
+                kind: 'date_time',
+                position: { x: 0, y: 0 },
+                defaultConfig: { text: '20:00' },
+              },
+            },
+            edges: {
+              'lid:id:dl:scope': {
+                fromNodeId: 'lid',
+                fromPort: 'id',
+                toNodeId: 'dl',
+                toPort: 'scope',
+                kind: 'value',
+              },
+            },
+          },
+        } as { id: string },
+        { v: { t: 1e6, c: 0, n: 'seed' } }
+      );
+  });
+
+  const timerDoc = () =>
+    testPeer()
+      .collection<{ id: string; value: DeadlineState }>('variable')
+      .get(persistentVariableId({ projectId: 'p1', scope: 'tg', name: 'countdown' }));
+
+  it('Start / Pause / Resume / Reset write the timer state into its variable', () => {
+    render(
+      <MeshProvider peer={testPeer()}>
+        <CompositeSettings rtype="compose_layer" rootId="cd" />
+      </MeshProvider>
+    );
+    act(() => {
+      fireEvent.click(document.querySelector('.vs-composite-timer-start')!);
+    });
+    expect(timerDoc()?.value).toMatchObject({ running: true, total: 300 });
+    act(() => {
+      fireEvent.click(document.querySelector('.vs-composite-timer-pause')!);
+    });
+    expect(timerDoc()?.value.running).toBe(false);
+    expect(timerDoc()?.value.remaining).toBeGreaterThan(299);
+    act(() => {
+      fireEvent.click(document.querySelector('.vs-composite-timer-resume')!);
+    });
+    expect(timerDoc()?.value.running).toBe(true);
+    act(() => {
+      fireEvent.click(document.querySelector('.vs-composite-timer-reset')!);
+    });
+    expect(timerDoc()?.value).toMatchObject({ running: false, remaining: 0 });
+    // Not undoable: runtime state, not an edit.
+    expect(testPeer().undo()).toBe(false);
+  });
+
+  it('the mode toggles the until-edge and the length is a duration', () => {
+    render(
+      <MeshProvider peer={testPeer()}>
+        <CompositeSettings rtype="compose_layer" rootId="cd" />
+      </MeshProvider>
+    );
+    const length = document.querySelector(
+      '.vs-composite-setting-duration'
+    ) as HTMLInputElement;
+    expect(length.value).toBe('0:05:00');
+    fireEvent.change(length, { target: { value: '10:00' } });
+    fireEvent.blur(length);
+    const g = () => (graphs().get('tg')?.descriptor as Doc);
+    expect(((g().nodes as Record<string, Doc>).dl.defaultConfig as Doc).duration).toBe(600);
+    act(() => {
+      fireEvent.change(document.querySelector('.vs-composite-setting-mode')!, {
+        target: { value: 'until' },
+      });
+    });
+    expect(Object.keys(g().edges as Doc)).toContain('dt:fromNow:dl:duration');
+    expect(document.querySelector('.vs-composite-setting-until')).toBeTruthy();
   });
 });

@@ -1,6 +1,7 @@
 # Plan: Actions — preauthored, project-level workflows (+ the nodes they need)
 
-> **Status:** design-only — decided with the user 2026-11-06, not started.
+> **Status:** implemented (see [modules/actions.md](../modules/actions.md)); decided
+> with the user 2026-11-06. The Macros panel was retired 2026-11-09.
 > **Follows:** the Macros panel (`components/editor/macros/`, PR #59), which this
 > supersedes once the Actions panel reaches parity (see Phase 3).
 
@@ -52,7 +53,7 @@ the way, the signal graph gains the general-purpose nodes these workflows need
 - **[decided]** **Behaviors get the same treatment** in this effort: stored, editable
   graph, Modified badge, Reset.
 - **[decided]** The **Macros panel is retired** once the Actions panel is at least as
-  convenient for hotkeys (parity list in Phase 3) — not before.
+  convenient for hotkeys (parity list in Phase 3) — not before. Done 2026-11-09.
 
 ### Signal-graph node principles (the user's standing design rules)
 

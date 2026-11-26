@@ -6,7 +6,13 @@
     "alert": "Alert",
     "chat_overlay": "Chat-Overlay",
     "chat_overlay_3d": "Chat-Overlay (3D)",
-    "scrolling_chat": "Laufender Chat (3D)"
+    "scrolling_chat": "Laufender Chat (3D)",
+    "goal": "Ziel",
+    "countdown": "Countdown",
+    "subathon": "Subathon-Timer",
+    "recent_events": "Letzte Ereignisse",
+    "top_supporters": "Top-Unterstützer",
+    "ad_break": "Werbepause"
   },
   "group": {
     "trigger": "Auslöser",
@@ -16,7 +22,15 @@
     "timing": "Zeitablauf",
     "chat": "Chat",
     "look": "Aussehen",
-    "motion": "Bewegung"
+    "motion": "Bewegung",
+    "goal": "Ziel",
+    "timer": "Timer",
+    "control": "Steuerung",
+    "rates": "Zeit pro",
+    "limits": "Grenzen",
+    "events": "Ereignisse",
+    "list": "Liste",
+    "ad": "Werbepause"
   },
   "setting": {
     "trigger": "Auslöser",
@@ -43,13 +57,57 @@
     "heightMin": "Niedrigste Höhe",
     "heightMax": "Höchste Höhe",
     "depthMin": "Geringste Tiefe",
-    "depthMax": "Größte Tiefe"
+    "depthMax": "Größte Tiefe",
+    "source": "Ziel aus",
+    "goalKind": "Twitch-Ziel",
+    "label": "Beschriftung",
+    "target": "Zielwert",
+    "current": "Aktueller Stand",
+    "count": "Zählt",
+    "countTrigger": "Name des Auslösers",
+    "variable": "Variable",
+    "period": "Behalten",
+    "accentColor": "Akzentfarbe",
+    "trackColor": "Balkenhintergrund",
+    "controls": "Timer",
+    "mode": "Zählt herunter",
+    "duration": "Dauer",
+    "until": "Bis (Uhrzeit)",
+    "title": "Titel",
+    "finishTrigger": "Bei null Auslöser senden",
+    "controlName": "Namen der Auslöser",
+    "initial": "Startzeit",
+    "perSub": "Abo",
+    "perGift": "Verschenktes Abo",
+    "per100Bits": "100 Bits",
+    "perTip": "1 Trinkgeld (Währungseinheit)",
+    "perFollow": "Follow",
+    "hardCap": "Harte Grenze (gesamt)",
+    "plannedStart": "Geplanter Start",
+    "stages": "Stufen der weichen Grenze",
+    "showFollow": "Follows",
+    "showSub": "Abos",
+    "showGift": "Verschenkte Abos",
+    "showBits": "Bits",
+    "showTip": "Trinkgelder",
+    "showRaid": "Raids",
+    "labelFollow": "Text für Follows",
+    "labelSub": "Text für Abos",
+    "labelGift": "Text für Geschenke",
+    "labelBits": "Text für Bits",
+    "labelTip": "Text für Trinkgeld",
+    "labelRaid": "Text für Raids",
+    "maxEntries": "Angezeigte Einträge",
+    "metric": "Sortiert nach"
   },
   "option": {
     "trigger": {
       "donation": "Spende",
       "tip": "Trinkgeld",
+      "bits": "Bits",
       "sub": "Abo",
+      "gift": "Verschenkte Abos",
+      "follow": "Follow",
       "raid": "Raid",
       "named": "Benannter Auslöser"
     },
@@ -74,6 +132,45 @@
     "badgeType": {
       "image": "Bild",
       "video": "Video"
+    },
+    "source": {
+      "twitch": "Twitch-Ziel",
+      "manual": "Eigenes Ziel"
+    },
+    "goalKind": {
+      "any": "Beliebig",
+      "follow": "Follower",
+      "subscription": "Abo-Punkte",
+      "subscription_count": "Abos",
+      "new_subscription": "Neue Abo-Punkte",
+      "new_subscription_count": "Neue Abos",
+      "new_bit": "Bits",
+      "new_cheerer": "Neue Cheerer"
+    },
+    "count": {
+      "none": "Nichts (von Hand)",
+      "follow": "Follows",
+      "sub": "Abos",
+      "gift": "Verschenkte Abos",
+      "bits": "Bits",
+      "tip": "Trinkgeld (Betrag)",
+      "raid": "Raid-Zuschauer",
+      "named": "Benannter Auslöser"
+    },
+    "period": {
+      "stream": "Dieser Stream",
+      "always": "Über Streams hinweg"
+    },
+    "mode": {
+      "duration": "Eine feste Dauer",
+      "until": "Bis zu einer Uhrzeit"
+    },
+    "metric": {
+      "bits": "Bits",
+      "tip": "Trinkgeld",
+      "gift": "Verschenkte Abos",
+      "sub": "Abos",
+      "raid": "Raid-Zuschauer"
     }
   },
   "unavailable": "nicht verfügbar (Teil entfernt)",
@@ -88,6 +185,26 @@
   "help": {
     "settings": "Diese Einstellungen schreiben direkt in die Teile des Widgets.",
     "dissolve": "Was das Auflösen bewirkt.",
-    "parts": "Warum die Teile eines Widgets an ihrem Platz bleiben."
+    "parts": "Warum die Teile eines Widgets an ihrem Platz bleiben.",
+    "widgets": "Was dieses Widget macht und wie du es einrichtest."
+  },
+  "timer": {
+    "start": "Starten",
+    "restart": "Neu starten",
+    "pause": "Pausieren",
+    "resume": "Fortsetzen",
+    "reset": "Zurücksetzen",
+    "running": "läuft",
+    "paused": "pausiert",
+    "idle": "nicht gestartet",
+    "finished": "abgelaufen"
+  },
+  "stages": {
+    "noPlan": "Gib einen geplanten Start ein, um zu sehen, wann jede Stufe erreicht wird.",
+    "plan": "Start {{start}}; die Startzeit ({{initial}}) endet {{end}}.",
+    "past": "ab",
+    "endsAt": "≈ wenn es {{when}} enden würde",
+    "remove": "Stufe entfernen",
+    "add": "Stufe hinzufügen"
   }
 }

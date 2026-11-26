@@ -185,6 +185,7 @@ Nutzung hinzufügt.
 - Ohne Namen gehört der Zähler nur dieser Aktion.
 - Mit Namen ist er ein geteilter Zähler: Aktionen mit demselben Namen zählen
   gemeinsam, und jede Logik kann ihn mit einem **Get Variable**-Knoten lesen.
+  Das Namensfeld schlägt die schon verwendeten geteilten Namen vor.
 - **Nach Neustart behalten** speichert den Zähler, sodass er einen Neustart von
   vspark übersteht.
 
@@ -200,7 +201,9 @@ anderes, wenn du mehrere hast.
 **Auslöser senden** sendet bei jedem Auslösen der Aktion einen benannten
 *Auslöser*. Jeder [Logik](topic:logic)-Graph im Projekt kann mit einem
 **On Trigger**-Knoten desselben Namens darauf reagieren — zum Beispiel, um einen
-Alert anzuzeigen. Leer lassen, um nichts zu senden.
+Alert anzuzeigen. Leer lassen, um nichts zu senden. Das Feld schlägt die
+Auslösernamen vor, die im Projekt schon verwendet werden; Namen von
+Cooldown-Gruppen werden genauso vorgeschlagen.
 
 ## Sounds und Videos {#media}
 

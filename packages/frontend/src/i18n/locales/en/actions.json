@@ -173,5 +173,25 @@
     "timeout": "After timeout",
     "thresholdHint": "Runs as soon as the count reaches the threshold.",
     "timeoutHint": "Runs once the combo ends (no message for the window), if the count reached the threshold."
+  },
+  "shortcut": {
+    "set": "Set shortcut…",
+    "recording": "Press a shortcut…"
+  },
+  "field": {
+    "clip": "Clip",
+    "avatar": "Avatar",
+    "expression": "Expression",
+    "weight": "Weight",
+    "target": "Target",
+    "layer": "Layer",
+    "property": "Property",
+    "value": "Value",
+    "action": "Action",
+    "sound": "Sound",
+    "volume": "Volume",
+    "video": "Video",
+    "videoTarget": "On",
+    "choose": "Choose…"
   }
 }

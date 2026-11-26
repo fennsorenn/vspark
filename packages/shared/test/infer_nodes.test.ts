@@ -37,6 +37,22 @@ describe('inferPackEvent', () => {
     }
   });
 
+  it('types an unwired field by its config literal (the value it packs)', () => {
+    const r = inferPackEvent(
+      ctx({
+        config: { fields: ['label', 'n', 'on', 'obj'], label: 'followed', n: 1, on: true, obj: {} },
+      })
+    );
+    const out = r.outputPorts[0].type;
+    if (out.kind !== 'event' || out.payload.kind !== 'record')
+      throw new Error('expected Event<record>');
+    expect(out.payload.fields).toEqual({
+      label: RT.primitive('String'),
+      n: RT.primitive('Float'),
+      on: RT.primitive('Bool'),
+    });
+  });
+
   it('defaults to no fields (just fire + slot)', () => {
     const r = inferPackEvent(ctx());
     expect(names(r.inputPorts)).toEqual(['fire', '']);

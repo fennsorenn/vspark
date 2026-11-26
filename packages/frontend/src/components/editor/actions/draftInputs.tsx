@@ -6,34 +6,42 @@
  * COMPONENTS) counts their call sites, and this file is excluded from the
  * coverage denominator like `numericInputs.tsx`.
  */
-import { useEffect, useState } from 'react';
+import { useEffect, useId, useState } from 'react';
 import { inputStyle, labelStyle } from './styles';
 
-/** Text input committing on blur / Enter. */
+/** A suggestion: a value, optionally shown with a label. */
+export type Suggestion = string | { value: string; label: string };
+
+/** Text input committing on blur / Enter. With `suggestions`, offers them as
+ *  you type (a `<datalist>`) — any other text is still taken. */
 export function DraftText({
   className,
   value,
   onCommit,
   placeholder,
   width,
+  suggestions,
 }: {
   className: string;
   value: string;
   onCommit: (v: string) => void;
   placeholder?: string;
   width?: number | string;
+  suggestions?: Suggestion[];
 }) {
+  const listId = useId();
   const [draft, setDraft] = useState(value);
   useEffect(() => setDraft(value), [value]);
   const commit = () => {
     if (draft !== value) onCommit(draft);
   };
-  return (
+  const input = (
     <input
       type="text"
       className={className}
       value={draft}
       placeholder={placeholder}
+      list={suggestions ? listId : undefined}
       onChange={(e) => setDraft(e.target.value)}
       onBlur={commit}
       onKeyDown={(e) => {
@@ -46,6 +54,34 @@ export function DraftText({
         width,
       }}
     />
+  );
+  if (!suggestions) return input;
+  return (
+    <>
+      {input}
+      <SuggestionList id={listId} suggestions={suggestions} />
+    </>
+  );
+}
+
+/** The `<datalist>` behind a suggesting input. */
+export function SuggestionList({
+  id,
+  suggestions,
+}: {
+  id: string;
+  suggestions: Suggestion[];
+}) {
+  return (
+    <datalist id={id}>
+      {suggestions.map((s) =>
+        typeof s === 'string' ? (
+          <option key={s} value={s} />
+        ) : (
+          <option key={s.value} value={s.value} label={s.label} />
+        )
+      )}
+    </datalist>
   );
 }
 

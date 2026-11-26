@@ -1,6 +1,6 @@
 import type { CSSProperties } from 'react';
 
-/** Shared control look of the Actions panel (same palette as the Macros panel). */
+/** Shared control look of the Actions panel. */
 export const inputStyle: CSSProperties = {
   background: '#0e0e1a',
   border: '1px solid #333',
