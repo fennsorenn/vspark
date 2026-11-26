@@ -14,7 +14,8 @@
     "patterns": "How patterns (regular expressions) work",
     "trigger": "Send a named trigger that other Logic can react to",
     "combo": "How a combo is counted",
-    "media": "Playing sounds and videos from your collection"
+    "media": "Playing sounds and videos from your collection",
+    "namedTrigger": "Which trigger starts this action"
   },
   "kinds": {
     "hotkey": {
@@ -40,6 +41,10 @@
     "redemption": {
       "label": "Redemption",
       "description": "React to a channel-point reward: play a clip, reply in chat, count, mark it complete …"
+    },
+    "named_trigger": {
+      "label": "Named trigger",
+      "description": "React when a named trigger is sent — by another action, a Logic graph, a widget or a plugin"
     }
   },
   "row": {
@@ -109,7 +114,9 @@
     "reward": "Reward",
     "rewardHint": "The reward's title, exactly as on Twitch (case is ignored).",
     "markComplete": "Mark the redemption as complete",
-    "onEnded": "When it ends"
+    "onEnded": "When it ends",
+    "triggerName": "Trigger name",
+    "triggerNameHint": "Runs when a trigger with exactly this name is sent. Empty: never runs."
   },
   "mode": {
     "single": "Single",
@@ -148,7 +155,8 @@
     "unique": "unique chatters",
     "endMessage": "at the end:",
     "markComplete": "✓ marks complete",
-    "comboTimeout": "≥ {{n}}×, {{s}} s after the last"
+    "comboTimeout": "≥ {{n}}×, {{s}} s after the last",
+    "noTriggerName": "No trigger name"
   },
   "responses": {
     "play_clip": "Play clip",

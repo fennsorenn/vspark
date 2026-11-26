@@ -136,6 +136,19 @@ Kanalpunkte-Belohnungen einlöst.
   Konto die Berechtigung, Einlösungen zu verwalten, und es klappt nur bei
   Belohnungen, die mit derselben App erstellt wurden.
 
+## Benannter Auslöser {#named_trigger}
+
+Ein **Benannter Auslöser** führt seine Reaktion aus, wenn ein Auslöser mit einem
+bestimmten Namen gesendet wird — von **Auslöser senden** einer anderen Aktion,
+einem **Auslöser senden**-Knoten in einem [Logik](topic:logic)-Graphen, einem
+Widget oder einem Plugin. Er ist das Gegenstück zu [Auslöser](#trigger).
+
+- **Name des Auslösers**: der Name, auf den gewartet wird, genau so, wie er
+  gesendet wird. Das Feld schlägt die im Projekt schon verwendeten Namen vor.
+  Leer: Die Aktion läuft nie.
+- **Abklingzeit**: siehe [Abklingzeit](#cooldown).
+- **Reaktion**: was passiert, wenn der Auslöser ankommt.
+
 ## Platzhalter {#placeholders}
 
 Antworten und Nachrichten können Platzhalter der Form `${name}` enthalten, die

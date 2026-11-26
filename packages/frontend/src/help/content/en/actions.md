@@ -126,6 +126,18 @@ A **Redemption** reacts when a viewer redeems one of your channel-point rewards.
   leaves your reward queue. This needs the account's permission to manage
   redemptions and only works for rewards created by the same app.
 
+## Named trigger {#named_trigger}
+
+A **Named trigger** runs its response when a trigger with a given name is sent —
+by another action's **Send trigger**, a [Logic](topic:logic) graph's **Send
+Trigger** node, a widget, or a plugin. It is the receiving end of
+[Triggers](#trigger).
+
+- **Trigger name**: the name to listen for, exactly as it is sent. The box
+  suggests the names already used in the project. Empty: the action never runs.
+- **Cooldown**: see [Cooldown](#cooldown).
+- **Response**: what happens when the trigger arrives.
+
 ## Placeholders {#placeholders}
 
 Replies and messages can contain placeholders in the form `${name}`, which are

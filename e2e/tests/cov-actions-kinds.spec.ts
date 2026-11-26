@@ -4,7 +4,8 @@ import type { APIRequestContext, Locator, Page } from '@playwright/test';
 
 /**
  * Control-coverage spec: the Actions panel's chat / redemption kinds (chat
- * command, chat pattern, chat keyword, keyword combo, redemption) and the
+ * command, chat pattern, chat keyword, keyword combo, redemption), the Named
+ * trigger kind and the
  * Hotkey parity additions (per-group quick add).
  * Sibling of cov-actions.spec.ts (core + Hotkey).
  *
@@ -17,7 +18,7 @@ import type { APIRequestContext, Locator, Page } from '@playwright/test';
  *   vs-action-trigger, vs-action-response-type, vs-action-field,
  *   vs-action-threshold, vs-action-window, vs-action-unique,
  *   vs-action-end-message, vs-action-reward, vs-action-mark-complete,
- *   vs-action-group-add.
+ *   vs-action-group-add, vs-action-trigger-name.
  *
  * Every mutation is asserted by REST read-back. The account list is served by
  * a route stub (no real Twitch / StreamElements account can be created here).
@@ -222,6 +223,19 @@ test('Actions kinds: keyword / combo / redemption forms (REST-verified)', async 
     .poll(async () => (await kw.read()).settings.trigger)
     .toBe('laugh');
   expect((await kw.read()).modified).toBe(false);
+
+  // ── Named trigger: name is a value, response type a shape ─────────────────
+  const nt = await addKind(page, request, projectId, 'named_trigger');
+  await commit(nt.form.locator('.vs-action-trigger-name'), 'laugh');
+  await expect
+    .poll(async () => (await nt.read()).settings.name)
+    .toBe('laugh');
+  const ntGraph = (await nt.read()).graphId as string;
+  await nt.form.locator('.vs-action-response-type').selectOption('play_sound');
+  await expect
+    .poll(() => graphKinds(request, ntGraph))
+    .toContain('play_sound');
+  expect((await nt.read()).modified).toBe(false);
 
   // ── Keyword combo ──────────────────────────────────────────────────────────
   const combo = await addKind(page, request, projectId, 'keyword_combo');

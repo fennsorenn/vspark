@@ -14,7 +14,8 @@
     "patterns": "Wie Muster (reguläre Ausdrücke) funktionieren",
     "trigger": "Einen benannten Auslöser senden, auf den andere Logik reagieren kann",
     "combo": "Wie eine Combo gezählt wird",
-    "media": "Sounds und Videos aus deiner Sammlung abspielen"
+    "media": "Sounds und Videos aus deiner Sammlung abspielen",
+    "namedTrigger": "Welcher Auslöser diese Aktion startet"
   },
   "kinds": {
     "hotkey": {
@@ -40,6 +41,10 @@
     "redemption": {
       "label": "Einlösung",
       "description": "Auf eine Kanalpunkte-Belohnung reagieren: Clip abspielen, im Chat antworten, zählen, als erledigt markieren …"
+    },
+    "named_trigger": {
+      "label": "Benannter Auslöser",
+      "description": "Reagieren, wenn ein benannter Auslöser gesendet wird – von einer anderen Aktion, einer Logik, einem Widget oder einem Plugin"
     }
   },
   "row": {
@@ -109,7 +114,9 @@
     "reward": "Belohnung",
     "rewardHint": "Der Titel der Belohnung, genau wie auf Twitch (Groß-/Kleinschreibung egal).",
     "markComplete": "Einlösung als erledigt markieren",
-    "onEnded": "Bei Ende"
+    "onEnded": "Bei Ende",
+    "triggerName": "Name des Auslösers",
+    "triggerNameHint": "Läuft, wenn ein Auslöser mit genau diesem Namen gesendet wird. Leer: läuft nie."
   },
   "mode": {
     "single": "Einfach",
@@ -148,7 +155,8 @@
     "unique": "verschiedene Chatter",
     "endMessage": "am Ende:",
     "markComplete": "✓ markiert als erledigt",
-    "comboTimeout": "≥ {{n}}×, {{s}} s nach der letzten"
+    "comboTimeout": "≥ {{n}}×, {{s}} s nach der letzten",
+    "noTriggerName": "Kein Auslöser-Name"
   },
   "responses": {
     "play_clip": "Clip abspielen",

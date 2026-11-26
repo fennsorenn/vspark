@@ -23,7 +23,7 @@ import type { GraphDescriptor } from '../src/signal';
  * backend/test/actions.kinds.test.ts.
  */
 const CHAT_KINDS = ACTION_KINDS.map((k) => k.kind).filter(
-  (k) => k !== 'hotkey'
+  (k) => k !== 'hotkey' && k !== 'named_trigger'
 );
 const hasResponse = (kind: string) =>
   actionKind(kind)!.fields.some((f) => f.path === 'response.type');
@@ -51,6 +51,7 @@ const ALL_VALUES = {
   reply: 'zzreply',
   endMessage: 'zzend',
   trigger: 'zztrigger',
+  name: 'zzname',
   account: 'zzacc',
   minRank: 'mod',
   threshold: 9,
@@ -564,6 +565,50 @@ describe('Redemption', () => {
     ]);
     expect(preview('redemption').headline).toEqual([
       { t: 'msg', key: 'preview.noReward' },
+    ]);
+  });
+});
+
+describe('Named trigger', () => {
+  it('normalizes the name and keeps a response; no default cooldown', () => {
+    const s = norm('named_trigger', { name: '  alert  ' });
+    expect(s).toMatchObject({ name: 'alert', cooldown: { seconds: 0, group: '' } });
+    expect((s.response as { type: string }).type).toBe('play_clip');
+  });
+
+  it('template: on_trigger (name from settings) → cooldown → response', () => {
+    const g = graph('named_trigger', { response: { type: 'play_sound' } });
+    expect(nodeOf(g, 'trigger')?.kind).toBe('on_trigger');
+    expect(nodeOf(g, 'response')?.kind).toBe('play_sound');
+    expect(edgeStrs(g)).toEqual(
+      expect.arrayContaining([
+        'cfg_name.value>trigger.name',
+        'trigger.event>cooldown.in',
+        'cooldown.out>response.fire',
+        'cfg_response_assetId.value>response.assetId',
+      ])
+    );
+    expect(nodeOf(graph('named_trigger', { response: {} }), 'response')).toBeUndefined();
+  });
+
+  it('preview: the name (or "no trigger name") + cooldown; response line', () => {
+    const p = preview('named_trigger', {
+      name: 'raid alert',
+      cooldown: { seconds: 5 },
+      response: { type: 'play_clip', clipId: 'c1' },
+    });
+    expect(p.headline).toEqual([
+      { t: 'text', text: 'raid alert' },
+      { t: 'msg', key: 'preview.cooldown', params: { s: 5 } },
+    ]);
+    expect(p.lines).toEqual([
+      [
+        { t: 'msg', key: 'responses.play_clip' },
+        { t: 'ref', ref: 'clip', id: 'c1' },
+      ],
+    ]);
+    expect(preview('named_trigger').headline).toEqual([
+      { t: 'msg', key: 'preview.noTriggerName' },
     ]);
   });
 });

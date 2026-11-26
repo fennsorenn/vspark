@@ -342,6 +342,26 @@ describe('Chat keyword', () => {
   });
 });
 
+describe('Named trigger', () => {
+  it('named trigger: runs the response for its trigger name only, with cooldown', async () => {
+    let now = 5_000_000;
+    vi.spyOn(Date, 'now').mockImplementation(() => now);
+    await create('named_trigger', {
+      name: 'raid alert',
+      cooldown: { seconds: 10 },
+      response: { type: 'play_clip', clipId: 'clip-1' },
+    });
+    const fired = () =>
+      logicManager.getStates(actionGraphId('named_trigger'))?.nodes['cooldown']?.portValues['in:in'];
+    triggerRouter.send(projectId, 'other', null);
+    expect(nodeIn('named_trigger', 'response', 'fire')).toBeUndefined();
+    triggerRouter.send(projectId, 'raid alert', { user: 'bob' });
+    expect(nodeIn('named_trigger', 'response', 'fire')).toBeDefined();
+    expect(nodeIn('named_trigger', 'response', 'clipId')).toBe('clip-1');
+    expect(fired()).toBeDefined();
+  });
+});
+
 describe('Keyword combo', () => {
   it('keyword combo: unique chatters reach the threshold; the end message has the final count', async () => {
     vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });

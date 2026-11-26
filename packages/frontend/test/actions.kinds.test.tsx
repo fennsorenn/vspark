@@ -383,3 +383,31 @@ describe('Hotkey parity', () => {
     ).toBeTruthy();
   });
 });
+
+describe('Named trigger', () => {
+  it('previews the trigger name and response', () => {
+    seed('nt', 'named_trigger', { name: 'raid alert' });
+    const { container } = renderPanel();
+    const text = preview(container, 'named_trigger');
+    for (const s of ['raid alert', 'Play clip']) expect(text).toContain(s);
+  });
+
+  it('the trigger name is a value edit; the response type a shape edit', async () => {
+    seed('nt1', 'named_trigger');
+    const user = userEvent.setup();
+    const { container } = renderPanel();
+    const q = (cls: string) => container.querySelector(cls)!;
+    await user.click(q('.vs-action-row'));
+    const before = graphOf('nt1');
+    await commitText(user, q('.vs-action-trigger-name'), 'raid alert');
+    expect(settingsOf('nt1').name).toBe('raid alert');
+    expect(graphOf('nt1')).toEqual(before);
+    await user.selectOptions(
+      q('.vs-action-response-type') as HTMLSelectElement,
+      'play_sound'
+    );
+    expect(graphOf('nt1').nodes.find((n) => n.id === 'response')?.kind).toBe(
+      'play_sound'
+    );
+  });
+});

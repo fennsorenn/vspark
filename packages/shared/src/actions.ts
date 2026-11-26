@@ -534,7 +534,7 @@ export interface CooldownSettings {
   seconds: number;
   group: string;
 }
-function normalizeCooldown(v: unknown, seconds: number): CooldownSettings {
+export function normalizeCooldown(v: unknown, seconds: number): CooldownSettings {
   const c = isObj(v) ? v : {};
   return {
     seconds: numOf(c.seconds, seconds, 0),
@@ -569,12 +569,14 @@ function counterDerived(c: CounterSettings) {
   };
 }
 
-const rankOf = (v: unknown): ChatRank =>
+export const rankOf = (v: unknown): ChatRank =>
   CHAT_RANKS.includes(v as ChatRank) ? (v as ChatRank) : 'everyone';
 
 /** Builder for the chat / redemption templates: one settings node per field,
  *  shared by every port that reads it (ids `cfg_<field with _ for .>`). */
-class Tpl {
+/** Template builder the built-in kinds use; exported for plugin kinds (the
+ *  plugin SDK exposes it as `sdk.actions.Tpl`). */
+export class Tpl {
   readonly nodes: GraphNodeDescriptor[] = [];
   readonly edges: GraphEdgeDescriptor[] = [];
   private readonly cfg = new Map<string, string>();
@@ -615,11 +617,11 @@ class Tpl {
   }
 }
 
-type Out = [nodeId: string, port: string];
+export type Out = [nodeId: string, port: string];
 
 /** Chat trigger → `chat_rank` gate (isSub / isMod / isBroadcaster of the
  *  trigger, `minRank` setting). */
-function addRankGate(b: Tpl, source: string, entry: Out, x: number): Out {
+export function addRankGate(b: Tpl, source: string, entry: Out, x: number): Out {
   b.node('rank', 'chat_rank', x, 420);
   for (const p of ['isSub', 'isMod', 'isBroadcaster']) b.wire(source, p, 'rank', p);
   b.setting('minRank', 'rank', 'minRank', x - 280, 560);
@@ -630,7 +632,7 @@ function addRankGate(b: Tpl, source: string, entry: Out, x: number): Out {
 }
 
 /** `cooldown` fed by every entry (seconds + optional shared group). */
-function addCooldown(b: Tpl, entries: Out[], x: number): Out {
+export function addCooldown(b: Tpl, entries: Out[], x: number): Out {
   b.node('cooldown', 'cooldown', x, 200);
   for (const [n, p] of entries) b.wire(n, p, 'cooldown', 'in');
   b.setting('cooldown.seconds', 'cooldown', 'seconds', x - 280, 640);
@@ -1208,6 +1210,54 @@ const redemption: ActionKindDef = {
   },
 };
 
+// ── Named trigger ────────────────────────────────────────────────────────────
+
+/** Runs a response when a named trigger arrives — from a `send_trigger` node,
+ *  another action's "Send trigger", a composite, or a plugin. The receiving
+ *  side of named triggers in the Actions panel. */
+const namedTrigger: ActionKindDef = {
+  kind: 'named_trigger',
+  label: 'Named trigger',
+  icon: '⚡',
+  fields: [
+    { path: 'name', class: 'value' },
+    { path: 'cooldown', class: 'value' },
+    ...RESPONSE_FIELDS,
+  ],
+  defaults: () => namedTrigger.normalize({ response: { type: 'play_clip' } }),
+  normalize(raw) {
+    const src = isObj(raw) ? raw : {};
+    return {
+      ...src,
+      name: strOf(src.name).trim(),
+      cooldown: normalizeCooldown(src.cooldown, 0),
+      response: normalizeResponse(src.response ?? NO_RESPONSE()),
+    };
+  },
+  build(shape) {
+    const b = new Tpl();
+    b.node('trigger', 'on_trigger', 0, 200);
+    b.setting('name', 'trigger', 'name', -280, 200);
+    const passed = addCooldown(b, [['trigger', 'event']], 280);
+    addSingleResponse(b, shape, passed, 840, 0);
+    return b.out();
+  },
+  preview(s) {
+    const name = strOf(s.name).trim();
+    const headline: PreviewToken[] = name
+      ? [{ t: 'text', text: name }]
+      : [{ t: 'msg', key: 'preview.noTriggerName' }];
+    const cd = normalizeCooldown(s.cooldown, 0);
+    if (cd.seconds > 0)
+      headline.push(
+        cd.group
+          ? { t: 'msg', key: 'preview.cooldownGroup', params: { s: cd.seconds, group: cd.group } }
+          : { t: 'msg', key: 'preview.cooldown', params: { s: cd.seconds } }
+      );
+    return { headline, lines: [responseLine(s)] };
+  },
+};
+
 // ── registry ─────────────────────────────────────────────────────────────────
 
 export const ACTION_KINDS: readonly ActionKindDef[] = [
@@ -1217,6 +1267,7 @@ export const ACTION_KINDS: readonly ActionKindDef[] = [
   chatKeyword,
   keywordCombo,
   redemption,
+  namedTrigger,
 ];
 
 const BY_KIND = new Map(ACTION_KINDS.map((k) => [k.kind, k]));

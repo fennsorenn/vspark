@@ -289,6 +289,37 @@ export function RedemptionForm(props: KindFormProps) {
   );
 }
 
+/** Named trigger: the trigger to listen for, a cooldown and one response. */
+export function NamedTriggerForm({ action, onSetting }: KindFormProps) {
+  const { t } = useTranslation('actions');
+  const triggers = useTriggerNames();
+  const s = action.settings;
+  return (
+    <div style={column}>
+      <Field
+        label={t('form.triggerName')}
+        hint={t('form.triggerNameHint')}
+        help={{ anchor: 'named_trigger', tip: t('help.namedTrigger') }}
+      >
+        <DraftText
+          className="vs-action-trigger-name"
+          value={str(s.name)}
+          suggestions={triggers}
+          onCommit={(v) => onSetting('name', v)}
+        />
+      </Field>
+      <CooldownField value={s.cooldown} onSetting={onSetting} />
+      <ResponseEditor
+        label={t('form.response')}
+        path="response"
+        slot={s.response}
+        allowNone
+        onSetting={onSetting}
+      />
+    </div>
+  );
+}
+
 /** The settings form per kind (Hotkey's lives in HotkeyForm.tsx). */
 export const CHAT_FORMS: Record<string, (p: KindFormProps) => JSX.Element> = {
   chat_command: ChatCommandForm,
@@ -296,4 +327,5 @@ export const CHAT_FORMS: Record<string, (p: KindFormProps) => JSX.Element> = {
   chat_keyword: ChatKeywordForm,
   keyword_combo: KeywordComboForm,
   redemption: RedemptionForm,
+  named_trigger: NamedTriggerForm,
 };
