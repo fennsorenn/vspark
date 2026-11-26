@@ -30,6 +30,10 @@ git repository.
 - **[decided]** (user, 2026-11-26) Accounts extend the existing accounts window
   (`OverliveAccountsModal`) — made generic enough for plugin providers — rather than a
   new window.
+- **[decided]** (user, 2026-11-26) Plugin accounts are **per project**, like Overlive
+  accounts (provider app credentials too, with a "copy from another project" shortcut).
+- **[decided]** (user, 2026-11-26) The first plugin repository is `vspark_spotify`
+  (one repo per plugin for now).
 - **[observed]** The released app is `node.exe`/`node` + a single esbuild CJS bundle
   (`packages/backend/bundle.mjs` → `dist/bundle.cjs`) + the built frontend. There is no
   package manager on a user's machine, so plugins must arrive **prebuilt**.
@@ -290,14 +294,10 @@ just says "restart the dev server".
 
 ## Open questions (for the user)
 
-1. Name of the separate plugin repository.
-2. How the SDK types reach it (npm publish vs git dependency).
-3. **Per-project enablement?** Proposal: install + enable per installation only; nodes
+1. How the SDK types reach `vspark_spotify` (npm publish vs git dependency).
+2. **Per-project enablement?** Proposal: install + enable per installation only; nodes
    are available in every project.
-4. **Accounts per project or per installation?** Overlive's are per project; following
-   that is consistent but means connecting Spotify per project (a "copy from project"
-   shortcut exists for Twitch apps).
-5. **Live loading** on install/enable vs. always restart (simpler, slower UX).
+3. **Live loading** on install/enable vs. always restart (simpler, slower UX).
 
 ## Output
 

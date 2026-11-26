@@ -33,7 +33,12 @@ current song on stream as a compound layer or as individual cover / title layers
 - **[decided]** (user, 2026-11-26) Song-request moderation in v1: per-user request
   limit, max track length, explicit filter, blocklist (tracks/artists), and cooldowns
   both **per user** and **global**.
-- **[decided]** (user, 2026-11-26) The plugin's source lives in a separate repository.
+- **[decided]** (user, 2026-11-26) The plugin's source lives in a separate repository,
+  `vspark_spotify`.
+- **[decided]** (user, 2026-11-26) Song requests use the **managed queue** (below).
+- **[decided]** (user, 2026-11-26) One Spotify account per project is enough; accounts are
+  per project (like Twitch). Nodes keep an `account` port (empty = the project's
+  account) so more could be supported later without a graph change.
 - **[decided]** (existing) No per-second updates from the backend; progress counts in the
   page (feed template helpers).
 
@@ -72,9 +77,10 @@ persisted in `ctx.storage` per project/account. Shortly before the current track
 then it can be removed, reordered, or vetoed. This makes `!wrongsong`, mod removal, a
 per-user limit and an on-stream request list possible.
 
-A **direct** mode (add straight to Spotify's queue; no remove) remains for users who
-prefer it. A **playlist** mode (requests go into a chosen playlist; removal edits the
-playlist) is the alternative if the hand-off timing proves unreliable.
+Not built in v1 (Claude's proposal, not decided): a **direct** mode (add straight to
+Spotify's queue; no remove) as a fallback setting, and a **playlist** mode (requests go
+into a chosen playlist; removal edits the playlist) if the hand-off timing proves
+unreliable.
 
 ### Signal nodes (`spotify_*`, tag `spotify`)
 
@@ -136,7 +142,7 @@ driven by `startedAt` / `durationMs` / `isPlaying`.
 
 ## Files in scope
 
-In the separate plugin repository (decided), layout `spotify/`:
+In the `vspark_spotify` repository (decided):
 
 - `plugins/spotify/plugin.json`, `src/backend/` (client with token refresh + 429 backoff,
   monitor, request queue, nodes, account provider), `src/shared/` (action kinds,
@@ -175,8 +181,5 @@ In the separate plugin repository (decided), layout `spotify/`:
 
 ## Open questions (for the user)
 
-1. Managed queue (recommended; enables removal) vs. direct vs. playlist mode — or
-   all three as a setting?
-2. Should song requests also accept YouTube/Apple links (resolved via search) or only
+1. Should song requests also accept YouTube/Apple links (resolved via search) or only
    Spotify links + text search?
-3. Is one Spotify account per project enough, or do you need several at once?
