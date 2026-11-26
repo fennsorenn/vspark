@@ -152,6 +152,9 @@ In the `vspark_spotify` repository (decided):
 
 ## Out of scope
 
+- Song requests from other platforms' links (YouTube, Apple Music, …) — not ruled out,
+  but out of scope for now (user, 2026-11-26). v1 accepts Spotify links / URIs and text
+  search.
 - 3D variants of the layers; lyrics; audio analysis (endpoint deprecated for new apps);
   Spotify Connect device picker UI beyond a node input; other music services (the
   plugin keeps service-specific naming so a later "music" abstraction can sit on top).
@@ -179,7 +182,3 @@ In the `vspark_spotify` repository (decided):
 - Manual: real account, Premium and free, hotkey skip, `!sr <url>` / `!sr <search>`,
   `!wrongsong`, layer in OBS.
 
-## Open questions (for the user)
-
-1. Should song requests also accept YouTube/Apple links (resolved via search) or only
-   Spotify links + text search?

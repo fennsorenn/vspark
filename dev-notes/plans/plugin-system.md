@@ -34,6 +34,12 @@ git repository.
   accounts (provider app credentials too, with a "copy from another project" shortcut).
 - **[decided]** (user, 2026-11-26) The first plugin repository is `vspark_spotify`
   (one repo per plugin for now).
+- **[decided]** (user, 2026-11-26) The SDK types are **published to npm** as
+  `@vspark/plugin-sdk`.
+- **[decided]** (user, 2026-11-26) A `vspark_plugin_template` repository is the starting
+  point for new plugins.
+- **[decided]** (user, 2026-11-26) Plugins are installed and enabled **per
+  installation**; their contributions are available in every project.
 - **[observed]** The released app is `node.exe`/`node` + a single esbuild CJS bundle
   (`packages/backend/bundle.mjs` → `dist/bundle.cjs`) + the built frontend. There is no
   package manager on a user's machine, so plugins must arrive **prebuilt**.
@@ -89,9 +95,8 @@ register in the host's WeakMaps. In the browser the SDK also carries `React`,
 `SettingCheck` inputs, account picker, `HelpButton`).
 
 A new `packages/plugin-sdk` workspace package is **types + build config only**
-(plugin repos are separate, so it must be consumable from outside: published to npm as
-`@vspark/plugin-sdk`, or a pnpm git dependency on this repo's subdirectory — the worker
-picks, publishing is preferred if the user agrees)
+published to npm as `@vspark/plugin-sdk` (decided) — a release workflow here publishes
+it on `plugin-sdk-v*` tags; its major version tracks `apiVersion`
 (`.d.ts` of the injected SDK, an esbuild preset that emits the three ESM files). No
 runtime code ships from it, so version skew is detected by `apiVersion`, not by
 duplicated modules.
@@ -280,6 +285,16 @@ just says "restart the dev server".
    plugin zips on `<id>-v*` tags and uploads them as release assets; bumping
    `plugins/registry.json` here (url + sha256) is a PR to this repo (manual or
    automated from the plugin repo's workflow).
+6. **`vspark_plugin_template` repo** (decided) — created as a GitHub *template
+   repository* ("Use this template"), not something to fork: a fork keeps the upstream
+   link, cannot be made private and shares the git history (Claude's recommendation;
+   forking still works if preferred). Contents: `plugin.json` with placeholders,
+   `src/{backend,shared,ui}` factory entries with one example node, response type and
+   composite, `locales/{en,de}`, `help/{en,de}`, `@vspark/plugin-sdk` +
+   build script, a Vitest harness, a `dev` script that points `config.json`
+   `plugins.dev` at `dist/`, and the release workflow from step 5 (zip + sha256 as
+   release assets, printing the registry entry to paste). `vspark_spotify` is created
+   from it.
 
 ## Acceptance / verification
 
@@ -294,10 +309,7 @@ just says "restart the dev server".
 
 ## Open questions (for the user)
 
-1. How the SDK types reach `vspark_spotify` (npm publish vs git dependency).
-2. **Per-project enablement?** Proposal: install + enable per installation only; nodes
-   are available in every project.
-3. **Live loading** on install/enable vs. always restart (simpler, slower UX).
+1. **Live loading** on install/enable vs. always restart (simpler, slower UX).
 
 ## Output
 
