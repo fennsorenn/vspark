@@ -240,9 +240,9 @@ The runtime also needs `uv` on PATH. A checkout needs an exported model bundle (
 `download.ts`, same pattern as the output windows' Electron download (`output_window/runtime.ts`,
 see [compose.md](compose.md)):
 
-- **Pin** `MOTIONTRACKER_RUNTIME`: `version` (v0.1.1, forearm twist fix), `asset` (`motiontracker-runtime-v0.1.1.zip`),
+- **Pin** `MOTIONTRACKER_RUNTIME`: `version` (v0.4.1, camera at full rate), `asset` (`motiontracker-runtime-v0.4.1.zip`),
   `sha256`, `bytes` (download size, ~16.7 MB, shown before the download starts), `folder` (top folder in the zip,
-  `motiontracker-v0.1.1`), `repo` (`fennsorenn/motiontracker`). Each motiontracker release bumps the pin
+  `motiontracker-v0.4.1`), `repo` (`fennsorenn/motiontracker`). Each motiontracker release bumps the pin
   (motiontracker `dev-notes/modules/service.md`, Releases); a new folder means vspark offers the download again,
   the old version's folder stays in `runtime/` until deleted. The zip holds `core/`, `service/`
   and the model bundles; uv still builds the Python environment on first start.
