@@ -142,11 +142,15 @@ driven by `startedAt` / `durationMs` / `isPlaying`.
 
 ## Files in scope
 
-In the `vspark_spotify` repository (decided):
+In the `vspark_spotify` repository (decided). A first draft exists (zip handed to
+the user, 2026-11-26): `src/core/` (SDK-independent, 39 unit tests), `src/backend/`,
+`src/shared/`, locales, help; it type-checks against the draft SDK and builds/packages,
+but cannot run until the host exists. Layout:
 
-- `plugins/spotify/plugin.json`, `src/backend/` (client with token refresh + 429 backoff,
-  monitor, request queue, nodes, account provider), `src/shared/` (action kinds,
-  response types, composite types), `presets/` (composite payloads), `locales/{en,de}/`,
+- `plugin.json`, `src/core/` (client with token refresh + 429 backoff, track mapping,
+  query parsing, playback diff + poll cadence, managed queue), `src/backend/` (service,
+  nodes, account provider), `src/shared/` (action kinds, response types, composite
+  types + feed templates), `locales/{en,de}/`,
   `help/{en,de}/spotify.md`, `test/`.
 - `packages/frontend/src/lib/feedTemplate.tsx` — `<Progress>` helper (core).
 

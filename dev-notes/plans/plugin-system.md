@@ -40,6 +40,15 @@ git repository.
   point for new plugins.
 - **[decided]** (user, 2026-11-26) Plugins are installed and enabled **per
   installation**; their contributions are available in every project.
+- **[decided]** (user, 2026-11-26) Requiring a restart is acceptable if live
+  activation turns out too hacky. (Claude's proposal stays: load live on install /
+  enable when it is clean; restart for disable / update / uninstall.)
+- **[observed]** (2026-11-26) Drafts of `vspark_plugin_template` and `vspark_spotify`
+  exist as zips (handed to the user to turn into repos). Their `sdk-preview/index.d.ts`
+  is the **draft SDK contract** this plan's phase 2 should start from (and move into
+  `packages/plugin-sdk`). A smoke test loaded both built plugins with a fake SDK:
+  standard decorators compiled by esbuild inside a factory register ports through
+  the injected decorators as intended.
 - **[observed]** The released app is `node.exe`/`node` + a single esbuild CJS bundle
   (`packages/backend/bundle.mjs` → `dist/bundle.cjs`) + the built frontend. There is no
   package manager on a user's machine, so plugins must arrive **prebuilt**.
@@ -81,7 +90,10 @@ ui.mjs       (opt.)    export default function (sdk) { return { actionForms, pan
                        React components; React/i18n come from sdk, never bundled
 locales/{en,de}/*.json registered as i18n namespace `plugin-<id>`
 help/{en,de}/*.md      served under the help system as topic `plugin-<id>/<page>`
-presets/*.json         composite payloads (same shape as BUILTIN_COMPOSITES)
+                       (composite presets are declared in shared.mjs as
+                       `compositePresets` — a feed-layer template + css + box,
+                       optional `flow` graph — which the host turns into a
+                       BUILTIN_COMPOSITES-shaped payload; no presets/*.json)
 assets/                icons etc., served at /plugins/<id>/assets/
 ```
 
@@ -253,7 +265,9 @@ just says "restart the dev server".
 - `packages/backend/src/signal/registry.ts`, `logic/manager.ts`, `index.ts` — mutable
   registry, generic event routing, boot order (plugins before `logicManager.startAllEnabled()`).
 - `packages/shared/src/actions.ts`, `composites.ts`, `signal.ts` — registration APIs,
-  Named trigger kind, account provider hint.
+  Named trigger kind, account provider hint. Export the template helpers the SDK
+  exposes as `sdk.actions` (`Tpl`, `addRankGate`, `addCooldown`, `commandNames`,
+  `commandPattern`, rank / cooldown normalizers) — module-private today.
 - `packages/frontend/src/plugins/` (new) — loader (`import(/* @vite-ignore */ url)`),
   SDK object, i18n/help registration; mount before `Editor` renders.
 - `packages/frontend/src/components/editor/plugins/` (new) — Plugins window.
@@ -282,7 +296,7 @@ just says "restart the dev server".
 4. **Registry + manager UI** — manifest fetch, install/verify/unpack, enable/disable/
    update/uninstall, restart sentinel, Plugins window, help + i18n.
 5. **Plugin repo + CI** — the separate plugin repository gets a workflow that builds
-   plugin zips on `<id>-v*` tags and uploads them as release assets; bumping
+   plugin zips on `v*` tags (one repo per plugin) and uploads them as release assets; bumping
    `plugins/registry.json` here (url + sha256) is a PR to this repo (manual or
    automated from the plugin repo's workflow).
 6. **`vspark_plugin_template` repo** (decided) — created as a GitHub *template
@@ -309,7 +323,7 @@ just says "restart the dev server".
 
 ## Open questions (for the user)
 
-1. **Live loading** on install/enable vs. always restart (simpler, slower UX).
+1. (none open — remaining choices are implementation details for the worker)
 
 ## Output
 
