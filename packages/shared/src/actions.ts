@@ -64,6 +64,44 @@ export interface TemplateGraph {
   edges: GraphEdgeDescriptor[];
 }
 
+/** How a declarative form field is edited (plugin Action kinds and response
+ *  types; the editor renders them with its generic form). */
+export type FormControl =
+  | 'text'
+  | 'textarea'
+  | 'number'
+  | 'slider'
+  | 'select'
+  | 'toggle'
+  | 'color'
+  | 'duration'
+  | 'account'
+  | 'rank'
+  | 'cooldown'
+  | 'list';
+
+/** One declarative form field. Labels / hints are i18n keys; a registered
+ *  plugin's keys are qualified with its namespace (`plugin-<id>:<key>`). */
+export interface FormField {
+  /** Dotted settings path (relative to the response slot for responses). */
+  path: string;
+  control: FormControl;
+  label: string;
+  hint?: string;
+  /** `select` options; labels `<label>.options.<option>` are not required —
+   *  the option value is shown when no translation exists. */
+  options?: readonly string[];
+  min?: number;
+  max?: number;
+  step?: number;
+  /** `account`: which accounts to list (`overlive` or `<pluginId>:<provider>`). */
+  provider?: string;
+  /** Placeholders a template field accepts (shown as a hint). */
+  placeholders?: readonly string[];
+  /** Shown only when this holds; receives a reader of the other settings. */
+  when?: (read: (path: string) => unknown) => boolean;
+}
+
 export interface ActionKindDef {
   kind: string;
   /** English label; the editor shows `actions:kinds.<kind>.label`. */
@@ -82,6 +120,10 @@ export interface ActionKindDef {
   build(shape: ActionSettings): TemplateGraph;
   /** What the panel row shows. */
   preview(settings: ActionSettings): ActionPreview;
+  /** Declarative form (plugin kinds). Built-in kinds have hand-written forms. */
+  form?: readonly FormField[];
+  /** Set on registration: the plugin that contributed this kind. */
+  plugin?: string;
 }
 
 // ── helpers ──────────────────────────────────────────────────────────────────
@@ -130,10 +172,20 @@ export interface ResponseTypeDef {
   /** Value fields. Each is a value-input PORT of the sink with the same name,
    *  fed from `responses.<i>.<field>` by a settings node. */
   fields: readonly string[];
+  /** Declarative editor fields (plugin response types; built-ins are
+   *  described in the frontend's `actions/responseFields.ts`). */
+  form?: readonly FormField[];
+  /** i18n key of the label (plugin response types; built-ins use
+   *  `actions:responses.<id>`). */
+  label?: string;
+  /** Set on registration: the plugin that contributed this type. */
+  plugin?: string;
 }
 
-/** The response set, by id. The editor's field controls for each type are in
- *  the frontend's `actions/responseFields.ts` (same ids and fields). */
+/** The response set, by id. The editor's field controls for each built-in type
+ *  are in the frontend's `actions/responseFields.ts` (same ids and fields).
+ *  Plugins add types with {@link registerResponseType}; read the ids through
+ *  {@link responseTypeIds} so registrations are seen. */
 export const RESPONSE_TYPES: Readonly<Record<string, ResponseTypeDef>> = {
   play_clip: { nodeKind: 'start_clip', entryPort: 'fire', fields: ['clipId'] },
   spawn_clip: { nodeKind: 'spawn_clip', entryPort: 'fire', fields: ['clipId'] },
@@ -172,7 +224,14 @@ export const RESPONSE_TYPES: Readonly<Record<string, ResponseTypeDef>> = {
   },
 };
 
+/** Built-in response type ids (a snapshot taken at load: plugin types are not
+ *  in it — use {@link responseTypeIds}). */
 export const RESPONSE_TYPE_IDS = Object.keys(RESPONSE_TYPES);
+
+/** Every response type id, plugin types included, in registration order. */
+export function responseTypeIds(): string[] {
+  return Object.keys(RESPONSE_TYPES);
+}
 
 /**
  * Add one response sink (by the slot's `type`) fired from `from`, its value
@@ -222,8 +281,11 @@ function normalizeResponse(v: unknown): Record<string, unknown> {
 /** Preview tokens for one configured response. */
 function responsePreview(resp: Record<string, unknown>): PreviewToken[] {
   const type = typeof resp.type === 'string' ? resp.type : '';
-  if (!RESPONSE_TYPES[type]) return [{ t: 'msg', key: 'preview.noResponse' }];
-  const out: PreviewToken[] = [{ t: 'msg', key: `responses.${type}` }];
+  const def = RESPONSE_TYPES[type];
+  if (!def) return [{ t: 'msg', key: 'preview.noResponse' }];
+  const out: PreviewToken[] = [
+    { t: 'msg', key: def.label ?? `responses.${type}` },
+  ];
   const str = (k: string) =>
     resp[k] === undefined || resp[k] === null ? '' : String(resp[k]);
   const ref = (kind: ResponseRefKind, k: string) => {
@@ -1260,6 +1322,8 @@ const namedTrigger: ActionKindDef = {
 
 // ── registry ─────────────────────────────────────────────────────────────────
 
+/** Every kind, built-ins first, then plugin kinds in registration order. The
+ *  array is extended in place by {@link registerActionKind}. */
 export const ACTION_KINDS: readonly ActionKindDef[] = [
   hotkey,
   chatCommand,
@@ -1274,6 +1338,97 @@ const BY_KIND = new Map(ACTION_KINDS.map((k) => [k.kind, k]));
 
 export function actionKind(kind: string): ActionKindDef | undefined {
   return BY_KIND.get(kind);
+}
+
+// ── plugin registration ──────────────────────────────────────────────────────
+
+/** A plugin contribution that cannot be registered (bad id, duplicate). */
+export class RegistrationError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'RegistrationError';
+  }
+}
+
+const PLUGIN_ID_RE = /^[a-z][a-z0-9]*(?:_[a-z0-9]+)*$/;
+
+/** Plugin ids are lowercase snake case; every id a plugin contributes starts
+ *  with `<pluginId>_`, so plugins cannot collide with vspark or each other. */
+export function checkContributionId(
+  pluginId: string,
+  id: string,
+  what: string
+): void {
+  if (!PLUGIN_ID_RE.test(pluginId))
+    throw new RegistrationError(`invalid plugin id "${pluginId}"`);
+  if (!id.startsWith(`${pluginId}_`) || id.length <= pluginId.length + 1)
+    throw new RegistrationError(
+      `${what} "${id}" of plugin "${pluginId}" must start with "${pluginId}_"`
+    );
+}
+
+/** `key` in the plugin's i18n namespace, unless already qualified. */
+export function pluginKey(pluginId: string, key: string): string {
+  return key.includes(':') ? key : `plugin-${pluginId}:${key}`;
+}
+
+function qualifyForm(
+  pluginId: string,
+  form: readonly FormField[] | undefined
+): FormField[] | undefined {
+  return form?.map((f) => ({
+    ...f,
+    label: pluginKey(pluginId, f.label),
+    ...(f.hint ? { hint: pluginKey(pluginId, f.hint) } : {}),
+  }));
+}
+
+/** Add a plugin's response type. It becomes available to every kind with a
+ *  response (Hotkey, Chat keyword, Keyword combo, Redemption, Named trigger). */
+export function registerResponseType(
+  pluginId: string,
+  id: string,
+  def: ResponseTypeDef
+): void {
+  checkContributionId(pluginId, id, 'response type');
+  if (RESPONSE_TYPES[id])
+    throw new RegistrationError(`response type "${id}" already exists`);
+  (RESPONSE_TYPES as Record<string, ResponseTypeDef>)[id] = {
+    ...def,
+    label: pluginKey(pluginId, def.label ?? `response.${id}`),
+    form: qualifyForm(pluginId, def.form) ?? [],
+    plugin: pluginId,
+  };
+}
+
+/** Add a plugin's Action kind. Preview `msg` keys and the kind's label /
+ *  description (`kinds.<kind>.label`) are looked up in the plugin's namespace. */
+export function registerActionKind(pluginId: string, def: ActionKindDef): void {
+  checkContributionId(pluginId, def.kind, 'action kind');
+  if (BY_KIND.has(def.kind))
+    throw new RegistrationError(`action kind "${def.kind}" already exists`);
+  const reg: ActionKindDef = {
+    ...def,
+    form: qualifyForm(pluginId, def.form),
+    plugin: pluginId,
+  };
+  (ACTION_KINDS as ActionKindDef[]).push(reg);
+  BY_KIND.set(reg.kind, reg);
+}
+
+/** Remove everything a plugin registered here (a failed activation, tests).
+ *  Stored actions of a removed kind stay; they show as unknown kinds. */
+export function unregisterActionContributions(pluginId: string): void {
+  const kinds = ACTION_KINDS as ActionKindDef[];
+  for (let i = kinds.length - 1; i >= 0; i--) {
+    if (kinds[i]!.plugin === pluginId) {
+      BY_KIND.delete(kinds[i]!.kind);
+      kinds.splice(i, 1);
+    }
+  }
+  const types = RESPONSE_TYPES as Record<string, ResponseTypeDef>;
+  for (const [id, def] of Object.entries(types))
+    if (def.plugin === pluginId) delete types[id];
 }
 
 /** Is `path` (concrete, dotted) a shape setting of `kind`? */

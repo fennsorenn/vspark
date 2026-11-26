@@ -193,6 +193,9 @@ export interface CompositeTypeDef {
   /** role → document type of the part. */
   parts: Record<string, PartRtype>;
   settings: CompositeSetting[];
+  /** Set on registration: the plugin that contributed this type. Its labels
+   *  (type, groups, settings, options) live in the plugin's namespace. */
+  plugin?: string;
 }
 
 /** The document playing `role`, or undefined when it is gone. */
@@ -1732,6 +1735,28 @@ export const COMPOSITE_TYPES: Record<string, CompositeTypeDef> = {
   [TOP_SUPPORTERS_COMPOSITE.type]: TOP_SUPPORTERS_COMPOSITE,
   [AD_BREAK_COMPOSITE.type]: AD_BREAK_COMPOSITE,
 };
+
+const PLUGIN_ID_RE = /^[a-z][a-z0-9]*(?:_[a-z0-9]+)*$/;
+
+/** Add a plugin's composite type (its id must start with `<pluginId>_`). The
+ *  placeable payload is registered separately on the backend. */
+export function registerCompositeType(
+  pluginId: string,
+  def: CompositeTypeDef
+): void {
+  if (!PLUGIN_ID_RE.test(pluginId)) throw new Error(`invalid plugin id "${pluginId}"`);
+  if (!def.type.startsWith(`${pluginId}_`))
+    throw new Error(`composite type "${def.type}" of plugin "${pluginId}" must start with "${pluginId}_"`);
+  if (COMPOSITE_TYPES[def.type]) throw new Error(`composite type "${def.type}" already exists`);
+  COMPOSITE_TYPES[def.type] = { ...def, plugin: pluginId };
+}
+
+/** Remove a plugin's composite types. Placed instances then behave as plain
+ *  parents (like a type from a newer build). */
+export function unregisterCompositeContributions(pluginId: string): void {
+  for (const [type, def] of Object.entries(COMPOSITE_TYPES))
+    if (def.plugin === pluginId) delete COMPOSITE_TYPES[type];
+}
 
 /** The type definition behind a marker, or undefined for an unknown type (a
  *  newer save opened by an older build): the root then behaves as a plain
