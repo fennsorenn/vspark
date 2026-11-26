@@ -6,6 +6,7 @@
  * `actions` i18n namespace.
  */
 import { getParamPathSpec } from '@vspark/shared/paramPaths';
+import { RESPONSE_TYPES, type FormField } from '@vspark/shared/actions';
 
 /** How a field's value is edited. */
 export type ResponseFieldControl =
@@ -143,7 +144,7 @@ export function effectiveFields(
   type: string,
   values: Record<string, ResponseFieldValue>
 ): readonly ResponseField[] {
-  const fields = RESPONSE_FIELDS[type] ?? [];
+  const fields = RESPONSE_FIELDS[type] ?? pluginResponseFields(type);
   const pathField = fields.find((f) => f.control === 'paramPath');
   if (!pathField) return fields;
   const path = typeof values.paramPath === 'string' ? values.paramPath : '';
@@ -157,4 +158,32 @@ export function effectiveFields(
         ? 'number'
         : 'string';
   return fields.map((f) => (f.key === 'value' ? { ...f, control } : f));
+}
+
+/** A plugin response type's declared form as response fields. Labels are
+ *  already qualified with the plugin's namespace. */
+export function pluginResponseFields(type: string): readonly ResponseField[] {
+  const form = RESPONSE_TYPES[type]?.form ?? [];
+  return form.map(formFieldToResponseField);
+}
+
+function formFieldToResponseField(f: FormField): ResponseField {
+  const base = { key: f.path, labelKey: f.label, min: f.min, max: f.max, step: f.step };
+  switch (f.control) {
+    case 'number':
+    case 'duration':
+      return { ...base, control: 'number' };
+    case 'slider':
+      return { ...base, control: 'slider', defaultValue: f.min ?? 0 };
+    case 'toggle':
+      return { ...base, control: 'bool' };
+    case 'select':
+      return {
+        ...base,
+        control: 'enum',
+        options: (f.options ?? []).map((value) => ({ value })),
+      };
+    default:
+      return { ...base, control: 'string' };
+  }
 }

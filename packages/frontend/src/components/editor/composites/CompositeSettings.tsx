@@ -117,7 +117,7 @@ export function CompositeSettings({
       <div style={sectionHeader}>
         {t('section')}
         <span style={{ color: '#666', fontWeight: 400, textTransform: 'none' }}>
-          · {t(`type.${def.type}`)}
+          · {t(labelKey(def, `type.${def.type}`))}
         </span>
         <HelpButton
           topic="composites"
@@ -136,7 +136,7 @@ export function CompositeSettings({
       </div>
       {groups.map(({ group, settings }) => (
         <div key={group}>
-          <div style={groupHeader}>{t(`group.${group}`)}</div>
+          <div style={groupHeader}>{t(labelKey(def, `group.${group}`))}</div>
           {settings.map((s) => (
             <SettingRow
               key={s.key}
@@ -183,6 +183,11 @@ interface SettingCtx {
   readOther: (key: string) => unknown;
 }
 
+/** A label key of the composite type: plugin types keep their labels (`type.`,
+ *  `group.`, `setting.`, `option.`) in the plugin's namespace. */
+export const labelKey = (def: CompositeTypeDef, key: string): string =>
+  def.plugin ? `plugin-${def.plugin}:${key}` : key;
+
 function SettingRow({
   setting: s,
   value,
@@ -197,7 +202,7 @@ function SettingRow({
   const { t } = useTranslation('composites');
   return (
     <div style={rowStyle}>
-      <span style={labelCol}>{t(`setting.${s.key}`)}</span>
+      <span style={labelCol}>{t(labelKey(ctx.def, `setting.${s.key}`))}</span>
       {value === undefined ? (
         <span style={{ color: '#666', fontStyle: 'italic' }}>
           {t('unavailable')}
@@ -322,7 +327,7 @@ function SettingControl({
         >
           {(s.options ?? []).map((o) => (
             <option key={o} value={o}>
-              {t(`option.${s.key}.${o === '' ? 'any' : o}`)}
+              {t(labelKey(ctx.def, `option.${s.key}.${o === '' ? 'any' : o}`))}
             </option>
           ))}
         </select>

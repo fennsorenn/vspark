@@ -19,9 +19,11 @@ import {
   type ActionRecord,
 } from '../../../mesh/actions';
 import { HelpButton } from '../../../help/HelpButton';
+import { hasActionsHelp, kindKey } from './kindKeys';
 import { useConfirm } from '../../DialogProvider';
 import { HotkeyForm } from './HotkeyForm';
 import { CHAT_FORMS } from './ChatForms';
+import { SchemaForm } from './SchemaForm';
 import { NameField, RenderBoundary, StatusBadges } from './parts';
 import { buttonStyle } from './styles';
 
@@ -118,14 +120,16 @@ function Editor({
               color: '#888',
             }}
           >
-            {def ? t(`kinds.${action.kind}.label`) : action.kind}
+            {def ? t(kindKey(action.kind, 'label')) : action.kind}
           </span>
-          <HelpButton
-            topic="actions"
-            anchor={action.kind}
-            tip={t(`kinds.${action.kind}.description`)}
-            size={11}
-          />
+          {hasActionsHelp(action.kind) && (
+            <HelpButton
+              topic="actions"
+              anchor={action.kind}
+              tip={t(kindKey(action.kind, 'description'))}
+              size={11}
+            />
+          )}
           <span
             style={{
               flex: 1,
@@ -171,6 +175,9 @@ function Editor({
             <HotkeyForm action={action} onSetting={onSetting} />
           )}
           {Form && <Form action={action} onSetting={onSetting} />}
+          {!Form && def?.form && (
+            <SchemaForm form={def.form} action={action} onSetting={onSetting} />
+          )}
         </div>
 
         <div

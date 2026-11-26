@@ -22,6 +22,7 @@ import {
   type ActionRecord,
 } from '../../../mesh/actions';
 import { HelpButton } from '../../../help/HelpButton';
+import { hasActionsHelp, kindKey } from './kindKeys';
 import { PreviewLine, RenderBoundary, StatusBadges } from './parts';
 import { buttonStyle } from './styles';
 
@@ -129,7 +130,7 @@ export function ActionsPanel({
       const created = await commitActionCreate(
         projectId,
         kind,
-        `${t(`kinds.${kind}.label`)} ${sameKind + 1}`
+        `${t(kindKey(kind, 'label'))} ${sameKind + 1}`
       );
       // The new action opens in the main view right away.
       if (created) setActiveAction(created.id);
@@ -208,9 +209,9 @@ export function ActionsPanel({
                 onClick={() => void onAdd(k.kind)}
                 style={{ ...buttonStyle, textAlign: 'left', border: 'none' }}
               >
-                {k.icon} {t(`kinds.${k.kind}.label`)}
+                {k.icon} {t(kindKey(k.kind, 'label'))}
                 <div style={{ fontSize: 9, color: '#777' }}>
-                  {t(`kinds.${k.kind}.description`)}
+                  {t(kindKey(k.kind, 'description'))}
                 </div>
               </button>
             ))}
@@ -257,21 +258,23 @@ export function ActionsPanel({
               }}
             >
               <span>{def.icon}</span>
-              <span>{t(`kinds.${def.kind}.label`)}</span>
+              <span>{t(kindKey(def.kind, 'label'))}</span>
               <span style={{ color: '#555' }}>({items.length})</span>
-              <HelpButton
-                topic="actions"
-                anchor={def.kind}
-                tip={t(`kinds.${def.kind}.description`)}
-                size={11}
-              />
+              {hasActionsHelp(def.kind) && (
+                <HelpButton
+                  topic="actions"
+                  anchor={def.kind}
+                  tip={t(kindKey(def.kind, 'description'))}
+                  size={11}
+                />
+              )}
               <div style={{ flex: 1 }} />
               <button
                 className="vs-action-group-add"
                 onClick={() => void onAdd(def.kind)}
-                title={t('addOfKind', { kind: t(`kinds.${def.kind}.label`) })}
+                title={t('addOfKind', { kind: t(kindKey(def.kind, 'label')) })}
                 aria-label={t('addOfKind', {
-                  kind: t(`kinds.${def.kind}.label`),
+                  kind: t(kindKey(def.kind, 'label')),
                 })}
                 style={{
                   ...buttonStyle,

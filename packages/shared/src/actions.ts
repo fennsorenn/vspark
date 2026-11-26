@@ -1407,9 +1407,15 @@ export function registerActionKind(pluginId: string, def: ActionKindDef): void {
   checkContributionId(pluginId, def.kind, 'action kind');
   if (BY_KIND.has(def.kind))
     throw new RegistrationError(`action kind "${def.kind}" already exists`);
+  const qualify = (line: PreviewToken[]): PreviewToken[] =>
+    line.map((t) => (t.t === 'msg' ? { ...t, key: pluginKey(pluginId, t.key) } : t));
   const reg: ActionKindDef = {
     ...def,
     form: qualifyForm(pluginId, def.form),
+    preview: (s) => {
+      const p = def.preview(s);
+      return { headline: qualify(p.headline), lines: p.lines.map(qualify) };
+    },
     plugin: pluginId,
   };
   (ACTION_KINDS as ActionKindDef[]).push(reg);

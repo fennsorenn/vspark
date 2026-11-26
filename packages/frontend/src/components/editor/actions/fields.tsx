@@ -7,7 +7,7 @@
 import { COOLDOWN_SCOPE, useVariableNames } from '../../../mesh/names';
 import type { CSSProperties, ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
-import { CHAT_RANKS, RESPONSE_TYPE_IDS } from '@vspark/shared/actions';
+import { CHAT_RANKS, RESPONSE_TYPES, responseTypeIds } from '@vspark/shared/actions';
 import { useEditorStore } from '../../../store/editorStore';
 import { HelpButton } from '../../../help/HelpButton';
 import { FieldEditor } from './FieldEditor';
@@ -274,9 +274,9 @@ export function ResponseEditor({
         <option value="" disabled={!allowNone}>
           {allowNone ? t('form.noResponse') : t('form.chooseResponse')}
         </option>
-        {RESPONSE_TYPE_IDS.map((id) => (
+        {responseTypeIds().map((id) => (
           <option key={id} value={id}>
-            {t(`responses.${id}`)}
+            {t(RESPONSE_TYPES[id]?.label ?? `responses.${id}`)}
           </option>
         ))}
       </select>

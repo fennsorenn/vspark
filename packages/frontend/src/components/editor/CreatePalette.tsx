@@ -15,6 +15,7 @@ import type { LucideIcon } from 'lucide-react';
 import { useComposeScenes } from '../../mesh/compose';
 import {
   COMPOSITE_DEFS,
+  compositeLabelKey,
   placeComposite,
   type CompositeDef,
 } from './composites/compositeModel';
@@ -136,7 +137,7 @@ export function CreatePalette() {
         key={def.type}
         className="vs-palette-composite"
         icon={def.icon}
-        label={t(`composites:type.${def.type}`, { defaultValue: def.label })}
+        label={t(compositeLabelKey(def), { defaultValue: def.label })}
         tileTitle={t('palette.tileTitle')}
         tag={<CompositeTag />}
         onClick={() => void handleAddComposite(def)}

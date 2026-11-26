@@ -12,6 +12,7 @@ import {
   MessageSquare,
   MessagesSquare,
   MessageSquareText,
+  Puzzle,
   Target,
   Timer,
   Trophy,
@@ -54,6 +55,8 @@ export interface CompositeDef {
    *  renamed on placement to the first free `<base>`, `<base> 2`, … so a
    *  trigger meant for one timer doesn't start another. */
   uniqueTriggerBase?: string;
+  /** Set for composites a plugin registered. */
+  plugin?: string;
 }
 
 export const COMPOSITE_DEFS: CompositeDef[] = [
@@ -230,3 +233,27 @@ export function renameVariable<P>(payload: P, from: string, to: string): P {
   }
   return copy as P;
 }
+
+/** Add a plugin composite to the create palette. Its payload is served by the
+ *  backend under `plugin:<pluginId>:<name>`; its label is
+ *  `plugin-<pluginId>:type.<type>`. */
+export function registerCompositeDef(
+  pluginId: string,
+  def: Omit<CompositeDef, 'icon'> & { icon?: LucideIcon }
+): void {
+  if (!def.type.startsWith(`${pluginId}_`))
+    throw new Error(`composite type "${def.type}" of plugin "${pluginId}" must start with "${pluginId}_"`);
+  if (COMPOSITE_DEFS.some((d) => d.type === def.type))
+    throw new Error(`composite "${def.type}" already exists`);
+  COMPOSITE_DEFS.push({ ...def, icon: def.icon ?? Puzzle, plugin: pluginId });
+}
+
+/** Remove a plugin's palette entries. */
+export function unregisterCompositeDefs(pluginId: string): void {
+  for (let i = COMPOSITE_DEFS.length - 1; i >= 0; i--)
+    if (COMPOSITE_DEFS[i]!.plugin === pluginId) COMPOSITE_DEFS.splice(i, 1);
+}
+
+/** The palette label key of a composite. */
+export const compositeLabelKey = (def: CompositeDef): string =>
+  def.plugin ? `plugin-${def.plugin}:type.${def.type}` : `composites:type.${def.type}`;
