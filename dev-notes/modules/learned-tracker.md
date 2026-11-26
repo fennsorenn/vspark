@@ -9,7 +9,7 @@ far. Facial expressions arrive as standard VMC blendshapes (`Blend/Val`, ARKit n
 [Face](#face)). Leg influence can be turned down in the mixer when the
 legs are out of view.
 
-Status: **implemented** on `feature/learned-tracker` (backend a50750b, frontend a78cd6d; runtime
+Status: **implemented** (in `dev`, merge 69a882e; backend a50750b, frontend a78cd6d; runtime
 download 92ec4c19 backend, 7e0c9f92 frontend, 8f6026d2 help).
 
 Related: [component-managers.md](component-managers.md#vmcmanager--vmc_receivermanagerts) (the

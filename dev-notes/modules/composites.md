@@ -2,8 +2,8 @@
 
 **Status: Implemented** (in `dev`, merge 405d4ff). Plan:
 [../plans/composites.md](../plans/composites.md).
-**Batch 2 (stream widgets): implemented on `feature/stream-widgets`, not yet merged
-to `dev`.** Plan: [../plans/stream-widgets.md](../plans/stream-widgets.md). 3D variants
+**Batch 2 (stream widgets): implemented (in `dev`, merge
+545225b).** Plan: [../plans/stream-widgets.md](../plans/stream-widgets.md). 3D variants
 of the widgets: planned (second pass).
 
 A composite is a built-in template placed as **one object** in the scene tree or the
