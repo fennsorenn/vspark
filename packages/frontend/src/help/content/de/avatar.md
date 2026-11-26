@@ -47,27 +47,40 @@ Tracking-Quellen des Avatars (VMC, Kamera-Tracking) nutzen dieselbe Einstellung.
 > Tipp: Wirkt dein Avatar eingefroren, prüfe, ob ein Motion-Capture-Verhalten
 > angehängt und verbunden ist — siehe [Verhalten](topic:behaviors).
 
-## Bewegungsdynamik {#snappiness}
+## Bewegungsfilter {#motion-filter}
 
-Motion-Capture-Daten werden meist schon geglättet, bevor sie vspark erreichen,
-und vspark glättet sie erneut, um Netzwerk-Aussetzer abzufangen. Das hält die
-Bewegung stabil, kann sie aber auch weich oder schwebend wirken lassen. Die
-**Bewegungsdynamik** gibt der Bewegung wieder Schärfe, ohne erneut Ruckeln
-einzuführen.
+Das Tracking schickt 10- bis 60-mal pro Sekunde eine neue Pose, dein Bildschirm
+zeichnet öfter. Der **Bewegungsfilter** bestimmt, wie sich der Avatar zwischen
+diesen Updates bewegt: Er kann einfach von einer Pose zur nächsten gleiten,
+Zittern beruhigen oder etwas Federung hinzufügen. Alles passiert in einem
+Schritt, du bezahlst also nur für die Effekte, die du wählst.
 
-Aktiviere sie pro Avatar und stelle dann drei Regler ein:
+Wähle eine **Voreinstellung**:
 
-- **Frequenz** — wie schnell der Avatar reagiert. Höher wirkt dynamischer; sehr
-  hoch kann zappelig aussehen.
-- **Dämpfung** — wie stark er ausschwingt statt nachzufedern. Um 1 stoppt sauber
-  ohne Überschwingen; unter 1 entsteht ein lebendiges Überschwingen (der
-  „Schwung"); über 1 wirkt schwer und träge.
-- **Reaktion** — wie eifrig er in eine Bewegung hineingeht. 0 ist neutral; höhere
-  Werte lassen den Avatar die Bewegung vorwegnehmen und kräftiger einsetzen.
+- **Minimal (Interpolation)**: gleitet nur zwischen den Updates, damit der Avatar
+  nicht ruckelt. Reagiert am schnellsten. Am besten für Gelerntes Tracking, das
+  schon ruhig ankommt. Das ist die Standardeinstellung.
+- **Glatt**: beruhigt Zittern, solange du stillhältst; sobald du dich bewegst,
+  lässt die Glättung nach, damit schnelle Bewegungen flott bleiben. Für
+  unruhigere Quellen wie Kamera-Tracking.
+- **Federnd**: in Ruhe wie Glatt, dazu etwas Überschwingen und Nachschwingen für
+  ein lebendigeres Gefühl.
+- **Eigene**: deine eigenen Werte.
 
-> Tipp: Beginne mit den Standardwerten und senke dann die **Dämpfung** leicht für
-> mehr Schwung. Fängt die Bewegung an zu wackeln oder zu schwingen, erhöhe die
-> **Dämpfung** oder senke die **Frequenz**.
+Unter **Erweitert** kannst du die vier Regler selbst einstellen (eine Änderung
+schaltet die Voreinstellung auf Eigene):
+
+- **Glättung**: 0 gleitet nur zwischen den Updates; höhere Werte beruhigen
+  Zittern im Stillstand stärker.
+- **Tempo-Anpassung**: wie schnell die Glättung bei schnelleren Bewegungen
+  nachlässt. Höher heißt weniger Verzögerung bei schnellen Bewegungen.
+- **Dämpfung**: 1 kommt ohne Überschwingen zur Ruhe; unter 1 federt es über;
+  über 1 wirkt es schwer.
+- **Reaktion**: 0 folgt einfach; höhere Werte reagieren der Bewegung voraus;
+  negative Werte holen vor der Bewegung aus.
+
+> Tipp: Wirkt der Avatar zittrig, wähle **Glatt**. Fühlt er sich langsam an,
+> geh zurück zu **Minimal**.
 
 ## Tracking-Mix {#tracking-mix}
 
@@ -78,6 +91,12 @@ Lippensynchronisation und so weiter. So kannst du zum Beispiel eine
 Tanz-Animation auf den **Beinen** abspielen, während Live-Tracking den
 **Oberkörper** steuert, oder das Webcam-Tracking den Kopf lenken lassen,
 während ein VMC-Sender die Arme übernimmt.
+
+Ein Verhalten erscheint im Mixer, wenn sein Graph etwas an den Avatar sendet:
+ein **Send Pose**-Knoten gibt ihm eine Spalte unter **Körper**, ein **Send
+Blendshapes**-Knoten eine unter **Gesicht**. Entfernst du diese Knoten aus dem
+Graphen eines Verhaltens, verschwindet es aus dem Mixer (seine Gewichte bleiben
+erhalten und kommen mit dem Knoten zurück).
 
 In der Seitenleiste hat jede Quelle einen Regler, der ihr Gewicht überall
 setzt. Klicke auf **Mixer öffnen…** für den vollständigen Editor:

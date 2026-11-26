@@ -4,9 +4,12 @@ import { useTranslation } from 'react-i18next';
 import { HelpButton } from '../../help/HelpButton';
 import { BehaviorGraphBar } from './BehaviorGraphBar';
 import {
-  DEFAULT_POSE_DYNAMICS,
-  type PoseDynamicsConfig,
-} from '../../secondOrderDynamics';
+  POSE_FILTER_RANGES,
+  resolvePoseFilter,
+  type PoseFilterConfig,
+  type PoseFilterParams,
+  type PoseFilterPreset,
+} from '../../poseFilter';
 import { PARTICLE_DEFAULTS } from '../../particleUtils';
 import {
   getBuiltinParticleTextures,
@@ -57,7 +60,11 @@ import {
   ComposeLayerProperties,
   ComposeSceneProperties,
 } from './ComposeLayerProperties';
-import type { AssetFile, CameraEffectRecord } from '../../api/client';
+import type {
+  AssetFile,
+  CameraEffectRecord,
+  LearnedRuntimeInfo,
+} from '../../api/client';
 import { setLive2dConsent } from '../../lib/puppet2d/live2d/coreLoader';
 import type { Live2dParamMap, ParamMapEntry } from '../../lib/live2dParamMap';
 import { MicCapture, type VowelTemplates } from '../../media/MicCapture';
@@ -115,7 +122,11 @@ import {
   type EmissiveMapMode,
 } from './materialOverrides';
 import { useCollection, useMeshDoc } from '@vspark/mesh-react';
-import { useAnimationClips, useCameraEffects } from '../../mesh/hooks';
+import {
+  useAnimationClips,
+  useCameraEffects,
+  useTrackingStatuses,
+} from '../../mesh/hooks';
 import { useComposeLayers, useComposeScenes } from '../../mesh/compose';
 import { useSceneNode, useSceneNodes, useScenes } from '../../mesh/nodes';
 import {
@@ -269,6 +280,148 @@ const sectionHeader: React.CSSProperties = {
 // numeric controls were unified — see ./numericInputs.tsx.
 
 // ---------- Collapsible section ----------
+
+const POSE_FILTER_PRESET_ORDER: PoseFilterPreset[] = [
+  'minimal',
+  'smooth',
+  'springy',
+  'custom',
+];
+
+/** Per-avatar motion filter for tracking poses (poseFilter.ts): a preset
+ *  dropdown for casual use, the four parameters behind a collapsed "Advanced"
+ *  toggle. Editing a parameter switches the preset to Custom, starting from
+ *  the values the preset had. */
+function PoseFilterSection({ node }: { node: StageObject }) {
+  const { t } = useTranslation('properties');
+  const [advanced, setAdvanced] = useState(false);
+  const cfg = resolvePoseFilter(node.properties?.poseFilter);
+  const live = (next: PoseFilterConfig) =>
+    previewNodePath(node.id, 'properties.poseFilter', next);
+  const commit = (next: PoseFilterConfig) =>
+    commitNodePath(node.id, 'properties.poseFilter', next);
+  const custom = (key: keyof PoseFilterParams, v: number) => ({
+    ...cfg,
+    preset: 'custom' as const,
+    [key]: v,
+  });
+  const labelStyle = {
+    fontSize: 12,
+    color: '#888',
+    width: 110,
+    flexShrink: 0,
+  } as const;
+  const params: Array<{ key: keyof PoseFilterParams; step: number }> = [
+    { key: 'smoothing', step: 0.05 },
+    { key: 'adaptation', step: 0.1 },
+    { key: 'damping', step: 0.05 },
+    { key: 'response', step: 0.1 },
+  ];
+  return (
+    <>
+      <div
+        style={{
+          ...sectionHeader,
+          display: 'flex',
+          alignItems: 'center',
+          gap: 6,
+        }}
+      >
+        {t('avatar.poseFilter.header')}
+        <HelpButton
+          topic="avatar"
+          anchor="motion-filter"
+          tip={t('help.poseFilter')}
+        />
+      </div>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+        <span style={labelStyle}>{t('avatar.poseFilter.preset')}</span>
+        <select
+          className="vs-pose-filter-preset"
+          value={cfg.preset}
+          onChange={(e) => {
+            const preset = e.target.value as PoseFilterPreset;
+            // Custom keeps the values in effect; a preset brings its own.
+            commit(
+              preset === 'custom'
+                ? { ...cfg, preset }
+                : resolvePoseFilter({ preset })
+            );
+          }}
+          style={{
+            flex: 1,
+            minWidth: 0,
+            background: '#2a2a2a',
+            border: '1px solid #3a3a3a',
+            color: '#e0e0e0',
+            borderRadius: 4,
+            padding: '4px 8px',
+            fontSize: 12,
+            cursor: 'pointer',
+          }}
+        >
+          {POSE_FILTER_PRESET_ORDER.map((p) => (
+            <option key={p} value={p}>
+              {t(`avatar.poseFilter.presets.${p}`)}
+            </option>
+          ))}
+        </select>
+      </div>
+      <div style={{ fontSize: 10, color: '#777', lineHeight: 1.4 }}>
+        {t(`avatar.poseFilter.hints.${cfg.preset}`)}
+      </div>
+      <button
+        className="vs-pose-filter-advanced"
+        onClick={() => setAdvanced((a) => !a)}
+        style={{
+          alignSelf: 'flex-start',
+          background: 'none',
+          border: 'none',
+          color: '#888',
+          fontSize: 11,
+          cursor: 'pointer',
+          padding: 0,
+          display: 'flex',
+          alignItems: 'center',
+          gap: 6,
+        }}
+      >
+        <span
+          style={{
+            fontSize: 9,
+            display: 'inline-block',
+            transform: advanced ? 'rotate(90deg)' : 'none',
+            transition: 'transform 120ms',
+          }}
+        >
+          ▶
+        </span>
+        {t('avatar.poseFilter.advanced')}
+      </button>
+      {advanced &&
+        params.map(({ key, step }) => (
+          <div
+            key={key}
+            style={{ display: 'flex', alignItems: 'center', gap: 8 }}
+            title={t(`avatar.poseFilter.tips.${key}`)}
+          >
+            <span style={labelStyle}>{t(`avatar.poseFilter.${key}`)}</span>
+            <NumInput
+              className={`vs-pose-filter-${key}`}
+              value={cfg[key]}
+              step={step}
+              min={POSE_FILTER_RANGES[key].min}
+              max={POSE_FILTER_RANGES[key].max}
+              precision={2}
+              style={{ flex: 1, minWidth: 0 }}
+              onChange={(v) => live(custom(key, v))}
+              onCommit={(v) => commit(custom(key, v))}
+            />
+          </div>
+        ))}
+    </>
+  );
+}
 
 /** A section header that toggles its children open/closed. Reuses the flat
  *  `sectionHeader` look with a disclosure caret. Collapse state is ephemeral
@@ -2249,6 +2402,476 @@ function VmcReceiverProps({ comp }: { comp: Behavior }) {
         }
         arms={comp.kind !== 'vmc_receiver_2d'}
       />
+    </div>
+  );
+}
+
+// ── Learned Tracking props ────────────────────────────────────────────────────
+
+/** Learned Tracking's default port (backend vmc_receiver/manager.ts LEARNED_TRACKER_PORT). */
+const LEARNED_TRACKER_PORT = 39541;
+
+/**
+ * Learned Tracking: the backend runs motiontracker's runtime (webcam → learned
+ * body model → VMC) as a child process and receives its output on `port`.
+ * Settings: the camera the runtime opens, the port and retargeting (switched
+ * live, for comparing it against plain rotation copy); a live runtime status
+ * line; the same calibration block as the VMC receiver (same pipeline graph,
+ * prefix `learned-tracker:`).
+ */
+function LearnedTrackerProps({ comp }: { comp: Behavior }) {
+  const { t } = useTranslation('properties');
+  const cfg = (comp.config ?? {}) as {
+    camera?: number;
+    port?: number;
+    retarget?: boolean;
+    fps?: number;
+    historyShift?: 'none' | 'every' | 'alternate';
+  };
+  const camera = cfg.camera ?? 0;
+  const retarget = cfg.retarget ?? false;
+  const fps = cfg.fps ?? 10;
+  const historyShift = cfg.historyShift ?? 'none';
+  const previewOpen = useEditorStore(
+    (s) => s.learnedPreviewBehavior === comp.id
+  );
+  const setPreview = useEditorStore((s) => s.setLearnedPreviewBehavior);
+  const [port, setPort] = useState(cfg.port ?? LEARNED_TRACKER_PORT);
+  const [cameras, setCameras] = useState<
+    Array<{ index: number; name: string }>
+  >([]);
+  const [camState, setCamState] = useState<'loading' | 'ok' | 'error'>(
+    'loading'
+  );
+  const [camError, setCamError] = useState('');
+  const status = useTrackingStatuses()[comp.id]?.runtime;
+  const [rt, setRt] = useState<LearnedRuntimeInfo | null>(null);
+  const [rtError, setRtError] = useState('');
+  const [restarting, setRestarting] = useState(false);
+  const [restartError, setRestartError] = useState('');
+
+  const loadRuntime = () =>
+    api
+      .getLearnedRuntime()
+      .then((info) => {
+        setRt(info);
+        setRtError('');
+        return info;
+      })
+      .catch((e: unknown) => {
+        setRtError(e instanceof Error ? e.message : String(e));
+        return null;
+      });
+
+  const startDownload = () => {
+    setRtError('');
+    api
+      .downloadLearnedRuntime()
+      .then(setRt)
+      .catch((e: unknown) =>
+        setRtError(e instanceof Error ? e.message : String(e))
+      );
+  };
+
+  // While a download runs, follow its progress; once it is there, list cameras
+  // again (the runtime that answers is the new one).
+  const downloading = rt?.download.state === 'downloading';
+  useEffect(() => {
+    if (!downloading) return;
+    const id = setInterval(() => {
+      void loadRuntime().then((info) => {
+        if (info && info.download.state !== 'downloading' && info.downloaded)
+          loadCameras();
+      });
+    }, 500);
+    return () => clearInterval(id);
+  }, [downloading]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const loadCameras = () => {
+    setCamState('loading');
+    api
+      .getLearnedTrackerCameras()
+      .then((list) => {
+        setCameras(list);
+        setCamState('ok');
+      })
+      .catch((e: unknown) => {
+        setCamError(e instanceof Error ? e.message : String(e));
+        setCamState('error');
+      });
+  };
+
+  useEffect(() => {
+    setPort(cfg.port ?? LEARNED_TRACKER_PORT);
+    loadCameras();
+    void loadRuntime();
+  }, [comp.id]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const save = (patch: Partial<Record<string, unknown>>) =>
+    commitBehaviorPatch(comp.id, { config: { ...comp.config, ...patch } });
+
+  const inputStyle: React.CSSProperties = {
+    flex: 1,
+    background: '#2a2a2a',
+    border: '1px solid #3a3a3a',
+    color: '#e0e0e0',
+    borderRadius: 4,
+    padding: '4px 8px',
+    fontSize: 12,
+    outline: 'none',
+  };
+  const labelStyle: React.CSSProperties = {
+    fontSize: 12,
+    color: '#888',
+    width: 72,
+    flexShrink: 0,
+  };
+  // The configured camera stays selectable even when the list doesn't have it
+  // (list still loading, or the camera is unplugged).
+  const options = cameras.some((c) => c.index === camera)
+    ? cameras
+    : [
+        { index: camera, name: t('learned.cameraIndex', { index: camera }) },
+        ...cameras,
+      ];
+
+  const stateColor: Record<string, string> = {
+    running: '#4ade80',
+    starting: '#facc15',
+    error: '#f87171',
+    stopped: '#666',
+  };
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+        <span style={labelStyle}>{t('learned.camera')}</span>
+        <select
+          className="vs-learned-camera"
+          style={{ ...inputStyle, cursor: 'pointer' }}
+          value={camera}
+          onChange={(e) => save({ camera: Number(e.target.value) })}
+        >
+          {options.map((c) => (
+            <option key={c.index} value={c.index}>
+              {c.name}
+            </option>
+          ))}
+        </select>
+        <button
+          className="vs-learned-refresh-cameras"
+          title={t('learned.refreshCameras')}
+          onClick={loadCameras}
+          disabled={camState === 'loading'}
+          style={{
+            background: '#1e1e1e',
+            border: '1px solid #2a2a2a',
+            color: '#aaa',
+            borderRadius: 4,
+            padding: '3px 8px',
+            fontSize: 11,
+            cursor: camState === 'loading' ? 'default' : 'pointer',
+          }}
+        >
+          {t('learned.refreshCameras')}
+        </button>
+      </div>
+      {camState === 'loading' && (
+        <div style={{ fontSize: 10, color: '#777' }}>
+          {t('learned.loadingCameras')}
+        </div>
+      )}
+      {camState === 'error' && (
+        <div style={{ fontSize: 10, color: '#f87171' }}>
+          {t('learned.camerasError', { message: camError })}
+        </div>
+      )}
+
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+        <span style={labelStyle}>{t('learned.port')}</span>
+        <NumInput
+          className="vs-learned-port"
+          value={port}
+          step={1}
+          min={1}
+          max={65535}
+          precision={0}
+          style={{ flex: 1 }}
+          onChange={(v) => setPort(Math.round(v))}
+          onCommit={(v) => {
+            const p = Math.round(v);
+            setPort(p);
+            save({ port: p });
+          }}
+        />
+      </div>
+
+      <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8 }}>
+        <span style={labelStyle}>{t('learned.retarget')}</span>
+        <div style={{ flex: 1 }}>
+          <label
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 6,
+              cursor: 'pointer',
+              fontSize: 12,
+              color: '#ccc',
+            }}
+          >
+            <input
+              type="checkbox"
+              className="vs-learned-retarget"
+              checked={retarget}
+              onChange={(e) => save({ retarget: e.target.checked })}
+              style={{ cursor: 'pointer' }}
+            />
+            {t('learned.retargetLabel')}
+          </label>
+          {retarget &&
+            status?.state === 'running' &&
+            status.retarget &&
+            !status.retarget.active && (
+              <div
+                className="vs-learned-retarget-state"
+                style={{ fontSize: 10, color: '#facc15' }}
+              >
+                {t('learned.retargetInactive', {
+                  reason: status.retarget.reason ?? '',
+                })}
+              </div>
+            )}
+        </div>
+      </div>
+
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+        <span style={labelStyle}>{t('learned.fps')}</span>
+        <select
+          className="vs-learned-fps"
+          style={{ ...inputStyle, cursor: 'pointer' }}
+          value={fps}
+          onChange={(e) => save({ fps: Number(e.target.value) })}
+        >
+          {[10, 15, 20, 30].map((f) => (
+            <option key={f} value={f}>
+              {t('learned.fpsOption', { fps: f })}
+            </option>
+          ))}
+        </select>
+      </div>
+
+      <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8 }}>
+        <span style={labelStyle}>{t('learned.historyShift')}</span>
+        <div style={{ flex: 1 }}>
+          <select
+            className="vs-learned-history-shift"
+            style={{ ...inputStyle, width: '100%', cursor: 'pointer' }}
+            value={historyShift}
+            onChange={(e) => save({ historyShift: e.target.value })}
+          >
+            {(['none', 'every', 'alternate'] as const).map((m) => (
+              <option key={m} value={m}>
+                {t(`learned.historyShiftOptions.${m}`)}
+              </option>
+            ))}
+          </select>
+          <div style={{ fontSize: 10, color: '#777', lineHeight: 1.4 }}>
+            {t('learned.historyShiftHint')}
+          </div>
+          {status?.state === 'running' &&
+            status.settings &&
+            (status.settings.fps !== fps ||
+              (status.settings.historyShift ?? 'none') !== historyShift) && (
+              <div
+                className="vs-learned-settings-state"
+                style={{ fontSize: 10, color: '#facc15' }}
+              >
+                {t('learned.settingsMismatch', {
+                  fps: status.settings.fps,
+                  shift: t(
+                    `learned.historyShiftOptions.${status.settings.historyShift ?? 'none'}`
+                  ),
+                })}
+              </div>
+            )}
+        </div>
+      </div>
+
+      <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8 }}>
+        <span style={labelStyle}>{t('learned.install')}</span>
+        <div
+          className="vs-learned-install"
+          style={{ flex: 1, fontSize: 11, color: '#ccc', lineHeight: 1.4 }}
+        >
+          {rt && (
+            <div style={{ wordBreak: 'break-word' }}>
+              {rt.source === 'download'
+                ? t('learned.installDownloaded', { version: rt.version })
+                : rt.source === 'missing'
+                  ? t('learned.installMissing')
+                  : t('learned.installLocal', { dir: rt.dir })}
+            </div>
+          )}
+          {rt && downloading && (
+            <div style={{ color: '#facc15' }}>
+              {t('learned.downloading', {
+                percent: Math.round((rt.download.progress ?? 0) * 100),
+              })}
+            </div>
+          )}
+          {rt && !rt.downloaded && !downloading && (
+            <>
+              <button
+                className="vs-learned-download"
+                onClick={startDownload}
+                style={{
+                  marginTop: 4,
+                  background: '#1e3a5f',
+                  border: '1px solid #2c5282',
+                  color: '#e0e0e0',
+                  borderRadius: 4,
+                  padding: '3px 8px',
+                  fontSize: 11,
+                  cursor: 'pointer',
+                }}
+              >
+                {t('learned.download', {
+                  version: rt.version,
+                  size: Math.round(rt.bytes / 1e6),
+                })}
+              </button>
+              {(rt.source === 'env' || rt.source === 'config') && (
+                <div style={{ fontSize: 10, color: '#777' }}>
+                  {t('learned.downloadOverridden')}
+                </div>
+              )}
+            </>
+          )}
+          {rt?.download.state === 'error' && (
+            <div
+              style={{
+                fontSize: 10,
+                color: '#f87171',
+                wordBreak: 'break-word',
+              }}
+            >
+              {t('learned.downloadError', {
+                message: rt.download.message ?? '',
+              })}
+            </div>
+          )}
+          {rtError && (
+            <div
+              style={{
+                fontSize: 10,
+                color: '#f87171',
+                wordBreak: 'break-word',
+              }}
+            >
+              {rtError}
+            </div>
+          )}
+        </div>
+      </div>
+
+      <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8 }}>
+        <span style={labelStyle}>{t('learned.runtime')}</span>
+        <div
+          className="vs-learned-status"
+          style={{ flex: 1, fontSize: 11, color: '#ccc', lineHeight: 1.4 }}
+        >
+          <span
+            style={{ color: stateColor[status?.state ?? 'stopped'] ?? '#666' }}
+          >
+            ● {t(`learned.state.${status?.state ?? 'stopped'}`)}
+          </span>
+          {status?.state === 'running' && status.fps !== undefined && (
+            <span style={{ color: '#888' }}>
+              {' · '}
+              {t('learned.stats', {
+                fps: status.fps,
+                latency: status.latencyMs ?? '–',
+                model: status.modelMs ?? '–',
+              })}
+              {status.present !== undefined && status.present < 0.5 && (
+                <> · {t('learned.noBody')}</>
+              )}
+            </span>
+          )}
+          {status?.message && (
+            <div
+              style={{
+                color: status.state === 'error' ? '#f87171' : '#888',
+                fontSize: 10,
+                wordBreak: 'break-word',
+              }}
+            >
+              {status.message}
+            </div>
+          )}
+        </div>
+      </div>
+
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+        <span style={labelStyle} />
+        <button
+          className="vs-learned-restart"
+          title={t('learned.restartHint')}
+          disabled={restarting || !status || status.state === 'stopped'}
+          onClick={() => {
+            setRestarting(true);
+            setRestartError('');
+            api
+              .restartLearnedRuntime(comp.id)
+              .catch((e: unknown) =>
+                setRestartError(e instanceof Error ? e.message : String(e))
+              )
+              .finally(() => setTimeout(() => setRestarting(false), 1500));
+          }}
+          style={{
+            background: '#1e1e1e',
+            border: '1px solid #2a2a2a',
+            color: '#ccc',
+            borderRadius: 4,
+            padding: '3px 8px',
+            fontSize: 11,
+            cursor: restarting ? 'default' : 'pointer',
+          }}
+        >
+          {restarting ? t('learned.restarting') : t('learned.restart')}
+        </button>
+        {restartError && (
+          <span style={{ fontSize: 10, color: '#f87171' }}>{restartError}</span>
+        )}
+      </div>
+
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+        <span style={labelStyle} />
+        <button
+          className="vs-learned-preview"
+          onClick={() => setPreview(previewOpen ? null : comp.id)}
+          style={{
+            background: previewOpen ? '#1a3a2a' : '#1e1e1e',
+            border: `1px solid ${previewOpen ? '#4ade80' : '#2a2a2a'}`,
+            color: previewOpen ? '#4ade80' : '#ccc',
+            borderRadius: 4,
+            padding: '3px 8px',
+            fontSize: 11,
+            cursor: 'pointer',
+          }}
+        >
+          {previewOpen
+            ? t('learned.preview.closeButton')
+            : t('learned.preview.open')}
+        </button>
+      </div>
+
+      <div style={{ fontSize: 10, color: '#555', lineHeight: 1.4 }}>
+        {t('learned.cameraHint')}
+      </div>
+
+      <div style={{ height: 1, background: '#222', margin: '4px 0' }} />
+      <CalibrationSection comp={comp} graphPrefix="learned-tracker:" arms />
     </div>
   );
 }
@@ -4979,6 +5602,8 @@ function BehaviorProps({ comp }: { comp: Behavior }) {
       return <LipsyncProcessorProps comp={comp} />;
     case 'mediapipe_tracker':
       return <MediapipeTrackerProps comp={comp} />;
+    case 'learned_tracker':
+      return <LearnedTrackerProps comp={comp} />;
     case 'api_controller':
       return <ApiControllerProps comp={comp} />;
     case 'breathing':
@@ -6649,6 +7274,13 @@ export function PropertiesPanel() {
                   topic="behaviors"
                   anchor="stylized"
                   tip={t('help.stylizedTracking')}
+                />
+              )}
+              {selectedBehavior.kind === 'learned_tracker' && (
+                <HelpButton
+                  topic="behaviors"
+                  anchor="learned"
+                  tip={t('help.learnedTracking')}
                 />
               )}
               {selectedBehavior.kind === 'ifacialmocap_receiver' && (
@@ -9879,116 +10511,8 @@ export function PropertiesPanel() {
           </>
         )}
 
-        {/* Motion snappiness (second-order dynamics) — avatar only */}
-        {node.kind === 'avatar' &&
-          (() => {
-            const dyn: PoseDynamicsConfig = {
-              ...DEFAULT_POSE_DYNAMICS,
-              ...node.properties?.poseDynamics,
-            };
-            const liveDyn = (next: PoseDynamicsConfig) =>
-              previewNodePath(node.id, 'properties.poseDynamics', next);
-            const commitDyn = (next: PoseDynamicsConfig) =>
-              commitNodePath(node.id, 'properties.poseDynamics', next);
-            const labelStyle = {
-              fontSize: 12,
-              color: '#888',
-              width: 110,
-              flexShrink: 0,
-            } as const;
-            return (
-              <>
-                <div
-                  style={{
-                    ...sectionHeader,
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: 6,
-                  }}
-                >
-                  {t('avatar.dynamicsHeader')}
-                  <HelpButton
-                    topic="avatar"
-                    anchor="snappiness"
-                    tip={t('help.dynamics')}
-                  />
-                </div>
-                <label
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: 8,
-                    fontSize: 12,
-                    color: '#888',
-                    cursor: 'pointer',
-                    userSelect: 'none',
-                  }}
-                >
-                  <input
-                    type="checkbox"
-                    checked={dyn.enabled}
-                    onChange={(e) =>
-                      commitDyn({ ...dyn, enabled: e.target.checked })
-                    }
-                  />
-                  {t('avatar.dynamicsEnable')}
-                </label>
-                {dyn.enabled && (
-                  <>
-                    <div
-                      style={{ display: 'flex', alignItems: 'center', gap: 8 }}
-                    >
-                      <span style={labelStyle}>
-                        {t('avatar.dynamicsFrequency')}
-                      </span>
-                      <NumInput
-                        value={dyn.frequency}
-                        step={0.1}
-                        min={0.05}
-                        max={30}
-                        suffix="Hz"
-                        style={{ flex: 1, minWidth: 0 }}
-                        onChange={(v) => liveDyn({ ...dyn, frequency: v })}
-                        onCommit={(v) => commitDyn({ ...dyn, frequency: v })}
-                      />
-                    </div>
-                    <div
-                      style={{ display: 'flex', alignItems: 'center', gap: 8 }}
-                    >
-                      <span style={labelStyle}>
-                        {t('avatar.dynamicsDamping')}
-                      </span>
-                      <NumInput
-                        value={dyn.damping}
-                        step={0.05}
-                        min={0}
-                        max={4}
-                        style={{ flex: 1, minWidth: 0 }}
-                        onChange={(v) => liveDyn({ ...dyn, damping: v })}
-                        onCommit={(v) => commitDyn({ ...dyn, damping: v })}
-                      />
-                    </div>
-                    <div
-                      style={{ display: 'flex', alignItems: 'center', gap: 8 }}
-                    >
-                      <span style={labelStyle}>
-                        {t('avatar.dynamicsResponse')}
-                      </span>
-                      <NumInput
-                        value={dyn.response}
-                        step={0.1}
-                        min={-5}
-                        max={5}
-                        style={{ flex: 1, minWidth: 0 }}
-                        onChange={(v) => liveDyn({ ...dyn, response: v })}
-                        onCommit={(v) => commitDyn({ ...dyn, response: v })}
-                      />
-                    </div>
-                  </>
-                )}
-              </>
-            );
-          })()}
+        {/* Motion filter (poseFilter.ts) — avatar only */}
+        {node.kind === 'avatar' && <PoseFilterSection node={node} />}
 
         {/* Tracking Mix — per-source influence on bones / blendshapes (avatar only) */}
         {node.kind === 'avatar' && <TrackingMixSection node={node} />}

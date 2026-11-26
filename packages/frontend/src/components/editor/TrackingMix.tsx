@@ -20,10 +20,9 @@ import type React from 'react';
 import { useTranslation } from 'react-i18next';
 import type { TrackingMix } from '@vspark/shared';
 import { VRM_BONE_NAMES } from '@vspark/shared/signal';
+import { useCollection, useMeshSelector } from '@vspark/mesh-react';
 import {
   ANIMATION_SOURCE,
-  BLENDSHAPE_SOURCE_KINDS,
-  BONE_SOURCE_KINDS,
   MIX_FACE_GROUPS,
   MIX_REGIONS,
   MIX_REGION_BONES,
@@ -32,6 +31,7 @@ import {
   blendshapeWeight,
   boneWeight,
   faceGroupOf,
+  graphMixOutputs,
   orderSources,
   pruneMix,
   pruneStaleSources,
@@ -40,7 +40,8 @@ import {
   setBoneWeights,
   uniformValue,
 } from '@vspark/shared/trackingMix';
-import type { MixFaceGroup } from '@vspark/shared/trackingMix';
+import type { MixFaceGroup, MixOutputs } from '@vspark/shared/trackingMix';
+import type { RawLogic } from '../../api/client';
 import { HelpButton } from '../../help/HelpButton';
 import { useEscapeKey } from '../../hooks/useEscapeKey';
 import { useNodeBehaviors } from '../../mesh/hooks';
@@ -61,25 +62,24 @@ export interface MixSource {
   blendshapes: boolean;
 }
 
-const BONE_KINDS = new Set<string>(BONE_SOURCE_KINDS);
-const SHAPE_KINDS = new Set<string>(BLENDSHAPE_SOURCE_KINDS);
-
 /** The bus's legacy priority for a source kind (used for unlisted sources). */
 const legacyPriority = (kind: string) => (kind === 'breathing' ? 10 : 0);
 
 /**
  * The mix's sources for a node: Animation first (fixed, bones only), then the
- * node's bone/blendshape-publishing behaviors in composition order (`mix.order`
- * first, the rest by the bus's legacy priority). Pure, for tests.
+ * node's behaviors whose graphs publish bones and/or blendshapes
+ * (`outputs`, by behavior id — see `graphMixOutputs`) in composition order
+ * (`mix.order` first, the rest by the bus's legacy priority). Pure, for tests.
  */
 export function buildMixSources(
   behaviors: readonly Pick<Behavior, 'id' | 'kind'>[],
+  outputs: Readonly<Record<string, MixOutputs>>,
   kindLabel: (kind: string) => string,
   animationLabel: string,
   mix: TrackingMix | undefined
 ): MixSource[] {
   const relevant = behaviors.filter(
-    (b) => BONE_KINDS.has(b.kind) || SHAPE_KINDS.has(b.kind)
+    (b) => outputs[b.id]?.bones || outputs[b.id]?.blendshapes
   );
   const perKind = new Map<string, number>();
   for (const b of relevant) perKind.set(b.kind, (perKind.get(b.kind) ?? 0) + 1);
@@ -92,8 +92,8 @@ export function buildMixSources(
       id: b.id,
       kind: b.kind,
       label: (perKind.get(b.kind) ?? 0) > 1 ? `${base} ${n}` : base,
-      bones: BONE_KINDS.has(b.kind),
-      blendshapes: SHAPE_KINDS.has(b.kind),
+      bones: outputs[b.id].bones,
+      blendshapes: outputs[b.id].blendshapes,
       priority: legacyPriority(b.kind),
     };
   });
@@ -135,11 +135,37 @@ export function buildFaceGroups(
 
 const ALL_BONES = VRM_BONE_NAMES as readonly string[];
 
+/** What each behavior's stored graph publishes, by behavior id. Selected as a
+ *  string so graph edits that don't change it (moving a node, editing a
+ *  setting) don't re-render the mixer. A behavior whose graph is missing
+ *  publishes nothing until the server writes it. */
+function useBehaviorMixOutputs(): Record<string, MixOutputs> {
+  const key = useMeshSelector(
+    useCollection<RawLogic>('logic'),
+    '**',
+    (c) => {
+      const out: Record<string, MixOutputs> = {};
+      for (const g of c.all()) {
+        if (g.ownerKind !== 'behavior') continue;
+        const o = graphMixOutputs(
+          Object.values(g.descriptor?.nodes ?? {}).flatMap((n) =>
+            n ? [n.kind] : []
+          )
+        );
+        if (o.bones || o.blendshapes) out[g.ownerId] = o;
+      }
+      return JSON.stringify(out);
+    }
+  );
+  return useMemo(() => JSON.parse(key) as Record<string, MixOutputs>, [key]);
+}
+
 /** Shared state + writers for both surfaces. */
 function useTrackingMix(node: StageObject) {
   const { t } = useTranslation('properties');
   const behaviors = useNodeBehaviors(node.id);
   const behaviorKinds = useEditorStore((s) => s.behaviorKinds);
+  const outputs = useBehaviorMixOutputs();
   const expressions = useEditorStore((s) => s.vrmExpressionsByNode[node.id]);
   const morphs = useEditorStore((s) => s.vrmMorphTargetsByNode[node.id]);
   const mix = node.properties?.trackingMix as TrackingMix | undefined;
@@ -148,11 +174,12 @@ function useTrackingMix(node: StageObject) {
     () =>
       buildMixSources(
         behaviors,
+        outputs,
         (k) => behaviorKinds.find((c) => c.kind === k)?.label ?? k,
         t('trackingMix.animation'),
         mix
       ),
-    [behaviors, behaviorKinds, mix, t]
+    [behaviors, outputs, behaviorKinds, mix, t]
   );
   const faceGroups = useMemo(
     () => buildFaceGroups([...(expressions ?? []), ...(morphs ?? [])], mix),

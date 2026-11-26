@@ -11,6 +11,8 @@ It is the first behavior with a **public REST control surface** — its routes l
 ## Files
 
 - [packages/backend/src/behaviors/api_controller/manager.ts](../../packages/backend/src/behaviors/api_controller/manager.ts) — `ApiControllerManager`
+- [packages/backend/src/behaviors/api_controller/graph.ts](../../packages/backend/src/behaviors/api_controller/graph.ts) — `API_CONTROLLER_TEMPLATE`
+- [packages/backend/src/signal/nodes/api_controller_source.ts](../../packages/backend/src/signal/nodes/api_controller_source.ts) — graph entry node
 - [packages/backend/src/behaviors/api_controller/register.ts](../../packages/backend/src/behaviors/api_controller/register.ts) — `@BehaviorKind` registration (decorator renamed from `@ComponentKind`)
 - [packages/backend/src/routes/api-controller.ts](../../packages/backend/src/routes/api-controller.ts) — REST routes
 - [packages/backend/src/routes/expressions.ts](../../packages/backend/src/routes/expressions.ts) — read-only expression + animation listings
@@ -18,11 +20,21 @@ It is the first behavior with a **public REST control surface** — its routes l
 - [packages/frontend/src/components/editor/PropertiesPanel.tsx](../../packages/frontend/src/components/editor/PropertiesPanel.tsx) — `ApiControllerProps` (copy-URL UI)
 - [packages/frontend/src/components/editor/Viewport.tsx](../../packages/frontend/src/components/editor/Viewport.tsx) — auto-registers FBX clip durations on VRM load; plays the avatar's `scheduled_animation` timeline via the clock-anchored driver (no longer consumes an `api_animation` message)
 
-## Architecture choice — no signal graph
+## Signal graph
 
-Unlike VMC, breathing, lipsync and tracking, this manager does **not** instantiate a signal graph. It keeps a plain `Map<behaviorId, BehaviorState>` in memory and writes to the broadcast bus directly. There is no `_nodeState` persistence — state lives only as long as the process. Clients re-sync via `rebroadcastTo()` on WS reconnect.
+**Decided** (user, 2026-11-15): behaviors publish to the broadcast bus only through graph broadcast nodes; manager-side publishing is a design error. (Breadcrumb: api_controller used to have no graph and call `broadcastBus.publishBlendshapes` from the manager; that design and its "a graph would be empty plumbing" rationale are superseded.)
 
-This is intentional: there's no upstream data source to process — REST mutations and a clip lookup are all that's needed. A graph would be empty plumbing.
+The behavior runs a stored, editable signal graph like every other behavior (see [component-managers.md](component-managers.md#stored-editable-graphs)):
+
+- **Template** `API_CONTROLLER_TEMPLATE` in [api_controller/graph.ts](../../packages/backend/src/behaviors/api_controller/graph.ts): `api_src` (`api_controller_source`) → `unpack_event` → `blendshapes_broadcast` (`bs_out`), with `behavior_id` and `scene_entity` feeding the broadcast's `behaviorId` / `nodeId`. Registered in `behaviors/templates.ts` with graph id prefix `api_controller:`.
+- **Entry node** `api_controller_source` ([signal/nodes/api_controller_source.ts](../../packages/backend/src/signal/nodes/api_controller_source.ts)) — internal, one event output `blendshapes`. The manager fires it by node id `api_src`; a user-edited graph without that node receives nothing.
+- **Running**: the manager runs the stored graph or the template (`behaviorDescriptorToRun`). When the stored graph changes structurally (`programChanged`), `syncBehaviors` disposes the running graph, releases its bus slot (`broadcastBus.removeBehavior`), builds the new one and re-fires the current weights.
+- **Node state** is in-memory only; it is not persisted to `config._nodeState` as the other managers do.
+- **Animation queueing is not in the graph** — it writes the `scheduled_animation` timeline (below), which has no bus output.
+- **Existing behaviors** get their graph from the boot sync; migration 047 (which imports the current templates) also backfills them on a fresh migration.
+- `routes/signal.ts` lists its descriptors and node states and strips the `api_controller:` prefix; the `fire` route does not special-case it. `/api/behavior-kinds` reports `hasGraph: true` for it (as for every kind), so the editor shows the graph controls.
+
+Because its blendshapes leave through `blendshapes_broadcast`, the Tracking Mix lists it as a Face source by its graph, like any other behavior (see [animation.md](animation.md), Tracking Mix).
 
 ## State per behavior
 
@@ -59,7 +71,7 @@ See [animation.md](animation.md) for the FBX retargeting pipeline that actually 
 
 ## Blendshape pipeline
 
-`setBlendshapes` / `clearBlendshapes` publish to `broadcastBus.publishBlendshapes(sceneNodeId, behaviorId, blendshapes)`. The broadcast bus additively composes weights across all blendshape sources for a node (lipsync, this behavior, …; each scaled by its Tracking Mix weight, default 1) and emits a single `vmc_blendshapes` WS frame per node, so api_controller weights coexist with lipsync output without overwriting it.
+`setBlendshapes` / `clearBlendshapes` update the in-memory `blendshapes` and fire them into the graph's `api_src` node; the graph's `blendshapes_broadcast` node publishes them to the broadcast bus under the behavior id. The broadcast bus additively composes weights across all blendshape sources for a node (lipsync, this behavior, …; each scaled by its Tracking Mix weight, default 1) and emits a single `vmc_blendshapes` WS frame per node, so api_controller weights coexist with lipsync output without overwriting it.
 
 ## Expression cache
 
@@ -83,7 +95,7 @@ All routes return the structured error envelope `{ ok: false, error: { status, m
 
 ## Dependencies on other modules
 
-- **Signal graph engine** is intentionally *not* used. Animation playback happens entirely on the frontend.
+- **Signal graph engine** ([signal-graph.md](signal-graph.md)) — blendshapes run through the behavior's stored graph. Animation playback happens entirely on the frontend and is not part of the graph.
 - **Animation clips** ([animation.md](animation.md)) — clip rows in the DB are the lookup target for queue resolution.
-- **Broadcast bus** ([component-managers.md](component-managers.md)) — used to merge api_controller blendshape output with other sources.
+- **Broadcast bus** ([component-managers.md](component-managers.md)) — merges api_controller blendshape output (from the graph's broadcast node) with other sources.
 - **Shared schema** ([shared-types.md](shared-types.md)) — request schemas are Zod, also exported as OpenAPI components.

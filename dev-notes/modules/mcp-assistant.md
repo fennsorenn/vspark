@@ -230,7 +230,7 @@ produces a broken-but-accepted result. The encoded rules:
 - **`components` vs `properties` are two separate bags** on a scene node.
   Transform/light/feed config live in `components` (ECS, keyed by type, *flat*
   fields — `x/y/z`, not nested `{position:{…}}`); node-level settings
-  (`blendTransitionTime`, `poseDynamics`, …) live in `properties`.
+  (`blendTransitionTime`, `poseFilter`, …) live in `properties`.
 - **`update_scene_node` REPLACES the whole `components` bag** but shallow-merges
   `properties` — resend every component you want to keep.
 - **`update_compose_layer` `config` is SHALLOW-MERGED** into the stored config

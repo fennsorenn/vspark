@@ -237,11 +237,33 @@
     "propertiesHeader": "Eigenschaften",
     "blendTransition": "Überblendzeit",
     "trackingGracePeriod": "Leerlauf nach",
-    "dynamicsHeader": "Bewegungsdynamik",
-    "dynamicsEnable": "Bewegung dynamischer machen",
-    "dynamicsFrequency": "Frequenz",
-    "dynamicsDamping": "Dämpfung",
-    "dynamicsResponse": "Reaktion",
+    "poseFilter": {
+      "header": "Bewegungsfilter",
+      "preset": "Voreinstellung",
+      "advanced": "Erweitert",
+      "presets": {
+        "minimal": "Minimal (Interpolation)",
+        "smooth": "Glatt",
+        "springy": "Federnd",
+        "custom": "Eigene"
+      },
+      "hints": {
+        "minimal": "Gleitet nur zwischen den Tracking-Updates. Reagiert am schnellsten; am besten für Gelerntes Tracking, das schon ruhig ist.",
+        "smooth": "Beruhigt Zittern, solange du stillhältst; schnelle Bewegungen bleiben flott. Für unruhige Quellen wie Kamera-Tracking.",
+        "springy": "Beruhigt Zittern in Ruhe und fügt etwas Überschwingen und Nachschwingen hinzu.",
+        "custom": "Deine eigenen Werte, einstellbar unter „Erweitert“."
+      },
+      "smoothing": "Glättung",
+      "adaptation": "Tempo-Anpassung",
+      "damping": "Dämpfung",
+      "response": "Reaktion",
+      "tips": {
+        "smoothing": "0 = nur zwischen Updates gleiten; 1 = starke Glättung im Stillstand",
+        "adaptation": "Wie schnell die Glättung bei schnelleren Bewegungen nachlässt (weniger Verzögerung)",
+        "damping": "1 = kommt ohne Überschwingen zur Ruhe; unter 1 = federndes Überschwingen; über 1 = träge",
+        "response": "0 = folgt; über 0 = reagiert der Bewegung voraus; unter 0 = holt erst aus"
+      }
+    },
     "debugHeader": "Debug",
     "showFbxModel": "FBX-Animationsmodell anzeigen",
     "modelHeader": "Modell",
@@ -275,7 +297,10 @@
     "close": "Schließen",
     "custom": "Individuell",
     "resetTo": "Alle auf {{value}} setzen",
-    "tab": { "body": "Körper", "face": "Gesicht" },
+    "tab": {
+      "body": "Körper",
+      "face": "Gesicht"
+    },
     "order": "Reihenfolge — von links nach rechts angewendet, auf der Animation",
     "moveEarlier": "Früher anwenden",
     "moveLater": "Später anwenden",
@@ -422,6 +447,59 @@
     "localIpsHeader": "IPs dieses Rechners — eine davon in der iFacialMocap-App eintragen",
     "compatHint": "Funktioniert mit iFacialMocap (iOS). Trage oben die Geräte-IP ein, dann fordert vspark den Stream beim Telefon an — oder lass sie leer und richte die App auf eine der obigen Adressen. Beide Seiten nutzen Port {{port}}.",
     "firewallHint": "Port {{port}} muss in deiner Firewall offen sein."
+  },
+  "learned": {
+    "camera": "Kamera",
+    "refreshCameras": "Aktualisieren",
+    "loadingCameras": "Suche Kameras … (beim ersten Mal wird zuerst die Runtime installiert; das kann ein paar Minuten dauern)",
+    "camerasError": "Kameras konnten nicht aufgelistet werden: {{message}}",
+    "cameraIndex": "Kamera {{index}}",
+    "port": "Port",
+    "runtime": "Runtime",
+    "state": {
+      "starting": "Startet",
+      "running": "Läuft",
+      "error": "Fehler",
+      "stopped": "Gestoppt"
+    },
+    "stats": "{{fps}} fps · {{latency}} ms Latenz · Modell {{model}} ms",
+    "noBody": "kein Körper im Bild",
+    "cameraHint": "Die Runtime öffnet die Kamera selbst. Schalte das Kamera-Tracking auf derselben Webcam aus: Zwei Programme können eine Webcam nicht gleichzeitig lesen.",
+    "install": "Installation",
+    "installDownloaded": "Heruntergeladene Runtime {{version}}",
+    "installMissing": "Noch nicht installiert",
+    "installLocal": "Lokale Kopie: {{dir}}",
+    "download": "Runtime {{version}} herunterladen ({{size}} MB)",
+    "downloading": "Lädt herunter … {{percent}} %",
+    "downloadOverridden": "Ein für die Runtime gesetzter Pfad (config.json oder VSPARK_MOTIONTRACKER_PATH) wird statt des Downloads verwendet.",
+    "downloadError": "Download fehlgeschlagen: {{message}}",
+    "retarget": "Retarget",
+    "retargetLabel": "An die Proportionen des Avatars anpassen",
+    "retargetInactive": "Nicht aktiv: {{reason}}",
+    "restart": "Runtime neu starten",
+    "restarting": "Startet neu…",
+    "restartHint": "Beendet die Runtime und startet sie neu, z. B. wenn die Kamera keine Bilder mehr liefert",
+    "fps": "Bildrate",
+    "fpsOption": "{{fps}} fps",
+    "historyShift": "Verlaufsversatz",
+    "historyShiftOptions": {
+      "none": "Aus",
+      "every": "Jeder Schritt",
+      "alternate": "Jeder zweite Schritt"
+    },
+    "historyShiftHint": "Experimentell, für 20 fps: beruhigt ein leichtes Flackern von Bild zu Bild.",
+    "settingsMismatch": "Die Runtime läuft mit {{fps}} fps, Versatz: {{shift}} (sie unterstützt die Einstellung eventuell nicht).",
+    "preview": {
+      "open": "Kameravorschau",
+      "closeButton": "Kameravorschau schließen",
+      "title": "Gelerntes Tracking: Kamera",
+      "close": "Schließen",
+      "image": "Bild",
+      "landmarks": "Landmarks",
+      "nothing": "Wähle Bild, Landmarks oder beides.",
+      "notRunning": "Die Runtime läuft nicht.",
+      "waiting": "Warte auf Bilder…"
+    }
   },
   "lipsync": {
     "sensitivity": "Empfindlichkeit",
@@ -739,7 +817,7 @@
     "materials": "Avatar-Materialien und Shader anpassen",
     "animation": "Leerlauf-Animationen und Überblendzeiten verstehen",
     "trackingGracePeriod": "Verstehen, wie kurze Tracking-Aussetzer überbrückt werden, bevor der Avatar in den Leerlauf zurückkehrt",
-    "dynamics": "Mocap-Bewegungen dynamischer wirken lassen",
+    "poseFilter": "Wie der Bewegungsfilter getrackte Bewegung formt",
     "camera": "Kamera-Eigenschaften und Projektionen erkunden",
     "light": "Lichttypen und Schatteneinstellungen erkunden",
     "breathing": "Wie das Atemverhalten funktioniert",
@@ -783,6 +861,7 @@
     "trackingMixOrder": "Warum die Reihenfolge der Tracking-Quellen zählt",
     "baseAnimation": "Die Animation, auf die Live-Tracking gestapelt wird, solange eine Quelle verbunden ist; bei Tracking-Verlust fällt der Avatar auf die Leerlauf-Animation zurück",
     "stylizedTracking": "Erfahre, wie stilisiertes Tracking deine Bewegung umformt",
+    "learnedTracking": "Erfahre, was Gelerntes Tracking braucht und wie es funktioniert",
     "ifacialmocap": "Erfahre, wie du die iFacialMocap-App (iOS) verbindest",
     "ifmFirewall": "Warum die App „verbunden“ melden kann, ohne dass etwas bei vspark ankommt",
     "expressionLimits": "Erfahren, wie Mimik-Begrenzungen übertriebene oder kaputte Gesichter verhindern",

@@ -68,8 +68,8 @@ router.get('/behaviors/:id/body-calib-state', (req, res) => {
  *       200: { description: Array of component-kind metadata objects }
  */
 router.get('/behavior-kinds', (_req, res) => {
-  // `hasGraph`: the kind runs a stored, editable signal graph (every kind but
-  // api_controller) — the editor shows the graph controls only for those.
+  // `hasGraph`: the kind runs a stored, editable signal graph (every
+  // registered kind does) — the editor shows the graph controls only for those.
   res.json({
     ok: true,
     data: getAllBehaviorKindMeta().map((m) => ({

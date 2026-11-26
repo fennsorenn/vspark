@@ -145,6 +145,57 @@ while you move. Everything on is the recommended setting.
 To compare, hold a pose that gives you trouble (fingers toward the camera works
 well) and toggle one option at a time.
 
+## Learned tracking {#learned}
+
+Learned tracking estimates your **torso, head, shoulders, arms, hands and
+fingers**, and your **legs**, from a webcam with learned models instead of
+hand-written rules. It aims for a calmer result than camera tracking, especially
+with your arms resting below the frame. If your legs are out of view (at a desk,
+say), turn the legs' influence down in the mixer. Your **facial expressions**
+come, for now, from conventional methods; they are mapped like the
+[VMC receiver](topic:behaviors#vmc)'s.
+
+It runs as a separate program, the **motiontracker runtime**, which vspark
+starts and stops for you. It needs:
+
+- the runtime itself: **Download runtime** in the behavior's properties fetches
+  the version this vspark was tested with (about 18 MB, models included) and
+  starts it. A local motiontracker copy works too: a `motiontracker` folder next
+  to the vspark folder is used when nothing is downloaded, and a path set as
+  `learnedTracker.runtimePath` in `config.json` always wins,
+- [uv](https://docs.astral.sh/uv/), which installs the runtime's Python
+  environment on first start (this takes a few minutes once).
+
+The runtime opens the **camera** itself, so turn off camera tracking on the same
+webcam. Pick the camera from the list; **Refresh** asks the runtime again. The
+status line shows whether the runtime is starting, running (frames per second,
+latency) or stopped with an error.
+
+If the runtime seems stuck (for example after the camera was unplugged),
+**Restart runtime** stops it and starts it again. After a crash it also retries
+by itself every few seconds.
+
+**Fit to the avatar's proportions** (off by default) adjusts the arms so your
+hands keep their positions relative to your body and to each other, even when
+the avatar's proportions differ from yours. Without it the avatar copies your
+joint angles. It's experimental: it can keep hands apart when they should touch.
+It takes effect immediately, so you can switch it on and off to compare. It
+needs an avatar loaded from a VRM file.
+
+**Camera preview** opens a floating window with what the runtime's camera sees:
+the picture, the detected landmarks, or both. The runtime only sends it while
+the window is open.
+
+**Frame rate** sets how many camera frames per second the runtime processes.
+Higher rates respond faster (at 20 fps about twice as fast as at 10) but use
+more CPU (about twice as much at 20 fps) and show a little more shake; the
+Smooth preset of the avatar's motion filter calms that. **History shift** is an
+experiment for 20 fps: it reduces a slight flicker from one frame to the next.
+Both take effect immediately.
+
+The avatar follows only while a body is in view; the avatar's idle fallback
+takes over after that. Calibration works like the VMC receiver's.
+
 ## Lip sync {#lipsync}
 
 Lip sync listens to your **microphone** and turns speech into mouth shapes, so
@@ -260,8 +311,9 @@ your own precision back, reach for Blend.
 
 **Follow-through** is how far the body trails behind the drivers, in seconds.
 Larger is looser and more cartoon-like; 0 makes everything move together. If you
-want the motion to *overshoot* and settle rather than just catch up, turn on
-**Motion Snappiness** on the avatar itself — it layers on top of this.
+want the motion to *overshoot* and settle rather than just catch up, pick the
+**Springy** preset of the avatar's [motion filter](topic:avatar#motion-filter);
+it layers on top of this.
 
 **Rest bones the rig doesn't drive** sends everything outside the rig (fingers,
 legs) back to its neutral pose instead of passing tracking through. Reach for it

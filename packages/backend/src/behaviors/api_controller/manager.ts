@@ -1,4 +1,8 @@
-import { Blendshapes } from '@vspark/shared/signal';
+import { Blendshapes, mkEvent } from '@vspark/shared/signal';
+import type {
+  GraphDescriptor,
+  GraphStateSnapshot,
+} from '@vspark/shared/signal';
 import type {
   ApiAnimationLoopMode,
   ApiAnimationQueueEntry,
@@ -8,6 +12,17 @@ import { BehaviorKind } from '../decorator.js';
 import { broadcastBus } from '../../broadcast/bus.js';
 import { getDb } from '../../db/index.js';
 import { getMeshCollection } from '../../mesh/index.js';
+import { SignalGraph } from '../../signal/engine.js';
+import { NODE_REGISTRY } from '../../signal/registry.js';
+import {
+  behaviorContextConfig,
+  behaviorDescriptorToRun,
+  programChanged,
+} from '../storedGraph.js';
+
+/** The template's entry node (graph.ts). A user-edited graph without it
+ *  simply receives nothing. */
+const SOURCE_NODE = 'api_src';
 
 interface BehaviorState {
   sceneNodeId: string;
@@ -39,6 +54,12 @@ const DEFAULT_DURATION_SEC = 5;
 export class ApiControllerManager {
   private readonly _state = new Map<string, BehaviorState>();
   private readonly _expressionsByNode = new Map<string, string[]>();
+  // The behavior's signal graph: blendshapes reach the bus through its
+  // `blendshapes_broadcast` node, never from this manager directly.
+  private readonly graphs = new Map<string, SignalGraph>();
+  private readonly descriptors = new Map<string, GraphDescriptor>();
+  private readonly nodeStates = new Map<string, Map<string, unknown>>();
+  private readonly configs = new Map<string, Record<string, unknown>>();
 
   // ── expressions cache (populated by frontend reports over WS) ──────────────
 
@@ -49,6 +70,58 @@ export class ApiControllerManager {
 
   getExpressionsForNode(nodeId: string): string[] | null {
     return this._expressionsByNode.get(nodeId) ?? null;
+  }
+
+  // ── graph ──────────────────────────────────────────────────────────────────
+
+  private _createGraph(behaviorId: string): SignalGraph {
+    // The behavior's stored (editable) graph; the template if none is stored.
+    const descriptor = behaviorDescriptorToRun(
+      'api_controller',
+      behaviorId,
+      this.configs.get(behaviorId)
+    );
+    this.descriptors.set(behaviorId, descriptor);
+    if (!this.nodeStates.has(behaviorId))
+      this.nodeStates.set(behaviorId, new Map());
+    return SignalGraph.fromDescriptor(
+      descriptor,
+      NODE_REGISTRY,
+      (nodeId) => this._getNodeConfig(behaviorId, nodeId),
+      (nodeId) => this.nodeStates.get(behaviorId)?.get(nodeId) ?? {},
+      (nodeId, state) => {
+        this.nodeStates.get(behaviorId)!.set(nodeId, state);
+      },
+      // Behavior graphs are always attached to a scene node.
+      'scene_node'
+    );
+  }
+
+  private _getNodeConfig(behaviorId: string, nodeId: string): unknown {
+    const cfg = this.configs.get(behaviorId) ?? {};
+    const nodeDef = this.descriptors
+      .get(behaviorId)
+      ?.nodes.find((n) => n.id === nodeId);
+    const overrides = ((
+      cfg.nodeConfig as Record<string, unknown> | undefined
+    )?.[nodeId] ?? {}) as Record<string, unknown>;
+    return {
+      ...(nodeDef?.defaultConfig ?? {}),
+      ...overrides,
+      ...behaviorContextConfig(nodeDef?.kind, {
+        behaviorId,
+        sceneNodeId: this._state.get(behaviorId)?.sceneNodeId ?? '',
+        settings: cfg,
+      }),
+    };
+  }
+
+  /** Push the behavior's current blendshapes into its graph. */
+  private _fireBlendshapes(behaviorId: string): void {
+    const graph = this.graphs.get(behaviorId);
+    const st = this._state.get(behaviorId);
+    if (!graph || !st) return;
+    graph.fire(SOURCE_NODE, 'blendshapes', mkEvent(st.blendshapes));
   }
 
   // ── component lifecycle ────────────────────────────────────────────────────
@@ -65,6 +138,7 @@ export class ApiControllerManager {
     const active = new Set<string>();
     for (const c of comps) {
       if (c.kind !== 'api_controller' || !c.enabled) continue;
+      this.configs.set(c.id, c.config);
       if (!this._state.has(c.id)) {
         this._state.set(c.id, {
           sceneNodeId: c.nodeId,
@@ -78,6 +152,26 @@ export class ApiControllerManager {
         // Hot-update node id in case it ever changes.
         this._state.get(c.id)!.sceneNodeId = c.nodeId;
       }
+      // Its stored graph was edited (or reset): rebuild the running one and
+      // re-send the current weights through it (the old graph's bus slot is
+      // released with it).
+      const running = this.graphs.get(c.id);
+      if (
+        running &&
+        programChanged(
+          this.descriptors.get(c.id),
+          behaviorDescriptorToRun('api_controller', c.id, c.config)
+        )
+      ) {
+        running.dispose();
+        this.graphs.delete(c.id);
+        broadcastBus.removeBehavior(c.id);
+      }
+      if (!this.graphs.has(c.id)) {
+        this.graphs.set(c.id, this._createGraph(c.id));
+        if (this._state.get(c.id)!.blendshapes.size > 0)
+          this._fireBlendshapes(c.id);
+      }
       active.add(c.id);
     }
     for (const id of [...this._state.keys()]) {
@@ -87,12 +181,29 @@ export class ApiControllerManager {
 
   private _stop(id: string): void {
     this._state.delete(id);
+    this.graphs.get(id)?.dispose();
+    this.graphs.delete(id);
+    this.descriptors.delete(id);
+    this.nodeStates.delete(id);
+    this.configs.delete(id);
     broadcastBus.removeBehavior(id);
     console.log(`[ApiController] Stopped component ${id}`);
   }
 
   close(): void {
     for (const id of [...this._state.keys()]) this._stop(id);
+  }
+
+  getStates(behaviorId: string): GraphStateSnapshot | null {
+    return this.graphs.get(behaviorId)?.getStates() ?? null;
+  }
+
+  getGraphDescriptor(behaviorId: string): GraphDescriptor | null {
+    return this.descriptors.get(behaviorId) ?? null;
+  }
+
+  getAllGraphDescriptors(): GraphDescriptor[] {
+    return [...this.descriptors.values()];
   }
 
   // ── lookup ─────────────────────────────────────────────────────────────────
@@ -188,11 +299,7 @@ export class ApiControllerManager {
     if (known) for (const name of known) full[name] = 0;
     for (const [name, value] of Object.entries(weights)) full[name] = value;
     st.blendshapes = Blendshapes.fromRecord(full);
-    broadcastBus.publishBlendshapes(
-      st.sceneNodeId,
-      behaviorId,
-      st.blendshapes
-    );
+    this._fireBlendshapes(behaviorId);
   }
 
   clearBlendshapes(behaviorId: string): void {
@@ -200,11 +307,7 @@ export class ApiControllerManager {
     if (!st)
       throw new Error(`api_controller component ${behaviorId} not active`);
     st.blendshapes = new Blendshapes();
-    broadcastBus.publishBlendshapes(
-      st.sceneNodeId,
-      behaviorId,
-      st.blendshapes
-    );
+    this._fireBlendshapes(behaviorId);
   }
 
   // ── internals ──────────────────────────────────────────────────────────────

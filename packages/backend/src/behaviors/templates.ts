@@ -47,6 +47,7 @@ import { POSE_STYLIZER_TEMPLATE } from './pose_stylizer/graph.js';
 import { BLENDSHAPE_LIMITER_TEMPLATE } from './blendshape_limiter/graph.js';
 import { LIPSYNC_PIPELINE_TEMPLATE } from './lipsync/graph.js';
 import { MEDIAPIPE_PIPELINE_TEMPLATE } from './mediapipe_tracker/graph.js';
+import { API_CONTROLLER_TEMPLATE } from './api_controller/graph.js';
 
 export type BehaviorConfig = Record<string, unknown>;
 
@@ -78,6 +79,8 @@ const TEMPLATES = new Map<string, BehaviorTemplate>(
   [
     fixed('vmc_receiver', 'vmc-pipeline:', VMC_PIPELINE_TEMPLATE),
     fixed('vmc_receiver_2d', 'vmc-pipeline-2d:', VMC_2D_PIPELINE_TEMPLATE),
+    // Learned Tracking is a VMC receiver fed by its own runtime: same 3D pipeline.
+    fixed('learned_tracker', 'learned-tracker:', VMC_PIPELINE_TEMPLATE),
     fixed(
       'ifacialmocap_receiver',
       'ifacialmocap-pipeline:',
@@ -101,11 +104,12 @@ const TEMPLATES = new Map<string, BehaviorTemplate>(
       'mediapipe_tracker:',
       MEDIAPIPE_PIPELINE_TEMPLATE
     ),
+    fixed('api_controller', 'api_controller:', API_CONTROLLER_TEMPLATE),
   ].map((t) => [t.kind, t])
 );
 
-/** The template of a behavior kind; undefined for kinds without a graph
- *  (`api_controller`). */
+/** The template of a behavior kind; undefined for a kind without a graph
+ *  (every registered kind has one). */
 export function behaviorTemplate(kind: string): BehaviorTemplate | undefined {
   return TEMPLATES.get(kind);
 }

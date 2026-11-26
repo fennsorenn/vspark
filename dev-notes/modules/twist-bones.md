@@ -97,7 +97,7 @@ should twist with the arm is excluded — toggle `excludeSleeves` off to keep it
 
 `driveForearmTwist(nodeId)` is called in `Viewport.tsx`'s `useFrame` **after**
 the IK solve + `setNormalizedPose`/`update`, and **before** the spring /
-constraint (motion-snappiness) updates. A synthesized twist bone is a raw,
+constraint updates. A synthesized twist bone is a raw,
 non-humanoid bone, so three-vrm leaves it alone and it must be driven in raw
 space after the humanoid pose is applied. Per side it:
 

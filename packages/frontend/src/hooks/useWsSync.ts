@@ -16,6 +16,10 @@ if (import.meta.env.DEV) {
   g.__captureViewport = captureViewport;
 }
 import { setIkTargets } from '../ikTargetStore';
+import {
+  emitLearnedPreview,
+  type LearnedPreviewFrame,
+} from '../learnedPreviewStore';
 import type { IkTargetFrame, AnimationBlendMode } from '@vspark/shared/types';
 import { SYNC_MESSAGE_KIND, type SyncEnvelope } from '@vspark/shared/sync';
 // Legacy 'sync'-envelope bindings are fully retired (§11): every document
@@ -129,6 +133,8 @@ export function useWsSync() {
               msg.payload.nodeId as string,
               msg.payload.blendshapes as Record<string, number>
             );
+          } else if (msg.kind === 'learned_preview_frame') {
+            emitLearnedPreview(msg.payload as unknown as LearnedPreviewFrame);
           } else if (msg.kind === 'pose_ik_targets') {
             setIkTargets(
               msg.payload.nodeId as string,

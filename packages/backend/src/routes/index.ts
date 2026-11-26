@@ -19,6 +19,7 @@ import signal from './signal.js';
 import connections from './connections.js';
 import meta from './meta.js';
 import ui from './ui.js';
+import learnedTracker from './learned-tracker.js';
 
 const router: ReturnType<typeof Router> = Router();
 router.use(projects);
@@ -41,6 +42,7 @@ router.use(signal);
 router.use(connections);
 router.use(meta);
 router.use(ui);
+router.use(learnedTracker);
 
 export { router as apiRoutes };
 export {

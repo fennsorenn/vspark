@@ -210,9 +210,9 @@ export interface NodeProperties {
     idle?: { clipId: string; speed: number };
     base?: { clipId?: string; url?: string; speed?: number };
   };
-  /** VRM avatar: second-order "snappiness" dynamics applied to broadcast bone
-   *  rotations after the jitter-smoothing filter. Disabled by default. */
-  poseDynamics?: import('../secondOrderDynamics').PoseDynamicsConfig;
+  /** VRM avatar: the motion filter for broadcast (tracking) bone rotations
+   *  (interpolation, smoothing, spring; poseFilter.ts). Default: Minimal. */
+  poseFilter?: Partial<import('../poseFilter').PoseFilterConfig>;
   /** VRM avatar: synthesize forearm twist bones when the model lacks them, so
    *  wrist pronation spreads along the forearm instead of pinching at the
    *  elbow. Models with their own twist bones are driven regardless. */
@@ -1005,6 +1005,45 @@ export const seekTrackClip = (id: string, t: number) =>
 export const getLocalIps = () =>
   request<{ ips: string[] }>('/system/local-ips').then((d) => d.ips);
 
+/** Cameras the Learned Tracking runtime can open. Slow on the very first call
+ *  (the backend has uv install the runtime). */
+export const getLearnedTrackerCameras = () =>
+  request<{ cameras: Array<{ index: number; name: string }> }>(
+    '/learned-tracker/cameras'
+  ).then((d) => d.cameras);
+
+/** Where the Learned Tracking runtime comes from (backend routes/learned-tracker.ts). */
+export interface LearnedRuntimeInfo {
+  /** The motiontracker release this vspark pins. */
+  version: string;
+  /** Its download size. */
+  bytes: number;
+  source: 'env' | 'config' | 'download' | 'checkout' | 'missing';
+  dir: string;
+  downloaded: boolean;
+  download: {
+    state: 'idle' | 'downloading' | 'error';
+    progress?: number;
+    message?: string;
+  };
+}
+
+export const getLearnedRuntime = () =>
+  request<LearnedRuntimeInfo>('/learned-tracker/runtime');
+
+/** Stops a Learned Tracking behavior's runtime and starts it again (e.g. after
+ *  the camera stopped sending frames). */
+export const restartLearnedRuntime = (behaviorId: string) =>
+  request<{ restarting: boolean }>(`/learned-tracker/${behaviorId}/restart`, {
+    method: 'POST',
+  });
+
+/** Starts the download of the pinned runtime in the background; poll getLearnedRuntime. */
+export const downloadLearnedRuntime = () =>
+  request<LearnedRuntimeInfo>('/learned-tracker/runtime/download', {
+    method: 'POST',
+  });
+
 /** Returns the uncalibrated NormalizedPose at the body_calibration node's
  *  input for this component.  Bone keys are VRMBoneNames. */
 export const getBodyCalibState = (behaviorId: string) =>
@@ -1581,6 +1620,10 @@ export const api = {
   resumeTrackClip,
   seekTrackClip,
   getLocalIps,
+  getLearnedTrackerCameras,
+  getLearnedRuntime,
+  downloadLearnedRuntime,
+  restartLearnedRuntime,
   getBodyCalibState,
   getSignalGraphs,
   getSignalNodeKinds,

@@ -8,7 +8,9 @@ Status: **implemented (upper body + face + hands)**. Default face blendshapes ar
 landmark-derived ARKit heuristic (cheap, accuracy WIP); a native HQ-face path is opt-in. Open
 work below.
 
-Related: [signal-graph.md](signal-graph.md), [component-managers.md](component-managers.md).
+Related: [signal-graph.md](signal-graph.md), [component-managers.md](component-managers.md),
+[learned-tracker.md](learned-tracker.md) (the other webcam tracker: a learned body model in a separate
+process).
 
 ## Files
 
@@ -211,6 +213,9 @@ an active IK target:
   required). Build script: `scripts/build-mediapipe-worker.mjs`.
 - Frames are mirrored (`CameraCapture._drawMirror`) before they reach MediaPipe, and the preview
   is shown mirrored too — the avatar mirrors the performer.
+- The webcam is opened by the browser. The Learned Tracking runtime opens its webcam itself in a
+  separate process, so the two can't use the same webcam at the same time; nothing in vspark
+  detects that conflict today. See [learned-tracker.md](learned-tracker.md#camera).
 
 ## Adding a new converter
 

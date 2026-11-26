@@ -237,11 +237,33 @@
     "propertiesHeader": "Properties",
     "blendTransition": "Blend transition",
     "trackingGracePeriod": "Idle after",
-    "dynamicsHeader": "Motion Snappiness",
-    "dynamicsEnable": "Add snappiness to motion",
-    "dynamicsFrequency": "Frequency",
-    "dynamicsDamping": "Damping",
-    "dynamicsResponse": "Response",
+    "poseFilter": {
+      "header": "Motion filter",
+      "preset": "Preset",
+      "advanced": "Advanced",
+      "presets": {
+        "minimal": "Minimal (interpolation)",
+        "smooth": "Smooth",
+        "springy": "Springy",
+        "custom": "Custom"
+      },
+      "hints": {
+        "minimal": "Only glides between tracking updates. Quickest response; best for Learned Tracking, which is already smooth.",
+        "smooth": "Calms jitter while you hold still; fast moves stay quick. For noisy sources such as camera tracking.",
+        "springy": "Calms jitter at rest and adds a little overshoot and follow-through.",
+        "custom": "Your own values, set under Advanced."
+      },
+      "smoothing": "Smoothing",
+      "adaptation": "Speed adaptation",
+      "damping": "Damping",
+      "response": "Response",
+      "tips": {
+        "smoothing": "0 = only glide between updates; 1 = strong smoothing while still",
+        "adaptation": "How quickly smoothing fades as you move faster (less lag on fast moves)",
+        "damping": "1 = settles without overshoot; below 1 = springy overshoot; above 1 = sluggish",
+        "response": "0 = follows; above 0 = reacts ahead of the movement; below 0 = winds up first"
+      }
+    },
     "debugHeader": "Debug",
     "showFbxModel": "Show FBX animation model",
     "modelHeader": "Model",
@@ -275,7 +297,10 @@
     "close": "Close",
     "custom": "Custom",
     "resetTo": "Set all to {{value}}",
-    "tab": { "body": "Body", "face": "Face" },
+    "tab": {
+      "body": "Body",
+      "face": "Face"
+    },
     "order": "Order — applied left to right, on top of the animation",
     "moveEarlier": "Apply earlier",
     "moveLater": "Apply later",
@@ -422,6 +447,59 @@
     "localIpsHeader": "This machine's IPs — enter one in the iFacialMocap app",
     "compatHint": "Works with iFacialMocap (iOS). Enter the Device IP above and vspark will ask the phone to stream, or leave it empty and point the app at one of the addresses above. Both ends use port {{port}}.",
     "firewallHint": "Port {{port}} needs to be open in your firewall."
+  },
+  "learned": {
+    "camera": "Camera",
+    "refreshCameras": "Refresh",
+    "loadingCameras": "Looking for cameras… (the first time, the runtime is installed first; this can take a few minutes)",
+    "camerasError": "Couldn't list cameras: {{message}}",
+    "cameraIndex": "Camera {{index}}",
+    "port": "Port",
+    "runtime": "Runtime",
+    "state": {
+      "starting": "Starting",
+      "running": "Running",
+      "error": "Error",
+      "stopped": "Stopped"
+    },
+    "stats": "{{fps}} fps · {{latency}} ms latency · model {{model}} ms",
+    "noBody": "no body in view",
+    "cameraHint": "The runtime opens the camera itself. Turn off Camera tracking on the same webcam: two programs can't read one webcam at once.",
+    "install": "Install",
+    "installDownloaded": "Downloaded runtime {{version}}",
+    "installMissing": "Not installed yet",
+    "installLocal": "Local copy: {{dir}}",
+    "download": "Download runtime {{version}} ({{size}} MB)",
+    "downloading": "Downloading… {{percent}} %",
+    "downloadOverridden": "A path set for the runtime (config.json or VSPARK_MOTIONTRACKER_PATH) is used instead of the download.",
+    "downloadError": "Download failed: {{message}}",
+    "retarget": "Retarget",
+    "retargetLabel": "Fit to the avatar's proportions",
+    "retargetInactive": "Not applied: {{reason}}",
+    "restart": "Restart runtime",
+    "restarting": "Restarting…",
+    "restartHint": "Stops the runtime and starts it again, e.g. when the camera stopped sending pictures",
+    "fps": "Frame rate",
+    "fpsOption": "{{fps}} fps",
+    "historyShift": "History shift",
+    "historyShiftOptions": {
+      "none": "Off",
+      "every": "Every step",
+      "alternate": "Every other step"
+    },
+    "historyShiftHint": "Experimental, for 20 fps: calms a slight frame-to-frame flicker.",
+    "settingsMismatch": "The runtime runs at {{fps}} fps, shift: {{shift}} (it may not support this setting).",
+    "preview": {
+      "open": "Camera preview",
+      "closeButton": "Close camera preview",
+      "title": "Learned Tracking: camera",
+      "close": "Close",
+      "image": "Picture",
+      "landmarks": "Landmarks",
+      "nothing": "Pick picture, landmarks or both.",
+      "notRunning": "The runtime isn't running.",
+      "waiting": "Waiting for frames…"
+    }
   },
   "lipsync": {
     "sensitivity": "Sensitivity",
@@ -739,7 +817,7 @@
     "materials": "Learn how to override avatar materials and shaders",
     "animation": "Learn about idle animations and blend timing",
     "trackingGracePeriod": "Learn how brief tracking dropouts are ridden out before the avatar returns to idle",
-    "dynamics": "Learn how to make motion-capture movement feel snappier",
+    "poseFilter": "How the motion filter shapes tracked movement",
     "camera": "Learn about camera properties and projections",
     "light": "Learn about light types and shadow settings",
     "breathing": "Learn how the breathing behavior works",
@@ -783,6 +861,7 @@
     "trackingMixOrder": "Why the order of tracking sources matters",
     "baseAnimation": "The animation live tracking stacks onto while a source is connected; the avatar falls back to the idle when tracking drops",
     "stylizedTracking": "Learn how stylized tracking reshapes your motion",
+    "learnedTracking": "Learn what Learned Tracking needs and how it works",
     "ifacialmocap": "Learn how to connect the iFacialMocap iOS app",
     "ifmFirewall": "Why the app can say “connected” while nothing reaches vspark",
     "expressionLimits": "Learn how expression limits stop exaggerated or broken faces",

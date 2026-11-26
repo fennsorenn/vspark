@@ -644,7 +644,7 @@ describe('047_behavior_graphs', () => {
       { id: 'v', kind: 'vmc_receiver' },
       { id: 'v2', kind: 'vmc_receiver_2d' },
       { id: 'lip', kind: 'lipsync_processor' },
-      { id: 'api', kind: 'api_controller' }, // no graph
+      { id: 'api', kind: 'api_controller' },
     ]);
     migrate047(db as never);
 
@@ -652,6 +652,7 @@ describe('047_behavior_graphs', () => {
       ['v', 'vmc_receiver'],
       ['v2', 'vmc_receiver_2d'],
       ['lip', 'lipsync_processor'],
+      ['api', 'api_controller'],
     ]) {
       const rows = graphRow(db, id);
       expect(rows).toHaveLength(1);
@@ -664,8 +665,6 @@ describe('047_behavior_graphs', () => {
         graphFingerprint(JSON.parse(rows[0].descriptor) as GraphDescriptorDoc)
       ).toBe(fp);
     }
-    expect(graphRow(db, 'api')).toHaveLength(0);
-    expect(fpOf(db, 'api')).toBeNull();
   });
 
   it('is idempotent and keeps a graph a behavior already owns', () => {

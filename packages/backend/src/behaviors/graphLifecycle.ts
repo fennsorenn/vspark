@@ -173,7 +173,7 @@ export const behaviorGraphLifecycle = {
   onCommitted(doc: Dto, prev: Dto | undefined): void {
     try {
       const b = doc as unknown as BehaviorDoc;
-      if (!behaviorTemplate(b.kind)) return; // no graph (api_controller)
+      if (!behaviorTemplate(b.kind)) return; // unknown kind: no graph
       const target = behaviorTemplateFingerprint(b.kind, b.config)!;
       const graph = graphDocOf(b);
       if (!graph) {

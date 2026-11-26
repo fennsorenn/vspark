@@ -43,26 +43,40 @@ camera tracking) shares the one setting.
 > Tip: if your avatar looks frozen, check that a motion-capture behavior is
 > attached and connected — see [Behaviors](topic:behaviors).
 
-## Motion snappiness {#snappiness}
+## Motion filter {#motion-filter}
 
-Motion-capture data is usually smoothed before it reaches vspark, and vspark
-smooths it again to ride out network hiccups. That keeps movement stable, but it
-can also make it feel a little soft or floaty. **Motion snappiness** adds back a
-sense of crispness without reintroducing jitter.
+Tracking sends a new pose 10 to 60 times a second, while your screen draws more
+often. The **motion filter** decides how the avatar moves between those updates:
+it can just glide from one pose to the next, calm down jitter, or add a bit of
+spring. Everything happens in one step, so you only pay for the effects you
+pick.
 
-Turn it on per avatar, then tune three dials:
+Choose a **preset**:
 
-- **Frequency** — how quickly the avatar reacts. Higher feels snappier; very high
-  can look twitchy.
-- **Damping** — how much it settles versus bounces. Around 1 stops cleanly with
-  no overshoot; below 1 adds a lively little overshoot (the "snap"); above 1
-  feels heavy and sluggish.
-- **Response** — how eagerly it leads into a movement. 0 is neutral; higher
-  values make the avatar anticipate and accelerate into motion for extra punch.
+- **Minimal (interpolation)**: only glides between updates, so the avatar
+  doesn't step. Fastest response. Best for Learned Tracking, which already
+  arrives smooth. This is the default.
+- **Smooth**: calms jitter while you hold still; as soon as you move, the
+  smoothing fades so fast moves stay quick. For noisier sources such as camera
+  tracking.
+- **Springy**: like Smooth at rest, plus a little overshoot and follow-through
+  for a livelier feel.
+- **Custom**: your own values.
 
-> Tip: start with the defaults, then nudge **Damping** down slightly for more
-> snap. If motion starts to wobble or buzz, raise **Damping** or lower
-> **Frequency**.
+Under **Advanced** you can tune the four dials yourself (changing one switches
+the preset to Custom):
+
+- **Smoothing**: 0 only glides between updates; higher values calm jitter more
+  while you're still.
+- **Speed adaptation**: how quickly the smoothing fades as you move faster.
+  Higher means less lag on fast moves.
+- **Damping**: 1 settles without overshoot; below 1 adds a springy overshoot;
+  above 1 feels heavy.
+- **Response**: 0 simply follows; higher values react ahead of the movement;
+  negative values wind up before moving.
+
+> Tip: if the avatar looks jittery, pick **Smooth**. If it feels slow, go back to
+> **Minimal**.
 
 ## Tracking mix {#tracking-mix}
 
@@ -72,6 +86,11 @@ tracking behaviors — VMC, iFacialMocap, webcam tracking, Breathing, Lip sync,
 and so on. Use it to, for example, play a dance animation on the **legs** while
 live tracking drives the **upper body**, or to let webcam tracking steer the
 head while a VMC sender does the arms.
+
+A behavior is listed when its graph sends something to the avatar: a **Send
+Pose** node gives it a **Body** column, a **Send Blendshapes** node a **Face**
+column. If you edit a behavior's graph and remove those nodes, it leaves the
+mixer (its weights are kept and come back with the node).
 
 In the sidebar every source has one slider that sets its weight everywhere.
 Click **Open mixer…** for the full editor:

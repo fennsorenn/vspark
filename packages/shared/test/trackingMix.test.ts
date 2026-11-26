@@ -17,6 +17,7 @@ import {
   setBlendshapeWeights,
   setBoneWeights,
   uniformValue,
+  graphMixOutputs,
 } from '../src/trackingMix.js';
 
 const axisAngle = (ax: [number, number, number], rad: number) =>
@@ -179,5 +180,28 @@ describe('editing helpers', () => {
     expect(out!.order).toEqual(['a']);
     expect(Object.keys(out!.sources!)).toEqual(['a', ANIMATION_SOURCE]);
     expect(pruneStaleSources(undefined, new Set())).toBeUndefined();
+  });
+});
+
+describe('graphMixOutputs', () => {
+  it('reads Body / Face from the broadcast nodes a graph holds', () => {
+    expect(graphMixOutputs(['pose_broadcast', 'unpack_event'])).toEqual({
+      bones: true,
+      blendshapes: false,
+    });
+    expect(graphMixOutputs(['blendshapes_broadcast'])).toEqual({
+      bones: false,
+      blendshapes: true,
+    });
+    expect(
+      graphMixOutputs(['pose_broadcast', 'blendshapes_broadcast'])
+    ).toEqual({ bones: true, blendshapes: true });
+  });
+  it('publishes nothing without a broadcast node (e.g. interceptors only)', () => {
+    expect(graphMixOutputs(['on_pose_broadcast', 'settings'])).toEqual({
+      bones: false,
+      blendshapes: false,
+    });
+    expect(graphMixOutputs([])).toEqual({ bones: false, blendshapes: false });
   });
 });

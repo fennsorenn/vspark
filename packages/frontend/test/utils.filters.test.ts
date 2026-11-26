@@ -2,7 +2,6 @@
  * Phase 7 — frontend non-visual coverage
  *
  * Covers pure math/signal utilities:
- *   - src/oneEuroFilter.ts   (OneEuroFilterQuat, BoneFilterBank)
  *   - src/calibration.ts     (applyArmCalib, elbowAngleForReach, fitArmCalib,
  *                             upperArmNormRotFromTarget, DEFAULT_* constants)
  *
@@ -12,10 +11,9 @@
  * verify mock wiring, not logic.  Limitation noted in report.
  */
 
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect } from 'vitest';
 import * as THREE from 'three';
 
-import { OneEuroFilterQuat, BoneFilterBank } from '../src/oneEuroFilter';
 import {
   applyArmCalib,
   elbowAngleForReach,
@@ -24,189 +22,6 @@ import {
   DEFAULT_ARM_CALIB,
   DEFAULT_CALIBRATION,
 } from '../src/calibration';
-
-// ─── OneEuroFilterQuat ────────────────────────────────────────────────────────
-
-describe('OneEuroFilterQuat', () => {
-  it('returns the same reference every time', () => {
-    const f = new OneEuroFilterQuat();
-    const q = new THREE.Quaternion();
-    const r1 = f.filter(q, 0.016);
-    const r2 = f.filter(q, 0.016);
-    expect(r1).toBe(r2); // same internal quaternion object
-  });
-
-  it('first sample initialises the filter to the input exactly', () => {
-    const f = new OneEuroFilterQuat();
-    const q = new THREE.Quaternion().setFromEuler(new THREE.Euler(0.5, 0.3, 0.1));
-    const out = f.filter(q, 0.016);
-    expect(out.x).toBeCloseTo(q.x, 6);
-    expect(out.y).toBeCloseTo(q.y, 6);
-    expect(out.z).toBeCloseTo(q.z, 6);
-    expect(out.w).toBeCloseTo(q.w, 6);
-  });
-
-  it('skips update when dt <= 0, returning current filtered value', () => {
-    const f = new OneEuroFilterQuat();
-    const q = new THREE.Quaternion().setFromEuler(new THREE.Euler(0.3, 0, 0));
-    // Initialise
-    const after1 = f.filter(q, 0.016);
-    const x1 = after1.x;
-    // Feed zero dt — should return the same filtered value without advancing
-    const other = new THREE.Quaternion().setFromEuler(new THREE.Euler(1.5, 0, 0));
-    const after2 = f.filter(other, 0);
-    expect(after2.x).toBeCloseTo(x1, 6);
-  });
-
-  it('converges to constant input over many frames', () => {
-    const f = new OneEuroFilterQuat();
-    const target = new THREE.Quaternion().setFromEuler(new THREE.Euler(0, Math.PI / 4, 0));
-    const dt = 1 / 60;
-    // First call initialises
-    f.filter(target, dt);
-    // Feed the same quaternion 500 times
-    let out!: THREE.Quaternion;
-    for (let i = 0; i < 500; i++) {
-      out = f.filter(target, dt);
-    }
-    // After convergence the filter should be very close to the constant input
-    expect(out.x).toBeCloseTo(target.x, 3);
-    expect(out.y).toBeCloseTo(target.y, 3);
-    expect(out.z).toBeCloseTo(target.z, 3);
-    expect(out.w).toBeCloseTo(target.w, 3);
-  });
-
-  it('damps a step input — output is between previous and target (not an instant jump)', () => {
-    const f = new OneEuroFilterQuat();
-    const identity = new THREE.Quaternion(); // (0,0,0,1)
-    const dt = 1 / 60;
-    // Initialise to identity
-    f.filter(identity, dt);
-    const initial = f.filter(identity, dt);
-    const prevW = initial.w; // should be ~1
-
-    // Step to 180° rotation
-    const target = new THREE.Quaternion().setFromEuler(new THREE.Euler(0, Math.PI * 0.8, 0));
-    const out = f.filter(target, dt);
-    // The filtered output must be strictly between identity and target (damped)
-    // i.e. w must have moved from prevW toward target.w but not arrived
-    expect(out.w).toBeLessThan(prevW);
-    expect(out.w).toBeGreaterThan(target.w);
-  });
-
-  it('lower minCutoff produces more smoothing (less change per step)', () => {
-    const dtFixed = 1 / 60;
-    const targetQ = new THREE.Quaternion().setFromEuler(new THREE.Euler(0, 1.0, 0));
-
-    function singleStepChange(minCutoff: number): number {
-      const f = new OneEuroFilterQuat(minCutoff, 0);
-      const start = new THREE.Quaternion(); // identity
-      f.filter(start, dtFixed); // initialise
-      const out = f.filter(targetQ, dtFixed);
-      // How far did the w component move toward target?
-      return Math.abs(out.w - start.w);
-    }
-
-    const changeLoMC = singleStepChange(0.1);
-    const changeHiMC = singleStepChange(10.0);
-    // Higher minCutoff → higher alpha → more change per step (less lag)
-    expect(changeLoMC).toBeLessThan(changeHiMC);
-  });
-
-  it('higher beta produces more change per step when velocity is high', () => {
-    // beta makes cutoff rise with velocity, reducing lag on fast moves
-    const dtFixed = 1 / 60;
-    const targetQ = new THREE.Quaternion().setFromEuler(new THREE.Euler(0, 1.5, 0));
-
-    function singleStepChange(beta: number): number {
-      const f = new OneEuroFilterQuat(1.0, beta);
-      const start = new THREE.Quaternion();
-      f.filter(start, dtFixed);
-      const out = f.filter(targetQ, dtFixed);
-      return Math.abs(out.w - start.w);
-    }
-
-    const changeNoBeta = singleStepChange(0);
-    const changeBeta = singleStepChange(5.0);
-    expect(changeBeta).toBeGreaterThan(changeNoBeta);
-  });
-
-  it('reset() causes the next call to re-initialise (first-sample semantics)', () => {
-    const f = new OneEuroFilterQuat();
-    const q1 = new THREE.Quaternion().setFromEuler(new THREE.Euler(0.5, 0, 0));
-    const q2 = new THREE.Quaternion().setFromEuler(new THREE.Euler(0, 0.5, 0));
-    f.filter(q1, 0.016);
-    f.reset();
-    // After reset the first sample should again be copied verbatim
-    const out = f.filter(q2, 0.016);
-    expect(out.x).toBeCloseTo(q2.x, 6);
-    expect(out.y).toBeCloseTo(q2.y, 6);
-    expect(out.z).toBeCloseTo(q2.z, 6);
-    expect(out.w).toBeCloseTo(q2.w, 6);
-  });
-
-  it('handles the shortest-arc (dot<0) case without discontinuity', () => {
-    const f = new OneEuroFilterQuat();
-    const q = new THREE.Quaternion().setFromEuler(new THREE.Euler(0, Math.PI * 0.9, 0));
-    f.filter(q, 0.016); // initialise near q
-    // Feed the antipodal quaternion (represents the same rotation, opposite sign)
-    const qFlipped = new THREE.Quaternion(-q.x, -q.y, -q.z, -q.w);
-    const out = f.filter(qFlipped, 0.016);
-    // Output should stay close to q (not jump to the opposite hemisphere)
-    const angleDiff = 2 * Math.acos(Math.min(1, Math.abs(out.dot(q))));
-    expect(angleDiff).toBeLessThan(0.1); // < ~6°
-  });
-});
-
-// ─── BoneFilterBank ───────────────────────────────────────────────────────────
-
-describe('BoneFilterBank', () => {
-  let bank: BoneFilterBank;
-
-  beforeEach(() => {
-    bank = new BoneFilterBank(1.0, 0.3);
-  });
-
-  it('lazily creates per-bone filters and initialises on first sample', () => {
-    const q = new THREE.Quaternion().setFromEuler(new THREE.Euler(0.2, 0, 0));
-    const out = bank.filter('Head', q, 0.016);
-    // First sample — must equal the input exactly
-    expect(out.x).toBeCloseTo(q.x, 6);
-    expect(out.y).toBeCloseTo(q.y, 6);
-    expect(out.z).toBeCloseTo(q.z, 6);
-    expect(out.w).toBeCloseTo(q.w, 6);
-  });
-
-  it('independent filters per bone name', () => {
-    const qHead = new THREE.Quaternion().setFromEuler(new THREE.Euler(0.5, 0, 0));
-    const qSpine = new THREE.Quaternion().setFromEuler(new THREE.Euler(0, 0.5, 0));
-    bank.filter('Head', qHead, 0.016);
-    bank.filter('Spine', qSpine, 0.016);
-
-    // Feed identity to both after initialisation — they should diverge correctly
-    const identity = new THREE.Quaternion();
-    const outHead = bank.filter('Head', identity, 0.016);
-    const outSpine = bank.filter('Spine', identity, 0.016);
-
-    // Head was tilted along X; Spine along Y — they were independently tracked
-    // so after one step toward identity their filtered x and y should differ
-    expect(Math.abs(outHead.x)).toBeGreaterThan(Math.abs(outHead.y));
-    expect(Math.abs(outSpine.y)).toBeGreaterThan(Math.abs(outSpine.x));
-  });
-
-  it('reset() causes every bone filter to re-initialise', () => {
-    const q = new THREE.Quaternion().setFromEuler(new THREE.Euler(0.3, 0.3, 0));
-    bank.filter('Head', q, 0.016);
-    bank.filter('Spine', q, 0.016);
-    bank.reset();
-
-    const qNew = new THREE.Quaternion().setFromEuler(new THREE.Euler(0, 0, 0.9));
-    const out = bank.filter('Head', qNew, 0.016);
-    // Re-initialised, so output = qNew exactly
-    expect(out.z).toBeCloseTo(qNew.z, 6);
-    expect(out.w).toBeCloseTo(qNew.w, 6);
-  });
-});
 
 // ─── calibration.ts — constants ───────────────────────────────────────────────
 

@@ -198,9 +198,9 @@ export interface NodeProperties {
     idle?: { clipId: string; speed: number };
     base?: { clipId?: string; url?: string; speed?: number };
   };
-  /** VRM avatar: second-order "snappiness" dynamics applied to broadcast bone
-   *  rotations after the jitter-smoothing filter. Disabled by default. */
-  poseDynamics?: import('../secondOrderDynamics').PoseDynamicsConfig;
+  /** VRM avatar: the motion filter for broadcast (tracking) bone rotations
+   *  (interpolation, smoothing, spring; poseFilter.ts). Default: Minimal. */
+  poseFilter?: Partial<import('../poseFilter').PoseFilterConfig>;
   /** VRM avatar: synthesize forearm twist bones when the model lacks them, so
    *  wrist pronation spreads along the forearm instead of pinching at the
    *  elbow. Models with their own twist bones are driven regardless. */
@@ -427,6 +427,9 @@ export interface EditorState {
   setAccountsModalOpen: (open: boolean) => void;
   mediaModalOpen: boolean;
   setMediaModalOpen: (open: boolean) => void;
+  /** Learned Tracking behavior whose camera preview window is open, if any. */
+  learnedPreviewBehavior: string | null;
+  setLearnedPreviewBehavior: (behaviorId: string | null) => void;
   connectionsModalOpen: boolean;
   setConnectionsModalOpen: (open: boolean) => void;
   updateDialogOpen: boolean;
@@ -680,6 +683,9 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   setAccountsModalOpen: (open) => set({ accountsModalOpen: open }),
   mediaModalOpen: false,
   setMediaModalOpen: (open) => set({ mediaModalOpen: open }),
+  learnedPreviewBehavior: null,
+  setLearnedPreviewBehavior: (behaviorId) =>
+    set({ learnedPreviewBehavior: behaviorId }),
   connectionsModalOpen: false,
   setConnectionsModalOpen: (open) => set({ connectionsModalOpen: open }),
   updateDialogOpen: false,

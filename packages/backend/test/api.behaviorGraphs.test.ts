@@ -146,17 +146,12 @@ describe('behavior graphs', () => {
     expect((await status('b3')).modified).toBe(true);
   });
 
-  it('kinds without a graph get none', async () => {
+  it('the API Controller gets a graph that publishes its blendshapes', async () => {
     await create('api', 'api_controller');
     await tick();
-    expect(
-      logicCol()
-        .all()
-        .some((g) => g.ownerId === 'api')
-    ).toBe(false);
-    expect((await request(app).get('/api/behaviors/api/graph')).status).toBe(
-      404
-    );
+    const kinds = graphOf('api', 'api_controller').nodes.map((n) => n.kind);
+    expect(kinds).toContain('api_controller_source');
+    expect(kinds).toContain('blendshapes_broadcast');
   });
 
   it('the behavior-kinds meta says which kinds have a graph', async () => {
@@ -165,7 +160,7 @@ describe('behavior graphs', () => {
     const by = Object.fromEntries(kinds.map((k) => [k.kind, k.hasGraph]));
     expect(by.breathing).toBe(true);
     expect(by.vmc_receiver_2d).toBe(true);
-    expect(by.api_controller).toBe(false);
+    expect(by.api_controller).toBe(true);
   });
 
   // ── edits, modified, reset ───────────────────────────────────────────────

@@ -156,6 +156,61 @@ empfohlene Einstellung.
 Zum Vergleichen halte eine Pose, die Probleme macht (Finger zur Kamera eignet
 sich gut), und schalte jeweils eine Option um.
 
+## Gelerntes Tracking {#learned}
+
+Gelerntes Tracking schätzt **Oberkörper, Kopf, Schultern, Arme, Hände und
+Finger** sowie deine **Beine** per Webcam mit gelernten Modellen statt mit
+handgeschriebenen Regeln. Ziel ist ein ruhigeres Ergebnis als beim
+Kamera-Tracking, besonders wenn deine Arme unterhalb des Bildes ruhen. Sind deine
+Beine nicht im Bild (etwa am Schreibtisch), dreh den Einfluss der Beine im Mixer
+herunter. Deine **Mimik** kommt vorerst aus herkömmlichen Verfahren; sie wird wie
+beim [VMC-Empfänger](topic:behaviors#vmc) zugeordnet.
+
+Es läuft als eigenes Programm, die **motiontracker-Runtime**, die vspark für
+dich startet und beendet. Es braucht:
+
+- die Runtime selbst: **Runtime herunterladen** in den Eigenschaften des
+  Verhaltens holt die Version, mit der dieses vspark getestet wurde (etwa 18 MB,
+  Modelle inklusive), und startet sie. Eine lokale motiontracker-Kopie geht auch:
+  Ein Ordner `motiontracker` neben dem vspark-Ordner wird verwendet, solange
+  nichts heruntergeladen ist, und ein in der `config.json` gesetzter Pfad
+  `learnedTracker.runtimePath` hat immer Vorrang,
+- [uv](https://docs.astral.sh/uv/), das die Python-Umgebung der Runtime beim
+  ersten Start installiert (das dauert einmalig ein paar Minuten).
+
+Die Runtime öffnet die **Kamera** selbst, schalte also das Kamera-Tracking auf
+derselben Webcam aus. Wähle die Kamera aus der Liste; **Aktualisieren** fragt
+die Runtime erneut. Die Statuszeile zeigt, ob die Runtime startet, läuft (Bilder
+pro Sekunde, Latenz) oder mit einem Fehler gestoppt ist.
+
+Scheint die Runtime festzuhängen (etwa nachdem die Kamera abgesteckt war),
+beendet **Runtime neu starten** sie und startet sie neu. Nach einem Absturz
+versucht sie es außerdem alle paar Sekunden von selbst.
+
+**An die Proportionen des Avatars anpassen** (standardmäßig aus) passt die Arme
+so an, dass deine Hände ihre Lage zum Körper und zueinander behalten, auch wenn
+der Avatar anders proportioniert ist als du. Ohne diese Option übernimmt der
+Avatar deine Gelenkwinkel. Die Funktion ist experimentell: Hände, die sich
+berühren sollten, können dabei getrennt bleiben. Sie wirkt sofort, du kannst sie
+also zum Vergleichen ein- und ausschalten. Sie braucht einen Avatar aus einer
+VRM-Datei.
+
+**Kameravorschau** öffnet ein schwebendes Fenster mit dem, was die Kamera der
+Runtime sieht: das Bild, die erkannten Landmarks oder beides. Die Runtime sendet
+es nur, solange das Fenster offen ist.
+
+**Bildrate** legt fest, wie viele Kamerabilder pro Sekunde die Runtime
+verarbeitet. Höhere Raten reagieren schneller (mit 20 fps etwa doppelt so
+schnell wie mit 10), brauchen aber mehr CPU (bei 20 fps etwa doppelt so viel)
+und zeigen etwas mehr Zittern; die Voreinstellung Glatt im Bewegungsfilter des
+Avatars beruhigt das. **Verlaufsversatz** ist ein Experiment für 20 fps: Er
+verringert ein leichtes Flackern von einem Bild zum nächsten. Beides wirkt
+sofort.
+
+Der Avatar folgt nur, solange ein Körper im Bild ist; danach übernimmt die
+Leerlauf-Animation des Avatars. Die Kalibrierung funktioniert wie beim
+VMC-Empfänger.
+
 ## Lippensynchronisation {#lipsync}
 
 Die Lippensynchronisation hört auf dein **Mikrofon** und wandelt Sprache in
@@ -278,8 +333,8 @@ die Mischung.
 **Nachlauf** ist, wie weit der Körper den Steuerwerten hinterherläuft, in
 Sekunden. Größer ist lockerer und cartoonhafter; 0 lässt alles gleichzeitig
 laufen. Wenn die Bewegung *überschwingen* und ausschwingen soll, statt nur
-aufzuholen, schalte am Avatar selbst **Bewegungs-Schnappigkeit** ein — sie legt
-sich obendrauf.
+aufzuholen, wähle im [Bewegungsfilter](topic:avatar#motion-filter) des Avatars
+die Voreinstellung **Federnd**; sie legt sich obendrauf.
 
 **Nicht gesteuerte Knochen in Ruhelage** schickt alles außerhalb des Rigs
 (Finger, Beine) in seine neutrale Haltung zurück, statt das Tracking
