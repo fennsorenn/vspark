@@ -10,6 +10,7 @@ import {
 } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useEditorStore } from '../../store/editorStore';
+import { useSceneNode } from '../../mesh/hooks';
 import { registerMedia } from './mediaRegistry';
 import { ChromaVideoCanvas } from './ChromaVideoCanvas';
 import { readChroma } from './videoFx';
@@ -28,6 +29,8 @@ import {
   FeedContent,
   FeedErrorBoundary,
 } from '../../lib/feedTemplate';
+import { useComposeLayers } from '../../mesh/compose';
+import { useDataFields, useRuntimeOverrides } from '../../mesh/runtime';
 
 interface ComposeLayerStackProps {
   layers: ComposeLayerRecord[];
@@ -98,13 +101,18 @@ function layerStyle(
     typeof cfg.blendMode === 'string' && cfg.blendMode !== 'normal'
       ? (cfg.blendMode as CSSProperties['mixBlendMode'])
       : undefined;
+  // A graph-driven `visible` runtime override wins over the persisted flag when
+  // present (mirrors opacity's override-replaces-base semantics).
+  const runtimeVisible = runtimeOverride?.['visible'];
+  const visible =
+    typeof runtimeVisible === 'boolean' ? runtimeVisible : layer.visible;
   const style: CSSProperties = {
     position: 'absolute',
     width: cssLen(width, cfg, 'widthUnit'),
     height: cssLen(height, cfg, 'heightUnit'),
     transform: rotation ? `rotate(${rotation}deg)` : undefined,
     transformOrigin: 'center center',
-    visibility: layer.visible ? 'visible' : 'hidden',
+    visibility: visible ? 'visible' : 'hidden',
     opacity,
     mixBlendMode: blendMode,
     // Containers no longer clip their children by default — a group can hold
@@ -130,11 +138,11 @@ export const ComposeStageSizeContext = createContext('');
 
 function CameraViewLayer({ layer }: { layer: ComposeLayerRecord }) {
   const { t } = useTranslation('compose');
-  const nodes = useEditorStore((s) => s.nodes);
   const stageSizeKey = useContext(ComposeStageSizeContext);
-  const cam = layer.cameraNodeId
-    ? nodes.find((n) => n.id === layer.cameraNodeId)
-    : null;
+  // Watch the ONE camera node this layer renders through, rather than the whole
+  // `nodes` array: subscribing to the slice re-rendered every camera view (each
+  // of which owns a Three.js canvas) whenever any node anywhere changed.
+  const cam = useSceneNode(layer.cameraNodeId);
   if (!cam) {
     return (
       <div
@@ -188,11 +196,10 @@ function SceneIncludeLayer({
     typeof layer.config.includeSceneId === 'string'
       ? layer.config.includeSceneId
       : null;
-  const targetLayers = useEditorStore((s) =>
-    targetId
-      ? s.composeLayers.filter((l) => l.rootComposeSceneId === targetId)
-      : null
-  );
+  const projectLayers = useComposeLayers();
+  const targetLayers = targetId
+    ? projectLayers.filter((l) => l.rootComposeSceneId === targetId)
+    : null;
   if (!targetId) return <Placeholder text={t('stack.noScene')} />;
   if (includeChain.includes(targetId)) {
     return <Placeholder text={t('stack.recursiveInclude')} />;
@@ -232,13 +239,28 @@ function VideoLayer({
   const muted = cfg.muted !== false;
   const volume = typeof cfg.volume === 'number' ? cfg.volume : 1;
   const [hidden, setHidden] = useState(false);
+  // A collection video swapped in by a media command (`playSource`): played
+  // once, not saved. `stop` and a change of the layer's own source end it.
+  const [swapUrl, setSwapUrl] = useState<string | null>(null);
+  const src = swapUrl ?? url;
+  const playsLoop = swapUrl ? false : loop;
+  /** Play the next source (the swapped-in video). */
+  const playNextRef = useRef(false);
+  /** Don't autoplay the next source (the own video, after a `stop`). */
+  const holdNextRef = useRef(false);
+  useEffect(() => setSwapUrl(null), [url]);
 
-  // Reset hidden + apply autoplay when the source changes.
+  // Reset hidden + apply autoplay when the source changes; a swapped-in video
+  // always plays, and the own video coming back after a `stop` stays stopped.
   useEffect(() => {
-    setHidden(false);
+    const hold = holdNextRef.current;
+    const play = playNextRef.current || (autoplay && !hold);
+    playNextRef.current = false;
+    holdNextRef.current = false;
+    if (!hold) setHidden(false);
     const el = ref.current;
-    if (el && autoplay) void el.play().catch(() => {});
-  }, [url, autoplay]);
+    if (el && play) void el.play().catch(() => {});
+  }, [src, autoplay]);
 
   // Audibility + volume.
   useEffect(() => {
@@ -247,7 +269,7 @@ function VideoLayer({
     const audible = (mode === 'viewer' || audioPreview) && !muted;
     el.muted = !audible;
     el.volume = Math.max(0, Math.min(1, volume));
-  }, [mode, audioPreview, muted, volume, url]);
+  }, [mode, audioPreview, muted, volume, src]);
 
   // Media handle for command bus / clip events.
   useEffect(() => {
@@ -259,7 +281,24 @@ function VideoLayer({
         if (!el) return;
         el.pause();
         el.currentTime = 0;
+        // A swapped-in video ends here: back to the layer's own, not playing.
+        setSwapUrl((cur) => {
+          if (cur !== null) holdNextRef.current = true;
+          return null;
+        });
         if (onEnd === 'hide') setHidden(true);
+      },
+      playSource: (src: string) => {
+        setHidden(false);
+        const el = ref.current;
+        if (el && el.src === new URL(src, location.href).href) {
+          // Already loaded: play it again from the start.
+          el.currentTime = 0;
+          void el.play().catch(() => {});
+          return;
+        }
+        playNextRef.current = true;
+        setSwapUrl(src);
       },
       restart: () => {
         const el = ref.current;
@@ -289,14 +328,15 @@ function VideoLayer({
     <>
       <video
         ref={ref}
-        src={url}
-        autoPlay={autoplay}
-        loop={loop}
+        src={src}
+        // Autoplay is the effect above (it must skip the own video coming
+        // back after a stop), not the attribute.
+        loop={playsLoop}
         muted
         playsInline
         crossOrigin="anonymous"
         onEnded={() => {
-          if (!loop && onEnd === 'hide') setHidden(true);
+          if (!playsLoop && onEnd === 'hide') setHidden(true);
         }}
         style={{
           width: '100%',
@@ -304,7 +344,10 @@ function VideoLayer({
           objectFit,
           // While keying, the <video> is the off-screen source for the canvas.
           display: chroma.enabled ? 'none' : 'block',
-          visibility: hidden ? 'hidden' : 'visible',
+          // 'inherit', not 'visible': an explicit `visible` on a child
+          // overrides the layer's own `visibility: hidden`, so a hidden layer
+          // would still show its video's first frame.
+          visibility: hidden ? 'hidden' : 'inherit',
           pointerEvents: 'none',
         }}
       />
@@ -434,8 +477,7 @@ function LayerContent({
     (layer.config.objectFit as CSSProperties['objectFit']) ?? 'cover';
   if (layer.kind === 'image') {
     const url = resolveAssetUrl(layer, assets);
-    if (!url)
-      return <Placeholder text={t('stack.noImage')} mode={mode} />;
+    if (!url) return <Placeholder text={t('stack.noImage')} mode={mode} />;
     return (
       <img
         src={url}
@@ -453,8 +495,7 @@ function LayerContent({
   }
   if (layer.kind === 'video') {
     const url = resolveAssetUrl(layer, assets);
-    if (!url)
-      return <Placeholder text={t('stack.noVideo')} mode={mode} />;
+    if (!url) return <Placeholder text={t('stack.noVideo')} mode={mode} />;
     return (
       <VideoLayer layer={layer} url={url} objectFit={objectFit} mode={mode} />
     );
@@ -498,10 +539,11 @@ function LayerContent({
  *  (curated allow-list: inline formatting + emote-friendly img tags); otherwise
  *  it's rendered as plain text. */
 function TextLayer({ layer }: { layer: ComposeLayerRecord }) {
-  const overrideContent = useEditorStore((s) => {
-    const v = s.runtimeLayerOverrides[layer.id]?.['text.content'];
-    return typeof v === 'string' ? v : undefined;
-  });
+  const overrideValue = useRuntimeOverrides('compose_layer', layer.id)?.[
+    'text.content'
+  ];
+  const overrideContent =
+    typeof overrideValue === 'string' ? overrideValue : undefined;
   const cfg = layer.config as {
     content?: string;
     fontFamily?: string;
@@ -552,8 +594,8 @@ function TextLayer({ layer }: { layer: ComposeLayerRecord }) {
 function FeedLayer({ layer }: { layer: ComposeLayerRecord }) {
   const { t } = useTranslation('compose');
   const cfg = layer.config as { template?: string; css?: string };
-  const globalFields = useEditorStore((s) => s.dataChannels['']);
-  const ownFields = useEditorStore((s) => s.dataChannels[layer.id]);
+  const globalFields = useDataFields('');
+  const ownFields = useDataFields(layer.id);
   const channels = useMemo(
     () => ({ ...(globalFields ?? {}), ...(ownFields ?? {}) }),
     [globalFields, ownFields]
@@ -626,11 +668,11 @@ function Placeholder({
 }
 
 /** Siblings stack by DOM order (later = on top), so we render ASCENDING by
- *  sceneOrder: lowest first (back), highest last (front). This matches the
+ *  orderKey: lowest first (back), highest last (front). This matches the
  *  tree, where the top row is the front-most layer. */
 function orderSiblings(layers: ComposeLayerRecord[]): ComposeLayerRecord[] {
   return [...layers].sort(
-    (a, b) => a.sceneOrder - b.sceneOrder || a.cameraOrder - b.cameraOrder
+    (a, b) => a.orderKey.localeCompare(b.orderKey) || a.id.localeCompare(b.id)
   );
 }
 
@@ -659,9 +701,7 @@ function LayerView({
   // Per-layer subscription to its track-clip override: this keeps re-renders
   // localized to layers being animated; idle layers don't re-render each rAF.
   const clipOverride = useEditorStore((s) => s.composeLayerOverrides[layer.id]);
-  const runtimeOverride = useEditorStore(
-    (s) => s.runtimeLayerOverrides[layer.id]
-  );
+  const runtimeOverride = useRuntimeOverrides('compose_layer', layer.id);
   // Child layers are nested INSIDE this layer's box, so their CSS left/top/
   // width/height (and % units) resolve against this layer's content box and
   // their rotation composes with ours — i.e. children are positioned, rotated

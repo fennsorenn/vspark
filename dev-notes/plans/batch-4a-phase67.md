@@ -1,6 +1,14 @@
 # Batch plan: raise 4a control-coverage + Phase 6/7 deferred breadth
 
-> Branch: `claude/automated-testing-strategy-zlryx4`. Orchestrated via parallel
+> **Status:** shipped — all 13 work units landed. Units 1–6 are the six `cov-*.spec.ts`
+> files in `e2e/tests/`; units 7–9 are `packages/backend/test/api.behaviors.test.ts`,
+> `db.migrations.test.ts`, `managers.persist.test.ts` and the `multiplayer.*`/`mesh.*`
+> unit tests; unit 13 is the istanbul coverage gate in
+> `packages/frontend/vitest.config.ts`.
+> **Executes part of:** [`automated-testing-strategy.md`](./automated-testing-strategy.md)
+> (Phases 4a / 6 / 7).
+
+> *(Historical.)* Branch: `claude/automated-testing-strategy-zlryx4`. Orchestrated via parallel
 > worktree-isolated background agents. (No `EnterPlanMode` tool in this harness;
 > approval gated via AskUserQuestion before spawning.)
 

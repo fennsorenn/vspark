@@ -326,9 +326,10 @@ export function granteeCandidates(requester: string): string[] {
 // --- Subscriptions ----------------------------------------------------------
 //
 // A subscription is a peer's *interest* — same (entity × path) shape as a grant,
-// minus rights. It's admitted only if a read grant fully covers it
-// (`grantCoversSubscription`), so the write path can route by pure interest match
-// with no per-message permission recheck. Revalidation drops subscriptions whose
+// minus rights. The mesh admits one when a read grant overlaps it and projects
+// every outgoing message through the recipient's grants (packages/mesh/src/
+// grants.ts); `grantCoversSubscription` below is the stricter full-cover check
+// the SubscriptionHub uses. Revalidation drops subscriptions whose
 // covering grant was revoked (evict-on-revoke). The descendants axis is resolved
 // by the injected containment {@link IsDescendant}. See
 // dev-notes/plans/permissioned-sync-mesh.md.

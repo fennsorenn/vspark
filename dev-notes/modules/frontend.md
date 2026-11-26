@@ -13,7 +13,16 @@ React + React Three Fiber application. Entry: `packages/frontend/src/`.
 
 ## State — `store/editorStore.ts`
 
-Single Zustand store for the entire editor session. Key slices:
+Zustand store for the editor session's **view and UI state**. Synced documents
+are not in it: since step 3 of [plans/mesh-store-surface.md](../plans/mesh-store-surface.md)
+the tab's mesh replica is the document store, read through the hooks in
+`src/mesh/` (`hooks.ts`, `compose.ts`, `nodes.ts`, `runtime.ts`) and written
+through `src/mesh/*Writes.ts` — see [mesh.md](mesh.md#the-replica-is-the-store).
+The slices that were removed are nodes, scenes, behaviors, camera effects,
+compose layers/scenes, track clips, logic, clip playback, schedules, animation
+clips, statuses, runtime overrides and data channels. View-only slices layered
+over the replica: `liveNodes` / `liveLayers` (gesture + preview tween overlay)
+and `projectedNodes` (placed remote objects, until W7). Key slices:
 
 **Update state**
 - `updateAvailable: boolean`
@@ -23,18 +32,15 @@ Single Zustand store for the entire editor session. Key slices:
 Actions: `setUpdateAvailable(info)`, `setPendingReload(value)`.
 
 **Scene state**
-- `projectId`, `projectName`
-- `scenes: SceneItem[]`, `activeSceneId`
-- `nodes: NodeRecord[]`, `selectedNodeId`
+- `projectId`, `projectName`, `activeSceneId`, `selectedNodeId`
+- scenes and nodes: replica (`useScenes` / `useSceneNodes` / `useSceneNode` in `mesh/nodes.ts`)
 
 **Behavior state**
-- `behaviors: Behavior[]`, `selectedBehaviorId`
-- `vmcStatus: Record<behaviorId, boolean>` — receiver connected
-- `vmcTracking: Record<behaviorId, boolean>` — motion detected
+- `selectedBehaviorId`
+- behaviors: replica (`useNodeBehaviors` / `useAllBehaviors` in `mesh/hooks.ts`); receiver connected/tracking: `useTrackingStatuses` (`server_status` documents)
 
 **Avatar animation** (synced clip playback; see [animation.md](animation.md))
-- `scheduledAnimations` — per-avatar `scheduled_animation` timeline entries (fed by the mesh feeder)
-- `animationClips` — registered `animation_clip` rows used to resolve a `clipId` → localized source URL + duration
+- schedules (`scheduled_animation`) and registered `animation_clip` rows: replica (`useNodeSchedule`, `useAnimationClips` in `mesh/hooks.ts`)
 - Idle is content-addressed on the node itself: `node.properties.animation.idle = { clipId, speed }`
 
 **VRM skeleton**
@@ -53,10 +59,10 @@ Default per-avatar expression weights are stored on the scene node itself, not i
 - `clipboardPayload: ClipboardPayload | null` — sync mirror of the OS clipboard for context-menu gating; see [clipboard.md](clipboard.md).
 
 **Camera effects**
-- `cameraEffects: CameraEffect[]`, `selectedEffect`
+- `selectedEffect`; the effects themselves: replica (`useCameraEffects` in `mesh/hooks.ts`)
 - 16 effect kinds: ToneMapping, Bloom, Vignette, DOF, ChromaticAberration, SSAO, Outline, Noise, Scanline, Pixelation, ASCII, DotScreen, Glitch, SMAA, TiltShift, Water
 
-Actions are standard Zustand setters; all CRUD actions also call the relevant REST endpoint.
+Actions are standard Zustand setters. Document edits are not store actions; they are mesh writes (`src/mesh/*Writes.ts`).
 
 ## WebSocket sync — `hooks/useWsSync.ts`
 
@@ -65,16 +71,16 @@ Maintains a persistent WS connection to `/ws` (auto-selects `wss` on HTTPS). Aut
 Incoming message handlers:
 | Kind | Effect |
 |------|--------|
-| `vmc_status` | `setVmcStatus(behaviorId, connected)` |
-| `vmc_tracking_state` | `setVmcTracking(behaviorId, tracking)` |
 | `vmc_pose` | Writes pose data into store for Viewport to consume |
 | `vmc_blendshapes` | Writes blendshape weights into store |
-| `sync` (envelope) | Routed through `applyRemote` — currently only `scene_node` (node_added/updated/removed). Behaviors, camera_effects, compose_layers, and track_clips have migrated to the mesh feeder (see below). |
+| `sync` (envelope) | Routed through `applyRemote` — currently only `scene_node` (node_added/updated/removed). Document rtypes are read from the mesh replica (see [mesh.md](mesh.md#the-replica-is-the-store)). |
 | `server_update` | Sets `updateAvailable` + `updateInfo` in store |
+
+Receiver connected/tracking state is no longer a WS message: it arrives as `server_status` mesh documents, read with `useTrackingStatuses` (`mesh/hooks.ts`) / `useServerStatus(es)` (`mesh/runtime.ts`).
 
 **pendingReload-on-reconnect**: a `pendingReloadRef` (not store state — avoids re-render) is set when a `server_update` message carries `reloadOnReconnect: true`. On the next `ws.onopen`, if the ref is set, the page is reloaded. Normal reconnects are unaffected.
 
-**Mesh store feeder — `sync/meshStoreFeeder.ts`** (commits 0d21329, c4e4f04): four of five synced rtypes now feed the store via the tab's mesh replica rather than WS envelopes. The feeder calls `collection.observe('**')` on each collection and writes upserts/removes directly into the Zustand store slices. Migrated: `behavior`, `camera_effect`, `compose_layer` (incl. `compose_scene` kind branch), `track_clip`, and `scheduled_animation` (the avatar clip timeline → `scheduledAnimations` slice; see [animation.md](animation.md)). The remaining rtype (`scene_node`) stays on the legacy envelope until step 4 of the §11 plan. Foreign docs (placed-object subscriptions) are filtered by the parent node's `remote` flag. The feeder is started from both Editor.tsx and ViewerPage. See [sync.md](sync.md) and [mesh.md](mesh.md).
+*Historical — deleted in mesh-store-surface step 3 (the replica is now the store):* **Mesh store feeder — `sync/meshStoreFeeder.ts`** (commits 0d21329, c4e4f04): four of five synced rtypes now feed the store via the tab's mesh replica rather than WS envelopes. The feeder calls `collection.observe('**')` on each collection and writes upserts/removes directly into the Zustand store slices. Migrated: `behavior`, `camera_effect`, `compose_layer` (incl. `compose_scene` kind branch), `track_clip`, and `scheduled_animation` (the avatar clip timeline → `scheduledAnimations` slice; see [animation.md](animation.md)). The remaining rtype (`scene_node`) stays on the legacy envelope until step 4 of the §11 plan. Foreign docs (placed-object subscriptions) are filtered by the parent node's `remote` flag. The feeder is started from both Editor.tsx and ViewerPage. See [sync.md](sync.md) and [mesh.md](mesh.md).
 
 ## Browser uplinks
 
@@ -118,13 +124,13 @@ React Three Fiber canvas. Responsible for the entire 3D scene.
 
   Bones absent from the broadcast pose are restored to `animQ`. This is how breathing (and any future additive producer) layers cleanly on top of an FBX-driven animation.
 
-**Tracking ↔ animation stacking**: in `override` blend mode Step 2 runs a universal per-bone **stacking** loop (rest → base animation by the section Anim influence, then the tracking delta scaled by Track stacked on top) via the pure `poseComposition.ts` `stackBoneRotation` helper + a `BONE_TO_SECTION` map. This replaced the old full-override `setNormalizedPose` + per-section branches. The avatar node's `poseSource` scales the layers per body section; a dedicated no-feed branch plays the idle **straight** (full strength, levers not applied) whenever there is no live tracking. See [animation.md](animation.md) (Tracking ↔ animation stacking + partial tracking).
+**Tracking ↔ animation stacking**: in `override` blend mode Step 2 runs a universal per-bone **stacking** loop (rest → base animation by the bone's Tracking Mix animation weight, `animWeightForBone`, then the already-weighted tracking delta stacked on top) via the pure `poseComposition.ts` `stackBoneRotation` helper. This replaced the old full-override `setNormalizedPose` + per-section branches. Tracking-source weights are applied in the backend bus, not here; a dedicated no-feed branch plays the idle **straight** (full strength, mix weights not applied) whenever there is no live tracking. See [animation.md](animation.md) (Tracking ↔ animation stacking, Tracking Mix).
 
 `blendTransitionTime` is now read from the VRM avatar node's `properties.blendTransitionTime` (default 0.5s) and controls the ramp between blend modes (and between "apply" and "don't apply" when the bus drops the last producer).
 
-**Motion snappiness (second-order dynamics)**: inside Step 2's broadcast-pose composition, after each bone is run through the One Euro `BoneFilterBank` (`boneFiltersRef`), an optional per-bone second-order dynamics (spring–damper) filter runs via `BoneDynamicsBank` (`boneDynamicsRef`, from `secondOrderDynamics.ts`). Gated on `node.properties.poseDynamics.enabled` (off by default; bank `.reset()` each frame while disabled). Unlike the low-pass One Euro filter it can lead/overshoot the target, so motion feels snappier without going choppy. Frontend-only; deliberately not a backend pose-interceptor so the One Euro filter stays in place to absorb unreliable packet delivery. See [animation.md](animation.md) (Motion snappiness).
+**Motion filter** (implemented 2026-11-23): inside Step 2's broadcast-pose composition each bone runs through ONE per-avatar adaptive second-order filter, `PoseFilterBank` (`boneFiltersRef`, from `poseFilter.ts`): `filters.filter(bone, q, delta, resolvePoseFilter(node.properties?.poseFilter), newSample)`, `newSample` = the raw rotation changed. It also runs during the `TrackedPoseLatch` replay (held constant, `newSample` false), so the exit fade starts from where the avatar is. Replaced the One Euro `BoneFilterBank` + the Motion Snappiness `BoneDynamicsBank` (both deleted). Default preset Minimal (interpolation only). See [animation.md](animation.md) (Motion filter).
 
-**Forearm twist bones**: after the IK solve + pose application (`setNormalizedPose`/`update`) and before the spring/snappiness updates, `driveForearmTwist(node.id)` (from `components/editor/twistBones.ts`) routes the `lowerArm` roll onto a forearm twist bone so it spreads along the forearm instead of pinching at the elbow. Setup/teardown run in an `AvatarNode` effect keyed on VRM load + the `node.properties.forceTwistBone` flag; the drive is a no-op when no twist bone is set up. Frontend-only, additive over the backend's `ARM_ROLL_UPPER_SHARE` split. See [twist-bones.md](twist-bones.md).
+**Forearm twist bones**: after the IK solve + pose application (`setNormalizedPose`/`update`) and before the spring updates, `driveForearmTwist(node.id)` (from `components/editor/twistBones.ts`) routes the `lowerArm` roll onto a forearm twist bone so it spreads along the forearm instead of pinching at the elbow. Setup/teardown run in an `AvatarNode` effect keyed on VRM load + the `node.properties.forceTwistBone` flag; the drive is a no-op when no twist bone is set up. Frontend-only, additive over the backend's `ARM_ROLL_UPPER_SHARE` split. See [twist-bones.md](twist-bones.md).
 
 **Client-side pose watchdog**: `POSE_TIMEOUT_MS = Math.max(0.1, node.properties?.trackingGracePeriod ?? 2) * 1000`. It exists only to cover the **server→client leg** — pose updates that stop arriving without a matching transition message (e.g. a WS reconnect mid-deactivation); the tracking sources hold their own grace period server-side. Reading the node property rather than a hardcoded 2s is load-bearing: at a fixed window any longer server-side setting was overruled before it had elapsed, dropping the avatar to idle early. See [animation.md](animation.md) (Tracking-loss grace period).
 
@@ -135,6 +141,25 @@ React Three Fiber canvas. Responsible for the entire 3D scene.
 **Post-processing effects**: Applied per camera node's `cameraEffects` list. Each effect kind maps to a `@react-three/postprocessing` effect.
 
 **Particle system**: Emission and simulation handled entirely within Viewport via a custom particle buffer.
+
+### Render loop and frame budget — `components/frameBudget.tsx`
+
+Every R3F canvas (editor viewport, compose camera views via `CameraCanvas`,
+the single-camera output in `ViewerPage`) runs `frameloop="never"` and is
+rendered by one page-wide loop through `<FrameBudget active />`. After a frame
+whose rendering took `c` ms, the next waits until `c / share` ms after that
+frame started, so rendering takes at most `share` of the main thread; a scene
+within budget renders every refresh. `share` comes from `FrameBudgetContext`:
+0.75 by default, 0.9 on the output page (`OUTPUT_FRAME_SHARE`, no editor UI).
+**Decided (user, 2026-10-04):** the budget exists so an overloaded scene can
+never starve the main thread's queued tasks (mesh messages, input, timers);
+before it, another tab's drag previews arrived in bursts with stalls up to
+~1.7s. Global R3F effects run once per frame, not once per canvas. Measured
+(headless, a scene burning 40ms per frame): main thread 100% → 73% busy, a 5ms
+timer's median delay 94ms → 0ms.
+
+Hidden nodes skip their per-frame work entirely (`components/editor/nodeActive.tsx`:
+a node is active only while it and every ancestor are visible).
 
 ## TopBar + UpdateDialog — `components/editor/TopBar.tsx` + `components/editor/UpdateDialog.tsx`
 
@@ -191,14 +216,14 @@ Inspector for the selected node. Sections:
 **Force twist bone toggle (implemented)**:
 - A **Force twist bone** checkbox on the avatar section writes the per-node `forceTwistBone` property (`SceneNodeProperties.forceTwistBone` on shared + Zod; mirrored on store + api-client `NodeProperties`), persisted via the same `node.properties` shallow-merge mechanism. When on, a forearm twist bone is synthesized for models that lack one (models with their own twist bone are driven regardless). i18n under `avatar.twistHeader`/`avatar.twistForce` + `help.twist`; `HelpButton topic="avatar" anchor="twist"` → `{#twist}` in `avatar.md`. See [twist-bones.md](twist-bones.md).
 
-**Motion Snappiness section (implemented)**:
-- New **Motion Snappiness** section on VRM avatar nodes — an enable checkbox plus `frequency`/`damping`/`response` `NumInput`s and a `HelpButton`. Persists the per-node `poseDynamics` property (`PoseDynamics` on shared `SceneNodeProperties`; mirrored on store + api-client `NodeProperties`), defaulting to `DEFAULT_POSE_DYNAMICS` (disabled). Drives the per-bone second-order dynamics filter applied in `Viewport.tsx` after the One Euro filter. i18n under `avatar.*` + `help.dynamics`; help `{#snappiness}` in `avatar.md`. See [animation.md](animation.md) (Motion snappiness).
+**Motion filter section (implemented 2026-11-23)**:
+- `PoseFilterSection` on VRM avatar nodes (replaced the Motion Snappiness section): preset `<select>` (`vs-pose-filter-preset`: Minimal / Smooth / Springy / Custom) plus a collapsed "Advanced" toggle (`vs-pose-filter-advanced`) revealing `NumInput`s `vs-pose-filter-{smoothing,adaptation,damping,response}` and a `HelpButton`. Picking a preset commits its resolved values; editing a parameter switches the preset to Custom, starting from the preset's values. Persists `properties.poseFilter` (shared `PoseFilter`; mirrored on store + api-client `NodeProperties`). **Decided** (owner, 2026-11-23): preset dropdown for casual users, parameters hidden behind the collapsed Advanced toggle. i18n `avatar.poseFilter.*` + `help.poseFilter` (old `avatar.dynamics*`/`help.dynamics` removed); help `{#motion-filter}` in `avatar.md`. Tests: e2e `cov-properties.spec.ts` test 9; the `components.trackingMix` test ignores `<option>` elements when counting "Custom". See [animation.md](animation.md) (Motion filter).
 
-**Partial Tracking section (implemented)**:
-- New **Partial Tracking** section on VRM avatar nodes — per body-section (`head`/`gaze`/`body`/`arms`/`hands`/`legs`) `anim` and `track` influence sliders (`vs-posesrc-anim-<sec>` / `vs-posesrc-track-<sec>`) plus a `vs-posesrc-reset`. Persists the per-node `poseSource` property (shared `SceneNodeProperties.poseSource`; only non-default sections kept), scaling the per-section Anim/Track layers of the stacking composition in `Viewport.tsx` (override mode only). i18n under `avatar.poseSource*` + `help.poseSource`; help `{#partial-tracking}` in `avatar.md`. See [animation.md](animation.md) (Tracking ↔ animation stacking + partial tracking).
+**Tracking Mix section + mixer modal (implemented)**:
+- `components/editor/TrackingMix.tsx` — `TrackingMixSection` on VRM avatar nodes (per-source master sliders, "Custom" + reset, "Open mixer…") and `TrackingMixModal` (Body/Face matrix of regions/bones or face groups/shapes × sources, source-order chips). Persists the per-node `properties.trackingMix` via `previewNodePath` / `commitNodePath`. Replaced the former **Partial Tracking** section (`vs-posesrc-*`, `poseSource`). Handles, i18n keys and help anchors are listed in [animation.md](animation.md) (Tracking Mix).
 
 **Base Animation picker (implemented)**:
-- New **Base Animation** control in the avatar Animation section — an animation picker (`vs-base-anim-url`), a clear button (`vs-base-anim-clear`), and a speed input (`vs-base-anim-speed`) plus a `HelpButton`. Persists `properties.animation.base = {url?, clipId?, speed?}` (distinct from `idle`): the base drives the anim layer while tracking is live, idle when tracking is absent. i18n keys `properties.avatar.baseAnimation` + `properties.help.baseAnimation` (EN/DE); help `{#partial-tracking}` in `avatar.md`. See [animation.md](animation.md).
+- New **Base Animation** control in the avatar Animation section — an animation picker (`vs-base-anim-url`), a clear button (`vs-base-anim-clear`), and a speed input (`vs-base-anim-speed`) plus a `HelpButton`. Persists `properties.animation.base = {url?, clipId?, speed?}` (distinct from `idle`): the base drives the anim layer while tracking is live, idle when tracking is absent. i18n keys `properties.avatar.baseAnimation` + `properties.help.baseAnimation` (EN/DE); help `{#base-animation}` in `avatar.md`. See [animation.md](animation.md).
 
 **Numeric inputs (implemented)**: `numericInputs.tsx` caps displayed precision at 3 decimals everywhere (`MAX_DISPLAY_DECIMALS`; an explicit `precision` prop is honoured but clamped to ≤3). Only the shown/editable text is rounded — the stored value keeps full precision.
 

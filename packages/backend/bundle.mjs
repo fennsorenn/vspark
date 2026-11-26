@@ -23,8 +23,18 @@ const SHARED_ALIAS = {
   '@vspark/shared/cameraEffects':   '../shared/src/cameraEffects.ts',
   '@vspark/shared/feedValidation':  '../shared/src/feedValidation.ts',
   '@vspark/shared/sync':            '../shared/src/sync.ts',
+  '@vspark/shared/models':          '../shared/src/models.ts',
+  '@vspark/shared/fracIndex':       '../shared/src/fracIndex.ts',
+  '@vspark/shared/clipPlayback':    '../shared/src/clipPlayback.ts',
+  '@vspark/shared/idMap':           '../shared/src/idMap.ts',
   '@vspark/shared/style_rig':       '../shared/src/style_rig.ts',
   '@vspark/shared/blendshapeLimits': '../shared/src/blendshapeLimits.ts',
+  '@vspark/shared/trackingMix':     '../shared/src/trackingMix.ts',
+  '@vspark/shared/live2d':          '../shared/src/live2d.ts',
+  '@vspark/shared/actions':         '../shared/src/actions.ts',
+  '@vspark/shared/composites':      '../shared/src/composites.ts',
+  '@vspark/shared/variables':       '../shared/src/variables.ts',
+  '@vspark/shared/visemes':         '../shared/src/visemes.ts',
   '@vspark/shared':                 '../shared/src/types.ts',
 };
 
@@ -34,6 +44,11 @@ const COMMON = {
   target: 'node22',
   format: 'cjs',
   tsconfig: 'tsconfig.json',
+  // Optional native-ish dep: ships per-platform key-server binaries it resolves
+  // relative to its own package dir, so it can't be inlined. Kept external and
+  // require()d at runtime from node_modules; the HotkeyManager loads it with a
+  // guarded dynamic import and degrades gracefully if it can't be resolved.
+  external: ['node-global-key-listener'],
   alias: SHARED_ALIAS,
   define: { 'import.meta.url': '__importMetaUrl' },
   banner: {

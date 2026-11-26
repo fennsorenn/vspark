@@ -7,6 +7,7 @@ import { mediaControlManager } from '../../media_control/manager.js';
 
 interface MediaControlConfig {
   action?: MediaAction;
+  assetId?: string;
   targetKind?: MediaTargetKind;
   targetId?: string;
 }
@@ -18,7 +19,12 @@ interface MediaControlConfig {
  * from the wired `target` input when present, else `config.targetId`. The
  * frontend media registry is keyed by id alone, so `targetKind` is informational.
  *
- * `t` feeds `seek`; `volume` feeds `setVolume`. A `spawnRef` event from
+ * `action` is a value input (wired, e.g. from an Action's `settings` node, or
+ * the inline literal — the engine falls back to `config.action`, so graphs
+ * that set it as config keep working); default `play`.
+ * `t` feeds `seek`; `volume` feeds `setVolume`. `assetId` (optional) makes a
+ * `play` / `restart` play that collection video instead of the target's own,
+ * temporarily (the target's saved settings are not changed). A `spawnRef` event from
  * `spawn_clip` retargets the command to the spawned instance for that fire.
  */
 @SignalNode({
@@ -32,8 +38,10 @@ export class MediaControl extends Node {
   static readonly kind = 'media_control';
 
   @valueIn('target', 'SceneEntity') target!: () => string | undefined;
+  @valueIn('action', 'String') action!: () => string | undefined;
   @valueIn('t', 'Float') t!: () => number | undefined;
   @valueIn('volume', 'Float') volume!: () => number | undefined;
+  @valueIn('assetId', 'String') assetId!: () => string | undefined;
 
   @eventIn('fire', 'Trigger')
   onFire(): void {
@@ -53,14 +61,19 @@ export class MediaControl extends Node {
     const cfg = (this.config ?? {}) as MediaControlConfig;
     const targetId = retargetId ?? (this.target() || cfg.targetId);
     if (!targetId) return;
-    const action: MediaAction = cfg.action ?? 'play';
+    const action: MediaAction =
+      (this.action() as MediaAction | undefined) || cfg.action || 'play';
     const targetKind: MediaTargetKind = cfg.targetKind ?? 'scene_node';
     const t = this.t();
     const volume = this.volume();
+    const assetId = this.assetId() || cfg.assetId;
     mediaControlManager.dispatch(targetKind, targetId, {
       action,
       ...(typeof t === 'number' ? { t } : {}),
       ...(typeof volume === 'number' ? { volume } : {}),
+      ...(assetId && (action === 'play' || action === 'restart')
+        ? { assetId }
+        : {}),
     });
   }
 }

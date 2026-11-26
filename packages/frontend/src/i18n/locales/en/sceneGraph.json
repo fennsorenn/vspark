@@ -2,7 +2,8 @@
   "tabs": {
     "stage": "Stage",
     "compose": "Compose",
-    "logic": "Logic"
+    "logic": "Logic",
+    "actions": "Actions"
   },
   "sections": {
     "behaviors": "Behaviors",
@@ -117,15 +118,16 @@
   "logic": {
     "globalLogic": "Global Logic",
     "scopedLogic": "Scoped Logic",
+    "actionLogic": "Action Logic",
     "behaviorLogic": "Behavior Logic",
     "pasteTitle": "Paste logic from clipboard as a global logic",
     "newTitle": "New logic",
     "noProjectGraphs": "No project graphs yet.",
     "noScopedGraphs": "No scoped graphs. Add one from a scene node or compose layer.",
+    "noActionGraphs": "No actions yet. Add one on the Actions tab.",
     "noBehaviorGraphs": "No active component graphs.",
     "nodes": "{{count}} nodes",
     "disabled": "· disabled",
-    "readOnly": "read-only",
     "layer": "layer",
     "node": "node",
     "promptName": "New logic name:",
@@ -158,5 +160,9 @@
     "avatar": "How to load and configure avatars",
     "camera": "Working with cameras in your scene",
     "lights": "Adding and configuring lights"
+  },
+  "lipsync": {
+    "audioArriving": "Server capture: audio arriving",
+    "noAudio": "Server capture: no audio"
   }
 }

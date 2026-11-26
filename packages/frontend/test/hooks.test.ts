@@ -94,14 +94,21 @@ vi.mock('../src/store/connectionsStore', () => {
 });
 
 // api/client — stub only the functions useWsSync calls.
-vi.mock('../src/api/client', () => ({
+vi.mock('../src/api/client', async (importOriginal) => ({
   mapBehavior: (p: unknown) => p,
   mapComposeLayer: (p: unknown) => p,
-  mapTrackClip: (p: unknown) => p,
+  // The real boundary: clips live in the mesh in document form.
+  mapTrackClip: (await importOriginal<typeof import('../src/api/client')>())
+    .mapTrackClip,
   mapTrackClipLane: (p: unknown) => p,
   mapTrackClipKeyframe: (p: unknown) => p,
   mapTrackClipEvent: (p: unknown) => p,
-  getScenes: vi.fn().mockResolvedValue({ scenes: [], nodes: [], behaviors: [], cameraEffects: [] }),
+  getScenes: vi.fn().mockResolvedValue({
+    scenes: [],
+    nodes: [],
+    behaviors: [],
+    cameraEffects: [],
+  }),
   getCollabScenes: vi.fn().mockResolvedValue([]),
 }));
 
@@ -153,9 +160,7 @@ const INITIAL_STATE = {
   editorAudioPreviewEnabled: false,
   clipboardPayload: null,
   selectedComposeLayerId: null,
-  trackClips: [],
   selectedTrackClipId: null,
-  trackClipPlayback: {},
   nodeTransformOverrides: {},
   composeLayerOverrides: {},
   runtimeNodeOverrides: {},
@@ -184,7 +189,9 @@ describe('useEscapeKey', () => {
     const { unmount } = renderHook(() => useEscapeKey(handler));
 
     act(() => {
-      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+      window.dispatchEvent(
+        new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })
+      );
     });
 
     expect(handler).toHaveBeenCalledTimes(1);
@@ -196,8 +203,12 @@ describe('useEscapeKey', () => {
     const { unmount } = renderHook(() => useEscapeKey(handler));
 
     act(() => {
-      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
-      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowUp', bubbles: true }));
+      window.dispatchEvent(
+        new KeyboardEvent('keydown', { key: 'Enter', bubbles: true })
+      );
+      window.dispatchEvent(
+        new KeyboardEvent('keydown', { key: 'ArrowUp', bubbles: true })
+      );
     });
 
     expect(handler).not.toHaveBeenCalled();
@@ -210,7 +221,9 @@ describe('useEscapeKey', () => {
     unmount();
 
     act(() => {
-      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+      window.dispatchEvent(
+        new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })
+      );
     });
 
     expect(handler).not.toHaveBeenCalled();
@@ -221,7 +234,9 @@ describe('useEscapeKey', () => {
     const { unmount } = renderHook(() => useEscapeKey(handler, false));
 
     act(() => {
-      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+      window.dispatchEvent(
+        new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })
+      );
     });
 
     expect(handler).not.toHaveBeenCalled();
@@ -231,17 +246,23 @@ describe('useEscapeKey', () => {
   it('re-attaches listener when enabled flips from false to true', () => {
     const handler = vi.fn();
     let enabled = false;
-    const { rerender, unmount } = renderHook(() => useEscapeKey(handler, enabled));
+    const { rerender, unmount } = renderHook(() =>
+      useEscapeKey(handler, enabled)
+    );
 
     act(() => {
-      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+      window.dispatchEvent(
+        new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })
+      );
     });
     expect(handler).toHaveBeenCalledTimes(0);
 
     enabled = true;
     rerender();
     act(() => {
-      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+      window.dispatchEvent(
+        new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })
+      );
     });
     expect(handler).toHaveBeenCalledTimes(1);
     unmount();
@@ -383,143 +404,6 @@ describe('useWsSync', () => {
     unmount();
   });
 
-  it('handles vmc_status message → updates editorStore', async () => {
-    const useWsSync = await getUseWsSync();
-    const { unmount } = renderHook(() => useWsSync());
-    const ws = FakeWebSocket.lastInstance!;
-
-    act(() => {
-      ws.simulateOpen();
-      ws.simulateMessage({
-        kind: 'vmc_status',
-        payload: { behaviorId: 'beh-1', connected: true },
-      });
-    });
-
-    expect(useEditorStore.getState().vmcStatus['beh-1']).toBe(true);
-    unmount();
-  });
-
-  it('handles vmc_tracking_state message → updates editorStore', async () => {
-    const useWsSync = await getUseWsSync();
-    const { unmount } = renderHook(() => useWsSync());
-    const ws = FakeWebSocket.lastInstance!;
-
-    act(() => {
-      ws.simulateOpen();
-      ws.simulateMessage({
-        kind: 'vmc_tracking_state',
-        payload: { behaviorId: 'beh-1', tracking: true },
-      });
-    });
-
-    expect(useEditorStore.getState().vmcTracking['beh-1']).toBe(true);
-    unmount();
-  });
-
-  it('handles node_updated message → patches editorStore node', async () => {
-    useEditorStore.getState().addNode({
-      id: 'node-ws-1',
-      rootSceneNodeId: 'scene-1',
-      projectId: 'proj-1',
-      parentId: null,
-      name: 'Original',
-      kind: 'vrm',
-      components: {},
-    });
-
-    const useWsSync = await getUseWsSync();
-    const { unmount } = renderHook(() => useWsSync());
-    const ws = FakeWebSocket.lastInstance!;
-
-    act(() => {
-      ws.simulateOpen();
-      ws.simulateMessage({
-        kind: 'node_updated',
-        payload: { id: 'node-ws-1', name: 'Renamed' },
-      });
-    });
-
-    expect(useEditorStore.getState().nodes.find((n) => n.id === 'node-ws-1')?.name).toBe('Renamed');
-    unmount();
-  });
-
-  it('handles track_clip_started message → sets playing playback in editorStore', async () => {
-    const useWsSync = await getUseWsSync();
-    const { unmount } = renderHook(() => useWsSync());
-    const ws = FakeWebSocket.lastInstance!;
-    const now = Date.now();
-
-    act(() => {
-      ws.simulateOpen();
-      ws.simulateMessage({
-        kind: 'track_clip_started',
-        payload: {
-          clipId: 'clip-1',
-          startedAt: now,
-          loop: false,
-          serverNow: now,
-        },
-      });
-    });
-
-    const pb = useEditorStore.getState().trackClipPlayback['clip-1'];
-    expect(pb?.kind).toBe('playing');
-    unmount();
-  });
-
-  it('handles track_clip_stopped message → removes playback entry', async () => {
-    useEditorStore.getState().setTrackClipPlayback('clip-stop', {
-      kind: 'playing',
-      startedAt: Date.now(),
-      loop: false,
-      clockOffsetMs: 0,
-    });
-
-    const useWsSync = await getUseWsSync();
-    const { unmount } = renderHook(() => useWsSync());
-    const ws = FakeWebSocket.lastInstance!;
-
-    act(() => {
-      ws.simulateOpen();
-      ws.simulateMessage({
-        kind: 'track_clip_stopped',
-        payload: { clipId: 'clip-stop' },
-      });
-    });
-
-    expect(useEditorStore.getState().trackClipPlayback['clip-stop']).toBeUndefined();
-    unmount();
-  });
-
-  it('handles track_clip_paused message → sets paused playback in editorStore', async () => {
-    // Seed playing state so the handler can read loop from it.
-    useEditorStore.getState().setTrackClipPlayback('clip-p', {
-      kind: 'playing',
-      startedAt: Date.now(),
-      loop: true,
-      clockOffsetMs: 0,
-    });
-
-    const useWsSync = await getUseWsSync();
-    const { unmount } = renderHook(() => useWsSync());
-    const ws = FakeWebSocket.lastInstance!;
-    const now = Date.now();
-
-    act(() => {
-      ws.simulateOpen();
-      ws.simulateMessage({
-        kind: 'track_clip_paused',
-        payload: { clipId: 'clip-p', pausedAtT: 1.5, serverNow: now },
-      });
-    });
-
-    const pb = useEditorStore.getState().trackClipPlayback['clip-p'];
-    expect(pb?.kind).toBe('paused');
-    if (pb?.kind === 'paused') expect(pb.pausedAtT).toBe(1.5);
-    unmount();
-  });
-
   it('schedules reconnect when connection closes then reconnects', async () => {
     vi.useFakeTimers();
     const useWsSync = await getUseWsSync();
@@ -563,11 +447,19 @@ describe('useWsSync', () => {
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { useTrackClipEvaluator } from '../src/hooks/useTrackClipEvaluator';
+import { seedClip, seedEditor, testPeer } from './helpers/mesh';
 
 /**
  * useTrackClipEvaluator drives a requestAnimationFrame loop. We replace rAF
  * with a synchronous call-accumulator so we can trigger ticks on demand.
  */
+/** Transport state lives in the tab's peer, as in the app. */
+let seedT = 0;
+const seedPlayback = (doc: { id: string }) =>
+  testPeer()
+    .collection<{ id: string }>('clip_playback')
+    .put(doc, { v: { t: ++seedT, c: 0, n: 'seed' } });
+
 describe('useTrackClipEvaluator', () => {
   let rafCallbacks: FrameRequestCallback[] = [];
   let rafId = 0;
@@ -613,7 +505,9 @@ describe('useTrackClipEvaluator', () => {
   });
 
   it('clears stale nodeTransformOverrides when nothing is playing', () => {
-    useEditorStore.getState().setNodeTransformOverride('stale-node', { position: { x: 5 } });
+    useEditorStore
+      .getState()
+      .setNodeTransformOverride('stale-node', { position: { x: 5 } });
 
     const { unmount } = renderHook(() => useTrackClipEvaluator());
 
@@ -621,7 +515,9 @@ describe('useTrackClipEvaluator', () => {
       flushRaf();
     });
 
-    expect(useEditorStore.getState().nodeTransformOverrides['stale-node']).toBeUndefined();
+    expect(
+      useEditorStore.getState().nodeTransformOverrides['stale-node']
+    ).toBeUndefined();
     unmount();
   });
 
@@ -635,7 +531,6 @@ describe('useTrackClipEvaluator', () => {
       loop: false,
       mode: 'override' as const,
       autoplay: false,
-      startedAt: null,
       lanes: [
         {
           id: 'lane-1',
@@ -646,14 +541,26 @@ describe('useTrackClipEvaluator', () => {
           defaultValue: 0,
           keyframes: [
             {
-              id: 'kf-0', laneId: 'lane-1', t: 0, value: 0, easing: 'linear' as const,
-              inHandleTFraction: null, inHandleVFraction: null,
-              outHandleTFraction: null, outHandleVFraction: null,
+              id: 'kf-0',
+              laneId: 'lane-1',
+              t: 0,
+              value: 0,
+              easing: 'linear' as const,
+              inHandleTFraction: null,
+              inHandleVFraction: null,
+              outHandleTFraction: null,
+              outHandleVFraction: null,
             },
             {
-              id: 'kf-1', laneId: 'lane-1', t: 1, value: 10, easing: 'linear' as const,
-              inHandleTFraction: null, inHandleVFraction: null,
-              outHandleTFraction: null, outHandleVFraction: null,
+              id: 'kf-1',
+              laneId: 'lane-1',
+              t: 1,
+              value: 10,
+              easing: 'linear' as const,
+              inHandleTFraction: null,
+              inHandleVFraction: null,
+              outHandleTFraction: null,
+              outHandleVFraction: null,
             },
           ],
         },
@@ -668,20 +575,35 @@ describe('useTrackClipEvaluator', () => {
       parentId: null,
       name: 'Avatar',
       kind: 'vrm',
-      components: { transform: { x: 0, y: 0, z: 0, rx: 0, ry: 0, rz: 0, sx: 1, sy: 1, sz: 1 } },
+      components: {
+        transform: {
+          x: 0,
+          y: 0,
+          z: 0,
+          rx: 0,
+          ry: 0,
+          rz: 0,
+          sx: 1,
+          sy: 1,
+          sz: 1,
+        },
+      },
     };
 
     // 0.5 s into the clip → position.x should be ~5 (halfway on linear 0→10 over 1 s)
     const startedAt = Date.now() - 500;
 
     act(() => {
-      useEditorStore.getState().addNode(node);
-      useEditorStore.getState().addTrackClip(clip);
-      useEditorStore.getState().setTrackClipPlayback('clip-eval', {
-        kind: 'playing',
-        startedAt,
+      seedEditor({ projectId: 'proj-1', nodes: [node] });
+      seedClip(clip);
+      seedPlayback({
+        id: 'pb:clip-eval',
+        clipId: 'clip-eval',
+        state: 'playing',
+        startEpoch: startedAt,
+        pausedAtT: null,
+        speed: 1,
         loop: false,
-        clockOffsetMs: 0,
       });
     });
 
@@ -691,7 +613,8 @@ describe('useTrackClipEvaluator', () => {
       flushRaf();
     });
 
-    const override = useEditorStore.getState().nodeTransformOverrides['node-eval'];
+    const override =
+      useEditorStore.getState().nodeTransformOverrides['node-eval'];
     expect(override).toBeDefined();
     expect(override?.position?.x).toBeDefined();
     // At t≈0.5 the interpolated value is ≈5 (allow ±2 for timing jitter)
@@ -711,7 +634,6 @@ describe('useTrackClipEvaluator', () => {
       loop: false,
       mode: 'override' as const,
       autoplay: false,
-      startedAt: null,
       lanes: [],
       events: [],
     };
@@ -719,12 +641,15 @@ describe('useTrackClipEvaluator', () => {
     // 2 s ago — well past the 1 s duration
     const startedAt = Date.now() - 2000;
     act(() => {
-      useEditorStore.getState().addTrackClip(clip);
-      useEditorStore.getState().setTrackClipPlayback('clip-done', {
-        kind: 'playing',
-        startedAt,
+      seedClip(clip);
+      seedPlayback({
+        id: 'pb:clip-done',
+        clipId: 'clip-done',
+        state: 'playing',
+        startEpoch: startedAt,
+        pausedAtT: null,
+        speed: 1,
         loop: false,
-        clockOffsetMs: 0,
       });
     });
 
@@ -734,7 +659,12 @@ describe('useTrackClipEvaluator', () => {
       flushRaf();
     });
 
-    expect(useEditorStore.getState().trackClipPlayback['clip-done']).toBeUndefined();
+    // The evaluator stops a finished clip in the document (on the mesh, as
+    // in the app: the tab's peer is the store).
+    const doc = testPeer()
+      .collection<{ id: string; state: string }>('clip_playback')
+      .get('pb:clip-done');
+    expect(doc?.state).not.toBe('playing');
     unmount();
   });
 
@@ -748,7 +678,6 @@ describe('useTrackClipEvaluator', () => {
       loop: false,
       mode: 'override' as const,
       autoplay: false,
-      startedAt: null,
       lanes: [
         {
           id: 'lane-p',
@@ -759,14 +688,26 @@ describe('useTrackClipEvaluator', () => {
           defaultValue: 0,
           keyframes: [
             {
-              id: 'kf-p0', laneId: 'lane-p', t: 0, value: 0, easing: 'linear' as const,
-              inHandleTFraction: null, inHandleVFraction: null,
-              outHandleTFraction: null, outHandleVFraction: null,
+              id: 'kf-p0',
+              laneId: 'lane-p',
+              t: 0,
+              value: 0,
+              easing: 'linear' as const,
+              inHandleTFraction: null,
+              inHandleVFraction: null,
+              outHandleTFraction: null,
+              outHandleVFraction: null,
             },
             {
-              id: 'kf-p1', laneId: 'lane-p', t: 10, value: 100, easing: 'linear' as const,
-              inHandleTFraction: null, inHandleVFraction: null,
-              outHandleTFraction: null, outHandleVFraction: null,
+              id: 'kf-p1',
+              laneId: 'lane-p',
+              t: 10,
+              value: 100,
+              easing: 'linear' as const,
+              inHandleTFraction: null,
+              inHandleVFraction: null,
+              outHandleTFraction: null,
+              outHandleVFraction: null,
             },
           ],
         },
@@ -781,36 +722,59 @@ describe('useTrackClipEvaluator', () => {
       parentId: null,
       name: 'Avatar2',
       kind: 'vrm',
-      components: { transform: { x: 0, y: 0, z: 0, rx: 0, ry: 0, rz: 0, sx: 1, sy: 1, sz: 1 } },
+      components: {
+        transform: {
+          x: 0,
+          y: 0,
+          z: 0,
+          rx: 0,
+          ry: 0,
+          rz: 0,
+          sx: 1,
+          sy: 1,
+          sz: 1,
+        },
+      },
     };
 
     act(() => {
-      useEditorStore.getState().addNode(node);
-      useEditorStore.getState().addTrackClip(clip);
+      seedEditor({ projectId: 'proj-1', nodes: [node] });
+      seedClip(clip);
       // Paused at t=5 → position.x = 50 (halfway)
-      useEditorStore.getState().setTrackClipPlayback('clip-paused', {
-        kind: 'paused',
+      seedPlayback({
+        id: 'pb:clip-paused',
+        clipId: 'clip-paused',
+        state: 'paused',
+        startEpoch: null,
         pausedAtT: 5,
+        speed: 1,
         loop: false,
-        clockOffsetMs: 0,
       });
     });
 
     const { unmount } = renderHook(() => useTrackClipEvaluator());
 
-    act(() => { flushRaf(); });
+    act(() => {
+      flushRaf();
+    });
 
-    const override1 = useEditorStore.getState().nodeTransformOverrides['node-paused'];
+    const override1 =
+      useEditorStore.getState().nodeTransformOverrides['node-paused'];
     expect(override1?.position?.x).toBeCloseTo(50, 0);
 
     // Second tick — must not advance
-    act(() => { flushRaf(); });
+    act(() => {
+      flushRaf();
+    });
 
-    const override2 = useEditorStore.getState().nodeTransformOverrides['node-paused'];
+    const override2 =
+      useEditorStore.getState().nodeTransformOverrides['node-paused'];
     expect(override2?.position?.x).toBeCloseTo(50, 0);
 
     // Paused clip must still be in playback (not completed)
-    expect(useEditorStore.getState().trackClipPlayback['clip-paused']).toBeDefined();
+    expect(
+      testPeer().collection('clip_playback').get('pb:clip-paused')
+    ).toBeDefined();
 
     unmount();
   });

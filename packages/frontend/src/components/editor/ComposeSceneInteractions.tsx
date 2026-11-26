@@ -2,13 +2,17 @@ import { useEffect, useMemo, useRef } from 'react';
 import { useFrame, useThree } from '@react-three/fiber';
 import * as THREE from 'three';
 import { useEditorStore } from '../../store/editorStore';
-import { api } from '../../api/client';
+import {
+  commitNodePatch,
+  commitNodePath,
+  previewNodeTransform,
+} from '../../mesh/writes';
+import { mergedTransform } from './transformMerge';
 import {
   getNodeGroup,
   getVrmForScene,
   listRegisteredNodeGroups,
 } from './Viewport';
-import { sendNodeTransformPreview } from '../../hooks/useWsSync';
 import {
   humanoidBoneFor,
   worldToBoneLocalTransform,
@@ -16,6 +20,7 @@ import {
   dominantBoneForHit,
 } from './boneAttachPick';
 import { pivotForGroup, rotateAroundWorldAxis } from './composeRotate';
+import { sceneNodeNow, sceneNodesNow } from '../../mesh/nodes';
 
 const PREVIEW_INTERVAL_MS = 33; // ~30 Hz cap on outgoing transform previews
 
@@ -47,7 +52,8 @@ const MAX_NODE_SCALE = 100;
 // Ctrl+wheel rolls the node around the view axis (Z) with the same inertia as
 // the scale/dolly glides. Ctrl+drag rotates around the view's X/Y axes directly.
 const WHEEL_ROLL_STEP = 0.12; // radians of Z-roll per wheel tick (pre-damping)
-const WHEEL_ROLL_IMPULSE = WHEEL_ROLL_STEP * Math.log(1 / WHEEL_DAMPING_PER_SEC);
+const WHEEL_ROLL_IMPULSE =
+  WHEEL_ROLL_STEP * Math.log(1 / WHEEL_DAMPING_PER_SEC);
 const WHEEL_ROLL_VEL_EPS = 1e-3; // rad/sec; below this, settle and persist
 const DRAG_ROTATE_SENS = 0.01; // radians per pixel of Ctrl-drag rotation
 
@@ -155,7 +161,13 @@ export function composeSceneApplyWheel(
   composeLayerId?: string
 ): void {
   if (composeLayerId != null) {
-    sceneWheels.get(composeLayerId)?.(deltaY, clientX, clientY, ctrlKey, shiftKey);
+    sceneWheels.get(composeLayerId)?.(
+      deltaY,
+      clientX,
+      clientY,
+      ctrlKey,
+      shiftKey
+    );
     return;
   }
   for (const wheel of sceneWheels.values())
@@ -189,9 +201,15 @@ function transformPayload(
     rx: r.x,
     ry: r.y,
     rz: r.z,
-    sx: liveScale ? group.scale.x : (existing?.sx as number | undefined) ?? group.scale.x,
-    sy: liveScale ? group.scale.y : (existing?.sy as number | undefined) ?? group.scale.y,
-    sz: liveScale ? group.scale.z : (existing?.sz as number | undefined) ?? group.scale.z,
+    sx: liveScale
+      ? group.scale.x
+      : ((existing?.sx as number | undefined) ?? group.scale.x),
+    sy: liveScale
+      ? group.scale.y
+      : ((existing?.sy as number | undefined) ?? group.scale.y),
+    sz: liveScale
+      ? group.scale.z
+      : ((existing?.sz as number | undefined) ?? group.scale.z),
   };
 }
 
@@ -218,8 +236,11 @@ export function ComposeSceneInteractions({
     if (last && last.nodeId === nodeId && now - last.t < PREVIEW_INTERVAL_MS)
       return;
     lastPreviewAtRef.current = { nodeId, t: now };
-    const node = useEditorStore.getState().nodes.find((n) => n.id === nodeId);
-    sendNodeTransformPreview(nodeId, transformPayload(group, node, liveScale));
+    const node = sceneNodesNow().find((n) => n.id === nodeId);
+    const t = transformPayload(group, node, liveScale);
+    // One write, every audience — local tabs and object-share subscribers read
+    // the same preview overlays.
+    previewNodeTransform(nodeId, t);
   };
 
   // Mirror the live group transform back into the store so React's declarative
@@ -238,17 +259,11 @@ export function ComposeSceneInteractions({
     if (last && last.nodeId === nodeId && now - last.t < PREVIEW_INTERVAL_MS)
       return;
     lastStoreSyncAtRef.current = { nodeId, t: now };
-    const store = useEditorStore.getState();
-    const node = store.nodes.find((n) => n.id === nodeId);
+    const node = sceneNodesNow().find((n) => n.id === nodeId);
     if (!node) return;
-    const components = {
-      ...node.components,
-      transform: {
-        type: 'transform',
-        ...transformPayload(group, node, liveScale),
-      },
-    };
-    store.updateNode(nodeId, { components });
+    useEditorStore
+      .getState()
+      .setLiveNode(nodeId, transformPayload(group, node, liveScale));
   };
   const dragRef = useRef<{
     nodeId: string;
@@ -364,7 +379,7 @@ export function ComposeSceneInteractions({
 
     // Persist the new transform.
     const store = useEditorStore.getState();
-    const node = store.nodes.find((n) => n.id === d.nodeId);
+    const node = sceneNodesNow().find((n) => n.id === d.nodeId);
     if (!node) return;
 
     // Attach-on-drop: with attach mode on (or Shift held), a node dropped over a
@@ -393,8 +408,8 @@ export function ComposeSceneInteractions({
             },
           },
         };
-        store.updateNode(d.nodeId, patch);
-        api.updateNode(d.nodeId, patch).catch(() => {});
+        commitNodePatch(d.nodeId, patch);
+        useEditorStore.getState().setLiveNode(d.nodeId, null);
         return;
       }
       // Missed a model: detach back to top level if it wasn't already there.
@@ -407,8 +422,8 @@ export function ComposeSceneInteractions({
             transform: { type: 'transform', ...worldTransform(d.group) },
           },
         };
-        store.updateNode(d.nodeId, patch);
-        api.updateNode(d.nodeId, patch).catch(() => {});
+        commitNodePatch(d.nodeId, patch);
+        useEditorStore.getState().setLiveNode(d.nodeId, null);
         return;
       }
     }
@@ -434,8 +449,8 @@ export function ComposeSceneInteractions({
         sz: (existing?.sz as number | undefined) ?? s.z,
       },
     };
-    store.updateNode(d.nodeId, { components });
-    api.updateNode(d.nodeId, { components }).catch(() => {});
+    commitNodePath(d.nodeId, 'components', components);
+    useEditorStore.getState().setLiveNode(d.nodeId, null);
   };
 
   // Wheel: instead of moving the object directly, each tick imparts an impulse
@@ -599,8 +614,7 @@ export function ComposeSceneInteractions({
 
     if (w.velocity.length() < WHEEL_VELOCITY_EPS) {
       // Settled — commit one PUT and drop the momentum state.
-      const s = useEditorStore.getState();
-      const node = s.nodes.find((n) => n.id === w.nodeId);
+      const node = sceneNodeNow(w.nodeId);
       wheelStateRef.current = null;
       if (!node) return;
       const p = group.position,
@@ -622,8 +636,8 @@ export function ComposeSceneInteractions({
           sz: (existing?.sz as number | undefined) ?? group.scale.z,
         },
       };
-      s.updateNode(w.nodeId, { components });
-      api.updateNode(w.nodeId, { components }).catch(() => {});
+      commitNodePath(w.nodeId, 'components', components);
+      useEditorStore.getState().setLiveNode(w.nodeId, null);
     }
   });
 
@@ -656,9 +670,7 @@ export function ComposeSceneInteractions({
         .add(originW.sub(st.pivot).multiplyScalar(factor));
       group.scale.setScalar(next);
       const parent = group.parent;
-      group.position.copy(
-        parent ? parent.worldToLocal(target) : target
-      );
+      group.position.copy(parent ? parent.worldToLocal(target) : target);
       emitPreview(st.nodeId, group, true);
       syncToStore(st.nodeId, group, true);
     }
@@ -667,19 +679,15 @@ export function ComposeSceneInteractions({
     st.logVel *= Math.pow(WHEEL_DAMPING_PER_SEC, dt);
 
     if (Math.abs(st.logVel) < WHEEL_SCALE_VEL_EPS) {
-      const s = useEditorStore.getState();
-      const node = s.nodes.find((n) => n.id === st.nodeId);
+      const node = sceneNodeNow(st.nodeId);
       scaleStateRef.current = null;
       if (!node) return;
       const components = {
         ...node.components,
-        transform: {
-          type: 'transform',
-          ...transformPayload(group, node, true),
-        },
+        transform: mergedTransform(node, transformPayload(group, node, true)),
       };
-      s.updateNode(st.nodeId, { components });
-      api.updateNode(st.nodeId, { components }).catch(() => {});
+      commitNodePath(st.nodeId, 'components', components);
+      useEditorStore.getState().setLiveNode(st.nodeId, null);
     }
   });
 
@@ -710,16 +718,15 @@ export function ComposeSceneInteractions({
     st.vel *= Math.pow(WHEEL_DAMPING_PER_SEC, dt);
 
     if (Math.abs(st.vel) < WHEEL_ROLL_VEL_EPS) {
-      const s = useEditorStore.getState();
-      const node = s.nodes.find((n) => n.id === st.nodeId);
+      const node = sceneNodeNow(st.nodeId);
       rollStateRef.current = null;
       if (!node) return;
       const components = {
         ...node.components,
-        transform: { type: 'transform', ...transformPayload(group, node) },
+        transform: mergedTransform(node, transformPayload(group, node)),
       };
-      s.updateNode(st.nodeId, { components });
-      api.updateNode(st.nodeId, { components }).catch(() => {});
+      commitNodePath(st.nodeId, 'components', components);
+      useEditorStore.getState().setLiveNode(st.nodeId, null);
     }
   });
 
@@ -1014,7 +1021,8 @@ export function ComposeSceneInteractions({
       group.traverse((o) => {
         const mesh = o as THREE.SkinnedMesh;
         if (
-          (mesh as unknown as { isSkinnedMesh?: boolean }).isSkinnedMesh !== true
+          (mesh as unknown as { isSkinnedMesh?: boolean }).isSkinnedMesh !==
+          true
         )
           return;
         const local: THREE.Intersection[] = [];
@@ -1090,7 +1098,14 @@ export function ComposeSceneInteractions({
       ndc.x = ((clientX - rect.left) / rect.width) * 2 - 1;
       ndc.y = -((clientY - rect.top) / rect.height) * 2 + 1;
       wheelRay.setFromCamera(ndc, camera);
-      beginDrag(nodeId, group, wheelRay.ray.clone(), pointerId, clientX, clientY);
+      beginDrag(
+        nodeId,
+        group,
+        wheelRay.ray.clone(),
+        pointerId,
+        clientX,
+        clientY
+      );
       return true;
     });
     return () => {

@@ -3,11 +3,6 @@ import type { Blendshapes, Event } from '@vspark/shared/signal';
 import { Node, type Emitter } from '@vspark/shared/node';
 import { eventIn, eventOut, valueIn, valueOut } from '@vspark/shared/node_decorators';
 
-interface VisemePassthroughConfig {
-  sensitivity?: number;
-  enabled?: boolean;
-}
-
 interface VisemeState {
   scaled: Blendshapes;
 }
@@ -25,6 +20,12 @@ export class VisemePassthrough extends Node {
   @valueIn('blendshapes', 'Blendshapes')
   blendshapesIn!: () => Blendshapes | undefined;
 
+  /** Multiplier for every weight. Wired (the Lipsync template feeds it from
+   *  the behavior's `sensitivity` setting) or inline; the engine falls back to
+   *  `config.sensitivity`, so graphs that set it in config keep working. */
+  @valueIn('sensitivity', 'Float')
+  sensitivityIn!: () => number | null | undefined;
+
   @eventOut('out', 'Blendshapes') out!: Emitter<Blendshapes>;
 
   @valueOut('blendshapes', 'Blendshapes')
@@ -33,8 +34,9 @@ export class VisemePassthrough extends Node {
 
   @eventIn('visemes', 'Blendshapes')
   onVisemes(ev: Event<Blendshapes>): void {
-    const cfg = (this.config ?? {}) as VisemePassthroughConfig;
-    const sensitivity = cfg.sensitivity ?? 1.0;
+    const raw = this.sensitivityIn();
+    const sensitivity =
+      typeof raw === 'number' && Number.isFinite(raw) ? raw : 1.0;
     const bs = ev?.payload ?? this.blendshapesIn();
     if (!bs) return;
 

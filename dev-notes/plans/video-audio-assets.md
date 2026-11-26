@@ -1,6 +1,15 @@
 # Plan: Video & Audio Assets
 
-> Branch: `claude/laughing-galileo-vVikb` · Status: draft → ready-for-handoff
+> **Status:** shipped — `video` and `audio` are scene-node kinds
+> (`packages/shared/src/types.ts`), the media-command bus is
+> `backend/src/media_control/manager.ts`, and track clips carry the event/marker lane
+> (`track_clip_events`). Module doc: [`../modules/media.md`](../modules/media.md).
+> Caveat for anyone reading that module doc: its description of `track_clip_events_replaced`
+> as *the* transport for clip events predates the `track_clip` mesh binding — the clip
+> aggregate is written through the mesh in `backend/src/routes/track-clips.ts` and the
+> WS kind duplicates it.
+
+> *(Historical.)* Branch: `claude/laughing-galileo-vVikb`
 > This plan is the seed context for an implementer (cloud worker or local). It is a
 > starting point, not an airtight spec — refine interactively as needed.
 

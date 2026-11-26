@@ -1,4 +1,5 @@
 import type { GraphDescriptor } from '@vspark/shared/signal';
+import { withEyeRangeStage } from '../eyeRange.js';
 
 // VRM bone names scoped to the head/spine calibration stage.
 export const HEAD_CALIB_BONES = [
@@ -13,35 +14,35 @@ export const HEAD_CALIB_BONES = [
   'rightEye',
 ] as const;
 
-export const VMC_PIPELINE_TEMPLATE: Omit<GraphDescriptor, 'id'> = {
+const VMC_BASE_TEMPLATE: Omit<GraphDescriptor, 'id'> = {
   label: 'VMC Receiver Pipeline',
-  readonly: true,
+  readonly: false,
   nodes: [
     // ── Component config value sources ────────────────────────────────────────
     // Each exposes ONE field from the component config via its `value` output port.
     // Columns: x=-520 (cfg), x=-240 (vmc source), x=60 (mappers+bone), x=360 (calib/bs), x=640 (arm), x=920 (out)
     {
       id: 'cfg_host',
-      kind: 'behavior_config',
+      kind: 'settings',
       position: { x: -520, y: 80 },
       defaultConfig: { field: 'host', defaultValue: '0.0.0.0' },
     },
     {
       id: 'cfg_port',
-      kind: 'behavior_config',
+      kind: 'settings',
       position: { x: -520, y: 200 },
       defaultConfig: { field: 'port', defaultValue: 39539 },
     },
     {
       id: 'cfg_mirror',
-      kind: 'behavior_config',
+      kind: 'settings',
       position: { x: -520, y: 320 },
       defaultConfig: { field: 'mirror', defaultValue: false },
     },
     // Mapper config pairs — 160 px between en/map, 240 px between mapper groups.
     {
       id: 'cfg_fcl_en',
-      kind: 'behavior_config',
+      kind: 'settings',
       position: { x: -520, y: 540 },
       defaultConfig: {
         field: 'nodeConfig.arkit_fcl_cfg.enabled',
@@ -50,7 +51,7 @@ export const VMC_PIPELINE_TEMPLATE: Omit<GraphDescriptor, 'id'> = {
     },
     {
       id: 'cfg_fcl_map',
-      kind: 'behavior_config',
+      kind: 'settings',
       position: { x: -520, y: 660 },
       defaultConfig: {
         field: 'nodeConfig.arkit_fcl_cfg.mapping',
@@ -59,7 +60,7 @@ export const VMC_PIPELINE_TEMPLATE: Omit<GraphDescriptor, 'id'> = {
     },
     {
       id: 'cfg_expr_en',
-      kind: 'behavior_config',
+      kind: 'settings',
       position: { x: -520, y: 820 },
       defaultConfig: {
         field: 'nodeConfig.arkit_expr_cfg.enabled',
@@ -68,7 +69,7 @@ export const VMC_PIPELINE_TEMPLATE: Omit<GraphDescriptor, 'id'> = {
     },
     {
       id: 'cfg_expr_map',
-      kind: 'behavior_config',
+      kind: 'settings',
       position: { x: -520, y: 940 },
       defaultConfig: {
         field: 'nodeConfig.arkit_expr_cfg.mapping',
@@ -77,7 +78,7 @@ export const VMC_PIPELINE_TEMPLATE: Omit<GraphDescriptor, 'id'> = {
     },
     {
       id: 'cfg_pass_en',
-      kind: 'behavior_config',
+      kind: 'settings',
       position: { x: -520, y: 1100 },
       defaultConfig: {
         field: 'nodeConfig.arkit_pass_cfg.enabled',
@@ -86,7 +87,7 @@ export const VMC_PIPELINE_TEMPLATE: Omit<GraphDescriptor, 'id'> = {
     },
     {
       id: 'cfg_pass_map',
-      kind: 'behavior_config',
+      kind: 'settings',
       position: { x: -520, y: 1220 },
       defaultConfig: {
         field: 'nodeConfig.arkit_pass_cfg.mapping',
@@ -408,6 +409,14 @@ export const VMC_PIPELINE_TEMPLATE: Omit<GraphDescriptor, 'id'> = {
   ],
 };
 
+/** The pipeline above plus the eye range stage at the end of the bone chain —
+ *  off by default: VMC senders (VSeeFace & co.) usually send eye rotations
+ *  already fitted to the model, so this keeps their previous behaviour. */
+export const VMC_PIPELINE_TEMPLATE = withEyeRangeStage(VMC_BASE_TEMPLATE, {
+  fromNodeId: 'arm_ik_calib',
+  defaultEnabled: false,
+});
+
 export function makeVmcGraphDescriptor(behaviorId: string): GraphDescriptor {
   return { ...VMC_PIPELINE_TEMPLATE, id: `vmc-pipeline:${behaviorId}` };
 }
@@ -428,13 +437,13 @@ const ARM_NODE_IDS = new Set([
 ]);
 
 export const VMC_2D_PIPELINE_TEMPLATE: Omit<GraphDescriptor, 'id'> = {
-  ...VMC_PIPELINE_TEMPLATE,
+  ...VMC_BASE_TEMPLATE,
   label: 'VMC Receiver Pipeline (2D)',
-  nodes: VMC_PIPELINE_TEMPLATE.nodes.filter((n) => !ARM_NODE_IDS.has(n.id)),
+  nodes: VMC_BASE_TEMPLATE.nodes.filter((n) => !ARM_NODE_IDS.has(n.id)),
   edges: [
     // Drop every edge touching an arm node (this removes arm_ik_calib → pose_out
     // and head_calib → arm_ik_calib)…
-    ...VMC_PIPELINE_TEMPLATE.edges.filter(
+    ...VMC_BASE_TEMPLATE.edges.filter(
       (e) => !ARM_NODE_IDS.has(e.fromNodeId) && !ARM_NODE_IDS.has(e.toNodeId)
     ),
     // …then reconnect the bone chain end directly to the broadcast.

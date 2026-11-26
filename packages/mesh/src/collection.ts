@@ -25,24 +25,66 @@ export interface WriteHandle {
   ack: Promise<WriteOutcome>;
 }
 
+/** How a {@link Collection.request} ended. Delivery is at most once, so a
+ *  request that is lost or never answered ends in `timeout`. */
+export type RequestOutcome =
+  | { status: 'replied'; data: unknown }
+  | { status: 'timeout' }
+  | { status: 'unreachable' }
+  | { status: 'error'; reason: string };
+
 export interface WriteOpts {
   channel?: string;
+  /** Set `false` to keep a committed write OFF the authoring peer's undo stack.
+   *
+   *  Undo logs every committed retained-channel write by default, which is right
+   *  for document edits and wrong for actions that merely change what the user
+   *  is looking at. Transport controls are the motivating case: pressing Play
+   *  would otherwise make the next Ctrl+Z un-pause instead of undoing the last
+   *  edit. Such a write still replicates, persists and acks exactly as normal —
+   *  the only thing it skips is the undo entry. */
+  undo?: boolean;
+  /** Deliver to this one participant only (unstamped channels: commands are
+   *  addressed, state is shared). Routed toward it and applied only there. */
+  to?: string;
 }
 
-export interface CollectionConfig<T extends object> {
+/** What a validator knows about the write it is checking. */
+export interface ValidateContext<T> {
+  /** The participant the write originated on (this peer's own id for local
+   *  writes). */
+  origin: string;
+  /** The committed document before this write, if this peer held one. */
+  prev: T | undefined;
+}
+
+/** What every peer knows about a document type: declared once, shared by all
+ *  peers that open the collection (see {@link MeshPeerConfig.models}). */
+export interface ModelDecl<T extends object = Record<string, unknown>> {
   /** Containment feed for tree reads + descendant-scoped grants. */
   parent?: (doc: T) => { rtype: string; id: string } | null;
-  /** Validates/normalizes INCOMING data (remote ops and local writes alike).
-   *  Throw to reject. The RETURN VALUE is what gets applied — returning a
-   *  transformed value (clamping, normalization) is how the authority issues
-   *  ack corrections. `originId` is the peer the op originated on (this peer's
-   *  own id for local writes), so a validator can localize peer-relative fields
-   *  (e.g. translate a clock-anchored timestamp onto this peer's clock). */
-  validate?: (data: unknown, originId?: string) => T;
+  /** Checks — and may correct — the document a committed write would leave
+   *  behind. It always receives the whole composed document, whatever shape
+   *  the write had (create, whole document, or one path), on every peer: for
+   *  local writes, incoming ops and snapshots alike. Throw to reject. Returning
+   *  a different document is a correction; on the collection's authority it is
+   *  issued to the author and every subscriber as the canonical value.
+   *  Previews are not checked. */
+  validate?: (doc: unknown, ctx: ValidateContext<T>) => T;
   /** Allowed channels (default ['committed', 'preview']). At most one may be
    *  retained; a collection with none is a pure stream. */
   channels?: string[];
-  /** Ack authority: 'self' on the home peer, the home's peer id elsewhere. */
+  /** Top-level fields holding a wall-clock timestamp (ms) on the WRITER's
+   *  clock. Each peer translates them onto its own clock as an op arrives
+   *  (using the measured offset to the peer that sent it), so every peer reads
+   *  them against its own `Date.now()`. */
+  clockFields?: string[];
+}
+
+export interface CollectionConfig<T extends object> extends ModelDecl<T> {
+  /** Who decides (acks) writes to this collection, when it isn't what the
+   *  mesh derives: a participant's own server, or whoever granted this peer
+   *  a write on the document, or this peer. */
   authority?: 'self' | string;
 }
 
@@ -56,8 +98,16 @@ export interface LocalWrite {
   path?: string;
   data?: unknown;
   channel: string;
+  /** false = do not log an undo entry for this write (see WriteOpts.undo). */
+  undo?: boolean;
   /** hydration: apply with this restored stamp; never acked; taps skip it. */
   hydrateV?: HLC;
+  /** addressed delivery (see WriteOpts.to). */
+  to?: string;
+  /** request id (set by the peer for Collection.request). */
+  mid?: string;
+  /** reply to request `re` (Collection.reply). */
+  re?: string;
 }
 
 /** The slice of the peer a collection needs (implemented by MeshPeer). */
@@ -66,13 +116,25 @@ export interface PeerCore {
   readonly clock: HlcClock;
   readonly channels: ChannelRegistry;
   localWrite<T extends object>(col: Collection<T>, w: LocalWrite): WriteHandle;
+  removeTree(rootId: string): WriteHandle[];
+  request<T extends object>(
+    col: Collection<T>,
+    w: LocalWrite,
+    timeoutMs: number
+  ): Promise<RequestOutcome>;
   connected(peerId: string): boolean;
+  authorityFor(col: Collection<any>, id?: string): string;
   childrenIds(id: string, rtype: string): string[];
   subtreeIds(rootId: string): string[];
   parentIdOf(id: string): string | null;
   isDescendant(childId: string, ancestorId: string): boolean;
+  /** `v`, raised to the mount stamp when this doc sits in a mounted scope. */
+  effectiveStamp(id: string, v: HLC, parentHint?: string | null): HLC;
   indexUpsert(rtype: string, id: string, parentId: string | null): void;
   indexRemove(id: string): void;
+  /** A document was removed; `chain` is its id + ancestors as they were, so a
+   *  tombstone can still be scope-checked once its containment entry is gone. */
+  noteRemoved(id: string, chain: string[]): void;
 }
 
 interface Observer<T> {
@@ -133,6 +195,8 @@ export class Collection<T extends object> {
       id: this.idOf(doc),
       data: doc,
       channel: this.writeChannel(opts),
+      undo: opts?.undo,
+      to: opts?.to,
     });
   }
 
@@ -143,6 +207,8 @@ export class Collection<T extends object> {
       id,
       data: partial,
       channel: this.writeChannel(opts),
+      undo: opts?.undo,
+      to: opts?.to,
     });
   }
 
@@ -154,6 +220,46 @@ export class Collection<T extends object> {
       path: path === '' ? undefined : path,
       data: value,
       channel: this.writeChannel(opts),
+      undo: opts?.undo,
+      to: opts?.to,
+    });
+  }
+
+  /** Remove `id` and everything under it in the cross-type containment tree
+   *  (child docs and the documents hanging off them), children first, as one
+   *  undo action. See {@link MeshPeer.removeTree}. */
+  removeTree(id: string): WriteHandle[] {
+    return this.peer.removeTree(id);
+  }
+
+  /** Send `data` to one participant on an unstamped channel (default
+   *  `control`) and await its answer. The receiver sees the op with
+   *  `change.request` set and answers with {@link reply}. */
+  request(
+    id: string,
+    data: unknown,
+    opts: { to: string; channel?: string; timeoutMs?: number }
+  ): Promise<RequestOutcome> {
+    const channel = opts.channel ?? 'control';
+    this.requireUnstamped(channel, 'request');
+    return this.peer.request(
+      this,
+      { op: 'upsert', id, data, channel, to: opts.to },
+      opts.timeoutMs ?? 5000
+    );
+  }
+
+  /** Answer a request (a change carrying `request`) with `data`. */
+  reply(change: AppliedChange<T>, data: unknown): void {
+    if (!change.request)
+      throw new Error(`${this.rtype}: change is not a request`);
+    this.peer.localWrite(this, {
+      op: 'upsert',
+      id: change.id,
+      data,
+      channel: change.channel,
+      to: change.request.from,
+      re: change.request.mid,
     });
   }
 
@@ -162,6 +268,8 @@ export class Collection<T extends object> {
       op: 'remove',
       id,
       channel: this.writeChannel(opts),
+      undo: opts?.undo,
+      to: opts?.to,
     });
   }
 
@@ -176,14 +284,17 @@ export class Collection<T extends object> {
     });
   }
 
-  /** Hydrate one tombstone with its restored stamp. */
-  putTombstone(id: string, v: HLC): void {
+  /** Hydrate one tombstone with its restored stamp. `ancestors` (nearest
+   *  first, as persisted from the remove's `AppliedChange.ancestors`) restores
+   *  where the entity sat, so subtree-scoped grants can still be checked. */
+  putTombstone(id: string, v: HLC, ancestors?: string[]): void {
     this.peer.localWrite(this, {
       op: 'remove',
       id,
       channel: this.requireRetained('putTombstone'),
       hydrateV: v,
     });
+    if (ancestors?.length) this.peer.noteRemoved(id, [id, ...ancestors]);
   }
 
   /** Forget a deletion marker (LOCAL only — nothing fans out). The epoch-reset
@@ -218,8 +329,10 @@ export class Collection<T extends object> {
     };
   }
 
-  canWrite(): boolean {
-    const a = this.cfg.authority ?? 'self';
+  /** Can a committed write be decided right now: is its authority this
+   *  peer, or linked? */
+  canWrite(id?: string): boolean {
+    const a = this.peer.authorityFor(this, id);
     return a === 'self' || this.peer.connected(a);
   }
 
@@ -237,15 +350,38 @@ export class Collection<T extends object> {
   ): AppliedChange<T> | null {
     if (v === undefined) {
       const change = this.replica.ephemeral(id, path ?? '', data, meta);
+      // A collection with no retained channel carries commands or stream
+      // frames: delivered to observers, never kept. An overlay only means
+      // something over a retained document it previews.
+      if (!this.retainedChannel) this.replica.dropOverlays(id);
       this.notify(change);
       return change;
     }
+    // A mount is not a reconnect: inside a mounted scope a document reconciles
+    // against max(its own stamp, the mount stamp), so this peer's older
+    // tombstones cannot out-stamp the tree it just deliberately mounted. Local
+    // metadata only — what we relay onward still carries the origin's stamp.
+    // See MeshPeer.mount.
+    v = this.peer.effectiveStamp(
+      id,
+      v,
+      // The parent the incoming doc declares: the index cannot place a document
+      // whose subtree this peer deleted, and that is the case the mount exists
+      // for.
+      op === 'upsert' && data
+        ? (this.cfg.parent?.(data as T)?.id ?? null)
+        : null
+    );
     let change: AppliedChange<T> | null;
     let preChain: string[] | undefined;
     if (op === 'remove') {
       preChain = this.ancestorChain(id);
       change = this.replica.remove(id, v, meta);
-      if (change) this.peer.indexRemove(id);
+      if (change) {
+        change.ancestors = preChain.slice(1);
+        this.peer.noteRemoved(id, preChain);
+        this.peer.indexRemove(id);
+      }
     } else if (op === 'upsert') {
       change = this.replica.upsert(id, data as T, v, meta);
     } else {
@@ -258,7 +394,11 @@ export class Collection<T extends object> {
     if (op !== 'remove') {
       const doc = this.replica.raw(id);
       if (doc !== undefined)
-        this.peer.indexUpsert(this.rtype, id, this.cfg.parent?.(doc)?.id ?? null);
+        this.peer.indexUpsert(
+          this.rtype,
+          id,
+          this.cfg.parent?.(doc)?.id ?? null
+        );
     }
     this.notify(change, preChain);
     return change;
@@ -277,11 +417,12 @@ export class Collection<T extends object> {
     for (const tap of this.taps) tap(change);
   }
 
-  /** @internal Validation hook; returns the (possibly transformed) value.
-   *  `originId` is the peer the op originated on (passed through to the
-   *  validator so it can localize peer-relative fields). */
-  validateDoc(data: unknown, originId?: string): T {
-    return this.cfg.validate ? this.cfg.validate(data, originId) : (data as T);
+  /** @internal Validate the composed document a write would leave behind;
+   *  returns it, possibly corrected. Throws to reject. */
+  validateDoc(doc: unknown, origin: string, id: string): T {
+    return this.cfg.validate
+      ? this.cfg.validate(doc, { origin, prev: this.replica.raw(id) })
+      : (doc as T);
   }
 
   /** @internal Notify observers of a (possibly restored) change. */
@@ -329,7 +470,18 @@ export class Collection<T extends object> {
       );
     if (!this.allowedChannels.includes(ch))
       throw new Error(`${this.rtype}: channel '${ch}' not allowed`);
+    if (opts?.to !== undefined) this.requireUnstamped(ch, 'an addressed write');
     return ch;
+  }
+
+  /** Addressing belongs to commands: shared state is never per-recipient. */
+  private requireUnstamped(ch: string, what: string): void {
+    if (!this.allowedChannels.includes(ch))
+      throw new Error(`${this.rtype}: channel '${ch}' not allowed`);
+    if (this.peer.channels.get(ch)?.stamped)
+      throw new Error(
+        `${this.rtype}: ${what} needs an unstamped channel; '${ch}' carries state`
+      );
   }
 
   private requireRetained(what: string): string {

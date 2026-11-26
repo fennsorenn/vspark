@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { readFile, writeFile } from 'fs/promises';
+import { chmod, readFile, writeFile } from 'fs/promises';
 import { join } from 'path';
 import type {
   AppConfig,
@@ -32,7 +32,13 @@ async function readConfig(): Promise<AppConfig> {
 }
 
 async function writeConfig(cfg: AppConfig): Promise<void> {
-  await writeFile(configPath(), JSON.stringify(cfg, null, 2), 'utf-8');
+  // config.json can hold the assistant apiKey: owner read/write only. `mode`
+  // applies on creation; chmod covers a file that already existed.
+  await writeFile(configPath(), JSON.stringify(cfg, null, 2), {
+    encoding: 'utf-8',
+    mode: 0o600,
+  });
+  await chmod(configPath(), 0o600).catch(() => {});
 }
 
 /**
@@ -49,12 +55,21 @@ export async function resolveAssistantConfig(): Promise<AssistantConfig> {
     process.env.ASSISTANT_BASE_URL ?? process.env.VLLM_HOST ?? '';
   const envKey = process.env.ASSISTANT_API_KEY ?? process.env.VLLM_AUTH ?? '';
   const baseUrl = stored?.baseUrl ?? envBase;
+  const maxTokens =
+    validMaxTokens(stored?.maxTokens) ??
+    validMaxTokens(Number(process.env.ASSISTANT_MAX_TOKENS));
   return {
     enabled: stored?.enabled ?? Boolean(baseUrl),
     baseUrl,
     apiKey: stored?.apiKey ?? envKey,
     model: stored?.model ?? DEFAULT_ASSISTANT_MODEL,
+    ...(maxTokens !== undefined ? { maxTokens } : {}),
   };
+}
+
+/** A positive integer token budget, or undefined for anything else. */
+function validMaxTokens(v: unknown): number | undefined {
+  return typeof v === 'number' && Number.isInteger(v) && v > 0 ? v : undefined;
 }
 
 function toPublic(cfg: AssistantConfig): AssistantConfigPublic {
@@ -63,6 +78,7 @@ function toPublic(cfg: AssistantConfig): AssistantConfigPublic {
     baseUrl: cfg.baseUrl,
     hasApiKey: Boolean(cfg.apiKey),
     model: cfg.model,
+    ...(cfg.maxTokens !== undefined ? { maxTokens: cfg.maxTokens } : {}),
   };
 }
 
@@ -142,16 +158,24 @@ configRoutes.patch('/config', async (req, res) => {
   // Only re-check when the channel actually moved; this used to fire on every
   // config write regardless of what changed.
   if (body.channel !== undefined) void checkForUpdates();
-  res.json({ ok: true, data: updated });
+  // Same redacted view as GET: the stored config can hold the assistant apiKey.
+  res.json({
+    ok: true,
+    data: { ...updated, assistant: toPublic(await resolveAssistantConfig()) },
+  });
 });
 
 /**
  * Update the assistant settings. apiKey is only overwritten when a non-empty
  * string is supplied, so callers can change the model/endpoint without
- * resending the secret. Returns the redacted public view.
+ * resending the secret. `maxTokens`: a positive integer sets it, `null` clears
+ * it back to the client default, anything else leaves it unchanged. Returns the
+ * redacted public view.
  */
 configRoutes.put('/assistant-config', async (req, res) => {
-  const body = req.body as Partial<AssistantConfig>;
+  const body = req.body as Omit<Partial<AssistantConfig>, 'maxTokens'> & {
+    maxTokens?: number | null;
+  };
   const current = await readConfig();
   const base = await resolveAssistantConfig();
   const next: AssistantConfig = {
@@ -164,6 +188,26 @@ configRoutes.put('/assistant-config', async (req, res) => {
         ? body.apiKey
         : base.apiKey,
   };
-  await writeConfig({ ...current, assistant: next });
+  const maxTokens =
+    body.maxTokens === null
+      ? undefined
+      : (validMaxTokens(body.maxTokens) ?? base.maxTokens);
+  if (maxTokens !== undefined) next.maxTokens = maxTokens;
+  // A key belongs to the endpoint it was entered for. Pointing the assistant at
+  // a different host without supplying a new key drops the old one — otherwise
+  // the next request would send it to whatever host was just configured.
+  const newKey = typeof body.apiKey === 'string' && body.apiKey.length > 0;
+  if (!newKey && next.baseUrl !== base.baseUrl) next.apiKey = '';
+  // Persist only a key that was actually entered (or already stored). A key
+  // that lives in the environment stays there instead of being copied to disk.
+  const persistedKey = newKey
+    ? body.apiKey
+    : next.apiKey === ''
+      ? ''
+      : current.assistant?.apiKey;
+  await writeConfig({
+    ...current,
+    assistant: { ...next, apiKey: persistedKey as string },
+  });
   res.json({ ok: true, data: toPublic(next) });
 });

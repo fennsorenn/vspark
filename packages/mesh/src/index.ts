@@ -10,41 +10,48 @@ export type {
   MeshPeerConfig,
   MeshStatus,
   MeshSubscription,
+  UndoEntry,
+  UndoOp,
+  UndoPolicy,
+  UndoStatus,
 } from './peer.js';
 export { Collection } from './collection.js';
 export type {
   CollectionConfig,
+  RequestOutcome,
   Selector,
   WriteHandle,
   WriteOpts,
   WriteOutcome,
 } from './collection.js';
 export { ChannelRegistry, BUILTIN_CHANNELS } from './channels.js';
+export { projectOp, projectValue, readScope } from './grants.js';
+export type { ReadScope } from './grants.js';
 export type { ChannelProps } from './channels.js';
 export { Replica } from './replica.js';
 export type { AppliedChange, ApplyMeta, DocState } from './replica.js';
 export { HlcClock } from './clock.js';
 export type {
   MeshTransport,
+  PeerDirectory,
   PeerLink,
   TransportHandlers,
 } from './transport.js';
+export { encode } from './wire.js';
 export type {
   AckMsg,
   DocOp,
   MeshMessage,
   OpEnvelope,
+  RosterMsg,
+  SignalMsg,
   SubscribeMsg,
   SubOkMsg,
+  SubscriptionRequest,
 } from './wire.js';
 export { createLoopbackPair } from './loopback.js';
 export type { LoopbackPair } from './loopback.js';
-export {
-  deepEqual,
-  flattenToLeaves,
-  getPath,
-  setPath,
-} from './paths.js';
+export { deepEqual, flattenToLeaves, getPath, setPath } from './paths.js';
 // Re-exported for convenience — the grant/subscription model is shared.
 export {
   compareHLC,

@@ -1,4 +1,6 @@
 import { defineConfig } from 'vitest/config';
+import { tmpdir } from 'os';
+import { join } from 'path';
 
 export default defineConfig({
   test: {
@@ -8,7 +10,14 @@ export default defineConfig({
     // the db module statically (before its beforeEach sets the env) would
     // otherwise bind to the real on-disk vspark.db and leak rows across tests.
     // Setting it here guarantees ':memory:' regardless of import order.
-    env: { VSPARK_DB_PATH: ':memory:' },
+    // Same for config.json: without this, config routes resolve it next to the
+    // install dir — in dev that is packages/backend/config.json, the file the
+    // dev backend itself reads — and every test run overwrote the developer's
+    // assistant endpoint, key and update channel with test values.
+    env: {
+      VSPARK_DB_PATH: ':memory:',
+      VSPARK_CONFIG_PATH: join(tmpdir(), `vspark-test-config-${process.pid}.json`),
+    },
     // Engine/API tests boot real subsystems (WASM SQLite, signal graphs);
     // keep them in a single process to avoid cross-worker DB/socket contention.
     pool: 'forks',

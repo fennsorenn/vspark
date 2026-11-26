@@ -10,5 +10,6 @@
     "add": "Add",
     "remove": "Remove",
     "ok": "OK"
-  }
+  },
+  "connecting": "Connecting to the vspark server…"
 }

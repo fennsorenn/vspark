@@ -1,8 +1,20 @@
 import { useState, useRef, useEffect } from 'react';
+import { commitBehaviorCreate } from '../../mesh/behaviorWrites';
 import { useTranslation } from 'react-i18next';
+import { commitEffectCreate } from '../../mesh/effectWrites';
 import { useEditorStore } from '../../store/editorStore';
 import { api } from '../../api/client';
-import type { AssetFile } from '../../api/client';
+import {
+  commitNodeCreate,
+  commitNodePatch,
+  commitNodePath,
+} from '../../mesh/writes';
+import { commitLayerCreate, commitLayerPath } from '../../mesh/layerWrites';
+import type {
+  AssetFile,
+  BundleFileInput,
+  Live2dBundleReport,
+} from '../../api/client';
 import type { BottomDockTab, Behavior } from '../../store/editorStore';
 import { newBehaviorId, CAMERA_EFFECT_KINDS } from '../../store/editorStore';
 import {
@@ -16,8 +28,27 @@ import { PresetLibrary } from './PresetLibrary';
 import { CreatePalette } from './CreatePalette';
 import { AssetThumb } from './AssetThumb';
 import { DND_ASSET } from './dnd';
-import { behaviorCompatibleWith, createNodeFromLive2dAsset } from './createKinds';
+import {
+  behaviorCompatibleWith,
+  createNodeFromLive2dAsset,
+} from './createKinds';
 import { HelpButton } from '../../help/HelpButton';
+import { Live2dBundleReportWindow } from './Live2dBundleReportWindow';
+import { Live2dManifestPicker } from './Live2dManifestPicker';
+import {
+  readDroppedFiles,
+  expandZip,
+  isZipFile,
+  findManifests,
+  stripCommonPrefix,
+  selectBundle,
+  planRelocations,
+  ZipError,
+} from '../../lib/live2dBundle';
+import type { Relocation, AmbiguousRelocation } from '../../lib/live2dBundle';
+import { useCameraEffects, useNodeBehaviors } from '../../mesh/hooks';
+import { useComposeLayers } from '../../mesh/compose';
+import { useSceneNodes } from '../../mesh/nodes';
 
 /** Per-tab contextual help target — one consistent `?` follows the active tab. */
 const tabHelp: Partial<
@@ -46,18 +77,14 @@ export function AssetManager() {
     addAsset,
     deleteAsset,
     activeSceneId,
-    addNode,
     projectId,
     selectedNodeId,
-    nodes,
-    updateNode: storeUpdateNode,
-    addBehavior,
-    behaviors,
     behaviorKinds,
-    cameraEffects,
-    addCameraEffect,
   } = useEditorStore();
+  const nodes = useSceneNodes();
   const selectedNode = nodes.find((n) => n.id === selectedNodeId) ?? null;
+  const selectedEffects = useCameraEffects(selectedNode?.id);
+  const selectedBehaviors = useNodeBehaviors(selectedNode?.id);
   const canApplyAnim =
     selectedNode?.kind === 'avatar' || selectedNode?.kind === 'model';
   const canApplyModel =
@@ -72,15 +99,11 @@ export function AssetManager() {
   const setTab = useEditorStore((s) => s.setBottomTab);
   const leftTab = useEditorStore((s) => s.leftTab);
   const activeComposeSceneId = useEditorStore((s) => s.activeComposeSceneId);
-  const addComposeLayer = useEditorStore((s) => s.addComposeLayer);
   const selectComposeLayer = useEditorStore((s) => s.selectComposeLayer);
   const selectedComposeLayerId = useEditorStore(
     (s) => s.selectedComposeLayerId
   );
-  const composeLayers = useEditorStore((s) => s.composeLayers);
-  const updateComposeLayerLocal = useEditorStore(
-    (s) => s.updateComposeLayerLocal
-  );
+  const composeLayers = useComposeLayers();
   const selectedComposeLayer =
     composeLayers.find((l) => l.id === selectedComposeLayerId) ?? null;
   const canApplyImageLayer = selectedComposeLayer?.kind === 'image';
@@ -137,6 +160,23 @@ export function AssetManager() {
   }, [bottomTabFlash]);
   const modelInputRef = useRef<HTMLInputElement>(null);
   const live2dInputRef = useRef<HTMLInputElement>(null);
+  const live2dZipInputRef = useRef<HTMLInputElement>(null);
+  // Open when a Live2D bundle's manifest referenced files the upload lacked.
+  // `pending` holds the picked files for the retry; null when the bundle was
+  // accepted and the report is only a warning.
+  const [live2dReport, setLive2dReport] = useState<{
+    report: Live2dBundleReport;
+    rootName: string;
+    pending: BundleFileInput[] | null;
+    relocations: Relocation[];
+    ambiguousRelocations: AmbiguousRelocation[];
+  } | null>(null);
+  // Open when a folder/archive held several models and one must be chosen.
+  const [live2dPicker, setLive2dPicker] = useState<{
+    files: BundleFileInput[];
+    rootName: string;
+    manifests: string[];
+  } | null>(null);
   const animInputRef = useRef<HTMLInputElement>(null);
   const imageInputRef = useRef<HTMLInputElement>(null);
   const videoInputRef = useRef<HTMLInputElement>(null);
@@ -165,36 +205,126 @@ export function AssetManager() {
   const videos = assets.filter((a) => a.kind === 'video');
   const audioAssets = assets.filter((a) => a.kind === 'audio');
 
-  // Live2D models upload as a folder (manifest + moc3 + textures) via the bundle
-  // endpoint, preserving each file's path relative to the model root.
-  const handleUploadLive2dFolder = async (files: FileList | File[]) => {
+  // ── Live2D bundle ingestion ────────────────────────────────────────────────
+  //
+  // A Live2D model is a folder of files that only work together, and it reaches
+  // us three ways: the folder picker, a folder dropped on the dock, or a zip
+  // (expanded in the browser). All three converge on `uploadLive2dBundle` with
+  // paths relative to the model root — those paths ARE the model, so everything
+  // here exists to keep them intact.
+  //
+  // The backend resolves the manifest's FileReferences against the arriving
+  // files. Missing moc3/textures reject the upload outright (nothing is stored)
+  // and missing motions/expressions upload with a warning — either way the
+  // report opens naming the files, instead of leaving the user to discover a
+  // blank puppet later.
+
+  /** Post a bundle, then route the outcome to the report window. */
+  const uploadBundle = async (files: BundleFileInput[], rootName: string) => {
     if (!projectId) {
-      alert('No project loaded.');
+      alert(t('alerts.noProject'));
       return;
     }
-    const list = Array.from(files);
-    if (list.length === 0) return;
-    const firstPath = list[0].webkitRelativePath || list[0].name;
-    const rootName = firstPath.includes('/')
-      ? firstPath.split('/')[0]
-      : 'live2d-model';
-    const inputs = list.map((f) => {
-      const rel = f.webkitRelativePath || f.name;
-      const relPath = rel.startsWith(`${rootName}/`)
-        ? rel.slice(rootName.length + 1)
-        : rel;
-      return { relPath, file: f };
-    });
     setUploading(true);
     try {
-      const asset = await api.uploadLive2dBundle(projectId, rootName, inputs);
+      const { asset, missingOptional } = await api.uploadLive2dBundle(
+        projectId,
+        rootName,
+        files
+      );
       addAsset(asset);
       setTab('models');
+      setLive2dReport(
+        missingOptional.length === 0
+          ? null
+          : {
+              rootName,
+              // Already stored and rendering — nothing to supply, so no
+              // pending set and no retry.
+              pending: null,
+              relocations: [],
+              ambiguousRelocations: [],
+              report: {
+                manifest: asset.name,
+                refs: missingOptional,
+                missingRequired: [],
+                missingOptional,
+                errors: [],
+              },
+            }
+      );
     } catch (e: unknown) {
-      alert(e instanceof Error ? e.message : 'Live2D upload failed');
+      const report = api.live2dBundleReport(e);
+      // Hold the picked files so the completion window can top them up rather
+      // than making the user re-select everything they already chose. Before
+      // asking for anything, check whether the "missing" files are simply
+      // sitting at the wrong path — a rearranged folder still has them all.
+      if (report) {
+        const { relocations, ambiguous } = planRelocations(
+          files.map((f) => f.relPath),
+          [...report.missingRequired, ...report.missingOptional].map(
+            (r) => r.relPath
+          ),
+          report.refs.map((r) => r.relPath)
+        );
+        setLive2dReport({
+          rootName,
+          report,
+          pending: files,
+          relocations,
+          ambiguousRelocations: ambiguous,
+        });
+      } else
+        alert(e instanceof Error ? e.message : t('alerts.live2dUploadFailed'));
     } finally {
       setUploading(false);
     }
+  };
+
+  /**
+   * Take a candidate file set through prefix-stripping and model selection,
+   * then upload. An archive usually wraps the model in one folder; several
+   * manifests means the user has to say which model they meant.
+   */
+  const ingestLive2dBundle = async (
+    raw: BundleFileInput[],
+    fallbackName: string
+  ) => {
+    const { files, prefix } = stripCommonPrefix(raw);
+    const rootName = prefix ?? fallbackName;
+    const manifests = findManifests(files);
+    if (manifests.length > 1) {
+      setLive2dPicker({ files, rootName, manifests });
+      return;
+    }
+    await uploadBundle(files, rootName);
+  };
+
+  const handleUploadLive2dFolder = async (files: FileList | File[]) => {
+    const list = Array.from(files);
+    if (list.length === 0) return;
+    await ingestLive2dBundle(
+      list.map((f) => ({ relPath: f.webkitRelativePath || f.name, file: f })),
+      'live2d-model'
+    );
+  };
+
+  const handleUploadLive2dZip = async (file: File) => {
+    setUploading(true);
+    let expanded: BundleFileInput[];
+    try {
+      expanded = await expandZip(file);
+    } catch (e) {
+      setUploading(false);
+      alert(e instanceof ZipError ? e.message : t('alerts.live2dZipFailed'));
+      return;
+    }
+    setUploading(false);
+    if (findManifests(expanded).length === 0) {
+      alert(t('alerts.live2dZipNoManifest'));
+      return;
+    }
+    await ingestLive2dBundle(expanded, file.name.replace(/\.zip$/i, ''));
   };
 
   // OS file drag-and-drop onto the dock. Uploads every dropped file, then jumps
@@ -239,6 +369,45 @@ export function AssetManager() {
   const isFileDrag = (e: React.DragEvent) =>
     Array.from(e.dataTransfer.types).includes('Files');
 
+  /**
+   * Route a drop: a Live2D bundle (dropped folder or zip containing a manifest)
+   * takes the bundle path; anything else keeps the existing per-file upload, so
+   * dropping images/video/audio/VRMs works exactly as before.
+   *
+   * `e.dataTransfer` must be read synchronously — the event's data is cleared
+   * once the handler yields, so the walk starts before any `await`.
+   */
+  const handleDrop = async (dataTransfer: DataTransfer) => {
+    const { files, hadDirectory } = await readDroppedFiles(dataTransfer);
+    if (files.length === 0) return;
+
+    // A lone zip: expand it and see whether it is a model.
+    if (files.length === 1 && isZipFile(files[0].file)) {
+      const zip = files[0].file;
+      let expanded: BundleFileInput[] = [];
+      try {
+        expanded = await expandZip(zip);
+      } catch {
+        // Unreadable archive — fall through and store it as a plain file
+        // rather than refusing a drop the user may have meant literally.
+      }
+      if (findManifests(expanded).length > 0) {
+        await ingestLive2dBundle(expanded, zip.name.replace(/\.zip$/i, ''));
+        return;
+      }
+      await handleUploadFiles([zip]);
+      return;
+    }
+
+    // A dropped folder holding a manifest is a bundle; a folder of ordinary
+    // media is just several files.
+    if (hadDirectory && findManifests(files).length > 0) {
+      await ingestLive2dBundle(files, 'live2d-model');
+      return;
+    }
+    await handleUploadFiles(files.map((f) => f.file));
+  };
+
   const handleAddToScene = async (asset: AssetFile) => {
     if (!activeSceneId) {
       alert(t('alerts.noScene'));
@@ -247,7 +416,7 @@ export function AssetManager() {
     const ext = asset.name.split('.').pop()?.toLowerCase();
     const nodeKind = ext === 'vrm' ? 'avatar' : 'model';
     try {
-      const node = await api.createNode(activeSceneId, {
+      await commitNodeCreate(activeSceneId, {
         parentId: null,
         name: asset.name,
         kind: nodeKind,
@@ -267,8 +436,6 @@ export function AssetManager() {
           },
         },
       });
-      if (useEditorStore.getState().nodes.every((n) => n.id !== node.id))
-        addNode(node);
     } catch (e: unknown) {
       alert(e instanceof Error ? e.message : t('alerts.addSceneFailed'));
     }
@@ -280,7 +447,7 @@ export function AssetManager() {
       return;
     }
     try {
-      const node = await api.createNode(activeSceneId, {
+      await commitNodeCreate(activeSceneId, {
         parentId: null,
         name: asset.name,
         kind: 'billboard',
@@ -308,8 +475,6 @@ export function AssetManager() {
           },
         },
       });
-      if (useEditorStore.getState().nodes.every((n) => n.id !== node.id))
-        addNode(node);
     } catch (e: unknown) {
       alert(e instanceof Error ? e.message : t('alerts.addBillboardFailed'));
     }
@@ -334,7 +499,7 @@ export function AssetManager() {
       return;
     }
     try {
-      const node = await api.createNode(activeSceneId, {
+      await commitNodeCreate(activeSceneId, {
         parentId: null,
         name: asset.name,
         kind: 'video',
@@ -358,8 +523,6 @@ export function AssetManager() {
           },
         },
       });
-      if (useEditorStore.getState().nodes.every((n) => n.id !== node.id))
-        addNode(node);
     } catch (e: unknown) {
       alert(e instanceof Error ? e.message : t('alerts.addVideoFailed'));
     }
@@ -371,7 +534,7 @@ export function AssetManager() {
       return;
     }
     try {
-      const node = await api.createNode(activeSceneId, {
+      await commitNodeCreate(activeSceneId, {
         parentId: null,
         name: asset.name,
         kind: 'audio',
@@ -397,8 +560,6 @@ export function AssetManager() {
           },
         },
       });
-      if (useEditorStore.getState().nodes.every((n) => n.id !== node.id))
-        addNode(node);
     } catch (e: unknown) {
       alert(e instanceof Error ? e.message : t('alerts.addAudioFailed'));
     }
@@ -427,8 +588,7 @@ export function AssetManager() {
       live2d: { type: 'live2d', ...existing, modelUrl: asset.url },
     };
     try {
-      await api.updateNode(selectedNode.id, { components, filePath: asset.url });
-      storeUpdateNode(selectedNode.id, { components, filePath: asset.url });
+      commitNodePatch(selectedNode.id, { components, filePath: asset.url });
     } catch (e: unknown) {
       alert(e instanceof Error ? e.message : 'Failed to set Live2D model');
     }
@@ -455,13 +615,12 @@ export function AssetManager() {
           }
         : { objectFit: 'contain' };
     try {
-      const created = await api.createComposeSceneLayer(activeComposeSceneId, {
+      const created = await commitLayerCreate(activeComposeSceneId, {
         name: asset.name,
         kind,
         assetId: asset.id,
         config,
       });
-      addComposeLayer(created);
       selectComposeLayer(created.id);
     } catch (e: unknown) {
       alert(e instanceof Error ? e.message : t('alerts.addLayerFailed'));
@@ -482,11 +641,7 @@ export function AssetManager() {
       [key]: { ...existing, assetId: asset.id, sourceUrl: asset.url },
     };
     try {
-      await api.updateNode(selectedNode.id, {
-        components,
-        filePath: asset.url,
-      });
-      storeUpdateNode(selectedNode.id, { components, filePath: asset.url });
+      commitNodePatch(selectedNode.id, { components, filePath: asset.url });
     } catch (e: unknown) {
       alert(e instanceof Error ? e.message : t('alerts.applyMediaFailed'));
     }
@@ -498,8 +653,7 @@ export function AssetManager() {
     const layer = selectedComposeLayer;
     if (!layer) return;
     try {
-      await api.updateComposeLayer(layer.id, { assetId: asset.id });
-      updateComposeLayerLocal(layer.id, { assetId: asset.id });
+      commitLayerPath(layer.id, 'assetId', asset.id);
     } catch (e: unknown) {
       alert(e instanceof Error ? e.message : t('alerts.applyMediaFailed'));
     }
@@ -517,8 +671,7 @@ export function AssetManager() {
       [key]: { ...existing, textureUrl: asset.url },
     };
     try {
-      await api.updateNode(selectedNode.id, { components });
-      storeUpdateNode(selectedNode.id, { components });
+      commitNodePath(selectedNode.id, 'components', components);
     } catch (e: unknown) {
       alert(e instanceof Error ? e.message : t('alerts.applyTextureFailed'));
     }
@@ -535,8 +688,7 @@ export function AssetManager() {
       camera: { ...existing, backgroundImage: asset.url },
     };
     try {
-      await api.updateNode(selectedNode.id, { components });
-      storeUpdateNode(selectedNode.id, { components });
+      commitNodePath(selectedNode.id, 'components', components);
     } catch (e: unknown) {
       alert(e instanceof Error ? e.message : t('alerts.applyCameraBgFailed'));
     }
@@ -545,8 +697,7 @@ export function AssetManager() {
   const handleApplyModel = async (asset: AssetFile) => {
     if (!selectedNode) return;
     try {
-      await api.updateNode(selectedNode.id, { filePath: asset.url });
-      storeUpdateNode(selectedNode.id, { filePath: asset.url });
+      commitNodePath(selectedNode.id, 'filePath', asset.url);
     } catch (e: unknown) {
       alert(e instanceof Error ? e.message : t('alerts.applyModelFailed'));
     }
@@ -560,7 +711,8 @@ export function AssetManager() {
     // behind would silently pin the avatar to the *previous* idle — the new url
     // would land in the ignored legacy slot. Clearing it lets the Viewport
     // re-derive a fresh clip id for this url, exactly like the panel's edit path.
-    const prevProps = (selectedNode.properties as Record<string, unknown>) ?? {};
+    const prevProps =
+      (selectedNode.properties as Record<string, unknown>) ?? {};
     const prevAnim =
       (prevProps.animation as Record<string, unknown> | undefined) ?? {};
     const prevSpeed =
@@ -572,10 +724,12 @@ export function AssetManager() {
       ...selectedNode.components,
       animation: { idleUrl: asset.url, speed: prevSpeed },
     };
-    const properties = { ...prevProps, animation: { ...prevAnim, idle: undefined } };
+    const properties = {
+      ...prevProps,
+      animation: { ...prevAnim, idle: undefined },
+    };
     try {
-      await api.updateNode(selectedNode.id, { components, properties });
-      storeUpdateNode(selectedNode.id, { components, properties });
+      commitNodePatch(selectedNode.id, { components, properties });
     } catch (e: unknown) {
       alert(e instanceof Error ? e.message : t('alerts.applyAnimFailed'));
     }
@@ -587,7 +741,8 @@ export function AssetManager() {
   // wholesale so no stale clipId lingers).
   const handleApplyAnimationAsBase = async (asset: AssetFile) => {
     if (!selectedNode) return;
-    const prevProps = (selectedNode.properties as Record<string, unknown>) ?? {};
+    const prevProps =
+      (selectedNode.properties as Record<string, unknown>) ?? {};
     const prevAnim =
       (prevProps.animation as Record<string, unknown> | undefined) ?? {};
     const prevSpeed =
@@ -597,8 +752,7 @@ export function AssetManager() {
       animation: { ...prevAnim, base: { url: asset.url, speed: prevSpeed } },
     };
     try {
-      await api.updateNode(selectedNode.id, { properties });
-      storeUpdateNode(selectedNode.id, { properties });
+      commitNodePath(selectedNode.id, 'properties', properties);
     } catch (e: unknown) {
       alert(e instanceof Error ? e.message : t('alerts.applyAnimFailed'));
     }
@@ -624,12 +778,7 @@ export function AssetManager() {
       enabled: true,
       config: { ...ct.defaultConfig },
     };
-    addBehavior(comp);
-    try {
-      await api.createBehavior(selectedNode.id, comp);
-    } catch {
-      /* non-fatal */
-    }
+    await commitBehaviorCreate(selectedNode.id, comp);
   };
 
   const handleAddEffect = async (kind: string) => {
@@ -643,12 +792,7 @@ export function AssetManager() {
       enabled: true,
       config: { ...ek.defaultConfig },
     };
-    addCameraEffect(effect);
-    try {
-      await api.createCameraEffect(selectedNode.id, effect);
-    } catch {
-      /* non-fatal */
-    }
+    await commitEffectCreate(selectedNode.id, effect);
   };
 
   const tabBtn = (tabId: BottomDockTab): React.CSSProperties => {
@@ -695,9 +839,7 @@ export function AssetManager() {
     ct: (typeof behaviorKinds)[number],
     dimmed: boolean
   ) => {
-    const alreadyAdded = behaviors.some(
-      (c) => c.nodeId === selectedNode!.id && c.kind === ct.kind
-    );
+    const alreadyAdded = selectedBehaviors.some((c) => c.kind === ct.kind);
     return (
       <div
         key={ct.kind}
@@ -806,7 +948,7 @@ export function AssetManager() {
         e.preventDefault();
         dragDepth.current = 0;
         setFileDragOver(false);
-        handleUploadFiles(e.dataTransfer.files);
+        handleDrop(e.dataTransfer);
       }}
       style={{
         height: bottomDockHeight,
@@ -820,6 +962,34 @@ export function AssetManager() {
       }}
     >
       <BottomDockResizeHandle />
+      {live2dReport && (
+        <Live2dBundleReportWindow
+          report={live2dReport.report}
+          rootName={live2dReport.rootName}
+          pending={live2dReport.pending}
+          relocations={live2dReport.relocations}
+          ambiguousRelocations={live2dReport.ambiguousRelocations}
+          busy={uploading}
+          onRetry={(files) => {
+            const { rootName } = live2dReport;
+            setLive2dReport(null);
+            uploadBundle(files, rootName);
+          }}
+          onClose={() => setLive2dReport(null)}
+        />
+      )}
+      {live2dPicker && (
+        <Live2dManifestPicker
+          manifests={live2dPicker.manifests}
+          rootName={live2dPicker.rootName}
+          onPick={(manifest) => {
+            const { files, rootName } = live2dPicker;
+            setLive2dPicker(null);
+            uploadBundle(selectBundle(files, manifest), rootName);
+          }}
+          onClose={() => setLive2dPicker(null)}
+        />
+      )}
       {fileDragOver && (
         <div
           style={{
@@ -851,10 +1021,18 @@ export function AssetManager() {
           flexShrink: 0,
         }}
       >
-        <button className="vs-tab-create" style={tabBtn('create')} onClick={() => setTab('create')}>
+        <button
+          className="vs-tab-create"
+          style={tabBtn('create')}
+          onClick={() => setTab('create')}
+        >
           {t('tabs.create')}
         </button>
-        <button className="vs-tab-models" style={tabBtn('models')} onClick={() => setTab('models')}>
+        <button
+          className="vs-tab-models"
+          style={tabBtn('models')}
+          onClick={() => setTab('models')}
+        >
           {t('tabs.models')}
         </button>
         <button
@@ -864,13 +1042,25 @@ export function AssetManager() {
         >
           {t('tabs.animations')}
         </button>
-        <button className="vs-tab-images" style={tabBtn('images')} onClick={() => setTab('images')}>
+        <button
+          className="vs-tab-images"
+          style={tabBtn('images')}
+          onClick={() => setTab('images')}
+        >
           {t('tabs.images')}
         </button>
-        <button className="vs-tab-videos" style={tabBtn('videos')} onClick={() => setTab('videos')}>
+        <button
+          className="vs-tab-videos"
+          style={tabBtn('videos')}
+          onClick={() => setTab('videos')}
+        >
           {t('tabs.videos')}
         </button>
-        <button className="vs-tab-audio" style={tabBtn('audio')} onClick={() => setTab('audio')}>
+        <button
+          className="vs-tab-audio"
+          style={tabBtn('audio')}
+          onClick={() => setTab('audio')}
+        >
           {t('tabs.audio')}
         </button>
         <button
@@ -880,13 +1070,25 @@ export function AssetManager() {
         >
           {t('tabs.components')}
         </button>
-        <button className="vs-tab-effects" style={tabBtn('effects')} onClick={() => setTab('effects')}>
+        <button
+          className="vs-tab-effects"
+          style={tabBtn('effects')}
+          onClick={() => setTab('effects')}
+        >
           {t('tabs.effects')}
         </button>
-        <button className="vs-tab-clips" style={tabBtn('clips')} onClick={() => setTab('clips')}>
+        <button
+          className="vs-tab-clips"
+          style={tabBtn('clips')}
+          onClick={() => setTab('clips')}
+        >
           {t('tabs.clips')}
         </button>
-        <button className="vs-tab-presets" style={tabBtn('presets')} onClick={() => setTab('presets')}>
+        <button
+          className="vs-tab-presets"
+          style={tabBtn('presets')}
+          onClick={() => setTab('presets')}
+        >
           {t('tabs.presets')}
         </button>
         {/* One contextual help affordance for the active tab — consistent across
@@ -948,12 +1150,13 @@ export function AssetManager() {
               }}
             />
             <button
+              className="vs-upload-live2d"
               style={uploadBtn}
               disabled={uploading}
-              title="Upload a Live2D model folder (.model3.json + .moc3 + textures)"
+              title={t('upload.live2dTitle')}
               onClick={() => live2dInputRef.current?.click()}
             >
-              {uploading ? 'Uploading…' : 'Upload Live2D'}
+              {uploading ? t('upload.uploading') : t('upload.live2d')}
             </button>
             <input
               ref={live2dInputRef}
@@ -963,6 +1166,29 @@ export function AssetManager() {
               onChange={(e) => {
                 if (e.target.files && e.target.files.length > 0)
                   handleUploadLive2dFolder(e.target.files);
+                e.target.value = '';
+              }}
+            />
+            {/* A separate control from the folder picker above: a
+                `webkitdirectory` input can only choose directories, so a zip
+                needs an input of its own. */}
+            <button
+              className="vs-upload-live2d-zip"
+              style={uploadBtn}
+              disabled={uploading}
+              title={t('upload.live2dZipTitle')}
+              onClick={() => live2dZipInputRef.current?.click()}
+            >
+              {uploading ? t('upload.uploading') : t('upload.live2dZip')}
+            </button>
+            <input
+              ref={live2dZipInputRef}
+              type="file"
+              accept=".zip,application/zip"
+              style={{ display: 'none' }}
+              onChange={(e) => {
+                const file = e.target.files?.[0];
+                if (file) handleUploadLive2dZip(file);
                 e.target.value = '';
               }}
             />
@@ -1142,8 +1368,8 @@ export function AssetManager() {
               {selectedNode && selectedNode.kind === 'camera' && (
                 <div style={cardGrid}>
                   {CAMERA_EFFECT_KINDS.map((ek) => {
-                    const alreadyAdded = cameraEffects.some(
-                      (e) => e.nodeId === selectedNode.id && e.kind === ek.kind
+                    const alreadyAdded = selectedEffects.some(
+                      (e) => e.kind === ek.kind
                     );
                     return (
                       <div
@@ -1167,7 +1393,9 @@ export function AssetManager() {
                           }}
                         >
                           {(() => {
-                            const I = CAMERA_EFFECT_ICON[ek.kind] ?? CAMERA_EFFECT_FALLBACK;
+                            const I =
+                              CAMERA_EFFECT_ICON[ek.kind] ??
+                              CAMERA_EFFECT_FALLBACK;
                             return <I size={20} />;
                           })()}
                         </span>

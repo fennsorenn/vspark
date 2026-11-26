@@ -10,41 +10,36 @@
  *
  * Receiver side: remote frames for nodes of OUR collab scenes re-broadcast
  * to this server's tabs over /ws under their original kind (vmc_pose,
- * node_transform_preview, …) — same surface the legacy COLLAB_STREAM_RTYPE
- * relay fed. Frames matching only a placed-object subscription are dropped
- * here: object-share streams still ride the legacy `_share_stream` path
- * (relay + direct browser edges), so bridging them too would double-apply.
+ * vmc_blendshapes, …) — same surface the legacy COLLAB_STREAM_RTYPE relay fed.
+ * Frames matching only a placed-object subscription are dropped here:
+ * object-share streams still ride the legacy `_share_stream` path (relay +
+ * direct browser edges), so bridging them too would double-apply.
+ *
+ * What rides here is what cannot be derived — mocap pose, blendshapes, IK
+ * targets. A drag preview is not in that set: it reaches every peer as
+ * overlays on the `scene_node` collection's preview channel.
  *
  * The frontend tab subscriptions don't cover this rtype, so tabs never
  * receive these frames over /mesh (no double with the /ws broadcast).
  */
 import type { Collection, MeshPeer } from '@vspark/mesh';
+import { CONTROL_CHANNEL } from './runtime.js';
 import {
   collabSceneForNode,
   clipCollabScene,
   isCollabScene,
   allCollabSceneIds,
-  type ClipPlaybackAction,
 } from '../multiplayer/collabScene.js';
 
+export { CONTROL_CHANNEL };
+
 export const NODE_STREAM_RTYPE = 'node_stream';
-/** Reliable unstamped event channel: control messages that must not drop but
- *  are events, not state (never retained, snapshotted, or persisted). */
-export const CONTROL_CHANNEL = 'control';
-export const CLIP_CONTROL_RTYPE = 'clip_control';
 export const RUNTIME_CONTROL_RTYPE = 'runtime_control';
 
 interface StreamFrame {
   id: string; // subject scene-node id (replica key + containment hook)
   kind: string;
   payload: Record<string, unknown>;
-  [k: string]: unknown;
-}
-
-interface ClipControlEvent {
-  id: string; // clip id (containment: clip → owner node → scene)
-  action: ClipPlaybackAction;
-  t?: number;
   [k: string]: unknown;
 }
 
@@ -61,11 +56,7 @@ interface RuntimeEvent {
 }
 
 let _col: Collection<StreamFrame> | null = null;
-let _clipCol: Collection<ClipControlEvent> | null = null;
 let _runtimeCol: Collection<RuntimeEvent> | null = null;
-let _applyClipPlayback:
-  | ((clipId: string, action: ClipPlaybackAction, t?: number) => void)
-  | null = null;
 let _applyRuntime:
   | ((kind: string, payload: Record<string, unknown>, from: string) => void)
   | null = null;
@@ -73,13 +64,7 @@ let _applyRuntime:
 const seenRuntimeEvents = new Set<string>();
 const SEEN_CAP = 1024;
 
-/** The manager injects its local appliers (avoids an import cycle). */
-export function setClipPlaybackApplier(
-  fn: (clipId: string, action: ClipPlaybackAction, t?: number) => void
-): void {
-  _applyClipPlayback = fn;
-}
-
+/** The manager injects its local applier (avoids an import cycle). */
 export function setCollabRuntimeApplier(
   fn: (kind: string, payload: Record<string, unknown>, from: string) => void
 ): void {
@@ -92,34 +77,16 @@ export function initMeshStreams(
   broadcast: (kind: string, payload: Record<string, unknown>) => void
 ): void {
   if (_col) return;
-  peer.channel(CONTROL_CHANNEL, {
-    transport: 'reliable',
-    stamped: false,
-    retained: false,
-  });
-  _col = peer.collection<StreamFrame>(NODE_STREAM_RTYPE, {
-    channels: ['preview'],
-  });
+  // Server-to-server only: no `clients` grant, so tabs can't subscribe.
+  _col = peer.collection<StreamFrame>(NODE_STREAM_RTYPE);
   _col.observe('**', (c) => {
     if (c.origin === peer.id || !c.doc) return; // our own publish — tabs got /ws
     if (!collabSceneForNode(c.id)) return; // not a collab node here — drop
     broadcast(c.doc.kind, c.doc.payload);
   });
-  // Clip playback control: each peer re-anchors locally on receipt (no clock
-  // sync — seek carries the playhead), replacing the legacy _collab_playback.
-  _clipCol = peer.collection<ClipControlEvent>(CLIP_CONTROL_RTYPE, {
-    channels: [CONTROL_CHANNEL],
-  });
-  _clipCol.observe('**', (c) => {
-    if (c.origin === peer.id || !c.doc) return;
-    if (!clipCollabScene(c.id)) return; // clip's scene isn't collab here — drop
-    _applyClipPlayback?.(c.id, c.doc.action, c.doc.t);
-  });
   // Runtime events (Set Data / overrides / media / spawn), replacing the
   // legacy _collab_runtime broadcast. Keyed by scene id, deduped by eventId.
-  _runtimeCol = peer.collection<RuntimeEvent>(RUNTIME_CONTROL_RTYPE, {
-    channels: [CONTROL_CHANNEL],
-  });
+  _runtimeCol = peer.collection<RuntimeEvent>(RUNTIME_CONTROL_RTYPE);
   _runtimeCol.observe('**', (c) => {
     if (c.origin === peer.id || !c.doc) return;
     if (!isCollabScene(c.id)) return; // not one of our shared scenes — drop
@@ -162,18 +129,4 @@ export function publishCollabRuntime(
       { id: sceneId, eventId, kind, payload },
       { channel: CONTROL_CHANNEL }
     );
-}
-
-/** Publish a clip playback control to the clip's collab peers (reliable). */
-export function publishClipPlayback(
-  clipId: string,
-  action: ClipPlaybackAction,
-  t?: number
-): void {
-  _clipCol?.set(
-    clipId,
-    '',
-    { id: clipId, action, t },
-    { channel: CONTROL_CHANNEL }
-  );
 }

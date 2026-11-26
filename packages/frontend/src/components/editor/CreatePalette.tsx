@@ -12,6 +12,14 @@ import {
 import { DND_CREATE_NODE, DND_CREATE_LAYER } from './dnd';
 import { HelpButton } from '../../help/HelpButton';
 import type { LucideIcon } from 'lucide-react';
+import { useComposeScenes } from '../../mesh/compose';
+import {
+  COMPOSITE_DEFS,
+  placeComposite,
+  type CompositeDef,
+} from './composites/compositeModel';
+import { CompositeTag } from './composites/CompositeTag';
+import { useScenes } from '../../mesh/nodes';
 
 const grid: React.CSSProperties = {
   display: 'grid',
@@ -46,15 +54,21 @@ function Tile({
   onClick,
   onDragStart,
   tileTitle,
+  className,
+  tag,
 }: {
   icon: LucideIcon;
   label: string;
   onClick: () => void;
   onDragStart?: (e: React.DragEvent) => void;
   tileTitle: string;
+  className?: string;
+  /** Small marker after the label (the composite tag). */
+  tag?: React.ReactNode;
 }) {
   return (
     <button
+      className={className}
       style={tile}
       draggable={!!onDragStart}
       onDragStart={onDragStart}
@@ -74,6 +88,7 @@ function Tile({
         <Icon size={20} strokeWidth={1.75} />
       </span>
       <span style={{ fontWeight: 500 }}>{label}</span>
+      {tag}
     </button>
   );
 }
@@ -87,13 +102,46 @@ export function CreatePalette() {
   const leftTab = useEditorStore((s) => s.leftTab);
   const activeSceneId = useEditorStore((s) => s.activeSceneId);
   const activeComposeSceneId = useEditorStore((s) => s.activeComposeSceneId);
-  const scenes = useEditorStore((s) => s.scenes);
-  const composeScenes = useEditorStore((s) => s.composeScenes);
+  const scenes = useScenes();
+  const composeScenes = useComposeScenes();
   const selectNode = useEditorStore((s) => s.selectNode);
   const setSceneSelected = useEditorStore((s) => s.setSceneSelected);
   const requestFocusName = useEditorStore((s) => s.requestFocusName);
 
   const composeMode = leftTab === 'compose';
+  const projectId = useEditorStore((s) => s.projectId);
+  const selectComposeLayer = useEditorStore((s) => s.selectComposeLayer);
+
+  const handleAddComposite = async (def: CompositeDef) => {
+    if (!projectId) return;
+    try {
+      const rootId = await placeComposite(def, {
+        projectId,
+        sceneId: activeSceneId,
+        composeSceneId: activeComposeSceneId,
+      });
+      if (def.rootRtype === 'compose_layer') selectComposeLayer(rootId);
+      else {
+        selectNode(rootId);
+        setSceneSelected(false);
+      }
+    } catch (e) {
+      alert(e instanceof Error ? e.message : t('palette.failCreate'));
+    }
+  };
+
+  const compositeTiles = (rtype: CompositeDef['rootRtype']) =>
+    COMPOSITE_DEFS.filter((d) => d.rootRtype === rtype).map((def) => (
+      <Tile
+        key={def.type}
+        className="vs-palette-composite"
+        icon={def.icon}
+        label={t(`composites:type.${def.type}`, { defaultValue: def.label })}
+        tileTitle={t('palette.tileTitle')}
+        tag={<CompositeTag />}
+        onClick={() => void handleAddComposite(def)}
+      />
+    ));
 
   const handleAddNode = async (def: NodeKindDef) => {
     if (!activeSceneId) return;
@@ -118,21 +166,23 @@ export function CreatePalette() {
     return (
       <div style={{ flex: 1, overflowY: 'auto', padding: 12 }}>
         {!activeComposeSceneId ? (
-          <div style={hintStyle}>
-            {t('palette.noComposeScene')}
-          </div>
+          <div style={hintStyle}>{t('palette.noComposeScene')}</div>
         ) : (
           <>
             <div style={{ color: '#777', fontSize: 11, marginBottom: 8 }}>
               {t('palette.addLayerTo')}{' '}
-              <span style={{ color: '#aaa' }}>{target?.name ?? t('palette.scene')}</span>
+              <span style={{ color: '#aaa' }}>
+                {target?.name ?? t('palette.scene')}
+              </span>
             </div>
             <div style={grid}>
               {LAYER_KIND_DEFS.map((def) => (
                 <Tile
                   key={def.kind}
                   icon={def.icon}
-                  label={t(`kinds:layer.${def.kind}`, { defaultValue: def.label })}
+                  label={t(`kinds:layer.${def.kind}`, {
+                    defaultValue: def.label,
+                  })}
                   tileTitle={t('palette.tileTitle')}
                   onClick={() => handleAddLayer(def)}
                   onDragStart={(e) => {
@@ -144,6 +194,7 @@ export function CreatePalette() {
                   }}
                 />
               ))}
+              {compositeTiles('compose_layer')}
             </div>
           </>
         )}
@@ -155,35 +206,52 @@ export function CreatePalette() {
   return (
     <div style={{ flex: 1, overflowY: 'auto', padding: 12 }}>
       {!activeSceneId ? (
-        <div style={hintStyle}>
-          {t('palette.noScene')}
-        </div>
+        <div style={hintStyle}>{t('palette.noScene')}</div>
       ) : (
         <>
           <div style={{ color: '#777', fontSize: 11, marginBottom: 8 }}>
             {t('palette.addTo')}{' '}
-            <span style={{ color: '#aaa' }}>{target?.name ?? t('palette.scene')}</span>
+            <span style={{ color: '#aaa' }}>
+              {target?.name ?? t('palette.scene')}
+            </span>
           </div>
           <div style={grid}>
             {NODE_KIND_DEFS.map((def) => {
               const helpProps =
                 def.kind === 'avatar'
-                  ? { helpTopic: 'avatar', helpAnchor: 'loading', helpTip: t('help.avatar') }
+                  ? {
+                      helpTopic: 'avatar',
+                      helpAnchor: 'loading',
+                      helpTip: t('help.avatar'),
+                    }
                   : def.kind === 'camera'
-                    ? { helpTopic: 'scene', helpAnchor: 'cameras', helpTip: t('help.camera') }
+                    ? {
+                        helpTopic: 'scene',
+                        helpAnchor: 'cameras',
+                        helpTip: t('help.camera'),
+                      }
                     : def.kind === 'light'
-                      ? { helpTopic: 'scene', helpAnchor: 'lights', helpTip: t('help.lights') }
+                      ? {
+                          helpTopic: 'scene',
+                          helpAnchor: 'lights',
+                          helpTip: t('help.lights'),
+                        }
                       : null;
               return (
                 <div key={def.i18nKey} style={{ position: 'relative' }}>
                   <Tile
                     icon={def.icon}
-                    label={t(`kinds:node.${def.i18nKey}`, { defaultValue: def.label })}
+                    label={t(`kinds:node.${def.i18nKey}`, {
+                      defaultValue: def.label,
+                    })}
                     tileTitle={t('palette.tileTitle')}
                     onClick={() => handleAddNode(def)}
                     onDragStart={(e) => {
                       e.dataTransfer.effectAllowed = 'copy';
-                      e.dataTransfer.setData(DND_CREATE_NODE, JSON.stringify(def));
+                      e.dataTransfer.setData(
+                        DND_CREATE_NODE,
+                        JSON.stringify(def)
+                      );
                     }}
                   />
                   {helpProps && (
@@ -198,6 +266,7 @@ export function CreatePalette() {
                 </div>
               );
             })}
+            {compositeTiles('scene_node')}
           </div>
         </>
       )}

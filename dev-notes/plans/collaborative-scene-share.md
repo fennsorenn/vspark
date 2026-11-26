@@ -1,7 +1,16 @@
 # Plan: Collaborative scene sharing (peer-to-peer, persisted on both)
 
-> Branch: `feature/multiplayer-phase6`. Status: **core feature done + verified
-> (API + browser); reconnect-reconcile + help remaining.** Builds on the
+> **Status:** shipped. Share/mount, two-way persisted edits and reconnect reconcile all
+> exist (`backend/src/multiplayer/collabScene.ts`, migration `031_collab_scenes`). The
+> "reconnect-reconcile remaining" note in the old header below is stale: live ops and
+> reconcile ride `@vspark/mesh` (`backend/src/mesh/collab.ts` — `mesh-sync-refactor.md`
+> §9 step B, snapshot-on-resubscribe *is* the reconcile). The scene-scoped
+> `collab_tombstones` table from migration `031` is created and then never read or
+> written by any code — generic `mesh_tombstones` (migration `032`) took over. The
+> legacy `_collab_*` envelopes survive only for the mount handshake and asset transfer.
+> **Companion to:** [`multiplayer-phase6.md`](./multiplayer-phase6.md).
+
+> *(Historical.)* Branch: `feature/multiplayer-phase6`. Builds on the
 > multiplayer object-share + Phase 6 write tier, but is a distinct model.
 
 ## Progress

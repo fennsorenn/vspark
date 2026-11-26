@@ -155,6 +155,7 @@ function makeCtx() {
   const config: Record<string, unknown> = { enabled: true, foo: 'bar' };
 
   const ctx: NodeBindContext = {
+    selfId: 'test-node',
     config,
     getState: <T>() => state as T,
     setState: (s) => {

@@ -10,6 +10,9 @@ interface RedemptionOut {
   amount: number;
   rewardTitle: string;
   rewardId: string;
+  /** The channel-point redemption's id ('' for other currencies) — what
+   *  `overlive_redemption_status` needs next to `rewardId`. */
+  redemptionId: string;
   message: string;
 }
 
@@ -20,6 +23,7 @@ const EMPTY: RedemptionOut = {
   amount: 0,
   rewardTitle: '',
   rewardId: '',
+  redemptionId: '',
   message: '',
 };
 
@@ -28,6 +32,9 @@ const EMPTY: RedemptionOut = {
  * account. Use `currencyKind` to restrict to one of bits / channel_points /
  * tip / superchat; use `rewardId` to restrict to a specific channel-points
  * reward (only meaningful for `channel_points`).
+ *
+ * `redemptionId` (channel points only) pairs with `rewardId` for
+ * `overlive_redemption_status`; `data` is every output as one record.
  */
 @SignalNode({
   label: 'Overlive Redemption',
@@ -54,6 +61,9 @@ export class OverliveRedemption extends Node {
   @valueOut('rewardTitle', 'String') rewardTitleOut = (): string => this._out().rewardTitle;
   @valueOut('rewardId', 'String') rewardIdOut = (): string => this._out().rewardId;
   @valueOut('message', 'String') messageOut = (): string => this._out().message;
+  @valueOut('redemptionId', 'String') redemptionIdOut = (): string => this._out().redemptionId;
+  /** Every output above as one record — e.g. the payload of a `send_trigger`. */
+  @valueOut('data', 'Any') dataOut = (): RedemptionOut => ({ ...this._out() });
 
   @eventIn('event', 'Any')
   onEvent(ev: Event<unknown>): void {
@@ -83,6 +93,8 @@ export class OverliveRedemption extends Node {
         : 0;
     const rewardTitle = c.kind === 'channel_points' ? c.rewardTitle : '';
     const rewardId = c.kind === 'channel_points' ? c.rewardId : '';
+    // The event id is the platform's redemption id (Twitch EventSub).
+    const redemptionId = c.kind === 'channel_points' ? payload.id ?? '' : '';
     this.setState({
       username: payload.data.username,
       displayName: payload.data.displayName,
@@ -90,6 +102,7 @@ export class OverliveRedemption extends Node {
       amount,
       rewardTitle,
       rewardId,
+      redemptionId,
       message: payload.data.message ?? '',
     } satisfies RedemptionOut);
     this.event.emit(undefined);

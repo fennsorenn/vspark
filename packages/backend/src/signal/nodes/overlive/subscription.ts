@@ -51,6 +51,9 @@ export class OverliveSubscription extends Node {
   @valueOut('isResub', 'Bool') isResubOut = (): boolean => this._out().isResub;
   @valueOut('isGift', 'Bool') isGiftOut = (): boolean => this._out().isGift;
   @valueOut('message', 'String') messageOut = (): string => this._out().message;
+  /** Every output above as one record — e.g. a Format Text node's values, or
+   *  the payload of a `send_trigger`. */
+  @valueOut('data', 'Any') dataOut = (): SubscriptionOut => ({ ...this._out() });
 
   @eventIn('event', 'Any')
   onEvent(ev: Event<unknown>): void {

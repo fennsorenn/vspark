@@ -36,11 +36,21 @@ export interface LlmConfig {
   baseUrl: string;
   apiKey?: string;
   model: string;
+  /** Default `max_tokens` for every call; per-call `opts.maxTokens` wins. */
+  maxTokens?: number;
 }
 
 export interface ChatResult {
   message: ChatMessage;
   finishReason: string | null;
+}
+
+/** `<baseUrl>/v1/<path>`. Accepts the base URL with or without its `/v1` — both
+ *  conventions are common (the OpenAI SDK includes it, many server docs don't),
+ *  so a trailing `/v1` is stripped rather than doubled. */
+export function apiUrl(baseUrl: string, path: string): string {
+  const root = baseUrl.trim().replace(/\/+$/, '').replace(/\/v1$/, '');
+  return `${root}/v1/${path}`;
 }
 
 /** Ask an OpenAI-compatible endpoint for its model list and return the first id.
@@ -51,7 +61,7 @@ export async function fetchFirstModel(
   apiKey?: string
 ): Promise<string> {
   try {
-    const url = baseUrl.replace(/\/$/, '') + '/v1/models';
+    const url = apiUrl(baseUrl, 'models');
     const res = await fetch(url, {
       headers: apiKey ? { Authorization: `Bearer ${apiKey}` } : {},
     });
@@ -70,7 +80,7 @@ export async function chatCompletion(
   tools: ChatTool[],
   opts: { signal?: AbortSignal; maxTokens?: number } = {}
 ): Promise<ChatResult> {
-  const url = cfg.baseUrl.replace(/\/$/, '') + '/v1/chat/completions';
+  const url = apiUrl(cfg.baseUrl, 'chat/completions');
   const res = await fetch(url, {
     method: 'POST',
     headers: {
@@ -84,9 +94,9 @@ export async function chatCompletion(
       temperature: 0,
       // Conservative default: small-context models (e.g. 16k) overflow when a
       // long tool-call history meets a big requested completion. Reserve more
-      // room for input; raise per-call via opts.maxTokens if a big output is
-      // genuinely needed.
-      max_tokens: opts.maxTokens ?? 1024,
+      // room for input; raise it via the assistant config's maxTokens (or
+      // per-call opts.maxTokens) if a big output is genuinely needed.
+      max_tokens: opts.maxTokens ?? cfg.maxTokens ?? 1024,
     }),
     signal: opts.signal,
   });

@@ -237,11 +237,33 @@
     "propertiesHeader": "Properties",
     "blendTransition": "Blend transition",
     "trackingGracePeriod": "Idle after",
-    "dynamicsHeader": "Motion Snappiness",
-    "dynamicsEnable": "Add snappiness to motion",
-    "dynamicsFrequency": "Frequency",
-    "dynamicsDamping": "Damping",
-    "dynamicsResponse": "Response",
+    "poseFilter": {
+      "header": "Motion filter",
+      "preset": "Preset",
+      "advanced": "Advanced",
+      "presets": {
+        "minimal": "Minimal (interpolation)",
+        "smooth": "Smooth",
+        "springy": "Springy",
+        "custom": "Custom"
+      },
+      "hints": {
+        "minimal": "Only glides between tracking updates. Quickest response; best for Learned Tracking, which is already smooth.",
+        "smooth": "Calms jitter while you hold still; fast moves stay quick. For noisy sources such as camera tracking.",
+        "springy": "Calms jitter at rest and adds a little overshoot and follow-through.",
+        "custom": "Your own values, set under Advanced."
+      },
+      "smoothing": "Smoothing",
+      "adaptation": "Speed adaptation",
+      "damping": "Damping",
+      "response": "Response",
+      "tips": {
+        "smoothing": "0 = only glide between updates; 1 = strong smoothing while still",
+        "adaptation": "How quickly smoothing fades as you move faster (less lag on fast moves)",
+        "damping": "1 = settles without overshoot; below 1 = springy overshoot; above 1 = sluggish",
+        "response": "0 = follows; above 0 = reacts ahead of the movement; below 0 = winds up first"
+      }
+    },
     "debugHeader": "Debug",
     "showFbxModel": "Show FBX animation model",
     "modelHeader": "Model",
@@ -257,19 +279,50 @@
     "animSpeed": "Speed",
     "twistHeader": "Forearm twist",
     "twistForce": "Force twist bone",
-    "twistExcludeSleeves": "Exclude sleeves",
-    "poseSourceHeader": "Partial Tracking",
-    "poseSourceHint": "Tracking stacks on top of the base animation per body section, each scaled independently. Anim scales the base animation (rest→clip), Track scales the live tracking (VMC/camera) added on top. Both at 0 = rest pose. Legs from tracking need a full-body source.",
-    "poseSourceAnim": "Anim",
-    "poseSourceTrack": "Track",
-    "poseSourceReset": "Reset all sections",
-    "poseSection": {
+    "twistExcludeSleeves": "Exclude sleeves"
+  },
+  "eyeRange": {
+    "header": "Gaze",
+    "enabled": "Fit eye movement to the model's eye range",
+    "inputMax": "Physical eye range (°)",
+    "hint": "Tracked eye rotation up to this angle is scaled onto how far the model's eyes are built to turn, so the iris doesn't roll under the eyelids."
+  },
+  "trackingMix": {
+    "header": "Tracking Mix",
+    "hint": "How strongly each source drives the avatar. Tracking sources stack on the animation; weights above 1 amplify. Open the mixer for per-region, per-bone and face control.",
+    "animation": "Animation",
+    "animationBase": "Animation (base)",
+    "open": "Open mixer…",
+    "title": "Tracking Mix",
+    "close": "Close",
+    "custom": "Custom",
+    "resetTo": "Set all to {{value}}",
+    "tab": {
+      "body": "Body",
+      "face": "Face"
+    },
+    "order": "Order — applied left to right, on top of the animation",
+    "moveEarlier": "Apply earlier",
+    "moveLater": "Apply later",
+    "noBodySources": "This avatar has no animation or body tracking sources.",
+    "noFaceSources": "No face source on this avatar. Add a tracking, lipsync or API behavior to mix expressions.",
+    "noShapes": "The model's expressions appear here once it has loaded.",
+    "bodyHint": "Expand a region to set single bones. Changing a region sets all its bones; a region whose bones differ shows Custom — reset sets them all to the most common value.",
+    "faceHint": "Weights multiply each source's value before the sources are added up. A shape every source weighs 0 falls back to the default expression.",
+    "region": {
       "head": "Head",
       "gaze": "Gaze",
       "body": "Body",
       "arms": "Arms",
       "hands": "Hands",
       "legs": "Legs"
+    },
+    "faceGroup": {
+      "mouth": "Mouth",
+      "eyes": "Eyes",
+      "brows": "Brows",
+      "emotions": "Emotions",
+      "other": "Other"
     }
   },
   "file": {
@@ -395,13 +448,80 @@
     "compatHint": "Works with iFacialMocap (iOS). Enter the Device IP above and vspark will ask the phone to stream, or leave it empty and point the app at one of the addresses above. Both ends use port {{port}}.",
     "firewallHint": "Port {{port}} needs to be open in your firewall."
   },
+  "learned": {
+    "camera": "Camera",
+    "refreshCameras": "Refresh",
+    "loadingCameras": "Looking for cameras… (the first time, the runtime is installed first; this can take a few minutes)",
+    "camerasError": "Couldn't list cameras: {{message}}",
+    "cameraIndex": "Camera {{index}}",
+    "port": "Port",
+    "runtime": "Runtime",
+    "state": {
+      "starting": "Starting",
+      "running": "Running",
+      "error": "Error",
+      "stopped": "Stopped"
+    },
+    "stats": "{{fps}} fps · {{latency}} ms latency · model {{model}} ms",
+    "noBody": "no body in view",
+    "cameraHint": "The runtime opens the camera itself. Turn off Camera tracking on the same webcam: two programs can't read one webcam at once.",
+    "install": "Install",
+    "installDownloaded": "Downloaded runtime {{version}}",
+    "installMissing": "Not installed yet",
+    "installLocal": "Local copy: {{dir}}",
+    "download": "Download runtime {{version}} ({{size}} MB)",
+    "downloading": "Downloading… {{percent}} %",
+    "downloadOverridden": "A path set for the runtime (config.json or VSPARK_MOTIONTRACKER_PATH) is used instead of the download.",
+    "downloadError": "Download failed: {{message}}",
+    "retarget": "Retarget",
+    "retargetLabel": "Fit to the avatar's proportions",
+    "retargetInactive": "Not applied: {{reason}}",
+    "restart": "Restart runtime",
+    "restarting": "Restarting…",
+    "restartHint": "Stops the runtime and starts it again, e.g. when the camera stopped sending pictures",
+    "fps": "Frame rate",
+    "fpsOption": "{{fps}} fps",
+    "historyShift": "History shift",
+    "historyShiftOptions": {
+      "none": "Off",
+      "every": "Every step",
+      "alternate": "Every other step"
+    },
+    "historyShiftHint": "Experimental, for 20 fps: calms a slight frame-to-frame flicker.",
+    "settingsMismatch": "The runtime runs at {{fps}} fps, shift: {{shift}} (it may not support this setting).",
+    "preview": {
+      "open": "Camera preview",
+      "closeButton": "Close camera preview",
+      "title": "Learned Tracking: camera",
+      "close": "Close",
+      "image": "Picture",
+      "landmarks": "Landmarks",
+      "nothing": "Pick picture, landmarks or both.",
+      "notRunning": "The runtime isn't running.",
+      "waiting": "Waiting for frames…"
+    }
+  },
   "lipsync": {
     "sensitivity": "Sensitivity",
     "openMediaInput": "🎤 Open Media Input",
     "vowelCalibHeader": "Vowel Calibration",
     "vowelCalibHint": "Hold each button while sustaining the vowel sound (~1s).",
     "save": "Save",
-    "resetDefaults": "Reset to defaults"
+    "resetDefaults": "Reset to defaults",
+    "inputMode": "Audio input",
+    "inputModeHelp": "Where the voice comes from: a microphone in a browser tab, or an audio source on this machine read by the server.",
+    "modeBrowser": "Browser microphone",
+    "modePipewire": "Server (PipeWire source)",
+    "pipewireSource": "Source",
+    "pipewireSourcePlaceholder": "e.g. my_sink.monitor",
+    "noSource": "Enter a source name to start capturing.",
+    "pipewireUnavailable": "This server can't capture audio: it needs Linux with PipeWire or PulseAudio (the parec tool). Switch to Browser microphone.",
+    "captureState": {
+      "starting": "Starting capture…",
+      "capturing": "Capturing",
+      "idle": "Waiting for audio (nothing is playing into the source)",
+      "error": "Capture failed — retrying"
+    }
   },
   "mediapipe": {
     "faceLandmarks": "Face landmarks",
@@ -421,6 +541,29 @@
     "pipelineError": "Could not reach pipeline — is tracking active?",
     "useIkArms": "Use IK arms",
     "ikHint": "When off, arms are driven by per-bone quaternions (lower fidelity but always stable).",
+    "armSolve": {
+      "header": "Arm solve (experimental)",
+      "hint": "Switch individual techniques of the arm solve on and off to compare their effect while tracking. All on is the recommended setting.",
+      "mode": "Solve",
+      "modeHinge": "Elbow hinge",
+      "modeLegacy": "Legacy (roll split)",
+      "keepLowVis": "Keep estimated joints",
+      "keepLowVisTip": "Keep solving the forearm and hand from joints the camera can only estimate (e.g. out of frame), instead of dropping them.",
+      "planeWristGate": "Check elbow plane against wrist",
+      "planeWristGateTip": "Only trust the shoulder–elbow–wrist plane as far as the wrist is visible, so an estimated wrist can't flip the upper arm.",
+      "handSwingOnly": "No twist in the wrist",
+      "handSwingOnlyTip": "The hand only bends at the wrist; twist the forearm can't take is dropped instead of being left in the wrist.",
+      "swingFade": "Ignore impossible wrist bends",
+      "swingFadeTip": "Fade out wrist bends far beyond a real wrist's range, which come from conflicting hand and body readings.",
+      "edgeOnConf": "Distrust edge-on palms",
+      "edgeOnConfTip": "Smooth the forearm and hand more while the palm is edge-on to the camera, where its rotation reads poorly.",
+      "poseDorsalConf": "Cross-check hand with body tracking",
+      "poseDorsalConfTip": "Smooth the forearm and hand more while body and hand tracking disagree about which way the back of the hand faces.",
+      "smoothing": "Confidence smoothing",
+      "smoothingTip": "Ease unreliable bones toward their reading instead of letting them jump.",
+      "jumpHold": "Hold single-frame jumps",
+      "jumpHoldTip": "Hold back a sudden large rotation until it persists for a few frames. Stops flickering readings; real fast moves arrive slightly later."
+    },
     "ikCalibHeader": "IK calibration",
     "ikCalibNote": "(X is symmetric: +offset spreads outward)",
     "ikAxis": "{{axis}} axis",
@@ -688,7 +831,7 @@
     "materials": "Learn how to override avatar materials and shaders",
     "animation": "Learn about idle animations and blend timing",
     "trackingGracePeriod": "Learn how brief tracking dropouts are ridden out before the avatar returns to idle",
-    "dynamics": "Learn how to make motion-capture movement feel snappier",
+    "poseFilter": "How the motion filter shapes tracked movement",
     "camera": "Learn about camera properties and projections",
     "light": "Learn about light types and shadow settings",
     "breathing": "Learn how the breathing behavior works",
@@ -708,6 +851,7 @@
     "lightIntensity": "How bright the light is; 1 is the default, 0 is off, values above 1 overexpose nearby surfaces",
     "lightShadows": "Enables shadow rendering for this light — requires the camera's shadow setting to also be on",
     "matMode": "Shader model: MToon is toon shading (ignores scene lights), PBR responds to lights and environment, APBR adds advanced lobes like clearcoat and glass",
+    "mpArmSolve": "Learn what each arm-solve technique does and how to compare them",
     "matEmissive": "Emissive color makes the surface appear self-lit; Emissive intensity multiplies it — values above 1 produce a bright glow when Bloom is active",
     "matMetalRough": "Roughness (0=mirror, 1=diffuse) controls sharpness of reflections; Metalness (0=non-metal, 1=conductor) changes how the surface reflects light",
     "matEnv": "Per-material multiplier on the scene's environment map contribution; at 0 this material ignores the HDRI entirely",
@@ -726,11 +870,28 @@
     "audioType": "Simple plays at the same volume everywhere; Directional falls off with distance and can be shaped into a 3D cone",
     "audioSpatial": "Distance and cone parameters for directional audio — reference distance, rolloff, max distance, and the cone angles",
     "twist": "Spread forearm roll along the arm instead of pinching at the elbow",
-    "poseSource": "Drive each body section from animation, live tracking, or a blend of both",
+    "eyeRange": "Why tracked eyes can look too far and how gaze fitting works",
+    "trackingMix": "Control how strongly each tracking source and the animation drive each body part and expression",
+    "trackingMixOrder": "Why the order of tracking sources matters",
     "baseAnimation": "The animation live tracking stacks onto while a source is connected; the avatar falls back to the idle when tracking drops",
     "stylizedTracking": "Learn how stylized tracking reshapes your motion",
+    "learnedTracking": "Learn what Learned Tracking needs and how it works",
     "ifacialmocap": "Learn how to connect the iFacialMocap iOS app",
     "ifmFirewall": "Why the app can say “connected” while nothing reaches vspark",
-    "expressionLimits": "Learn how expression limits stop exaggerated or broken faces"
+    "expressionLimits": "Learn how expression limits stop exaggerated or broken faces",
+    "behaviorGraph": "Learn how to edit a behavior's graph, and what Modified and Reset mean"
+  },
+  "behaviorGraph": {
+    "title": "Graph",
+    "open": "Open graph",
+    "reset": "Reset graph",
+    "resetTip": "Rebuild this behavior's graph from its template (discards your edits to the graph)",
+    "confirmReset": "Rebuild the graph of “{{name}}” from its template? Your edits to the graph are discarded.",
+    "modified": "Modified",
+    "modifiedTip": "The graph was edited and differs from what the template generated.",
+    "templateUpdate": "Template update",
+    "templateUpdateTip": "The template now generates a different graph. Reset to use it (discards your edits to the graph).",
+    "missing": "No graph",
+    "missingTip": "This behavior has no stored graph and runs its template. Reset stores it so you can edit it."
   }
 }

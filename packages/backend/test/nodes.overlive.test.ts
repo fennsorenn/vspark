@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { loneNode } from './helpers/nodeHarness.js';
+import { loneNode, pullValue } from './helpers/nodeHarness.js';
 
 /**
  * Overlive event nodes share a shape: an `@eventIn('event')` handler maps the
@@ -74,6 +74,27 @@ describe('overlive_redemption', () => {
     const mismatch = loneNode('overlive_redemption', { rewardId: 'other' });
     mismatch.deliver('event', cp);
     expect(mismatch.state()).toBeUndefined();
+  });
+
+  it('exposes the redemption id (channel points only) and every output as `data`', () => {
+    const cp = {
+      id: 'red-9',
+      data: {
+        username: 'cara',
+        displayName: 'Cara',
+        message: 'hi',
+        currency: { kind: 'channel_points', amount: 5, rewardTitle: 'Hydrate', rewardId: 'rw1' },
+      },
+    };
+    const n = loneNode('overlive_redemption');
+    n.deliver('event', cp);
+    expect(n.state()).toMatchObject({ redemptionId: 'red-9' });
+    expect(pullValue('overlive_redemption', 'redemptionId', {}, n.state())).toBe('red-9');
+    expect(pullValue('overlive_redemption', 'data', {}, n.state())).toEqual(n.state());
+
+    const b = loneNode('overlive_redemption');
+    b.deliver('event', { ...bits, id: 'evt-1' });
+    expect(b.state()).toMatchObject({ redemptionId: '' });
   });
 });
 

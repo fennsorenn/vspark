@@ -1,11 +1,16 @@
-import { useState } from 'react';
+import { useId, useState } from 'react';
+import { commitBehaviorPatch } from '../../../mesh/behaviorWrites';
 import { X } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { Handle, Position, type NodeProps } from '@xyflow/react';
 import { SIGNAL_TYPE_COLORS } from '@vspark/shared/signal';
 import type { NodeDisplay, NodePortMeta } from '@vspark/shared/signal';
-import { useEditorStore } from '../../../store/editorStore';
-import { api } from '../../../api/client';
+import { useEditorStore, type Behavior } from '../../../store/editorStore';
+import { useCollection } from '@vspark/mesh-react';
+import { useComposeLayers } from '../../../mesh/compose';
+import { useSceneNodes } from '../../../mesh/nodes';
+import { nodePortNameSpec, useNameSuggestions } from '../../../mesh/names';
+import { SuggestionList } from '../actions/draftInputs';
 
 export interface SignalNodeData extends Record<string, unknown> {
   nodeId: string;
@@ -15,6 +20,8 @@ export interface SignalNodeData extends Record<string, unknown> {
   inputPorts: NodePortMeta[];
   outputPorts: NodePortMeta[];
   connectedInputPorts: string[];
+  /** Where the `scope` input is wired from, if it is (name suggestions). */
+  scopeSource?: 'graph' | 'other';
   readonly: boolean;
   lastExecutedAt: number | null;
   portValues: Record<string, unknown>;
@@ -31,7 +38,10 @@ function typeColor(type: string): string {
 
 function RelativeTime({ ts }: { ts: number | null }) {
   const { t } = useTranslation('signalGraph');
-  if (!ts) return <span style={{ color: '#444', fontSize: 9 }}>{t('nodeCard.never')}</span>;
+  if (!ts)
+    return (
+      <span style={{ color: '#444', fontSize: 9 }}>{t('nodeCard.never')}</span>
+    );
   const age = Date.now() - ts;
   const text =
     age < 1000
@@ -116,15 +126,31 @@ const staticInputStyle: React.CSSProperties = {
   minWidth: 0,
 };
 
+/** The node a static input belongs to, for suggesting names already in use
+ *  (variable / trigger / scope names; see mesh/names.ts). */
+interface NameCtx {
+  kind: string;
+  /** The scope its variable lives in; null when only known at run time. */
+  scope: string | null;
+}
+
 function StaticInput({
   port,
   configValue,
   onChange,
+  nameCtx,
 }: {
   port: NodePortMeta;
   configValue: unknown;
   onChange: (value: unknown) => void;
+  nameCtx: NameCtx;
 }) {
+  const listId = useId();
+  const suggestions = useNameSuggestions(
+    port.typeTag === 'String'
+      ? nodePortNameSpec(nameCtx.kind, port.name, nameCtx.scope, '')
+      : null
+  );
   if (port.typeTag === 'Account') {
     return <AccountSelect configValue={configValue} onChange={onChange} />;
   }
@@ -165,23 +191,27 @@ function StaticInput({
     );
   }
   return (
-    <input
-      type={port.typeTag === 'Float' ? 'number' : 'text'}
-      defaultValue={(configValue as string | number | undefined) ?? ''}
-      key={JSON.stringify(configValue)}
-      placeholder={port.typeTag === 'Float' ? '0' : port.name}
-      style={{
-        ...staticInputStyle,
-        width: port.typeTag === 'Float' ? 70 : 140,
-      }}
-      onBlur={(e) => {
-        const raw = e.target.value;
-        onChange(port.typeTag === 'Float' ? parseFloat(raw) || 0 : raw);
-      }}
-      // Prevent ReactFlow from stealing keyboard events
-      onKeyDown={(e) => e.stopPropagation()}
-      onClick={(e) => e.stopPropagation()}
-    />
+    <>
+      <input
+        type={port.typeTag === 'Float' ? 'number' : 'text'}
+        list={suggestions ? listId : undefined}
+        defaultValue={(configValue as string | number | undefined) ?? ''}
+        key={JSON.stringify(configValue)}
+        placeholder={port.typeTag === 'Float' ? '0' : port.name}
+        style={{
+          ...staticInputStyle,
+          width: port.typeTag === 'Float' ? 70 : 140,
+        }}
+        onBlur={(e) => {
+          const raw = e.target.value;
+          onChange(port.typeTag === 'Float' ? parseFloat(raw) || 0 : raw);
+        }}
+        // Prevent ReactFlow from stealing keyboard events
+        onKeyDown={(e) => e.stopPropagation()}
+        onClick={(e) => e.stopPropagation()}
+      />
+      {suggestions && <SuggestionList id={listId} suggestions={suggestions} />}
+    </>
   );
 }
 
@@ -238,13 +268,15 @@ function SceneEntitySelect({
   onChange: (value: unknown) => void;
 }) {
   const { t } = useTranslation('signalGraph');
-  const layers = useEditorStore((s) => s.composeLayers);
-  const nodes = useEditorStore((s) => s.nodes);
+  const layers = useComposeLayers();
+  const nodes = useSceneNodes();
   const showLayers = typeTag === 'ComposeLayer' || typeTag === 'SceneEntity';
   const showNodes = typeTag === 'SceneNode' || typeTag === 'SceneEntity';
   const current = typeof configValue === 'string' ? configValue : '';
   const emptyLabel =
-    typeTag === 'SceneEntity' ? t('nodeCard.selectGlobal') : t('nodeCard.selectNone');
+    typeTag === 'SceneEntity'
+      ? t('nodeCard.selectGlobal')
+      : t('nodeCard.selectNone');
   return (
     <select
       value={current}
@@ -287,9 +319,11 @@ function PortRow({
   connected,
   configValue,
   onStaticChange,
+  nameCtx,
 }: {
   port: NodePortMeta;
   side: 'input' | 'output';
+  nameCtx: NameCtx;
   portValue: unknown;
   connected: boolean;
   configValue: unknown;
@@ -365,6 +399,7 @@ function PortRow({
             port={port}
             configValue={configValue}
             onChange={(v) => onStaticChange(port.name, v)}
+            nameCtx={nameCtx}
           />
         </div>
       )}
@@ -395,7 +430,9 @@ function PackFieldsEditor({
   };
   return (
     <div style={{ borderTop: '1px solid #2a2a4a', padding: '4px 10px' }}>
-      <div style={{ fontSize: 9, color: '#777', marginBottom: 3 }}>{t('nodeCard.fields')}</div>
+      <div style={{ fontSize: 9, color: '#777', marginBottom: 3 }}>
+        {t('nodeCard.fields')}
+      </div>
       {fields.map((f) => (
         <div
           key={f}
@@ -445,6 +482,14 @@ function PackFieldsEditor({
 // Node card
 // ──────────────────────────────────────────────────────────────────────────────
 
+/** Node kinds whose labeled input ports are the names in `config.fields`. */
+const FIELDS_EDITOR_KINDS = new Set([
+  'pack_event',
+  'set_data',
+  'overlive_send_chat',
+  'text_format',
+]);
+
 export function SignalNodeCard({
   data,
   selected,
@@ -460,6 +505,7 @@ export function SignalNodeCard({
     lastExecutedAt,
     portValues,
     config,
+    scopeSource,
   } = data;
   const headerColor = display?.color ?? '#2a2a3a';
   const label = display?.label ?? kind;
@@ -470,7 +516,18 @@ export function SignalNodeCard({
       ? (config as Record<string, unknown>)
       : {};
 
-  const { behaviors, updateBehavior } = useEditorStore();
+  const behaviorCol = useCollection<Behavior>('behavior');
+  const nameCtx: NameCtx = {
+    kind,
+    scope:
+      scopeSource === 'graph'
+        ? graphId
+        : scopeSource === 'other'
+          ? null
+          : typeof configRecord.scope === 'string'
+            ? configRecord.scope.trim()
+            : '',
+  };
 
   const handleStaticChange = (portName: string, value: unknown) => {
     // Behavior-owned graphs use the "kind:behaviorId" id shape. Standalone
@@ -486,7 +543,7 @@ export function SignalNodeCard({
       return;
     }
     const behaviorId = graphId.split(':').slice(1).join(':');
-    const comp = behaviors.find((c) => c.id === behaviorId);
+    const comp = behaviorCol.get(behaviorId);
     if (!comp) return;
     const prevConfig = comp.config as Record<string, unknown>;
     const prevNodeConf = (prevConfig.nodeConfig ?? {}) as Record<
@@ -504,13 +561,12 @@ export function SignalNodeCard({
         [nodeId]: { ...prevNodeEntry, [portName]: value },
       },
     };
-    updateBehavior(behaviorId, { config: newConfig });
-    api.updateBehavior(behaviorId, { config: newConfig }).catch(() => {});
+    commitBehaviorPatch(behaviorId, { config: newConfig });
   };
 
-  // pack_event / set_data: user-defined named input fields (config.fields:
-  // string[]) — each becomes a labeled input port.
-  const hasFieldsEditor = kind === 'pack_event' || kind === 'set_data';
+  // User-defined named input fields (config.fields: string[]) — each becomes a
+  // labeled input port.
+  const hasFieldsEditor = FIELDS_EDITOR_KINDS.has(kind);
   const packFields: string[] =
     hasFieldsEditor && Array.isArray(configRecord.fields)
       ? (configRecord.fields as string[])
@@ -588,6 +644,7 @@ export function SignalNodeCard({
                     connected={connectedSet.has(inputPorts[i].name)}
                     configValue={configRecord[inputPorts[i].name]}
                     onStaticChange={handleStaticChange}
+                    nameCtx={nameCtx}
                   />
                 )}
               </div>
@@ -600,6 +657,7 @@ export function SignalNodeCard({
                     connected={false}
                     configValue={undefined}
                     onStaticChange={handleStaticChange}
+                    nameCtx={nameCtx}
                   />
                 )}
               </div>
@@ -608,7 +666,7 @@ export function SignalNodeCard({
         </div>
       )}
 
-      {/* pack_event / set_data named-field editor */}
+      {/* named-field editor (FIELDS_EDITOR_KINDS) */}
       {hasFieldsEditor && (
         <PackFieldsEditor fields={packFields} onChange={setPackFields} />
       )}

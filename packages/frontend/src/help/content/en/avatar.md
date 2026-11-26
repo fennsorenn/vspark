@@ -43,65 +43,105 @@ camera tracking) shares the one setting.
 > Tip: if your avatar looks frozen, check that a motion-capture behavior is
 > attached and connected — see [Behaviors](topic:behaviors).
 
-## Motion snappiness {#snappiness}
+## Motion filter {#motion-filter}
 
-Motion-capture data is usually smoothed before it reaches vspark, and vspark
-smooths it again to ride out network hiccups. That keeps movement stable, but it
-can also make it feel a little soft or floaty. **Motion snappiness** adds back a
-sense of crispness without reintroducing jitter.
+Tracking sends a new pose 10 to 60 times a second, while your screen draws more
+often. The **motion filter** decides how the avatar moves between those updates:
+it can just glide from one pose to the next, calm down jitter, or add a bit of
+spring. Everything happens in one step, so you only pay for the effects you
+pick.
 
-Turn it on per avatar, then tune three dials:
+Choose a **preset**:
 
-- **Frequency** — how quickly the avatar reacts. Higher feels snappier; very high
-  can look twitchy.
-- **Damping** — how much it settles versus bounces. Around 1 stops cleanly with
-  no overshoot; below 1 adds a lively little overshoot (the "snap"); above 1
-  feels heavy and sluggish.
-- **Response** — how eagerly it leads into a movement. 0 is neutral; higher
-  values make the avatar anticipate and accelerate into motion for extra punch.
+- **Minimal (interpolation)**: only glides between updates, so the avatar
+  doesn't step. Fastest response. Best for Learned Tracking, which already
+  arrives smooth. This is the default.
+- **Smooth**: calms jitter while you hold still; as soon as you move, the
+  smoothing fades so fast moves stay quick. For noisier sources such as camera
+  tracking.
+- **Springy**: like Smooth at rest, plus a little overshoot and follow-through
+  for a livelier feel.
+- **Custom**: your own values.
 
-> Tip: start with the defaults, then nudge **Damping** down slightly for more
-> snap. If motion starts to wobble or buzz, raise **Damping** or lower
-> **Frequency**.
+Under **Advanced** you can tune the four dials yourself (changing one switches
+the preset to Custom):
 
-## Partial tracking {#partial-tracking}
+- **Smoothing**: 0 only glides between updates; higher values calm jitter more
+  while you're still.
+- **Speed adaptation**: how quickly the smoothing fades as you move faster.
+  Higher means less lag on fast moves.
+- **Damping**: 1 settles without overshoot; below 1 adds a springy overshoot;
+  above 1 feels heavy.
+- **Response**: 0 simply follows; higher values react ahead of the movement;
+  negative values wind up before moving.
 
-**Partial tracking** lets you drive different parts of the body from different
-sources at the same time — for example, play a looping dance animation on the
-**legs** while your live tracking drives the **upper body**.
+> Tip: if the avatar looks jittery, pick **Smooth**. If it feels slow, go back to
+> **Minimal**.
 
-The body is split into six sections: **Head**, **Gaze** (eyes), **Body**
-(torso), **Arms**, **Hands** (fingers), and **Legs**. Each section has two
-sliders:
+## Tracking mix {#tracking-mix}
 
-- **Anim** — how strongly the **base animation** drives that section.
-- **Track** — how strongly live tracking (VMC or camera) drives it.
+The **Tracking mix** controls how strongly each source moves your avatar. A
+source is the **animation** (the base or idle clip) or one of the avatar's
+tracking behaviors — VMC, iFacialMocap, webcam tracking, Breathing, Lip sync,
+and so on. Use it to, for example, play a dance animation on the **legs** while
+live tracking drives the **upper body**, or to let webcam tracking steer the
+head while a VMC sender does the arms.
 
-Tracking **stacks on top of** the base animation, and each slider scales its
-layer independently. The section starts at its rest pose, **Anim** blends the
-base animation in, and **Track** adds the live tracking on top:
+A behavior is listed when its graph sends something to the avatar: a **Send
+Pose** node gives it a **Body** column, a **Send Blendshapes** node a **Face**
+column. If you edit a behavior's graph and remove those nodes, it leaves the
+mixer (its weights are kept and come back with the node).
 
-- **Anim 1 / Track 1** — the base animation with full tracking stacked on it.
-- **Anim 1 / Track 0** — animation only (e.g. legs following a clip).
-- **Anim 0 / Track 1** — tracking only.
-- **Anim 0 / Track 0** — the section rests.
-- Values in between scale each layer, so both sliders always affect the pose.
+In the sidebar every source has one slider that sets its weight everywhere.
+Click **Open mixer…** for the full editor:
 
-Sections you never touch stay at the default (**Anim 1 / Track 1**), so you only
-need to adjust the parts you want to change.
+- **Body** — a grid of body regions (**Head**, **Gaze**, **Body**, **Arms**,
+  **Hands**, **Legs**) × sources. Click a region to expand it and set single
+  bones.
+- **Face** — the model's expressions, grouped into **Mouth**, **Eyes**,
+  **Brows**, **Emotions** and **Other**, × the sources that send expressions.
 
-> These sliders only apply **while a tracking source is live**. With tracking
-> lost — or no tracking source enabled at all — the **idle animation** plays at
-> full strength and the sliders are ignored, so a low **Anim** value never
-> weakens your idle.
+Each weight runs from **0** to **2**:
 
-> The hips belong to the **Legs** section — both their rotation and their
+- **1** — the source at full strength (the default everywhere).
+- **0** — the source has no influence there.
+- **Between 0 and 1** — the source is scaled down.
+- **Above 1** — the source is amplified, e.g. to exaggerate a subtle sender.
+
+Tracking **stacks on top of** the animation. A region starts at its rest pose,
+the animation weight blends the clip in, and each tracking source's rotation is
+added on top, scaled by its weight. Weights do **not** have to add up to 1: two
+sources at 0.5 each roughly average out, while Breathing at 1 on top of full
+tracking adds its motion to it. A part that every tracking source weighs 0
+follows the animation alone; an expression that every source weighs 0 returns
+to the default expression.
+
+**Regions and single bones.** Moving a region (or face group, or the sidebar
+slider) sets every bone in it. Once you change a single bone, the region shows
+**Custom** instead of a slider. Its reset button sets all of the region's bones
+to the value most of them already share (the higher one on a tie), or to 1 if
+no value repeats.
+
+> The animation weights only apply **while a tracking source is live**. With
+> tracking lost — or no tracking source enabled at all — the **idle animation**
+> plays at full strength, so a low animation weight never weakens your idle.
+
+> The hips belong to the **Legs** region — both their rotation and their
 > **position** (the root motion: the up/down bob and weight-shift a clip bakes
-> in), since the hips lead the lower body. So **Legs Anim 0** plants the hips in
-> place and rests them along with the legs, while the **Body** section covers the
-> spine and chest.
+> in), since the hips lead the lower body. So an animation weight of 0 on the
+> hips plants them in place, while the **Body** region covers the spine and
+> chest.
 
-### Base animation
+### Source order {#tracking-mix-order}
+
+The **Body** tab lists the tracking sources in the order they are applied, left
+to right, on top of the animation. Use the arrows to move a source earlier or
+later. Order only matters where two sources rotate the **same** bone in
+**different** directions — rotations combine like turning a dial and then
+tilting it, which ends somewhere different from tilting first. Expressions are
+simply added, so their order doesn't matter.
+
+### Base animation {#base-animation}
 
 The **Base animation** (set in the Animation section) is the loop that tracking
 stacks onto while a tracking source is connected — separate from the **Idle
@@ -113,7 +153,8 @@ selected, each animation clip shows **Set as idle** and **Set as base** buttons.
 
 > Note: driving the **legs** from tracking needs a full-body tracking source
 > (a full-body VMC sender). Webcam tracking doesn't send legs yet, so with a
-> webcam use **Anim** for the legs and **Track** for the upper body.
+> webcam the legs follow the animation — the **Tracking mix** can't add leg
+> motion a source doesn't send.
 
 ## Expressions {#expressions}
 

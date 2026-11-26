@@ -40,6 +40,7 @@ vi.mock('../src/particleTextures', () => ({
 }));
 
 import { PropertiesPanel } from '../src/components/editor/PropertiesPanel';
+import { docsOf, seedEditor } from './helpers/mesh';
 
 const tp = (key: string) => i18n.t(key, { ns: 'properties' });
 
@@ -57,7 +58,7 @@ const behavior = (config: Record<string, unknown>): Behavior =>
   }) as Behavior;
 
 function seed(config: Record<string, unknown>) {
-  useEditorStore.setState({
+  seedEditor({
     nodes: [
       {
         id: 'avatar-1',
@@ -99,7 +100,7 @@ function seed(config: Record<string, unknown>) {
 /** Current limits config as the store holds it. */
 const storedLimits = () =>
   (
-    useEditorStore.getState().behaviors[0].config as {
+    docsOf<{ config: unknown }>('behavior')[0].config as {
       limits: ReturnType<typeof defaultBlendshapeLimits>;
     }
   ).limits;

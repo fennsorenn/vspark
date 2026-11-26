@@ -237,11 +237,33 @@
     "propertiesHeader": "Eigenschaften",
     "blendTransition": "Überblendzeit",
     "trackingGracePeriod": "Leerlauf nach",
-    "dynamicsHeader": "Bewegungsdynamik",
-    "dynamicsEnable": "Bewegung dynamischer machen",
-    "dynamicsFrequency": "Frequenz",
-    "dynamicsDamping": "Dämpfung",
-    "dynamicsResponse": "Reaktion",
+    "poseFilter": {
+      "header": "Bewegungsfilter",
+      "preset": "Voreinstellung",
+      "advanced": "Erweitert",
+      "presets": {
+        "minimal": "Minimal (Interpolation)",
+        "smooth": "Glatt",
+        "springy": "Federnd",
+        "custom": "Eigene"
+      },
+      "hints": {
+        "minimal": "Gleitet nur zwischen den Tracking-Updates. Reagiert am schnellsten; am besten für Gelerntes Tracking, das schon ruhig ist.",
+        "smooth": "Beruhigt Zittern, solange du stillhältst; schnelle Bewegungen bleiben flott. Für unruhige Quellen wie Kamera-Tracking.",
+        "springy": "Beruhigt Zittern in Ruhe und fügt etwas Überschwingen und Nachschwingen hinzu.",
+        "custom": "Deine eigenen Werte, einstellbar unter „Erweitert“."
+      },
+      "smoothing": "Glättung",
+      "adaptation": "Tempo-Anpassung",
+      "damping": "Dämpfung",
+      "response": "Reaktion",
+      "tips": {
+        "smoothing": "0 = nur zwischen Updates gleiten; 1 = starke Glättung im Stillstand",
+        "adaptation": "Wie schnell die Glättung bei schnelleren Bewegungen nachlässt (weniger Verzögerung)",
+        "damping": "1 = kommt ohne Überschwingen zur Ruhe; unter 1 = federndes Überschwingen; über 1 = träge",
+        "response": "0 = folgt; über 0 = reagiert der Bewegung voraus; unter 0 = holt erst aus"
+      }
+    },
     "debugHeader": "Debug",
     "showFbxModel": "FBX-Animationsmodell anzeigen",
     "modelHeader": "Modell",
@@ -257,19 +279,50 @@
     "animSpeed": "Geschwindigkeit",
     "twistHeader": "Unterarm-Drehung",
     "twistForce": "Drehknochen erzwingen",
-    "twistExcludeSleeves": "Ärmel ausschließen",
-    "poseSourceHeader": "Teilweises Tracking",
-    "poseSourceHint": "Tracking wird pro Körperbereich auf die Basis-Animation gestapelt, jeweils unabhängig skaliert. „Anim“ skaliert die Basis-Animation (Ruhe→Clip), „Track“ skaliert das darübergelegte Live-Tracking (VMC/Kamera). Beide auf 0 = Ruhepose. Beine per Tracking brauchen eine Ganzkörperquelle.",
-    "poseSourceAnim": "Anim",
-    "poseSourceTrack": "Track",
-    "poseSourceReset": "Alle Bereiche zurücksetzen",
-    "poseSection": {
+    "twistExcludeSleeves": "Ärmel ausschließen"
+  },
+  "eyeRange": {
+    "header": "Blick",
+    "enabled": "Augenbewegung an den Augenbereich des Modells anpassen",
+    "inputMax": "Physischer Augenbereich (°)",
+    "hint": "Getrackte Augendrehung bis zu diesem Winkel wird auf den Bereich skaliert, den die Augen des Modells drehen dürfen – so rutscht die Iris nicht unter die Lider."
+  },
+  "trackingMix": {
+    "header": "Tracking-Mix",
+    "hint": "Wie stark jede Quelle den Avatar steuert. Tracking-Quellen werden auf die Animation gestapelt; Gewichte über 1 verstärken. Im Mixer lassen sich Bereiche, einzelne Knochen und die Mimik einstellen.",
+    "animation": "Animation",
+    "animationBase": "Animation (Basis)",
+    "open": "Mixer öffnen…",
+    "title": "Tracking-Mix",
+    "close": "Schließen",
+    "custom": "Individuell",
+    "resetTo": "Alle auf {{value}} setzen",
+    "tab": {
+      "body": "Körper",
+      "face": "Gesicht"
+    },
+    "order": "Reihenfolge — von links nach rechts angewendet, auf der Animation",
+    "moveEarlier": "Früher anwenden",
+    "moveLater": "Später anwenden",
+    "noBodySources": "Dieser Avatar hat keine Animation und keine Körper-Tracking-Quelle.",
+    "noFaceSources": "Keine Gesichtsquelle an diesem Avatar. Füge ein Tracking-, Lippensync- oder API-Verhalten hinzu, um Mimik zu mischen.",
+    "noShapes": "Die Mimiken des Modells erscheinen hier, sobald es geladen ist.",
+    "bodyHint": "Klappe einen Bereich auf, um einzelne Knochen einzustellen. Ein Bereichsregler setzt alle seine Knochen; weichen sie voneinander ab, zeigt der Bereich „Individuell“ — Zurücksetzen setzt alle auf den häufigsten Wert.",
+    "faceHint": "Gewichte multiplizieren den Wert jeder Quelle, bevor die Quellen addiert werden. Eine Form, die jede Quelle mit 0 gewichtet, fällt auf die Standard-Mimik zurück.",
+    "region": {
       "head": "Kopf",
       "gaze": "Blick",
       "body": "Körper",
       "arms": "Arme",
       "hands": "Hände",
       "legs": "Beine"
+    },
+    "faceGroup": {
+      "mouth": "Mund",
+      "eyes": "Augen",
+      "brows": "Brauen",
+      "emotions": "Emotionen",
+      "other": "Sonstige"
     }
   },
   "file": {
@@ -395,13 +448,80 @@
     "compatHint": "Funktioniert mit iFacialMocap (iOS). Trage oben die Geräte-IP ein, dann fordert vspark den Stream beim Telefon an — oder lass sie leer und richte die App auf eine der obigen Adressen. Beide Seiten nutzen Port {{port}}.",
     "firewallHint": "Port {{port}} muss in deiner Firewall offen sein."
   },
+  "learned": {
+    "camera": "Kamera",
+    "refreshCameras": "Aktualisieren",
+    "loadingCameras": "Suche Kameras … (beim ersten Mal wird zuerst die Runtime installiert; das kann ein paar Minuten dauern)",
+    "camerasError": "Kameras konnten nicht aufgelistet werden: {{message}}",
+    "cameraIndex": "Kamera {{index}}",
+    "port": "Port",
+    "runtime": "Runtime",
+    "state": {
+      "starting": "Startet",
+      "running": "Läuft",
+      "error": "Fehler",
+      "stopped": "Gestoppt"
+    },
+    "stats": "{{fps}} fps · {{latency}} ms Latenz · Modell {{model}} ms",
+    "noBody": "kein Körper im Bild",
+    "cameraHint": "Die Runtime öffnet die Kamera selbst. Schalte das Kamera-Tracking auf derselben Webcam aus: Zwei Programme können eine Webcam nicht gleichzeitig lesen.",
+    "install": "Installation",
+    "installDownloaded": "Heruntergeladene Runtime {{version}}",
+    "installMissing": "Noch nicht installiert",
+    "installLocal": "Lokale Kopie: {{dir}}",
+    "download": "Runtime {{version}} herunterladen ({{size}} MB)",
+    "downloading": "Lädt herunter … {{percent}} %",
+    "downloadOverridden": "Ein für die Runtime gesetzter Pfad (config.json oder VSPARK_MOTIONTRACKER_PATH) wird statt des Downloads verwendet.",
+    "downloadError": "Download fehlgeschlagen: {{message}}",
+    "retarget": "Retarget",
+    "retargetLabel": "An die Proportionen des Avatars anpassen",
+    "retargetInactive": "Nicht aktiv: {{reason}}",
+    "restart": "Runtime neu starten",
+    "restarting": "Startet neu…",
+    "restartHint": "Beendet die Runtime und startet sie neu, z. B. wenn die Kamera keine Bilder mehr liefert",
+    "fps": "Bildrate",
+    "fpsOption": "{{fps}} fps",
+    "historyShift": "Verlaufsversatz",
+    "historyShiftOptions": {
+      "none": "Aus",
+      "every": "Jeder Schritt",
+      "alternate": "Jeder zweite Schritt"
+    },
+    "historyShiftHint": "Experimentell, für 20 fps: beruhigt ein leichtes Flackern von Bild zu Bild.",
+    "settingsMismatch": "Die Runtime läuft mit {{fps}} fps, Versatz: {{shift}} (sie unterstützt die Einstellung eventuell nicht).",
+    "preview": {
+      "open": "Kameravorschau",
+      "closeButton": "Kameravorschau schließen",
+      "title": "Gelerntes Tracking: Kamera",
+      "close": "Schließen",
+      "image": "Bild",
+      "landmarks": "Landmarks",
+      "nothing": "Wähle Bild, Landmarks oder beides.",
+      "notRunning": "Die Runtime läuft nicht.",
+      "waiting": "Warte auf Bilder…"
+    }
+  },
   "lipsync": {
     "sensitivity": "Empfindlichkeit",
     "openMediaInput": "🎤 Medieneingabe öffnen",
     "vowelCalibHeader": "Vokal-Kalibrierung",
     "vowelCalibHint": "Halte jede Taste gedrückt, während du den Vokal aussprichst (~1 s).",
     "save": "Speichern",
-    "resetDefaults": "Auf Standardwerte zurücksetzen"
+    "resetDefaults": "Auf Standardwerte zurücksetzen",
+    "inputMode": "Audioeingang",
+    "inputModeHelp": "Woher die Stimme kommt: ein Mikrofon in einem Browser-Tab oder eine Audioquelle auf diesem Rechner, die der Server liest.",
+    "modeBrowser": "Browser-Mikrofon",
+    "modePipewire": "Server (PipeWire-Quelle)",
+    "pipewireSource": "Quelle",
+    "pipewireSourcePlaceholder": "z. B. mein_sink.monitor",
+    "noSource": "Gib einen Quellnamen ein, um die Aufnahme zu starten.",
+    "pipewireUnavailable": "Dieser Server kann kein Audio aufnehmen: Dafür braucht es Linux mit PipeWire oder PulseAudio (das Programm parec). Wechsle zu Browser-Mikrofon.",
+    "captureState": {
+      "starting": "Aufnahme startet…",
+      "capturing": "Nimmt auf",
+      "idle": "Warte auf Audio (in die Quelle wird nichts abgespielt)",
+      "error": "Aufnahme fehlgeschlagen – neuer Versuch läuft"
+    }
   },
   "mediapipe": {
     "faceLandmarks": "Gesichts-Landmarken",
@@ -421,6 +541,29 @@
     "pipelineError": "Pipeline nicht erreichbar — ist das Tracking aktiv?",
     "useIkArms": "IK-Arme verwenden",
     "ikHint": "Wenn deaktiviert, werden Arme über knochenbasierte Quaternionen gesteuert (geringere Genauigkeit, aber immer stabil).",
+    "armSolve": {
+      "header": "Arm-Berechnung (experimentell)",
+      "hint": "Schalte einzelne Techniken der Arm-Berechnung ein und aus, um ihre Wirkung während des Trackings zu vergleichen. Alles eingeschaltet ist die empfohlene Einstellung.",
+      "mode": "Berechnung",
+      "modeHinge": "Ellbogen-Scharnier",
+      "modeLegacy": "Alt (Drehungsaufteilung)",
+      "keepLowVis": "Geschätzte Gelenke behalten",
+      "keepLowVisTip": "Unterarm und Hand auch aus Gelenken berechnen, die die Kamera nur schätzen kann (z. B. außerhalb des Bildes), statt sie wegzulassen.",
+      "planeWristGate": "Ellbogenebene am Handgelenk prüfen",
+      "planeWristGateTip": "Der Ebene aus Schulter, Ellbogen und Handgelenk nur so weit vertrauen, wie das Handgelenk sichtbar ist, damit ein geschätztes Handgelenk den Oberarm nicht umdreht.",
+      "handSwingOnly": "Keine Verdrehung im Handgelenk",
+      "handSwingOnlyTip": "Die Hand knickt nur im Handgelenk ab; Verdrehung, die der Unterarm nicht übernimmt, wird verworfen statt im Handgelenk zu bleiben.",
+      "swingFade": "Unmögliche Handgelenkswinkel ignorieren",
+      "swingFadeTip": "Handgelenksbeugungen weit jenseits des echten Bewegungsumfangs ausblenden – sie entstehen aus widersprüchlichen Hand- und Körperdaten.",
+      "edgeOnConf": "Seitlich gehaltener Handfläche misstrauen",
+      "edgeOnConfTip": "Unterarm und Hand stärker glätten, solange die Handfläche seitlich zur Kamera steht, wo ihre Drehung schlecht erkennbar ist.",
+      "poseDorsalConf": "Hand mit Körper-Tracking abgleichen",
+      "poseDorsalConfTip": "Unterarm und Hand stärker glätten, solange Körper- und Hand-Tracking sich uneinig sind, in welche Richtung der Handrücken zeigt.",
+      "smoothing": "Vertrauensbasierte Glättung",
+      "smoothingTip": "Unzuverlässige Knochen sanft an ihren Messwert heranführen, statt sie springen zu lassen.",
+      "jumpHold": "Einzelbild-Sprünge zurückhalten",
+      "jumpHoldTip": "Eine plötzliche große Drehung zurückhalten, bis sie einige Bilder lang bestehen bleibt. Verhindert flackernde Messwerte; echte schnelle Bewegungen kommen etwas später an."
+    },
     "ikCalibHeader": "IK-Kalibrierung",
     "ikCalibNote": "(X ist symmetrisch: +Versatz spreizt nach außen)",
     "ikAxis": "{{axis}}-Achse",
@@ -688,7 +831,7 @@
     "materials": "Avatar-Materialien und Shader anpassen",
     "animation": "Leerlauf-Animationen und Überblendzeiten verstehen",
     "trackingGracePeriod": "Verstehen, wie kurze Tracking-Aussetzer überbrückt werden, bevor der Avatar in den Leerlauf zurückkehrt",
-    "dynamics": "Mocap-Bewegungen dynamischer wirken lassen",
+    "poseFilter": "Wie der Bewegungsfilter getrackte Bewegung formt",
     "camera": "Kamera-Eigenschaften und Projektionen erkunden",
     "light": "Lichttypen und Schatteneinstellungen erkunden",
     "breathing": "Wie das Atemverhalten funktioniert",
@@ -708,6 +851,7 @@
     "lightIntensity": "Helligkeit des Lichts; 1 ist der Standardwert, 0 ist aus, Werte über 1 überbelichten nahe Oberflächen",
     "lightShadows": "Aktiviert Schattenrendering für dieses Licht — erfordert, dass auch die Schatteneinstellung der Kamera aktiv ist",
     "matMode": "Shader-Modell: MToon ist Toon-Shading (ignoriert Szenenlichter), PBR reagiert auf Lichter und Umgebung, APBR fügt erweiterte Lobes wie Klarlack und Glas hinzu",
+    "mpArmSolve": "Erfahre, was die einzelnen Techniken der Arm-Berechnung tun und wie du sie vergleichst",
     "matEmissive": "Emissive Farbe lässt die Oberfläche selbst leuchtend erscheinen; Emissive Intensität multipliziert dies — Werte über 1 erzeugen starkes Leuchten bei aktivem Bloom",
     "matMetalRough": "Rauheit (0=Spiegel, 1=diffus) steuert die Schärfe von Reflexionen; Metallic (0=Nichtmetall, 1=Leiter) ändert das Reflexionsverhalten der Oberfläche",
     "matEnv": "Materialspezifischer Multiplikator für den Beitrag der Umgebungsmap; bei 0 ignoriert dieses Material die HDRI-Beleuchtung vollständig",
@@ -726,11 +870,28 @@
     "audioType": "Einfach spielt überall mit gleicher Lautstärke; Direktional nimmt mit dem Abstand ab und kann als 3D-Kegel geformt werden",
     "audioSpatial": "Abstands- und Kegelparameter für direktionales Audio — Referenzabstand, Abklingrate, maximaler Abstand und Kegelwinkel",
     "twist": "Unterarm-Drehung entlang des Arms verteilen statt am Ellbogen zu knicken",
-    "poseSource": "Jeden Körperbereich per Animation, Live-Tracking oder einer Mischung steuern",
+    "eyeRange": "Warum getrackte Augen zu weit schauen können und wie die Blickanpassung funktioniert",
+    "trackingMix": "Steuern, wie stark jede Tracking-Quelle und die Animation jeden Körperteil und jede Mimik bewegen",
+    "trackingMixOrder": "Warum die Reihenfolge der Tracking-Quellen zählt",
     "baseAnimation": "Die Animation, auf die Live-Tracking gestapelt wird, solange eine Quelle verbunden ist; bei Tracking-Verlust fällt der Avatar auf die Leerlauf-Animation zurück",
     "stylizedTracking": "Erfahre, wie stilisiertes Tracking deine Bewegung umformt",
+    "learnedTracking": "Erfahre, was Gelerntes Tracking braucht und wie es funktioniert",
     "ifacialmocap": "Erfahre, wie du die iFacialMocap-App (iOS) verbindest",
     "ifmFirewall": "Warum die App „verbunden“ melden kann, ohne dass etwas bei vspark ankommt",
-    "expressionLimits": "Erfahren, wie Mimik-Begrenzungen übertriebene oder kaputte Gesichter verhindern"
+    "expressionLimits": "Erfahren, wie Mimik-Begrenzungen übertriebene oder kaputte Gesichter verhindern",
+    "behaviorGraph": "Erfahre, wie du den Graphen eines Verhaltens bearbeitest und was „Geändert“ und „Zurücksetzen“ bedeuten"
+  },
+  "behaviorGraph": {
+    "title": "Graph",
+    "open": "Graph öffnen",
+    "reset": "Graph zurücksetzen",
+    "resetTip": "Den Graphen dieses Verhaltens aus der Vorlage neu aufbauen (verwirft deine Änderungen am Graphen)",
+    "confirmReset": "Den Graphen von „{{name}}“ aus der Vorlage neu aufbauen? Deine Änderungen am Graphen gehen verloren.",
+    "modified": "Geändert",
+    "modifiedTip": "Der Graph wurde bearbeitet und weicht von dem ab, was die Vorlage erzeugt hat.",
+    "templateUpdate": "Vorlagen-Update",
+    "templateUpdateTip": "Die Vorlage erzeugt inzwischen einen anderen Graphen. Zurücksetzen, um ihn zu übernehmen (verwirft deine Änderungen am Graphen).",
+    "missing": "Kein Graph",
+    "missingTip": "Dieses Verhalten hat keinen gespeicherten Graphen und läuft mit seiner Vorlage. Zurücksetzen speichert ihn, damit du ihn bearbeiten kannst."
   }
 }

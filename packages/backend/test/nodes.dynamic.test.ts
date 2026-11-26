@@ -3,7 +3,7 @@
  *
  * Tests for dynamic / context / broadcast nodes:
  *   pack_event, unpack_event, queue_events,
- *   scene_entity, behavior_id, behavior_config,
+ *   scene_entity, behavior_id, settings,
  *   pose_broadcast, blendshapes_broadcast, ik_broadcast
  */
 
@@ -261,54 +261,54 @@ describe('behavior_id', () => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// behavior_config
+// settings
 // ─────────────────────────────────────────────────────────────────────────────
-describe('behavior_config', () => {
-  it('returns the whole _behaviorConfig object when field is empty', () => {
+describe('settings', () => {
+  it('returns the whole _settings object when field is empty', () => {
     const bCfg = { host: 'localhost', port: 8080 };
-    const result = pullValue('behavior_config', 'value', {
+    const result = pullValue('settings', 'value', {
       field: '',
-      _behaviorConfig: bCfg,
+      _settings: bCfg,
     });
     expect(result).toEqual(bCfg);
   });
 
-  it('resolves a dot-notation path within _behaviorConfig', () => {
+  it('resolves a dot-notation path within _settings', () => {
     const bCfg = { nodeConfig: { arkit: { enabled: true } } };
-    const result = pullValue('behavior_config', 'value', {
+    const result = pullValue('settings', 'value', {
       field: 'nodeConfig.arkit.enabled',
-      _behaviorConfig: bCfg,
+      _settings: bCfg,
     });
     expect(result).toBe(true);
   });
 
   it('returns defaultValue when resolved path is undefined', () => {
-    const result = pullValue('behavior_config', 'value', {
+    const result = pullValue('settings', 'value', {
       field: 'missing.path',
       defaultValue: 'fallback',
-      _behaviorConfig: {},
+      _settings: {},
     });
     expect(result).toBe('fallback');
   });
 
   it('returns null when path is undefined and no defaultValue', () => {
-    const result = pullValue('behavior_config', 'value', {
+    const result = pullValue('settings', 'value', {
       field: 'no_such',
-      _behaviorConfig: {},
+      _settings: {},
     });
     expect(result).toBeNull();
   });
 
   it('resolves a top-level key', () => {
-    const result = pullValue('behavior_config', 'value', {
+    const result = pullValue('settings', 'value', {
       field: 'host',
-      _behaviorConfig: { host: '127.0.0.1' },
+      _settings: { host: '127.0.0.1' },
     });
     expect(result).toBe('127.0.0.1');
   });
 
-  it('returns empty _behaviorConfig object when not provided and field is empty', () => {
-    const result = pullValue('behavior_config', 'value', { field: '' });
+  it('returns empty _settings object when not provided and field is empty', () => {
+    const result = pullValue('settings', 'value', { field: '' });
     expect(result).toEqual({});
   });
 });

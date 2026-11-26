@@ -10,16 +10,30 @@ import { initBlendshapesBroadcast } from '../../signal/nodes/blendshapes_broadca
 import { OnPoseBroadcast } from '../../signal/nodes/on_pose_broadcast.js';
 import { broadcastBus } from '../../broadcast/bus.js';
 import {
-  makeVmcGraphDescriptor,
-  makeVmcGraphDescriptor2d,
+  behaviorContextConfig,
+  behaviorDescriptorToRun,
+  programChanged,
+} from '../storedGraph.js';
+import {
   HEAD_CALIB_BONES,
 } from './graph.js';
 import { loadVrmSkeleton } from '../../vrm/skeleton.js';
 import type { VrmSkeletonData } from '../../vrm/skeleton.js';
 import { join } from 'path';
+import {
+  LearnedRuntime,
+  learnedRuntimeDir,
+  type RuntimeStatus,
+} from '../learned_tracker/runtime.js';
+import { onRuntimeInstalled } from '../learned_tracker/download.js';
+import { PreviewHub } from '../learned_tracker/preview.js';
+import type { WebSocket } from 'ws';
 import { getDb } from '../../db/index.js';
 import { BehaviorKind } from '../decorator.js';
 import { trackingGraceMs } from '../tracking_grace.js';
+import { publishTracking } from '../../mesh/status.js';
+
+const ARKIT_SHAPE_SET: ReadonlySet<string> = new Set(ARKIT_SHAPES);
 
 // ---------- Minimal OSC parser ----------
 
@@ -178,6 +192,18 @@ const RHYLIVE_BONES = [
 
 // ---------- Receiver ----------
 
+/** Default UDP port between a Learned Tracking runtime and its receiver. Not
+ *  39539 (the VMC Receiver default), so both can run side by side. */
+export const LEARNED_TRACKER_PORT = 39541;
+
+/** Kinds this manager runs. `learned_tracker` is a VMC receiver whose source
+ *  is a child process it starts itself (../learned_tracker/runtime.ts). */
+export const VMC_MANAGER_KINDS = [
+  'vmc_receiver',
+  'vmc_receiver_2d',
+  'learned_tracker',
+] as const;
+
 interface Receiver {
   /** Returned by udpSocketPool.subscribe — drops our listener and closes the
    *  shared socket if we were the last subscriber on that port. */
@@ -195,6 +221,8 @@ interface Receiver {
    *  is only broadcast once this has stood for the behavior's grace period, so
    *  a brief dropout no longer snaps the avatar to idle. See `checkTimeouts`. */
   quietSince: number | null;
+  /** /VMC/Ext/Blend/Val values (ARKit names) waiting for /VMC/Ext/Blend/Apply. */
+  pendingBlend: Record<string, number>;
 }
 
 @BehaviorKind({
@@ -215,6 +243,15 @@ interface Receiver {
   applicableTo: ['live2d'],
   defaultConfig: { host: '0.0.0.0', port: 39539, mirror: false },
 })
+@BehaviorKind({
+  kind: 'learned_tracker',
+  label: 'Learned Tracking',
+  icon: '🧠',
+  description:
+    'Body tracking from the webcam with a learned model (motiontracker runtime): drives torso, head, shoulders and arms, plus fingers and facial expressions. Runs as a separate process started from a local motiontracker checkout.',
+  applicableTo: ['avatar'],
+  defaultConfig: { camera: 0, port: LEARNED_TRACKER_PORT, mirror: false },
+})
 export class VmcManager {
   private readonly receivers = new Map<string, Receiver>();
   private readonly graphs = new Map<string, SignalGraph>();
@@ -234,6 +271,10 @@ export class VmcManager {
   private readonly nodeStates = new Map<string, Map<string, unknown>>();
   // Interceptor unregister callbacks: behaviorId → list of cleanup fns
   private readonly interceptorCleanups = new Map<string, Array<() => void>>();
+  // learned_tracker only: behaviorId → its runtime process
+  private readonly runtimes = new Map<string, LearnedRuntime>();
+  // learned_tracker only: editor tabs watching a runtime's camera preview
+  private readonly previews = new PreviewHub<WebSocket>();
   private readonly timer: ReturnType<typeof setInterval>;
 
   constructor(private readonly ws: WSSync) {
@@ -243,31 +284,41 @@ export class VmcManager {
     // configured window starts at 0.1s. A 2s tick would round every short "Idle
     // after" setting up to its own period.
     this.timer = setInterval(() => this.checkTimeouts(), 250);
-
-    // Send current receiver state to any new WebSocket client (handles page refresh / new tabs).
-    ws.onClientConnected((client) => {
-      for (const [behaviorId, info] of this.receivers) {
-        ws.sendTo(client, 'vmc_status', {
-          behaviorId,
-          connected: info.connected,
-        });
-        if (info.trackingActive !== null) {
-          ws.sendTo(client, 'vmc_tracking_state', {
-            behaviorId,
-            tracking: info.trackingActive,
-          });
-        }
-      }
+    // A finished "Download runtime": restart Learned Tracking on it.
+    onRuntimeInstalled(() => this.refreshLearnedRuntimes());
+    // Learned Tracking preview windows (learned_tracker/preview.ts).
+    ws.onMessage((kind, msg, sock) => {
+      if (kind !== 'learned_preview') return;
+      const m = msg as {
+        behaviorId?: unknown;
+        image?: unknown;
+        landmarks?: unknown;
+      };
+      if (typeof m.behaviorId !== 'string') return;
+      const want = this.previews.set(m.behaviorId, sock, {
+        image: m.image === true,
+        landmarks: m.landmarks === true,
+      });
+      this.runtimes.get(m.behaviorId)?.setPreview(want);
     });
+    ws.onClientConnected((sock) =>
+      sock.on('close', () => {
+        for (const id of this.previews.drop(sock))
+          this.runtimes.get(id)?.setPreview(this.previews.wanted(id));
+      })
+    );
   }
 
   // ── graph management ───────────────────────────────────────────────────────
 
   private createGraph(behaviorId: string): SignalGraph {
-    const descriptor =
-      this.behaviorKinds.get(behaviorId) === 'vmc_receiver_2d'
-        ? makeVmcGraphDescriptor2d(behaviorId)
-        : makeVmcGraphDescriptor(behaviorId);
+    // The behavior's stored (editable) graph; the kind's template (3D or 2D)
+    // if none is stored.
+    const descriptor = behaviorDescriptorToRun(
+      this.behaviorKinds.get(behaviorId) ?? 'vmc_receiver',
+      behaviorId,
+      this.behaviorConfigs.get(behaviorId)
+    );
     this.descriptors.set(behaviorId, descriptor);
     if (!this.nodeStates.has(behaviorId))
       this.nodeStates.set(behaviorId, new Map());
@@ -337,14 +388,9 @@ export class VmcManager {
 
   private getNodeConfig(behaviorId: string, nodeId: string): unknown {
     const cfg = this.behaviorConfigs.get(behaviorId) ?? {};
-    const nodeId_ = this.behaviorNodeIds.get(behaviorId) ?? '';
 
-    // Infrastructure nodes with non-config-derived values.
+    // Template nodes with non-config-derived values.
     switch (nodeId) {
-      case 'comp_id':
-        return { behaviorId };
-      case 'scene_entity':
-        return { nodeId: nodeId_ };
       case 'head_calib':
         return { boneFilter: HEAD_CALIB_BONES };
       case 'arm_ik_calib':
@@ -360,13 +406,39 @@ export class VmcManager {
       cfg.nodeConfig as Record<string, unknown> | undefined
     )?.[nodeId] ?? {}) as Record<string, unknown>;
 
-    // behavior_config nodes get the full live component config injected so they
-    // can resolve arbitrary dot-notation field paths.
-    if (nodeDef?.kind === 'behavior_config') {
-      return { ...defaults, ...overrides, _behaviorConfig: cfg };
-    }
+    // By node kind: settings nodes get the full live component config
+    // (`_settings`) to resolve arbitrary dot-notation field paths;
+    // scene_entity / behavior_id get this behavior's ids — so the context
+    // nodes a user adds on the canvas are fed like the template's.
+    return {
+      ...defaults,
+      ...overrides,
+      ...behaviorContextConfig(nodeDef?.kind, {
+        behaviorId,
+        sceneNodeId: this.behaviorNodeIds.get(behaviorId) ?? '',
+        settings: cfg,
+      }),
+    };
+  }
 
-    return { ...defaults, ...overrides };
+  /** Tear the running graph down: interceptor registrations, then the nodes'
+   *  own resources (timers etc.). */
+  private disposeGraph(behaviorId: string): void {
+    for (const cleanup of this.interceptorCleanups.get(behaviorId) ?? [])
+      cleanup();
+    this.interceptorCleanups.delete(behaviorId);
+    this.graphs.get(behaviorId)?.dispose();
+    this.graphs.delete(behaviorId);
+  }
+
+  /** Swap the running graph for one built from the current stored graph,
+   *  keeping the receiver (socket, connection and tracking state): the packet
+   *  handler fires into whatever graph is current. */
+  private rebuildGraph(behaviorId: string): void {
+    if (!this.graphs.has(behaviorId)) return;
+    this.disposeGraph(behaviorId);
+    this.graphs.set(behaviorId, this.createGraph(behaviorId));
+    console.log(`[VMC] Rebuilt graph of component ${behaviorId}`);
   }
 
   fireGraphEvent(behaviorId: string, nodeId: string, port: string): void {
@@ -416,7 +488,7 @@ export class VmcManager {
     console.log(
       `[VMC] Tracking ${tracking ? 'ACTIVE' : 'LOST'} (component ${behaviorId})`
     );
-    this.ws.broadcast('vmc_tracking_state', { behaviorId, tracking });
+    publishTracking({ behaviorId, tracking });
     // Drop our bus slot on tracking loss so the merge falls back to other
     // producers (or the additive-identity fallback frame if we were the
     // only one). Resume is automatic — the next publishBones re-creates it.
@@ -430,8 +502,7 @@ export class VmcManager {
     if (existing?.port === port) return;
     if (existing) this.stopReceiver(behaviorId);
 
-    const graph = this.createGraph(behaviorId);
-    this.graphs.set(behaviorId, graph);
+    this.graphs.set(behaviorId, this.createGraph(behaviorId));
 
     // Listener is captured here so we can store the unsubscribe handle on `info`
     // before defining the handler — info itself is referenced inside the handler.
@@ -443,6 +514,7 @@ export class VmcManager {
       prevBodyArgs: [],
       trackingActive: null,
       quietSince: null,
+      pendingBlend: {},
     };
     this.receivers.set(behaviorId, info);
 
@@ -458,7 +530,7 @@ export class VmcManager {
         console.log(
           `[VMC] Client connected: ${rinfo.address}:${rinfo.port} → port ${port} (component ${behaviorId})`
         );
-        this.ws.broadcast('vmc_status', {
+        publishTracking({
           behaviorId,
           connected: true,
           remoteAddress: rinfo.address,
@@ -505,6 +577,29 @@ export class VmcManager {
               msg.args[i * 4 + 3] as number,
             ];
           }
+        } else if (msg.address === '/MT/Present' && msg.args.length >= 1) {
+          // motiontracker's presence flag (Learned Tracking): a body is in view.
+          // Plain /VMC/Ext/Bone/Pos carries no such signal, and the /Body
+          // frame-diff below is RhyLive's.
+          if (msg.args[0] === 1) {
+            info.quietSince = null;
+            this.setTracking(behaviorId, true);
+          } else if (info.quietSince === null) {
+            info.quietSince = Date.now();
+          }
+        } else if (
+          msg.address === '/VMC/Ext/Blend/Val' &&
+          msg.args.length >= 2
+        ) {
+          // Standard VMC blendshapes, applied on /VMC/Ext/Blend/Apply. Only
+          // ARKit names ("perfect sync", as Learned Tracking sends them) feed
+          // the ARKit chain; VRM clip names from other senders are ignored.
+          const name = msg.args[0] as string;
+          if (ARKIT_SHAPE_SET.has(name))
+            info.pendingBlend[name] = msg.args[1] as number;
+        } else if (msg.address === '/VMC/Ext/Blend/Apply') {
+          Object.assign(rawArkit, info.pendingBlend);
+          info.pendingBlend = {};
         } else if (msg.address === '/Face' && msg.args.length >= 52) {
           for (let i = 0; i < ARKIT_SHAPES.length && i < msg.args.length; i++) {
             rawArkit[ARKIT_SHAPES[i]] = msg.args[i] as number;
@@ -515,14 +610,14 @@ export class VmcManager {
       const ts = Date.now();
 
       if (Object.keys(rawBones).length > 0) {
-        graph.fire(
+        this.graphs.get(behaviorId)?.fire(
           'vmc',
           'bones',
           mkEvent(BoneRotations.fromRecord(rawBones), ts)
         );
       }
       if (Object.keys(rawArkit).length > 0) {
-        graph.fire(
+        this.graphs.get(behaviorId)?.fire(
           'vmc',
           'arkit',
           mkEvent(Blendshapes.fromRecord(rawArkit), ts)
@@ -538,24 +633,23 @@ export class VmcManager {
   }
 
   stopReceiver(behaviorId: string) {
+    this.runtimes.get(behaviorId)?.stop();
+    this.runtimes.delete(behaviorId);
     const info = this.receivers.get(behaviorId);
     if (!info) return;
     info.unsubscribe();
     this.receivers.delete(behaviorId);
-    this.graphs.delete(behaviorId);
-    for (const cleanup of this.interceptorCleanups.get(behaviorId) ?? [])
-      cleanup();
-    this.interceptorCleanups.delete(behaviorId);
+    this.disposeGraph(behaviorId);
     broadcastBus.removeBehavior(behaviorId);
     if (info.connected)
-      this.ws.broadcast('vmc_status', { behaviorId, connected: false });
+      publishTracking({ behaviorId, connected: false });
     // Signal tracking loss on teardown. Tracking-false is otherwise only emitted
     // from the /Body handler, which needs packets still arriving — disabling the
     // source stops them, so the transition would never fire and every client
     // would keep a stale `tracking: true` forever (pinning avatars to their base
     // animation, unreachable idle). Mirrors MediaPipeTrackerManager.stop().
     if (info.trackingActive)
-      this.ws.broadcast('vmc_tracking_state', {
+      publishTracking({
         behaviorId,
         tracking: false,
       });
@@ -574,7 +668,7 @@ export class VmcManager {
     const active = new Set<string>();
     for (const c of comps) {
       if (
-        (c.kind !== 'vmc_receiver' && c.kind !== 'vmc_receiver_2d') ||
+        !(VMC_MANAGER_KINDS as readonly string[]).includes(c.kind) ||
         !c.enabled
       )
         continue;
@@ -596,8 +690,19 @@ export class VmcManager {
       // node it's attached to has none). Only the 3D receiver loads one.
       if (c.kind === 'vmc_receiver_2d') this.behaviorSkeletons.set(c.id, null);
       else this._loadSkeletonForBehavior(c.id, c.nodeId);
-      const port = (c.config.port as number) ?? 39539;
+      const learned = c.kind === 'learned_tracker';
+      const port =
+        (c.config.port as number) ?? (learned ? LEARNED_TRACKER_PORT : 39539);
       this.startReceiver(c.id, port);
+      if (learned) this._applyRuntime(c.id, c.nodeId, c.config, port);
+      // Its stored graph was edited (or reset): rebuild the running one.
+      if (
+        programChanged(
+          this.descriptors.get(c.id),
+          behaviorDescriptorToRun(c.kind, c.id, liveConfig)
+        )
+      )
+        this.rebuildGraph(c.id);
       active.add(c.id);
     }
     for (const id of this.receivers.keys()) {
@@ -609,6 +714,71 @@ export class VmcManager {
         this.behaviorConfigs.set(c.id, c.config);
         this.behaviorNodeIds.set(c.id, c.nodeId);
       }
+    }
+  }
+
+  /** Restart a Learned Tracking behavior's runtime by hand; false when it has
+   *  none running. */
+  restartLearnedRuntime(behaviorId: string): boolean {
+    return this.runtimes.get(behaviorId)?.restartNow() ?? false;
+  }
+
+  /** Re-resolve the runtime location for every running Learned Tracking
+   *  behavior (after a download): a new location restarts its runtime, one that
+   *  had failed to start is started again. */
+  refreshLearnedRuntimes(): void {
+    for (const id of this.runtimes.keys()) {
+      const cfg = this.behaviorConfigs.get(id) ?? {};
+      const nodeId = this.behaviorNodeIds.get(id);
+      if (!nodeId) continue;
+      const port = (cfg.port as number) ?? LEARNED_TRACKER_PORT;
+      this._applyRuntime(id, nodeId, cfg, port);
+    }
+  }
+
+  /** Start the behavior's runtime, or hand it changed settings. */
+  private _applyRuntime(
+    behaviorId: string,
+    sceneNodeId: string,
+    config: Record<string, unknown>,
+    port: number
+  ): void {
+    let rt = this.runtimes.get(behaviorId);
+    if (!rt) {
+      rt = new LearnedRuntime(behaviorId, (status: RuntimeStatus) =>
+        publishTracking({ behaviorId, runtime: status })
+      );
+      rt.onPreview = (ev) => {
+        for (const [sock, frame] of this.previews.deliveries(behaviorId, ev))
+          this.ws.sendTo(sock, 'learned_preview_frame', frame);
+      };
+      rt.setPreview(this.previews.wanted(behaviorId));
+      this.runtimes.set(behaviorId, rt);
+    }
+    rt.apply({
+      runtimeDir: learnedRuntimeDir(),
+      camera: Math.max(0, Math.round((config.camera as number) ?? 0)),
+      port,
+      vrmPath: this._avatarFilePath(sceneNodeId),
+      retarget: config.retarget === true,
+      fps: Math.min(60, Math.max(1, Number(config.fps) || 10)),
+      historyShift: (['every', 'alternate'] as const).includes(
+        config.historyShift as 'every' | 'alternate'
+      )
+        ? (config.historyShift as 'every' | 'alternate')
+        : 'none',
+    });
+  }
+
+  /** Absolute path of the scene node's model file (the avatar), if any. */
+  private _avatarFilePath(sceneNodeId: string): string | null {
+    try {
+      const row = getDb()
+        .prepare('SELECT file_path FROM scene_nodes WHERE id = ?')
+        .get(sceneNodeId) as { file_path: string | null } | undefined;
+      return row?.file_path ? join(process.cwd(), row.file_path) : null;
+    } catch {
+      return null;
     }
   }
 
@@ -657,7 +827,7 @@ export class VmcManager {
       if (info.connected && now - info.lastSeen > 3000) {
         info.connected = false;
         console.log(`[VMC] Client timed out (component ${behaviorId})`);
-        this.ws.broadcast('vmc_status', { behaviorId, connected: false });
+        publishTracking({ behaviorId, connected: false });
       }
 
       // Both loss paths resolve here, on one clock. The signal counts as alive

@@ -226,36 +226,60 @@ The frontend maintains `VmcRetarget` state per avatar:
 ```
 
 Per frame:
-1. Low-pass filter each incoming bone rotation (OneEuroFilter)
-1a. Optional **motion snappiness** — a per-bone second-order dynamics (spring–damper) filter layered *after* the One Euro filter. Off by default; gated on `node.properties.poseDynamics.enabled`. See "Motion snappiness" below.
+1. Run each incoming bone rotation through the per-avatar **motion filter** (`PoseFilterBank`, configured by `node.properties.poseFilter`, default Minimal = interpolation only). See "Motion filter" below.
 2. Apply arm reach calibration if active (correct wrist position, run IK)
 3. Blend with animation: slerp each bone toward the animation pose by `(1 - blendWeight)`. Ramp speed is `1 / blendTime` seconds.
 4. Write final rotations to `vrm.humanoid.setNormalizedPose()`
 
 **Blend ramping**: `blendWeight` moves toward 0 (animation) or 1 (VMC) each frame at `1/blendTime` rate. Prevents pops when mocap drops in/out. Default `blendTime`: 0.3s.
 
-**Pose timeout**: If no VMC frame has been received for `poseTimeout` seconds (default 2s), blend weight ramps back to 0. OneEuroFilter resets to prevent stale filtered values carrying over when mocap reconnects.
+**Pose timeout**: If no VMC frame has been received for `poseTimeout` seconds (default 2s), blend weight ramps back to 0. The motion filter bank resets to prevent stale filtered values carrying over when mocap reconnects.
 
-### Tracking ↔ animation stacking + partial tracking
+### Tracking ↔ animation stacking
 
-**Status:** implemented. Frontend-only, per-avatar-node. Stacking is the **universal tracked-avatar path**; partial-tracking sliders are off (all-`{anim:1, track:1}`) by default.
+**Status:** implemented. Frontend composition, per-avatar-node. Stacking is the **universal tracked-avatar path**. The per-layer weights it uses come from the avatar's Tracking Mix (below); with no mix every weight is 1.
 
-**Stacking model.** In `override` blend mode the tracked avatar no longer full-overrides the animation (`setNormalizedPose`) and no longer runs separate per-section branches — both were unified into one per-bone **stacking** loop. Per bone: start from the rest pose, blend toward the (base) animation by the section's **Anim** influence, then stack the tracking **delta** (tracking taken relative to rest) scaled by the section's **Track** weight on top. Each layer is scaled independently, so both sliders always affect the result. Corners:
+(Section formerly titled "Tracking ↔ animation stacking + partial tracking"; the per-section Partial Tracking levers were replaced by the Tracking Mix in migration 044.)
+
+**Stacking model.** In `override` blend mode the tracked avatar no longer full-overrides the animation (`setNormalizedPose`) and no longer runs separate per-section branches — both were unified into one per-bone **stacking** loop. Per bone: start from the rest pose, blend toward the (base) animation by the bone's **animation weight**, then stack the tracking **delta** (tracking taken relative to rest) scaled by the tracking weight on top. Each layer is scaled independently. Corners (in terms of the two `stackBoneRotation` weights):
 
 - Anim 1 / Track 0 → animation only
 - Anim 0 / Track 1 → tracking only
 - Anim 0 / Track 0 → rest
-- Anim 1 / Track 1 → base animation with full tracking stacked (the legacy default, `DEFAULT_SECTION_INFLUENCE`)
+- Anim 1 / Track 1 → base animation with full tracking stacked (the default)
 
 The per-bone math is a pure, unit-tested helper — **`packages/frontend/src/components/editor/poseComposition.ts` (`stackBoneRotation`)**, tested in `packages/frontend/test/poseComposition.test.ts`. Change or verify the blend math there, not inline in `Viewport.tsx`.
 
 `final = slerp(rest, animQ, animInf) · slerp(identity, rest⁻¹·trackedQ, trackWeight)`. `trackWeight` is pre-clamped and already folds in the global transition ramp (`Track × blend`); an untracked bone (`trackedQ` null) drops the tracking term and follows the scaled base animation alone. `animQ` is the base-animation pose while a clip is driving, else `rest` (so `Track 0` doesn't freeze the last tracked pose). The explicit `poseMode === 'additive'` branch is unchanged.
 
-**Partial tracking (per-section blend).** A per-avatar-node `poseSource` property (`SceneNodeProperties.poseSource`, types `PoseSource` / `PoseSection` / `PoseSectionInfluence` — see [shared-types.md](shared-types.md)) scales the Anim/Track layers **independently per body section**: `head`, `gaze`, `body`, `arms`, `hands`, `legs`, each with an `anim` and a `track` influence in `0..1`. Typical use: play a full-body clip for the legs while live tracking drives the upper body. A static `BONE_TO_SECTION` map (`Viewport.tsx`, built from `POSE_SECTION_BONES`; unlisted bones fall under `hands`/fingers) assigns every VRM humanoid bone to a section; absent sections resolve to `{anim:1, track:1}`, so an unset `poseSource` changes nothing.
+**Tracking Mix (per-source weights).** **Status:** implemented. Replaced the per-section Partial Tracking levers (`properties.poseSource`, per-region `anim`/`track` sliders, frontend-only). Design history in [plans/tracking-mix.md](../plans/tracking-mix.md).
+
+- **Data:** per-avatar-node `properties.trackingMix = { order?: string[]; sources?: Record<behaviorId | 'animation', { bones?: Record<bone, w>; blendshapes?: Record<shape, w> }> }` (shared `SceneNodeProperties.trackingMix`, Zod-validated in `schema.ts`). An absent weight means 1; weights clamp to `0..2`. No mix is identical to the old priority-ordered stacking.
+- **Shared helpers** — subpath `@vspark/shared/trackingMix` (`packages/shared/src/trackingMix.ts`): `MIX_REGIONS` + `MIX_REGION_BONES` (head/gaze/body/arms/hands/legs; moved from Viewport's old `POSE_SECTION_BONES` — fingers fall under `hands`, `hips` under `legs`), `boneRegion`, `faceGroupOf` (mouth/eyes/brows/emotions/other over `Fcl_*`, VRM presets and ARKit names), `boneWeight` / `blendshapeWeight`, `orderSources` (`mix.order` first, the rest by legacy bus priority, stable), `scaleRotation` (`q^w` along the shortest arc), `uniformValue` / `resetValueFor`, `pruneMix`, `pruneStaleSources`, `setBoneWeights` / `setBlendshapeWeights`, and the source helpers `graphMixOutputs(nodeKinds)` → `{ bones, blendshapes }` over `BONE_OUTPUT_NODE_KINDS` (`pose_broadcast`) and `BLENDSHAPE_OUTPUT_NODE_KINDS` (`blendshapes_broadcast`). The subpath is wired in all resolver configs (package exports, backend tsconfig + `bundle.mjs`, frontend tsconfig + vite + vitest config).
+- **Which behaviors are sources.** A behavior is a mix source because of what its signal graph publishes, not because of its kind: its stored graph having a `pose_broadcast` node gives it a Body column, a `blendshapes_broadcast` node a Face column. (This replaced the hardcoded `BONE_SOURCE_KINDS` / `BLENDSHAPE_SOURCE_KINDS` lists, which had drifted — `learned_tracker` was never added.) **Decided** (user, 2026-11-15): behaviors publish to the bus only through graph broadcast nodes — which is what makes the graph a complete answer to "what does this behavior publish". In `TrackingMix.tsx`, `useBehaviorMixOutputs` selects `graphMixOutputs` per behavior from the mesh `logic` collection (`ownerKind === 'behavior'`, keyed by `ownerId`), serialised to a JSON string so graph edits that don't change the result (moving a node, editing a setting) don't re-render the mixer. `buildMixSources(behaviors, outputs, kindLabel, animationLabel, mix)` keeps the behaviors with any output. Consequences of the current code:
+  - `learned_tracker` and `vmc_receiver_2d` now appear, as does any future kind whose graph broadcasts.
+  - A hand-edited graph without a broadcast node drops out of the mixer, but its stored weights in `properties.trackingMix` are kept — pruning (`pruneStaleSources`) is by behavior existence, not by graph content.
+  - A behavior whose graph document is missing shows no columns until the server writes it (`ensureGraph` / boot sync).
+  - Migration 044 keeps its own frozen kind list (historical; it runs against old data).
+  - The source **order** fallback (`legacyPriority` in `TrackingMix.tsx`: `breathing` → 10, else 0) is still keyed by behavior kind. Noted, not decided: inferred from the code, nobody has ruled on whether it should also come from the graph.
+- **Tracking weights — backend.** The broadcast bus applies tracking-source weights before emitting (see [component-managers.md](component-managers.md#broadcastbus--broadcastbusts)): `_composeBones` orders slots via `orderSources` and multiplies `scaleRotation(q, w)` per bone; offsets scale by `w`; `_composeBlendshapes` sums `w × value` then clamps to `0..1`. A bone/shape whose weight is 0 in every source is omitted, so the frontend leaves it to the animation / default expression.
+- **Animation weights — frontend.** `Viewport.tsx` `animWeightForBone(name, mix)` = `boneWeight(mix, 'animation', bone)` is the `animInf` passed to the stacking; the tracking weight is 1 whenever a tracked bone is present, since the bus already weighted it. Hips root motion uses the hips bone's animation weight.
+- **UI** — `components/editor/TrackingMix.tsx`: `TrackingMixSection` in the avatar sidebar (one master slider per source writing all its bones and all known shapes, a "Custom" state + reset when cells differ, "Open mixer…") and `TrackingMixModal` (Body / Face tabs; matrix rows are regions expandable to bones, or face groups expandable to shapes; columns are sources; order chips with ‹ › for bone sources). Writes go through `previewNodePath` / `commitNodePath` on `properties.trackingMix`, pruned. Face rows are `vrmExpressionsByNode ∪ vrmMorphTargetsByNode ∪` shapes already in the mix. `vs-` handles: `vs-mix-master`, `vs-mix-master-reset`, `vs-mix-open`, `vs-mix-close`, `vs-mix-backdrop`, `vs-mix-tab-body` / `vs-mix-tab-face`, `vs-mix-order-up` / `vs-mix-order-down`, `vs-mix-expand`, `vs-mix-group-cell`, `vs-mix-group-reset`, `vs-mix-member-cell`. i18n under `properties.json` `trackingMix.*` + `help.trackingMix` / `help.trackingMixOrder` (EN/DE); help sections `{#tracking-mix}` and `{#tracking-mix-order}` in `avatar.md`.
+- **Migration 044** (`044_pose_source_to_tracking_mix.ts`): `poseSource.<sec>.anim` → `sources.animation` bones of that section; `poseSource.<sec>.track` → that weight on the section's bones for every bone-source behavior on the node (dropped if the node has no bone source); values of 1 are dropped; `poseSource` is deleted; an existing `trackingMix` is kept. The section→bone map is frozen inside the migration so later changes to `MIX_REGION_BONES` don't alter it.
+
+**Decided** (by the user, during Tracking Mix design):
+- Weighted multiplication, not normalised blending; weight sums above 1 are allowed (e.g. Breathing stacks on top of tracking). Per-cell range is `0..2`.
+- Source order is user-adjustable. Animation is the fixed base layer and is not part of the order.
+- Tracking weighting happens in the backend bus; animation weighting in the frontend.
+- Face (blendshapes) is in scope; face mappings stay inside the receivers. `manual_calibration` is not merged into the mix.
+- No Animation column in the Face tab. (Observed rationale: animation clips don't drive blendshapes in vspark — FBX is bone-only and there is no VRMA loader.)
+- Reset value for a row/group (`resetValueFor`): the most frequent value, the higher one on ties, 1 if nothing repeats (2026-10-05).
+
+**Known limitations (observed):** only behaviors attached to the avatar node itself are listed as sources; `vmc_receiver_2d` (Live2D) is not listed; custom logic-graph publishers have no UI entry, so their weights default to 1 and their order to the legacy bus priority.
 
 ### Unified composition — one path, `modeWeight` selects tracked vs untracked
 
-There is a single composition path. `modeWeight` (0 = animation straight, 1 = levers applied + tracking stacked) ramps over `blendTransitionTime` and selects between the two continuously via `composeBonePose` / `composeHipsPositionBlended`: it scales the section's Anim lever from `1` toward its configured value and scales the tracking term with it. At `modeWeight = 0` the result is **identical by construction** to playing the animation straight, so the two modes cannot drift apart.
+There is a single composition path. `modeWeight` (0 = animation straight, 1 = Tracking Mix animation weights applied + tracking stacked) ramps over `blendTransitionTime` and selects between the two continuously via `composeBonePose` / `composeHipsPositionBlended`: it scales the bone's animation weight from `1` toward its configured value and scales the tracking term with it. At `modeWeight = 0` the result is **identical by construction** to playing the animation straight, so the two modes cannot drift apart.
 
 This replaced two separate branches — a tracked one that applied `inf.anim`, and an untracked one that passed `1`. They switched instantly on `trackingLive` while only the tracking weight ramped, so at the switchover the sole remaining difference was the lever: **every section with Anim < 1 jumped by exactly `1 - anim`**. Sections at Anim 1 didn't move at all (so only *part* of the pose snapped), and the two directions left `blend` at different points (so the snap looked different each way) — the reported symptom. Note the source cross-fade (`SourceFade`, below) could not fix this: it blends between *clips*, while this discontinuity was between *composition modes* applied to the same clip.
 
@@ -263,14 +287,14 @@ The unified path runs while the mode is engaged **or still ramping down**, which
 
 **Why the exit needed more than the ramp.** `modeWeight` scales the tracking *weight*; it cannot rescue tracking *data* that is already gone. Four separate mechanisms removed data or state in a single frame on the tracked→untracked exit, which is why entry looked smooth (data arrives before the ramp starts) while exit snapped:
 
-1. **The bus's empty-bones fallback frame.** When every producer drops out the bus emits one final frame with `bones: {}` (`bus.ts` `_emitFallback`). The pose object is non-null but empty, so composition ran and found no bones — every bone's tracking term went null and its weight 0 at once. Fixed by `TrackedPoseLatch`: the last *populated* (and filtered) pose is held and replayed while `modeWeight > 0`, so the ramp fades from a real pose. The latch ignores empty updates and is released on the settle edge. Replayed frames skip the One Euro filter — the latch is a held constant, and re-filtering it would drift.
-2. **The transition reset fired at the start of the exit.** It keyed off `trackedActive` going false — the *first* exit frame, with `modeWeight` still ~1 and the tracked path still rendering. `BoneFilterBank.reset()` clears each filter's `initialized` flag, so the next `filter()` returns the **raw** sample instead of the smoothed one, and `resetNormalizedPose()` wiped the pose the ramp was reading. Now fires on the `modeWeight >0 → 0` edge, i.e. once the fade has finished.
+1. **The bus's empty-bones fallback frame.** When every producer drops out the bus emits one final frame with `bones: {}` (`bus.ts` `_emitFallback`). The pose object is non-null but empty, so composition ran and found no bones — every bone's tracking term went null and its weight 0 at once. Fixed by `TrackedPoseLatch`: the last *populated* (and filtered) pose is held and replayed while `modeWeight > 0`, so the ramp fades from a real pose. The latch ignores empty updates and is released on the settle edge. Replayed frames still run through the motion filter, with `newSample = false` (the latch is a held constant), so the fade starts from where the avatar actually is (changed 2026-11-23; previously replays skipped the One Euro filter).
+2. **The transition reset fired at the start of the exit.** It keyed off `trackedActive` going false — the *first* exit frame, with `modeWeight` still ~1 and the tracked path still rendering. The filter bank's `reset()` (then the One Euro `BoneFilterBank`, now `PoseFilterBank`) clears each filter's state, so the next `filter()` returns the **raw** sample instead of the smoothed one, and `resetNormalizedPose()` wiped the pose the ramp was reading. Now fires on the `modeWeight >0 → 0` edge, i.e. once the fade has finished.
 3. **Tracking faded quadratically.** `tw = inf.track * blend` was then scaled again by `modeWeight` inside `composeBonePose`, and `blend === modeWeight` (identical ramps), giving `inf.track * modeWeight²` — a collapse in the final third that read as a late snap. `blend` is gone; `composeBonePose` owns the mode scaling, and the duplicate `blendWeightRef` ramp was removed.
 4. **The base slot was torn down before the fade could capture it.** `setTrackingActive(false)` → `baseSlotUrl` null → the slot effect called `teardownSlot('base')` in its **body**, which React commits before the next frame. `fade.from` then pointed at a missing slot, the freeze fell through to `clear()`, and `crossfadeAnimPose` with a null `from` returns `slerp(rest, to, k)` — rest at `k=0`, not the outgoing pose — so the base→idle animation cross-fade was silently skipped and the baseline cut. Slots are now **retired** (`retireSlot`) rather than torn down: excluded from source selection but kept loaded and ticked, and dropped by the frame loop once no fade reads them. A small `else` branch remains for `pose == null` (no producer has ever published, so there is no pose object to read); it is `modeWeight = 0` by construction.
 
 Only the tracked side composes anything new — at `modeWeight = 0` the result *is* the animation pose — so there is no second result buffer to build and blend against.
 
-**No-feed branch — idle plays straight.** With **no live tracking feed** (signal lost, or no enabled tracking source at all) the idle animation plays at **full strength**: the branch composes with `animInf = 1`, `trackedQ = null`, `trackWeight = 0`, and root motion at `legsAnim = 1`. The partial-tracking levers describe how tracking blends against the *base* animation while a source is live; with nothing tracking there is nothing to weigh the idle against, so they do not apply here. Nothing else is applied either — ambient producers (Breathing) merge into the **tracked** pose only, never into a straight idle.
+**No-feed branch — idle plays straight.** With **no live tracking feed** (signal lost, or no enabled tracking source at all) the idle animation plays at **full strength**: the branch composes with `animInf = 1`, `trackedQ = null`, `trackWeight = 0`, and root motion at `legsAnim = 1`. The Tracking Mix animation weights describe how the *base* animation blends against tracking while a source is live; with nothing tracking there is nothing to weigh the idle against, so they do not apply here. Nothing else is applied either — ambient producers (Breathing) merge into the **tracked** pose only, never into a straight idle.
 
 **Branch selection keys off `trackingLive`, not bus-pose presence.** Step 2's gate is `trackingLive && blend > 0 && pose`. The `trackingLive` term is essential: ambient producers publish additively and forever (Breathing's `pose_broadcast` runs at priority 10 with `animationBlendMode: 'additive'`, independent of tracking), so `pose` stays non-null and `poseActive` stays true for the lifetime of the behavior. Gating on those alone ran the weighted tracked path permanently and made the untracked idle branch unreachable whenever a Breathing behavior was attached — the originally-reported "idle still goes through the weights". For the same reason `targetWeight` (the blend ramp) and the filter-reset transition both key off `trackedComposeActive = trackingLive && poseActive` rather than `poseActive`, which an ambient producer would otherwise pin true forever.
 
@@ -288,7 +312,7 @@ This branch was originally a **slider-preview** path — gated on `poseSourceIsA
 
 **Base animation slot.** `properties.animation.base = { url?, clipId?, speed? }` is a second clip slot distinct from `properties.animation.idle`. While a live tracking source is connected the **base** animation drives the anim layer (the loop tracking stacks onto); when tracking is lost/absent the avatar falls back to the **idle**. If `base` is unset, `idle` doubles as the base. The base⇄idle swap is driven by a reactive `trackingActive` flag set from the per-frame pose loop (`Viewport.tsx`, `AvatarNode`); `base` is resolved by `url` (or `clipId` if present) and passed as the idle arg to `_resolveAvatarAnimation`. Scheduled clips still win over both. Persisted via `schema.ts` (`animationSlotSchema = {clipId?, url?, speed?}` on `sceneNodePropertiesSchema.animation.{idle,base}`, `.passthrough()` to keep legacy sub-fields — a prior strict-object path was stripping the unknown `animation` key).
 
-UI: a "Partial Tracking" section in the PropertiesPanel avatar block (per-section `anim`/`track` sliders `vs-posesrc-anim-*` / `vs-posesrc-track-*`, a `vs-posesrc-reset`) plus a **Base Animation** picker in the Animation section (`vs-base-anim-url` / `vs-base-anim-clear` / `vs-base-anim-speed`), EN/DE i18n under `avatar.poseSource*` / `properties.avatar.baseAnimation` + `help.poseSource` / `properties.help.baseAnimation`, and an updated `{#partial-tracking}` help section in `avatar.md`.
+UI: a **Base Animation** picker in the Animation section (`vs-base-anim-url` / `vs-base-anim-clear` / `vs-base-anim-speed`), EN/DE i18n under `properties.avatar.baseAnimation` + `properties.help.baseAnimation`, help section `{#base-animation}` in `avatar.md`. (The former "Partial Tracking" section, `vs-posesrc-*`, `avatar.poseSource*` keys and `{#partial-tracking}` anchor were removed with the Tracking Mix.)
 
 ### Tracking-loss grace period — when the return to idle starts
 
@@ -305,7 +329,7 @@ Before this landed, the vmc_receiver carried a `poseTimeout` config field (UI la
 
 `checkTimeouts()` resolves both from `Math.min(quietSince ?? now, lastSeen)` — **whichever dropout began first drives the window**, so a source that freezes and *then* disconnects doesn't restart its grace period on the disconnect. It skips receivers whose `trackingActive !== true` (already lost, or never latched — `null`), matching the connect-time snapshot which skips `null` for the same reason.
 
-`setTracking(behaviorId, tracking)` is the single transition point: it collapses no-op repeats, broadcasts `vmc_tracking_state`, and keeps the `broadcastBus.removeBehavior` teardown paired with the loss that caused it. All three call sites (movement resume, both loss paths) funnel through it.
+`setTracking(behaviorId, tracking)` is the single transition point: it collapses no-op repeats, publishes the receiver's `tracking` status (a `server_status` document, see [mesh.md](mesh.md#runtime-state-the-runtime-channel)), and keeps the `broadcastBus.removeBehavior` teardown paired with the loss that caused it. All three call sites (movement resume, both loss paths) funnel through it.
 
 **Sweep period is 250ms** in both managers (VMC dropped from 2000ms). The smallest configurable window is 0.1s, so a 2s tick would silently round every short setting up to its own period.
 
@@ -326,24 +350,40 @@ Before this landed, the vmc_receiver carried a `poseTimeout` config field (UI la
 
 **Tests.** 12 grace-period tests across both managers in `packages/backend/test/managers.test.ts`; 8 migration tests in `packages/backend/test/db.migrations.test.ts`.
 
-### Motion snappiness (second-order dynamics)
+### Motion filter (`poseFilter`)
 
-**Status:** implemented (2026-06-19). Frontend-only, per-avatar-node, disabled by default.
+**Status:** implemented (2026-11-23, commit 842944e6 on `feature/pose-filter`). Frontend-only, one filter per avatar node.
 
-A configurable second-order dynamics (spring–damper) filter applied per bone to the broadcast pose, layered **after** the One Euro filter rather than replacing it. The One Euro filter stays responsible for jitter and uneven/low-frequency packet delivery; the dynamics layer adds "snap"/"follow-through". Unlike a low-pass filter (which can only lag the target), a second-order system can **lead and overshoot** the target, so motion reads as snappy without going choppy (output stays C¹-continuous).
+Replaced two stacked filters: the hardcoded One Euro `BoneFilterBank` (`oneEuroFilter.ts`, min cutoff 1 Hz, beta 0.3) and the optional Motion Snappiness second-order dynamics (`secondOrderDynamics.ts`, `properties.poseDynamics`). Both files and `test/secondOrderDynamics.test.ts` are deleted; stored `poseDynamics` values are dropped (zod strips unknown keys). Reason: the stack added a lot of easing with Learned Tracking. Measured end to end (virtual camera → motiontracker runtime v0.3.0 → vspark → headless Chrome at 60 fps, Fenn_2, 45 arm steps): rendered arm halfway point after the camera change 189 ms with the old filters (One Euro + that avatar's snappiness 2.65 Hz / ζ 1.5 / r 1.9) → 107 ms with Minimal. Most of the old easing came from the snappiness settings; the One Euro alone was ~33 ms to halfway in simulation. With Minimal the filter reaches 90% of a received pose ~66 ms after it arrives (10 Hz input).
 
-**Why frontend, not a backend pose-interceptor.** The deliberate placement is the frontend avatar node, not the backend `on_pose_broadcast`/`pose_interceptor_broadcast` chain, because the One Euro filter must stay in place at the consumer to absorb unreliable/low-frequency packet delivery — the dynamics layer assumes an already-de-jittered, frame-rate-paced input.
+**Decided** (owner, 2026-11-23): one filter per avatar, not per tracking source; Minimal is the default for every avatar; casual users get a preset dropdown, the parameter fields sit behind a collapsed "Advanced" toggle.
 
-**Module:** `packages/frontend/src/secondOrderDynamics.ts` — exports `SecondOrderDynamicsQuat` (single-bone filter), `BoneDynamicsBank` (one lazily-created filter per bone name, `.reset()` resets all), `PoseDynamicsConfig`, and `DEFAULT_POSE_DYNAMICS` (`{ enabled: false, frequency: 3.0, damping: 0.6, response: 1.2 }`).
+**Module:** `packages/frontend/src/poseFilter.ts` — `PoseFilterQuat` (one bone), `PoseFilterBank` (one lazily created filter per bone name, `.reset()`), `PoseFilterPreset`, `PoseFilterParams`, `PoseFilterConfig`, `POSE_FILTER_PRESETS`, `DEFAULT_POSE_FILTER`, `POSE_FILTER_RANGES`, `resolvePoseFilter()`.
 
-**Math.** The standard semi-implicit-Euler second-order formulation (t3ssel8r, "Giving Personality to Procedural Animations using Math") adapted from scalar to SO(3): spring error, target velocity, and output velocity are all world-frame rotation vectors (axis·angle), and the output orientation is integrated through the quaternion exponential map. `k2` is stability-clamped so the integrator stays stable at large `dt` (low frame rates). Parameters:
-- `frequency` (Hz) — natural frequency; higher = quicker reaction / snappier.
-- `damping` (ζ) — `<1` overshoots (snap/bounce), `1` critical (no overshoot), `>1` sluggish.
-- `response` (r) — `0` no anticipation, `>0` anticipatory lead, `<0` winds up before moving.
+**Math.** Adaptive second-order (spring–damper) filter on SO(3): t3ssel8r semi-implicit Euler formulation with rotation vectors and the quaternion exponential map (same base as the old snappiness filter).
+- Follow frequency `f = min(glideHz, rest + adaptation · |smoothed input velocity|)`, with `rest = glideHz · (0.5 / glideHz)^smoothing`.
+- `glideHz = 4.74 / (2π · interval)`, clamped 2–30 Hz; `interval` is an EMA of sample intervals. Gaps > 0.25 s are ignored, so a held pose or a tracking pause doesn't slow the glide. The fastest setting is therefore an automatic glide matched to the incoming pose rate.
+- Target velocity is estimated per new **sample** (not per frame), smoothed (tau 0.15 s), and used both for the adaptation and for the response term (raw velocity would amplify jitter).
 
-**Wiring** (`Viewport.tsx`, `AvatarNode` `useFrame`, Step 2 broadcast pose composition): a `boneDynamicsRef` (`BoneDynamicsBank`) runs immediately after the `boneFiltersRef` One Euro `BoneFilterBank`. Reads `node.properties.poseDynamics ?? DEFAULT_POSE_DYNAMICS`; when `enabled` is false the bank is `.reset()` each frame so re-enabling starts cleanly from the current pose.
+**Parameters / ranges:** `smoothing` 0–1, `adaptation` 0–6, `damping` 0.1–3, `response` −2–4.
 
-**Config** is persisted as the per-node `poseDynamics` property: typed as `PoseDynamics` on shared `SceneNodeProperties` (`packages/shared/src/types.ts`), Zod-validated in `sceneNodePropertiesSchema` (`packages/shared/src/schema.ts`), and mirrored in both frontend `NodeProperties` interfaces (`store/editorStore.ts`, `api/client.ts`). UI is a "Motion Snappiness" section in the PropertiesPanel avatar block (enable checkbox + frequency/damping/response `NumInput`s + `HelpButton`). i18n keys under `avatar.*` and `help.dynamics` in `properties.json`; help section `{#snappiness}` in `help/content/{en,de}/avatar.md`.
+**Presets** (`{smoothing, adaptation, damping, response}`):
+- `minimal` `{0, 0, 1, 0}` — interpolation between tracking samples only. Default.
+- `smooth` `{0.9, 3, 1, 0}` — tuned offline against the old filters: no more jitter than the old One Euro at rest and less lag (10 Hz step halfway 17 ms vs 33; 1 Hz swing lag 50 vs 67 ms).
+- `springy` `{0.9, 1, 0.7, 1}` — about 6° overshoot on a 50° step.
+- `custom` — uses the stored parameters.
+
+`resolvePoseFilter(config)`: a non-custom preset brings its own values (stored parameters are ignored); `custom` uses the stored ones.
+
+**Wiring** (`Viewport.tsx`, `AvatarNode` `useFrame`, Step 2 broadcast pose composition): `boneFiltersRef = useRef(new PoseFilterBank())`; per bone `filters.filter(bone, q, delta, resolvePoseFilter(node.properties?.poseFilter), newSample)`. `newSample` is true only when the bone's raw broadcast rotation changed (the bus re-emits identical values every tick). The filter also runs during the `TrackedPoseLatch` replay with `newSample = false`. The bank is reset on the `modeWeight > 0 → 0` edge (see "Why the exit needed more than the ramp").
+
+**Config:** `properties.poseFilter` = `{ preset, smoothing?, adaptation?, damping?, response? }` — `PoseFilter` in shared `packages/shared/src/types.ts`, Zod in `schema.ts`, mirrored as `Partial<PoseFilterConfig>` in both frontend `NodeProperties` (`store/editorStore.ts`, `api/client.ts`). Missing = Minimal.
+
+**UI:** `PoseFilterSection` in the PropertiesPanel avatar block (see [frontend.md](frontend.md)). i18n `avatar.poseFilter.*` + `help.poseFilter` (en/de); help section "Motion filter" `{#motion-filter}` in `help/content/{en,de}/avatar.md` (replaced `{#snappiness}`); the pose stylizer follow-through text in `behaviors.md` links to it.
+
+**Tests:** `packages/frontend/test/poseFilter.test.ts` (12); e2e `cov-properties.spec.ts` test 9 (preset + Advanced → Custom, REST read-back).
+
+**Extending:** a new preset touches `POSE_FILTER_PRESETS` + the `PoseFilterPreset` union, the shared `PoseFilter` type and the `z.enum` in `schema.ts`, the `PoseFilterSection` dropdown and en/de i18n labels. A new parameter touches `PoseFilterParams`, `POSE_FILTER_RANGES`, every preset, the shared type + Zod object, and the Advanced field list in `PoseFilterSection` (handle `vs-pose-filter-<name>`, i18n `avatar.poseFilter.<name>` + `avatar.poseFilter.tips.<name>`; re-bless the controls manifest). Choosing a preset in the dropdown commits that preset's resolved values; choosing Custom keeps the values in effect.
 
 ## Shared, scheduled, content-addressed playback
 
@@ -358,7 +398,7 @@ An avatar's clip animation is **collab-shared and clock-anchored** rather than f
 
 Migration `033_scheduled_animations`: `id, avatar_node_id (FK→scene_nodes ON DELETE CASCADE), clip_id, start_epoch, speed, loop, created_at`. Resource descriptor (load/save/remove) in `packages/backend/src/sync/resources.ts`; mesh binding in `packages/backend/src/mesh/index.ts` (`parent → scene_node:avatarNodeId`, `persists` when the avatar row exists). Frontend: a `scheduledAnimations` store slice fed by the mesh feeder (`sync/meshStoreFeeder.ts`), plus a `PARENTS`/`RTYPES` entry. See [mesh.md](mesh.md) for the collection mechanics.
 
-**Clock localization.** `start_epoch` is anchored on the *author's* mesh clock. The collection's `validate(data, originId)` translates a foreign doc's `startEpoch` onto the receiver's clock via the mesh peer-clock API `peer.toLocalTime(originId, startEpoch)`. This is the general mechanism for localizing peer-relative fields; the mesh threads `originId` (the origin peer id) into `validate` for local writes, remote ops, and snapshots — see [mesh.md](mesh.md) (peer-clock localization). The clock is a synchronized-clocks stub today, so the translation is numerically a no-op, but the call sites are final.
+**Clock localization.** `startEpoch` is anchored on the writer's clock. `scheduled_animation` and `clip_playback` declare it as a clock field in `@vspark/shared/models`, and every peer (servers and browser tabs) translates it onto its own clock as it arrives, using the measured offset to the sending peer. See [mesh.md](mesh.md#clock-fields).
 
 ### Frontend clock-anchored driver — `Viewport.tsx` (AvatarNode)
 

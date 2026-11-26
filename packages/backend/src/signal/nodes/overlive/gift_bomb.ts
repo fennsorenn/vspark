@@ -43,6 +43,16 @@ export class OverliveGiftBomb extends Node {
   @valueOut('tier', 'String') tier = (): string => this._out().tier;
   @valueOut('totalGifts', 'Float') totalGifts = (): number => this._out().totalGifts;
   @valueOut('anonymous', 'Bool') anonymous = (): boolean => this._out().anonymous;
+  /** The whole record plus `username` / `displayName` (the gifter's), so a
+   *  template written for other events reads the same names. */
+  @valueOut('data', 'Any') data = (): GiftBombOut & {
+    username: string;
+    displayName: string;
+  } => ({
+    ...this._out(),
+    username: this._out().gifterUsername,
+    displayName: this._out().gifterDisplayName,
+  });
 
   @eventIn('event', 'Any')
   onEvent(ev: Event<unknown>): void {

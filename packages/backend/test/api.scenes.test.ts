@@ -11,7 +11,7 @@ import { makeTestApp } from './helpers/testApp.js';
 describe('scenes + scene-nodes API', () => {
   let app: Express;
   beforeEach(async () => {
-    ({ app } = await makeTestApp());
+    ({ app } = await makeTestApp({ mesh: true }));
   });
 
   const newProject = async () => {

@@ -1,6 +1,18 @@
 # Plan: Live P2P mesh — full-mesh participants + temporal state
 
-> Branch: `claude/preset-object-sync-wn2HT` · Status: draft
+> **Status:** partly shipped, then superseded. What landed: the browser-side WebRTC mesh
+> (`frontend/src/mesh/clientMesh.ts`, `hooks/useClientMesh.ts`, relay in
+> `backend/src/multiplayer/clientMeshRelay.ts`) and content-addressed asset transfer
+> (`backend/src/multiplayer/blobs.ts`, `frontend/src/mesh/blobReceiver.ts`). The
+> "events become temporal state" idea survives as `packages/shared/src/sync.ts`
+> deprecating the `event` envelope op, and concretely in the clock-anchored animation
+> schedule of [`avatar-animation.md`](./avatar-animation.md) — not as a general
+> mechanism. The replication design itself was replaced.
+> **Superseded by:** [`permissioned-sync-mesh.md`](./permissioned-sync-mesh.md) (which
+> explicitly supersedes the "full flat mesh" wording here) and then
+> [`mesh-sync-refactor.md`](./mesh-sync-refactor.md).
+
+> *(Historical.)* Branch: `claude/preset-object-sync-wn2HT`
 > Seed context for implementation. Starting point, not an airtight spec.
 
 ## Goal

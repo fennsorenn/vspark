@@ -8,11 +8,18 @@
  * Context-node availability depends on owner_kind:
  *   - 'project'        — no context nodes at all.
  *   - 'scene_node'     — `scene_entity` is auto-fed the attached node's id and
- *                        outputs a `SceneNode`; behavior_config / behavior_id
+ *                        outputs a `SceneNode`; settings / behavior_id
  *                        are still forbidden.
  *   - 'compose_layer'  — `scene_entity` is auto-fed the layer's id and outputs a
  *                        `ComposeLayer` (its output type follows the scope via
  *                        `inferSceneEntity`); behavior context still forbidden.
+ *   - 'action'         — an Action's graph (dev-notes/modules/actions.md): the
+ *                        `settings` node is allowed and reads the action's live
+ *                        settings, injected here as `_settings`; the graph runs
+ *                        only while the action is enabled.
+ *   - 'behavior'       — a Behavior's stored graph: NOT run here. Its behavior
+ *                        manager runs it (behaviors/storedGraph.ts) and the
+ *                        mesh validates it with validateBehaviorGraph.
  *
  * Per-graph node state is persisted on the logic row in a `node_state` JSON
  * column (mirroring the `_nodeState` convention used by behavior-owned
@@ -22,18 +29,24 @@ import { SignalGraph } from '../signal/engine.js';
 import { NODE_REGISTRY } from '../signal/registry.js';
 import { Clock } from '../signal/nodes/clock.js';
 import { getDb } from '../db/index.js';
+import { toGraphDescriptor } from '@vspark/shared/signal';
 import type {
   GraphDescriptor,
+  GraphDescriptorDoc,
   GraphStateSnapshot,
 } from '@vspark/shared/signal';
 import type { LogicOwnerKind } from '@vspark/shared/types';
 
 /** Node kinds that depend on the behavior-context system. Always rejected
- *  in logic because there's no behavior to read config from. */
-const ALWAYS_FORBIDDEN_CONTEXT_KINDS = new Set([
-  'behavior_config',
-  'behavior_id',
-]);
+ *  in logic because there's no behavior to read an id from. */
+const ALWAYS_FORBIDDEN_CONTEXT_KINDS = new Set(['behavior_id']);
+
+/** The shared settings node (formerly `behavior_config`): it reads the owner's
+ *  settings, so it is only allowed where the owner has some — an Action. */
+const SETTINGS_KIND = 'settings';
+
+/** Owner kinds whose graphs have settings for the settings node to read. */
+const OWNERS_WITH_SETTINGS = new Set(['action']);
 
 export interface LogicRow {
   id: string;
@@ -47,85 +60,85 @@ export interface LogicRow {
   updated_at: string;
 }
 
-export type ProjectLogicRow = LogicRow;
-
 interface RunningGraph {
   graph: SignalGraph;
   descriptor: GraphDescriptor;
   nodeStates: Map<string, unknown>;
   cleanups: Array<() => void>;
+  ownerKind: string;
+  ownerId: string;
+  /** The owner's live settings (action-owned graphs), read by `settings`
+   *  nodes through the live config getter — replaced in place on every
+   *  settings change, so the running graph sees new values without a
+   *  restart. */
+  owner: { settings: Record<string, unknown> };
+}
+
+interface ActionOwnerRow {
+  enabled: number;
+  settings: string;
+  project_id: string;
+}
+
+const actionRow = (id: string): ActionOwnerRow | undefined =>
+  getDb()
+    .prepare('SELECT enabled, settings, project_id FROM actions WHERE id = ?')
+    .get(id) as unknown as ActionOwnerRow | undefined;
+
+function parseSettings(raw: string | undefined): Record<string, unknown> {
+  try {
+    const v = JSON.parse(raw || '{}') as unknown;
+    return v && typeof v === 'object' && !Array.isArray(v)
+      ? (v as Record<string, unknown>)
+      : {};
+  } catch {
+    return {};
+  }
 }
 
 export class LogicManager {
   private readonly running = new Map<string, RunningGraph>();
+  private readonly runningChangedHooks: Array<() => void> = [];
 
-  // ── REST API entry points ─────────────────────────────────────────────────
-
-  /** List all graphs for a project. */
-  list(projectId: string): LogicRow[] {
-    return getDb()
-      .prepare(
-        "SELECT * FROM logic WHERE owner_kind = 'project' AND owner_id = ? ORDER BY created_at"
-      )
-      .all(projectId) as unknown as LogicRow[];
+  /**
+   * Register a callback fired whenever the set of running graphs changes
+   * (start/stop). The HotkeyManager uses this to (re)evaluate whether any
+   * `system_hotkey` node exists and start/stop its global keyboard hook
+   * without LogicManager importing it (avoids a cycle).
+   */
+  onGraphsChanged(fn: () => void): void {
+    this.runningChangedHooks.push(fn);
   }
 
+  private notifyGraphsChanged(): void {
+    for (const fn of this.runningChangedHooks) {
+      try {
+        fn();
+      } catch {
+        /* a hook must never break graph lifecycle */
+      }
+    }
+  }
+
+  // ── row access ────────────────────────────────────────────────────────────
+
+  /** One row by id. The document itself lives in the mesh `logic` collection —
+   *  this is the running graph's own read of what it should be executing. */
   get(id: string): LogicRow | undefined {
     return getDb()
       .prepare('SELECT * FROM logic WHERE id = ?')
       .get(id) as unknown as LogicRow | undefined;
   }
 
-  create(input: { id: string; projectId: string; name: string }): LogicRow {
-    const db = getDb();
-    db.prepare(
-      "INSERT INTO logic (id, owner_kind, owner_id, name) VALUES (?, 'project', ?, ?)"
-    ).run(input.id, input.projectId, input.name);
-    return this.get(input.id)!;
-  }
-
-  update(
-    id: string,
-    patch: { name?: string; enabled?: boolean; descriptor?: GraphDescriptor }
-  ): ProjectLogicRow | undefined {
-    const existing = this.get(id);
-    if (!existing) return undefined;
-    const db = getDb();
-    if (patch.name !== undefined) {
-      db.prepare(
-        "UPDATE logic SET name = ?, updated_at = datetime('now') WHERE id = ?"
-      ).run(patch.name, id);
-    }
-    if (patch.enabled !== undefined) {
-      db.prepare(
-        "UPDATE logic SET enabled = ?, updated_at = datetime('now') WHERE id = ?"
-      ).run(patch.enabled ? 1 : 0, id);
-    }
-    if (patch.descriptor !== undefined) {
-      validateDescriptor(patch.descriptor, existing.owner_kind);
-      db.prepare(
-        "UPDATE logic SET descriptor = ?, updated_at = datetime('now') WHERE id = ?"
-      ).run(JSON.stringify(patch.descriptor), id);
-    }
-    // Reconcile the running instance with the new state.
-    this.reconcile(id);
-    return this.get(id);
-  }
-
-  remove(id: string): void {
-    this.stop(id);
-    getDb().prepare('DELETE FROM logic WHERE id = ?').run(id);
-  }
-
   // ── lifecycle ─────────────────────────────────────────────────────────────
 
-  /** Start any logic (project / scene_node / compose_layer) that
+  /** Start any logic (project / scene_node / compose_layer / action) that
    *  are persisted as enabled. Called at server boot. Behavior-owned graphs
    *  are NOT in this set — those are started by their behavior managers. */
   startAllEnabled(): void {
     const rows = getDb()
       .prepare(
-        "SELECT id FROM logic WHERE owner_kind IN ('project', 'scene_node', 'compose_layer') AND enabled = 1"
+        "SELECT id FROM logic WHERE owner_kind IN ('project', 'scene_node', 'compose_layer', 'action') AND enabled = 1"
       )
       .all() as Array<{ id: string }>;
     for (const { id } of rows) this.start(id);
@@ -146,12 +159,50 @@ export class LogicManager {
     }
   }
 
+  /** Reconcile every graph an owner has (an action toggled on or off). */
+  reconcileOwnedBy(ownerKind: string, ownerId: string): void {
+    const rows = getDb()
+      .prepare('SELECT id FROM logic WHERE owner_kind = ? AND owner_id = ?')
+      .all(ownerKind, ownerId) as Array<{ id: string }>;
+    for (const { id } of rows) this.reconcile(id);
+  }
+
+  /** An action's settings changed: hand the new values to its running
+   *  graph(s). No restart — `settings` nodes resolve their config live. */
+  setActionSettings(actionId: string, settings: Record<string, unknown>): void {
+    for (const r of this.running.values())
+      if (r.ownerKind === 'action' && r.ownerId === actionId)
+        r.owner.settings = settings;
+  }
+
+  /** Resolve a value input of a node in a running graph (see
+   *  SignalGraph.pullInput). Undefined when the graph is not running. */
+  pullInput(graphId: string, nodeId: string, portName: string): unknown {
+    return this.running.get(graphId)?.graph.pullInput(nodeId, portName);
+  }
+
   private start(id: string): void {
     if (this.running.has(id)) return;
     const row = this.get(id);
     if (!row || row.enabled !== 1) return;
+    // A behavior's graph is stored as Logic but run by its behavior manager,
+    // which feeds it live data (behaviors/storedGraph.ts).
+    if (row.owner_kind === 'behavior') return;
+    // An action's graph runs only while its action exists and is enabled.
+    const owner = { settings: {} as Record<string, unknown> };
+    if (row.owner_kind === 'action') {
+      const a = actionRow(row.owner_id);
+      if (!a || a.enabled !== 1) return;
+      owner.settings = parseSettings(a.settings);
+    }
     try {
-      const descriptor = JSON.parse(row.descriptor) as GraphDescriptor;
+      // The row stores the DOCUMENT form (nodes/edges keyed by id, so each is
+      // its own mesh path); the engine wants lists. `toGraphDescriptor` also
+      // accepts the old list form, so a graph stored before the keying still
+      // runs — and is rewritten on its next save.
+      const descriptor = toGraphDescriptor(
+        JSON.parse(row.descriptor) as GraphDescriptorDoc
+      );
       validateDescriptor(descriptor, row.owner_kind);
 
       const nodeStates = parseNodeStateMap(row.node_state);
@@ -159,7 +210,7 @@ export class LogicManager {
       const graph = SignalGraph.fromDescriptor(
         descriptor,
         NODE_REGISTRY,
-        (nodeId) => this._getNodeConfig(descriptor, nodeId, row),
+        (nodeId) => this._getNodeConfig(descriptor, nodeId, row, owner),
         (nodeId) => nodeStates.get(nodeId) ?? {},
         (nodeId, state) => {
           nodeStates.set(nodeId, state);
@@ -190,10 +241,19 @@ export class LogicManager {
         }
       }
 
-      this.running.set(id, { graph, descriptor, nodeStates, cleanups });
+      this.running.set(id, {
+        graph,
+        descriptor,
+        nodeStates,
+        cleanups,
+        ownerKind: row.owner_kind,
+        ownerId: row.owner_id,
+        owner,
+      });
       console.log(
         `[Logic] Started ${row.name} (${id}) — ${descriptor.nodes.length} nodes, ${descriptor.edges.length} edges`
       );
+      this.notifyGraphsChanged();
     } catch (e) {
       console.error(`[Logic] Failed to start ${row.name} (${id}):`, e);
     }
@@ -209,6 +269,7 @@ export class LogicManager {
     r.graph.dispose();
     this.running.delete(id);
     console.log(`[Logic] Stopped ${id}`);
+    this.notifyGraphsChanged();
   }
 
   /**
@@ -285,6 +346,8 @@ export class LogicManager {
         .get(row.owner_id) as { project_id?: string } | undefined;
       return r?.project_id ?? null;
     }
+    if (row.owner_kind === 'action')
+      return actionRow(row.owner_id)?.project_id ?? null;
     return null;
   }
 
@@ -297,7 +360,8 @@ export class LogicManager {
   private _getNodeConfig(
     descriptor: GraphDescriptor,
     nodeId: string,
-    row: LogicRow
+    row: LogicRow,
+    owner: { settings: Record<string, unknown> }
   ): unknown {
     const nodeDef = descriptor.nodes.find((n) => n.id === nodeId);
     const defaults = (nodeDef?.defaultConfig ?? {}) as Record<string, unknown>;
@@ -306,6 +370,9 @@ export class LogicManager {
     // nodes) read it to target the right project's resource; other nodes ignore
     // the extra key. Underscore-prefixed so it never collides with user config.
     const _projectId = this._resolveProjectId(row) ?? undefined;
+    // …and its own id as `_logicId`, which `logic_id` outputs so a graph can
+    // scope variables to itself.
+    const _logicId = row.id;
     // For scene-node- and compose-layer-scoped graphs, auto-inject the owner
     // entity's id as the `nodeId` config of any `scene_entity` instance. The
     // node just reads config.nodeId — its OUTPUT TYPE follows the scope
@@ -315,9 +382,13 @@ export class LogicManager {
       nodeDef?.kind === 'scene_entity' &&
       defaults.nodeId == null
     ) {
-      return { ...defaults, nodeId: row.owner_id, _projectId };
+      return { ...defaults, nodeId: row.owner_id, _projectId, _logicId };
     }
-    return { ...defaults, _projectId };
+    // An action's settings nodes read the action's live settings (read through
+    // `owner`, which setActionSettings replaces in place).
+    if (row.owner_kind === 'action' && nodeDef?.kind === SETTINGS_KIND)
+      return { ...defaults, _projectId, _logicId, _settings: owner.settings };
+    return { ...defaults, _projectId, _logicId };
   }
 
   private _persistNodeState(
@@ -353,13 +424,22 @@ function parseNodeStateMap(raw: string): Map<string, unknown> {
 
 /**
  * Reject descriptors that reference context nodes the owner kind can't
- * satisfy. behavior_config / behavior_id always need a behavior context
- * and so are forbidden in every logic; scene_entity is allowed in
+ * satisfy. behavior_id always needs a behavior context and so is forbidden in
+ * every logic; the settings node needs an owner with settings (an Action);
+ * scene_entity is allowed in
  * scene-node- and compose-layer-scoped graphs (where the manager auto-feeds its
  * nodeId config and its output type follows the scope), but not in
  * project-scoped graphs, which have no owner entity.
  */
-function validateDescriptor(d: GraphDescriptor, ownerKind: string): void {
+/** Reject a descriptor a logic graph cannot run.
+ *
+ *  Exported because the mesh `validate` hook applies it to every incoming
+ *  write, so a tab-authored graph is checked on the same terms as one PUT over
+ *  REST — the check has to live somewhere both paths reach. */
+export function validateDescriptor(
+  d: GraphDescriptor,
+  ownerKind: string
+): void {
   const sceneEntityAllowed =
     ownerKind === 'scene_node' || ownerKind === 'compose_layer';
   for (const n of d.nodes) {
@@ -367,6 +447,12 @@ function validateDescriptor(d: GraphDescriptor, ownerKind: string): void {
       throw new Error(
         `Logic cannot use behavior-context node "${n.kind}". ` +
           `These nodes are only valid inside behavior graphs.`
+      );
+    }
+    if (n.kind === SETTINGS_KIND && !OWNERS_WITH_SETTINGS.has(ownerKind)) {
+      throw new Error(
+        `The settings node reads its owner's settings, so it is only valid ` +
+          `in Behavior and Action graphs, not '${ownerKind}' logic.`
       );
     }
     if (n.kind === 'scene_entity' && !sceneEntityAllowed) {

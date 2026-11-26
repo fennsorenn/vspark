@@ -21,11 +21,12 @@ import { mediaControlManager } from '../src/media_control/manager.js';
 import { poseInterceptorRegistry } from '../src/signal/pose_interceptor_registry.js';
 import { broadcastBus } from '../src/broadcast/bus.js';
 
-// ── Nodes with init() injection helpers ──────────────────────────────────────
-import {
-  initTrackClipTrigger,
-} from '../src/signal/nodes/track_clip_trigger.js';
-import { initStartClip } from '../src/signal/nodes/start_clip.js';
+// The clip-start nodes write the clip_playback document rather than taking an
+// injected playhead, so this is what they are asserted against now.
+import { triggerClip } from '../src/track_clips/playbackDoc.js';
+vi.mock('../src/track_clips/playbackDoc.js', () => ({
+  triggerClip: vi.fn(),
+}));
 import { Clock } from '../src/signal/nodes/clock.js';
 import { OnPoseBroadcast } from '../src/signal/nodes/on_pose_broadcast.js';
 
@@ -260,34 +261,25 @@ describe('set_compose_layer_param', () => {
 // track_clip_trigger
 // ─────────────────────────────────────────────────────────────────────────────
 describe('track_clip_trigger', () => {
-  it('is a no-op when _playback is not initialised', () => {
-    // Module-level _playback starts null if initTrackClipTrigger was never called.
-    // Create a fresh node and fire — must not throw.
-    const n = loneNode('track_clip_trigger', { clipId: 'clip-abc' });
-    expect(() => n.deliver('fire', undefined)).not.toThrow();
-  });
+  beforeEach(() => vi.mocked(triggerClip).mockClear());
 
-  it('calls playback.trigger when initialised and clipId is set', () => {
-    const mockPlayback = { trigger: vi.fn() } as unknown as Parameters<typeof initTrackClipTrigger>[0];
-    initTrackClipTrigger(mockPlayback);
-
+  it('writes the clip_playback document when clipId is set', () => {
     const n = loneNode('track_clip_trigger', { clipId: 'clip-1' });
     n.deliver('fire', undefined);
-    expect(mockPlayback.trigger).toHaveBeenCalledWith('clip-1');
-
-    // Clean up — reset to null so later tests don't see the mock
-    initTrackClipTrigger(null as unknown as Parameters<typeof initTrackClipTrigger>[0]);
+    expect(triggerClip).toHaveBeenCalledWith('clip-1');
   });
 
-  it('is a no-op when clipId is missing even with playback initialised', () => {
-    const mockPlayback = { trigger: vi.fn() } as unknown as Parameters<typeof initTrackClipTrigger>[0];
-    initTrackClipTrigger(mockPlayback);
-
-    const n = loneNode('track_clip_trigger', {}); // no clipId
+  it('is a no-op when clipId is missing', () => {
+    const n = loneNode('track_clip_trigger', {});
     n.deliver('fire', undefined);
-    expect(mockPlayback.trigger).not.toHaveBeenCalled();
+    expect(triggerClip).not.toHaveBeenCalled();
+  });
 
-    initTrackClipTrigger(null as unknown as Parameters<typeof initTrackClipTrigger>[0]);
+  it('does not throw when the store is unavailable', () => {
+    // There is no injected playhead to be missing any more: the write helper
+    // no-ops when the collection is absent, so the node never has to guard.
+    const n = loneNode('track_clip_trigger', { clipId: 'clip-abc' });
+    expect(() => n.deliver('fire', undefined)).not.toThrow();
   });
 });
 
@@ -295,30 +287,23 @@ describe('track_clip_trigger', () => {
 // start_clip
 // ─────────────────────────────────────────────────────────────────────────────
 describe('start_clip', () => {
-  it('is a no-op when _playback is not initialised', () => {
-    const n = loneNode('start_clip', { clipId: 'clip-xyz' });
-    expect(() => n.deliver('fire', undefined)).not.toThrow();
-  });
+  beforeEach(() => vi.mocked(triggerClip).mockClear());
 
-  it('calls playback.trigger when initialised and clipId is set', () => {
-    const mockPlayback = { trigger: vi.fn() } as unknown as Parameters<typeof initStartClip>[0];
-    initStartClip(mockPlayback);
-
-    const n = loneNode('start_clip', { clipId: 'clip-2' });
+  it('writes the clip_playback document when clipId is set', () => {
+    const n = loneNode('start_clip', { clipId: 'clip-1' });
     n.deliver('fire', undefined);
-    expect(mockPlayback.trigger).toHaveBeenCalledWith('clip-2');
-
-    initStartClip(null as unknown as Parameters<typeof initStartClip>[0]);
+    expect(triggerClip).toHaveBeenCalledWith('clip-1');
   });
 
   it('is a no-op when clipId is missing', () => {
-    const mockPlayback = { trigger: vi.fn() } as unknown as Parameters<typeof initStartClip>[0];
-    initStartClip(mockPlayback);
+    const n = loneNode('start_clip', {});
+    n.deliver('fire', undefined);
+    expect(triggerClip).not.toHaveBeenCalled();
+  });
 
-    loneNode('start_clip', {}).deliver('fire', undefined);
-    expect(mockPlayback.trigger).not.toHaveBeenCalled();
-
-    initStartClip(null as unknown as Parameters<typeof initStartClip>[0]);
+  it('does not throw when the store is unavailable', () => {
+    const n = loneNode('start_clip', { clipId: 'clip-xyz' });
+    expect(() => n.deliver('fire', undefined)).not.toThrow();
   });
 });
 
@@ -397,6 +382,29 @@ describe('spawn_clip', () => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
+// play_sound
+// ─────────────────────────────────────────────────────────────────────────────
+describe('play_sound', () => {
+  let playSpy: ReturnType<typeof vi.spyOn>;
+  beforeEach(() => {
+    playSpy = vi.spyOn(mediaControlManager, 'playSound').mockImplementation(() => {});
+  });
+  afterEach(() => playSpy.mockRestore());
+
+  it('plays the asset in the graph\'s project', () => {
+    const n = loneNode('play_sound', { assetId: 'snd', volume: 0.5, _projectId: 'p1' });
+    n.deliver('fire', undefined);
+    expect(playSpy).toHaveBeenCalledWith('p1', 'snd', 0.5);
+  });
+
+  it('does nothing without a sound or a project', () => {
+    loneNode('play_sound', { _projectId: 'p1' }).deliver('fire', undefined);
+    loneNode('play_sound', { assetId: 'snd' }).deliver('fire', undefined);
+    expect(playSpy).not.toHaveBeenCalled();
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
 // media_control
 // ─────────────────────────────────────────────────────────────────────────────
 describe('media_control', () => {
@@ -417,6 +425,24 @@ describe('media_control', () => {
     });
     n.deliver('fire', undefined);
     expect(dispatchSpy).toHaveBeenCalledWith('scene_node', 'node-vid-1', { action: 'play' });
+  });
+
+  it('carries a collection video on play / restart only', () => {
+    const n = loneNode('media_control', { targetId: 'vid-1', assetId: 'clip-a' });
+    n.deliver('fire', undefined);
+    expect(dispatchSpy).toHaveBeenLastCalledWith('scene_node', 'vid-1', {
+      action: 'play',
+      assetId: 'clip-a',
+    });
+    const p = loneNode('media_control', {
+      targetId: 'vid-1',
+      assetId: 'clip-a',
+      action: 'pause',
+    });
+    p.deliver('fire', undefined);
+    expect(dispatchSpy).toHaveBeenLastCalledWith('scene_node', 'vid-1', {
+      action: 'pause',
+    });
   });
 
   it('is a no-op when targetId is missing', () => {
@@ -442,6 +468,22 @@ describe('media_control', () => {
       action: 'seek',
       t: 12.5,
     });
+  });
+
+  it('takes the action from a wired input (e.g. an Action settings node)', () => {
+    const { graph } = buildGraph(
+      [
+        { id: 'cfg', kind: 'settings' },
+        { id: 'm', kind: 'media_control' },
+      ],
+      [{ fromNodeId: 'cfg', fromPort: 'value', toNodeId: 'm', toPort: 'action' }],
+      {
+        cfg: { field: 'a', _settings: { a: 'pause' } },
+        m: { targetId: 'vid-4', action: 'play' },
+      }
+    );
+    graph.deliverExternal('m', 'fire', undefined);
+    expect(dispatchSpy).toHaveBeenCalledWith('scene_node', 'vid-4', { action: 'pause' });
   });
 
   it('a SpawnRef retargets the command to the tmp id', () => {

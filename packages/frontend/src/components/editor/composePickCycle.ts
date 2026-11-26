@@ -1,6 +1,7 @@
 import { useEditorStore } from '../../store/editorStore';
 import { composeScenePick } from './ComposeSceneInteractions';
 import { composeViewportRect, layersAtClientPoint } from './composeHitTest';
+import { composeLayersNow } from '../../mesh/compose';
 
 /** Cycle the active selection through every pickable under the cursor in
  *  front-to-back z-order, wrapping when the end is reached.
@@ -22,7 +23,7 @@ export function cyclePickAt(x: number, y: number): void {
 
   // All layers in the active compose scene (no camera filter — camera_view is a
   // layer now).
-  const visible = store.composeLayers.filter(
+  const visible = composeLayersNow().filter(
     (l) => l.rootComposeSceneId === store.activeComposeSceneId
   );
 

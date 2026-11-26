@@ -29,7 +29,9 @@
       "clips": "Clips",
       "overlive": "Stream",
       "obs": "OBS",
-      "utility": "Werkzeuge"
+      "utility": "Werkzeuge",
+      "flow": "Ablauf",
+      "variables": "Variablen"
     }
   },
   "logic": {

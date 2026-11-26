@@ -25,7 +25,11 @@ Dependencies added: `i18next`, `react-i18next`, `i18next-browser-languagedetecto
 
 One namespace per component area. Namespace names match the component area they cover:
 
-`common`, `help`, `topbar`, `update`, `editor`, `home`, `sceneGraph`, `assets`, `properties`, `compose`, `signalGraph`, `clips`, `accounts`, `presets`, `media`, `assistant`, `misc`.
+`common`, `help`, `topbar`, `update`, `editor`, `home`, `sceneGraph`, `assets`, `properties`, `compose`, `signalGraph`, `clips`, `accounts`, `presets`, `media`, `assistant`, `misc`, `actions`, `composites`.
+
+The `composites` namespace covers composite settings, tags and the Dissolve menu items (`components/editor/composites/`); its help page is `help/content/{en,de}/composites.md` (anchors `{#composites}` `{#settings}` `{#alert}` `{#chat}` `{#widgets}` — with per-widget sub-anchors `{#goal}` `{#countdown}` `{#subathon}` `{#recent}` `{#top}` `{#adbreak}`, targeted by the per-type `HelpButton` in each composite's Settings header (`TYPE_ANCHOR` in `CompositeSettings.tsx`) — `{#parts}` `{#dissolve}`, `'composites'` in `TOPIC_ORDER` after `presets`). See [composites.md](composites.md).
+
+The `actions` namespace covers the Actions panel (left-dock tab, `components/editor/actions/`); its help page is `help/content/{en,de}/actions.md` (anchors `{#overview}` `{#add}` `{#hotkey}` `{#chat_command}` `{#chat_pattern}` `{#chat_keyword}` `{#keyword_combo}` `{#redemption}` `{#placeholders}` `{#patterns}` `{#cooldown}` `{#counter}` `{#account}` `{#trigger}` `{#value-shape}` `{#modified}` `{#reset}` `{#graph}` — the kind anchors equal the kind ids because each group header's `HelpButton` targets `anchor={kind}`, `'actions'` in `TOPIC_ORDER` after `logic`). See [actions.md](actions.md).
 
 The `assistant` namespace covers the in-app AI Assistant window; its help page (`help/content/{en,de}/assistant.md`, anchors `{#how-to-use}` `{#setup}` `{#capabilities}` `{#attach}` `{#limits}`, `'assistant'` in `TOPIC_ORDER`) documents the agent for end users; `{#attach}` covers the 📎 attach picker (attach editor elements so "this/that" resolves to a concrete id/url). See [mcp-assistant.md](mcp-assistant.md).
 
@@ -87,6 +91,17 @@ carried the original copy; this table is the durable source of truth.)
 | Group | Gruppe |
 | Behavior | Verhalten |
 | Logic | Logik |
+| Action (project-level workflow, Actions tab) | Aktion |
+| Response (what an Action does, e.g. play a clip) | Reaktion |
+| Chat command (Action kind) | Chat-Befehl |
+| Chat pattern (Action kind) | Chat-Muster |
+| Keyword (chat) | Stichwort |
+| Keyword combo (Action kind) | Stichwort-Combo |
+| Redemption (channel points) | Einlösung |
+| Reward (channel points) | Belohnung |
+| Counter | Zähler |
+| Pattern (regular expression) | Muster |
+| Placeholder (`${user}` in a text) | Platzhalter |
 | Automation | Automatisierung |
 | Compose | Compose |
 | Layer | Ebene |
@@ -98,10 +113,23 @@ carried the original copy; this table is the durable source of truth.)
 | Track clip | Track-Clip |
 | Keyframe | Keyframe |
 | Preset | Vorlage |
+| Composite (one object with its own settings) | Widget |
+| Part (of a composite) | Teil |
+| Dissolve (a composite) | Auflösen |
+| Named trigger | Benannter Auslöser |
+
+**Decided (user):** a composite is a *Widget* in German (neuter: *das Widget*, *eines Widgets*) — the term German streamers know from alert/chat widgets, chosen over the literal *Baugruppe*. The other three composite rows (Teil, Auflösen, Benannter Auslöser) were chosen by Claude on `feature/composites` and are not yet confirmed by the user.
+
 | Account | Konto |
 | Project | Projekt |
 | Properties | Eigenschaften |
 | Add / Remove / Delete | Hinzufügen / Entfernen / Löschen |
+| Notice / toast | Meldung |
+| Variable | Variable |
+| Cooldown | Abklingzeit |
+| Trigger (event source) | Auslöser |
+| Modified (a graph that differs from its template) | Geändert |
+| Reset (rebuild a graph from its template) | Zurücksetzen |
 
 When you introduce a new recurring domain term, add it here so future
 translations stay consistent.
@@ -162,7 +190,7 @@ Custom rehype plugin. Converts a `{#id}` marker at the end of a heading into tha
 
 ### Content — `help/content/<lng>/<topic>.md`
 
-Markdown files for each topic in each supported language. Current topics: `overview`, `avatar`, `scene`, `behaviors`, `logic`. Each contains `{#anchor}` markers on section headings that serve as deep-link targets.
+Markdown files for each topic in each supported language. Current topics (22, `en` + `de` in lockstep): `actions`, `assets`, `assistant`, `avatar`, `behaviors`, `camera`, `camera-effects`, `compose`, `lighting`, `live2d`, `logic`, `materials`, `multiplayer`, `obs`, `overview`, `particles`, `presets`, `props`, `scene`, `streaming`, `track-clips`, `transform`. Each contains `{#anchor}` markers on section headings that serve as deep-link targets.
 
 Available anchors per topic:
 
@@ -171,8 +199,9 @@ Available anchors per topic:
 | `overview` | `pieces`, `first-session`, `language` |
 | `avatar` | `loading`, `animation`, `expressions`, `materials`, `calibration` |
 | `scene` | `nodes`, `hierarchy`, `cameras`, `lights`, `compose` |
-| `behaviors` | `vmc`, `tracking`, `lipsync`, `breathing`, `expression-limits`, `devices`, `api` |
-| `logic` | `automations`, `nodes`, `events`, `triggers` |
+| `behaviors` | `behaviors`, `graph`, `vmc`, `ifacialmocap`, `ifacialmocap-firewall`, `eye-range`, `tracking`, `arm-solve`, `learned`, `lipsync`, `breathing`, `stylized`, `expression-limits`, `devices`, `api` |
+| `logic` | `automations`, `nodes`, `events`, `triggers`, `hotkeys`, `conditions`, `variables`, `combos`, `custom-triggers` |
+| `actions` | `overview`, `add`, `hotkey`, `value-shape`, `modified`, `reset`, `graph` |
 
 ### docs.ts — `help/docs.ts`
 

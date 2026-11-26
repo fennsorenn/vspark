@@ -15,7 +15,7 @@
  * here — so the receiver's inert, output-driven projection needs no behaviour
  * execution. Their config rides the initial snapshot for completeness only.
  * (Track-clip animation is the one frontend-evaluated case that *is* forwarded —
- * as a transform stream via `forwardNodeTransform`, not config.)
+ * as a preview overlay on the mesh, not config.)
  *
  * Subscriptions are held in the live grant-gated {@link MeshRouter} (admit-on-
  * subscribe against the real grant store + containment index), not a bespoke map;
@@ -59,10 +59,6 @@ const SNAPSHOT = '_share_snapshot';
 const UNSHARED = '_share_unshared';
 /** Live pose/blendshape frame for a shared avatar (rides the lossy stream channel). */
 const STREAM = '_share_stream';
-/** Runtime override set/clear on a shared subtree node (reliable doc channel). */
-const OVERRIDE = '_share_override';
-/** Data-channel set/clear scoped to a shared subtree node (reliable doc channel). */
-const DATACHANNEL = '_share_datachannel';
 /** Receiver → owner: a remote write request on a shared subtree node (Phase 6). */
 const WRITE = '_share_write';
 /** Owner → receiver: a write was rejected (no grant), so roll back the optimism. */
@@ -75,8 +71,6 @@ export const SHARE_RTYPES = new Set([
   UNSUBSCRIBE,
   SNAPSHOT,
   UNSHARED,
-  OVERRIDE,
-  DATACHANNEL,
   WRITE,
   WRITE_NAK,
 ]);
@@ -273,12 +267,6 @@ export class SharingManager {
         });
         break;
       }
-      case OVERRIDE:
-        this.broadcast('mp_shared_override', { peerId: from, ...data });
-        break;
-      case DATACHANNEL:
-        this.broadcast('mp_shared_datachannel', { peerId: from, ...data });
-        break;
       // --- owner side: a granted remote peer's write request ---
       case WRITE:
         this.handleWrite(from, data.env as SyncEnvelope);
@@ -351,59 +339,6 @@ export class SharingManager {
       objectId: nodeId,
       kind,
       payload,
-    });
-  }
-
-  /** Owner: forward a (clip-driven) transform of a node inside a shared subtree.
-   *  Unlike the root-keyed pose path, this resolves the owning root, so a clip
-   *  animating a *child* of the shared object matches too (not just the root).
-   *  Rides the lossy stream channel as a `node_transform_preview` frame — the
-   *  receiver applies it via `smoothNodeTransform` on the projected node (owner
-   *  ids are preserved). Reverts are re-sent a few frames by the caller, so a
-   *  dropped frame here doesn't strand the node. */
-  forwardNodeTransform(
-    nodeId: string,
-    transform: Record<string, number>
-  ): void {
-    // Routing by `scene_node:<nodeId>` matches subscribers whose subtree contains
-    // it (root or child) — the old findOwningRoot membership — over lossy links.
-    this.router.publishStream(`scene_node:${nodeId}`, {
-      rtype: STREAM,
-      objectId: nodeId,
-      kind: 'node_transform_preview',
-      payload: { nodeId, transform },
-    });
-  }
-
-  /** Owner: forward a runtime override set/clear on a shared subtree node. These
-   *  key by the target node id and the receiver applies by that id (no
-   *  per-subscriber root context), so they ride the grant-gated namespace
-   *  `router.publish` — routed to exactly the subscribers whose subtree contains
-   *  the target (subscriptionMatches ≡ the old findOwningRoot membership), over
-   *  each one's reliable link (a dropped `clear` must not stick). Only scene_node
-   *  targets are shared (compose layers aren't). */
-  forwardOverride(op: 'set' | 'clear', payload: Record<string, unknown>): void {
-    if (payload.targetKind !== 'scene_node') return;
-    const targetId = payload.targetId as string;
-    this.router.publish({
-      rtype: OVERRIDE,
-      op: 'event',
-      key: `scene_node:${targetId}`,
-      data: { op, ...payload },
-    });
-  }
-
-  /** Owner: forward a data-channel set/clear scoped to a scene node inside a
-   *  shared subtree (global scope '' and compose-layer scopes aren't shared).
-   *  Same publish-by-key path as overrides (reliable link). */
-  forwardDataChannel(op: 'set' | 'clear', payload: Record<string, unknown>): void {
-    const scope = payload.scope as string;
-    if (!scope) return; // global — not tied to a shared object
-    this.router.publish({
-      rtype: DATACHANNEL,
-      op: 'event',
-      key: `scene_node:${scope}`,
-      data: { op, ...payload },
     });
   }
 

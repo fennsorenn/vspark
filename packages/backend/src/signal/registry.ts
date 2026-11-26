@@ -8,7 +8,7 @@ import { getPortMeta, type PortMeta } from '@vspark/shared/node';
 import { typeTagToResolved } from '@vspark/shared/signal_types';
 import { INFER_BY_KIND } from '@vspark/shared/infer_nodes';
 import { BehaviorId } from './nodes/behavior_id.js';
-import { BehaviorConfigNode } from './nodes/behavior_config.js';
+import { SettingsNode } from './nodes/settings.js';
 import { SceneEntity } from './nodes/scene_entity.js';
 import { ManualTrigger } from './nodes/manual_trigger.js';
 import { ArmIkCalibration } from './nodes/arm_ik_calibration.js';
@@ -17,6 +17,7 @@ import { IFacialMocapPacketSource } from './nodes/ifacialmocap_packet_source.js'
 import { RhyliveBoneMapper } from './nodes/rhylive_bone_mapper.js';
 import { ArkitVrmMapper } from './nodes/arkit_vrm_mapper.js';
 import { BodyCalibration } from './nodes/body_calibration.js';
+import { EyeRangeMap } from './nodes/eye_range_map.js';
 import { PoseManualCalibration } from './nodes/pose_manual_calibration.js';
 import { PoseStyleDrivers } from './nodes/pose_style_drivers.js';
 import { PoseStylize } from './nodes/pose_stylize.js';
@@ -36,16 +37,22 @@ import { Time } from './nodes/time.js';
 import { SineWave } from './nodes/sine_wave.js';
 import { EulerToQuaternion } from './nodes/euler_to_quaternion.js';
 import { Multiply } from './nodes/multiply.js';
+import { MathNode, Clamp, StepLookup } from './nodes/math.js';
+import { DateTime } from './nodes/date_time.js';
+import { Deadline } from './nodes/deadline.js';
+import { Tally } from './nodes/tally.js';
 import { PoseApplyBone } from './nodes/pose_apply_bone.js';
 import { PoseMerge } from './nodes/pose_merge.js';
 // Lipsync nodes
 import { LipsyncSource } from './nodes/lipsync_source.js';
+import { ApiControllerSource } from './nodes/api_controller_source.js';
 import { VisemePassthrough } from './nodes/viseme_passthrough.js';
 // MediaPipe tracking nodes
 import { MediapipeSource } from './nodes/mediapipe_source.js';
 import { FaceLandmarksToBlendshapes } from './nodes/face_landmarks_to_blendshapes.js';
 import { PoseTorsoHeadToBones } from './nodes/pose_torso_head_to_bones.js';
 import { PoseArmsToBones } from './nodes/pose_arms_to_bones.js';
+import { PoseSmooth } from './nodes/pose_smooth.js';
 import { HandLandmarksToBones } from './nodes/hand_landmarks_to_bones.js';
 import { PoseIkTargets } from './nodes/pose_ik_targets.js';
 import { IkBroadcast } from './nodes/ik_broadcast.js';
@@ -60,6 +67,7 @@ import { SetComposeLayerParam } from './nodes/set_compose_layer_param.js';
 import { SetText } from './nodes/set_text.js';
 import { SetData } from './nodes/set_data.js';
 import { MediaControl } from './nodes/media_control.js';
+import { PlaySound } from './nodes/play_sound.js';
 import { LogNode } from './nodes/log.js';
 // Overlive event nodes
 import { OverliveRedemption } from './nodes/overlive/redemption.js';
@@ -67,6 +75,7 @@ import { OverliveSubscription } from './nodes/overlive/subscription.js';
 import { OverliveGiftBomb } from './nodes/overlive/gift_bomb.js';
 import { OverliveRaid } from './nodes/overlive/raid.js';
 import { OverliveFollow } from './nodes/overlive/follow.js';
+import { OverliveGoal } from './nodes/overlive/goal.js';
 import { OverliveChatMessage } from './nodes/overlive/chat_message.js';
 import { OverliveChatFeed } from './nodes/overlive/chat_feed.js';
 import { OverliveChatCommand } from './nodes/overlive/chat_command.js';
@@ -77,6 +86,9 @@ import { OverliveBan } from './nodes/overlive/ban.js';
 import { OverliveStreamOnline } from './nodes/overlive/stream_online.js';
 import { OverliveStreamOffline } from './nodes/overlive/stream_offline.js';
 import { OverliveSendChat } from './nodes/overlive/send_chat.js';
+import { SystemHotkey } from './nodes/system_hotkey.js';
+import { Cycle } from './nodes/cycle.js';
+import { SetExpression } from './nodes/set_expression.js';
 // Overlive outbound action nodes
 import { OverliveAnnounce, OverliveShoutout, OverliveChatColor } from './nodes/overlive/actions_chat.js';
 import {
@@ -124,6 +136,21 @@ import { ObsReplayPath } from './nodes/obs/replay_path.js';
 import { ObsConnectionState } from './nodes/obs/connection_state.js';
 // Render-client lifecycle (vspark-native, driven by the browser-source bridge)
 import { ClientLifecycle } from './nodes/client_lifecycle.js';
+// General-purpose logic nodes (Actions plan, phase 1)
+import { Regex } from './nodes/regex.js';
+import { IfElse } from './nodes/if_else.js';
+import { Equals } from './nodes/equals.js';
+import { ChatRankNode } from './nodes/chat_rank.js';
+import { TextFormat } from './nodes/text_format.js';
+import { LogicId } from './nodes/logic_id.js';
+import { Cooldown } from './nodes/cooldown.js';
+import { ComboThreshold, ComboTimeout } from './nodes/combo.js';
+import { SendTrigger, OnTrigger } from './nodes/trigger.js';
+import {
+  GetVariable,
+  SetVariable,
+  IncrementVariable,
+} from './nodes/variable.js';
 
 // ──────────────────────────────────────────────────────────────────────────────
 // All known node kinds. Import a new class here to auto-register it.
@@ -132,7 +159,7 @@ import { ClientLifecycle } from './nodes/client_lifecycle.js';
 const ALL_NODE_CLASSES: SignalNodeClass[] = [
   // Context / value nodes (internal — hidden from user palette)
   BehaviorId,
-  BehaviorConfigNode,
+  SettingsNode,
   SceneEntity,
   ManualTrigger,
   ArmIkCalibration,
@@ -142,6 +169,7 @@ const ALL_NODE_CLASSES: SignalNodeClass[] = [
   RhyliveBoneMapper,
   ArkitVrmMapper,
   BodyCalibration,
+  EyeRangeMap,
   PoseManualCalibration,
   PoseStyleDrivers,
   PoseStylize,
@@ -164,16 +192,25 @@ const ALL_NODE_CLASSES: SignalNodeClass[] = [
   SineWave,
   EulerToQuaternion,
   Multiply,
+  MathNode,
+  Clamp,
+  StepLookup,
+  DateTime,
+  Deadline,
+  Tally,
   PoseApplyBone,
   PoseMerge,
   // Lipsync nodes
   LipsyncSource,
   VisemePassthrough,
+  // API Controller entry point
+  ApiControllerSource,
   // MediaPipe tracking nodes
   MediapipeSource,
   FaceLandmarksToBlendshapes,
   PoseTorsoHeadToBones,
   PoseArmsToBones,
+  PoseSmooth,
   HandLandmarksToBones,
   PoseIkTargets,
   IkBroadcast,
@@ -192,6 +229,7 @@ const ALL_NODE_CLASSES: SignalNodeClass[] = [
   SetData,
   // Media playback control (fire-and-forget command bus)
   MediaControl,
+  PlaySound,
   // Debug
   LogNode,
   // Overlive event nodes
@@ -200,6 +238,7 @@ const ALL_NODE_CLASSES: SignalNodeClass[] = [
   OverliveGiftBomb,
   OverliveRaid,
   OverliveFollow,
+  OverliveGoal,
   OverliveChatMessage,
   OverliveChatFeed,
   OverliveChatCommand,
@@ -251,6 +290,28 @@ const ALL_NODE_CLASSES: SignalNodeClass[] = [
   ObsConnectionState,
   // Render-client lifecycle
   ClientLifecycle,
+  // System input
+  SystemHotkey,
+  // Flow control
+  Cycle,
+  IfElse,
+  Cooldown,
+  ComboThreshold,
+  ComboTimeout,
+  SendTrigger,
+  OnTrigger,
+  // Text / comparison helpers
+  Regex,
+  TextFormat,
+  Equals,
+  ChatRankNode,
+  // Variables
+  LogicId,
+  GetVariable,
+  SetVariable,
+  IncrementVariable,
+  // Runtime output
+  SetExpression,
 ];
 
 export const NODE_REGISTRY: ReadonlyMap<string, SignalNodeClass> = new Map(

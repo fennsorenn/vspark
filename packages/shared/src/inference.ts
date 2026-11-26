@@ -260,7 +260,10 @@ export class InferGraph {
    * After a node re-infers, re-validate every edge leaving it. If an output type
    * changed and is no longer assignable to a downstream input, return that conflict
    * reason (caller rolls back). Otherwise push the new type into each downstream
-   * input and recurse. Returns the first conflict reason, or null on success.
+   * input and recurse — only into nodes whose output types actually changed, so
+   * propagation reaches a fixpoint and terminates on graphs with loops (a
+   * timer's `total` feeding the add that ends in the same timer). Returns the
+   * first conflict reason, or null on success.
    */
   private _propagate(fromId: string): string | null {
     for (const edge of this._edges.filter((x) => x.fromNodeId === fromId)) {
@@ -271,8 +274,10 @@ export class InferGraph {
       if (dstType && !isAssignable(srcType, dstType)) {
         return `downstream conflict at ${edge.toNodeId}.${edge.toPort}: ${describeResolvedType(srcType)} not assignable to ${describeResolvedType(dstType)}`;
       }
+      const before = JSON.stringify(dst.resolvedOutputPorts);
       dst.resolvedInputs.set(edge.toPort, srcType);
       this._reinfer(dst);
+      if (JSON.stringify(dst.resolvedOutputPorts) === before) continue;
       const deeper = this._propagate(edge.toNodeId);
       if (deeper) return deeper;
     }

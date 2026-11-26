@@ -8,6 +8,34 @@ Du fügst Verhalten über den **Verhalten**-Tab hinzu und hängst sie an einen
 Knoten. Ein einzelner Avatar kann mehrere Verhalten gleichzeitig ausführen — zum
 Beispiel Tracking *und* Lippensynchronisation.
 
+## Der Graph eines Verhaltens {#graph}
+
+Unter der Haube führt jedes Verhalten (außer der **API-Steuerung**) einen
+[Logik-Graphen](topic:logic) aus: die Knoten, die Tracking-Daten, Mikrofon-
+Eingaben oder einen Takt in Bewegung verwandeln. Dieser Graph gehört zum
+Verhalten, und du kannst ihn wie jeden anderen Graphen bearbeiten — die
+Einstellungen im Panel des Verhaltens wirken weiter, weil der Graph sie über
+seine **Einstellungen**-Knoten liest.
+
+Die Zeile **Graph** oben in den Einstellungen eines Verhaltens zeigt:
+
+- **Graph öffnen** — öffnet den Graphen auf der Arbeitsfläche. Änderungen
+  wirken sofort auf das laufende Verhalten.
+- **Geändert** — der Graph weicht von dem ab, was die Vorlage des Verhaltens
+  erzeugt hat. Knoten zu verschieben zählt nicht als Änderung.
+- **Vorlagen-Update** — eine neuere vspark-Version erzeugt für dieses
+  Verhalten einen anderen Graphen. Unveränderte Graphen werden beim Start von
+  vspark automatisch aktualisiert; ein von dir bearbeiteter Graph bleibt, wie
+  er ist, und zeigt stattdessen dieses Abzeichen.
+- **Kein Graph** — das Verhalten hat keinen gespeicherten Graphen und läuft
+  mit seiner Vorlage.
+- **Graph zurücksetzen** — baut den Graphen aus der Vorlage neu auf. Vorher
+  wird nachgefragt, weil deine Änderungen am Graphen verloren gehen.
+  **Rückgängig** holt sie zurück.
+
+Knoten, die auf Chat, Tastenkürzel, OBS oder Auslöser reagieren, erhalten
+diese Ereignisse nur in Logik-Graphen, nicht im Graphen eines Verhaltens.
+
 ## VMC-Empfänger {#vmc}
 
 **VMC** ist ein verbreiteter Standard, den Motion-Capture-Apps nutzen, um
@@ -16,7 +44,8 @@ und Ganzkörperanzüge können VMC senden; das VMC-Empfänger-Verhalten hört da
 und leitet es an deinen Avatar weiter.
 
 Du gibst lediglich an, auf welchem Port es lauschen soll (die sendende App zeigt
-diesen an), und die Bewegung fließt herein.
+diesen an), und die Bewegung fließt herein. Wenn die Augen des Avatars zu weit
+schauen, siehe [Blick](topic:behaviors#eye-range).
 
 ## iFacialMocap-Empfänger {#ifacialmocap}
 
@@ -56,6 +85,26 @@ die Richtungen stimmen, nimm eine entspannte neutrale Haltung ein und drücke
 Die Mimik wird genau wie beim [VMC-Empfänger](topic:behaviors#vmc) zugeordnet —
 dieselben drei Gesichts-Mapper, derselbe Editor für eigene Zuordnungen.
 
+### Blick: Augen schauen zu weit {#eye-range}
+
+Jedes Avatar-Modell legt fest, wie weit sich seine Augen drehen dürfen – meist
+nur etwa 10°, weil Anime-Augen groß sind. iFacialMocap meldet, wie weit sich
+**deine** Augen tatsächlich drehen, bis etwa 30°. Direkt übernommen rutscht die
+Iris schon bei normalen Augenbewegungen unter die Lider, und der Avatar zeigt
+das Weiße seiner Augen.
+
+**Augenbewegung an den Augenbereich des Modells anpassen** (unter **Blick**)
+behebt das: Deine Augendrehung wird so skaliert, dass eine Drehung um den
+**physischen Augenbereich** (standardmäßig 30°) die Grenze des Modells erreicht;
+alles darüber bleibt dort stehen. Verkleinere den Bereich, wenn sich die Augen
+des Avatars träge anfühlen; vergrößere ihn, wenn sie immer noch zu weit schauen.
+
+Bei iFacialMocap ist die Anpassung standardmäßig an. Der
+[VMC-Empfänger](topic:behaviors#vmc) hat dieselbe Einstellung, standardmäßig aus:
+Die meisten VMC-Sender passen die Augen schon an dein Modell an, und eine
+doppelte Anpassung würde sie zu klein machen. Schalte sie dort nur ein, wenn dein
+Sender rohe Augenwinkel weiterreicht.
+
 ## Kamera-Tracking {#tracking}
 
 Kamera-Tracking nutzt eine gewöhnliche **Webcam**, um deine Gesichts-, Hand- und
@@ -72,6 +121,96 @@ während ein eigens hochwertiges Gesichtsmodell für genauere Ausdrücke sorgt �
 Kosten zusätzlicher CPU-Last. Aktiviere es nur, wenn deine Maschine eine flüssige
 Bildrate hält.
 
+### Optionen der Arm-Berechnung {#arm-solve}
+
+Ist **IK-Arme verwenden** aus, werden die Arme Knochen für Knochen aus den
+Körper- und Handpunkten der Kamera berechnet. Im Abschnitt **Arm-Berechnung
+(experimentell)** kannst du die einzelnen Techniken ein- und ausschalten und so
+während der Bewegung sehen, was jede bewirkt. Alles eingeschaltet ist die
+empfohlene Einstellung.
+
+- **Berechnung** — *Ellbogen-Scharnier* behandelt den Ellbogen als Scharnier:
+  Die Drehung des Oberarms ergibt sich aus dem Winkel deines Arms am Ellbogen,
+  und nur der Unterarm dreht sich mit der Hand. *Alt* ist das frühere Verfahren,
+  das den ganzen Arm der Hand folgen lässt; es bleibt zum Vergleich erhalten und
+  kippt leicht, wenn deine Finger auf die Kamera zeigen.
+- **Geschätzte Gelenke behalten** — hält Unterarm und Hand in Bewegung, wenn die
+  Kamera nur raten kann, wo dein Handgelenk ist (etwa außerhalb des Bildes),
+  statt sie in die Ruhepose fallen zu lassen.
+- **Ellbogenebene am Handgelenk prüfen** — verhindert, dass eine geratene
+  Handgelenksposition deinen Oberarm umdreht.
+- **Keine Verdrehung im Handgelenk** und **Unmögliche Handgelenkswinkel
+  ignorieren** — verhindern, dass sich die Hand verdreht oder abknickt, wie es
+  ein echtes Handgelenk nicht kann.
+- **Seitlich gehaltener Handfläche misstrauen** und **Hand mit Körper-Tracking
+  abgleichen** — die Kamera erkennt die Drehung deiner Hand schlecht, wenn die
+  Handfläche seitlich steht, und verwechselt manchmal Handfläche und Handrücken.
+  Diese Optionen lassen Unterarm und Hand in solchen Momenten ruhiger bewegen,
+  statt zu springen.
+- **Vertrauensbasierte Glättung** — führt die Teile, bei denen sich die Kamera
+  unsicher ist, sanft an ihre neue Position heran, statt sie springen zu lassen.
+- **Einzelbild-Sprünge zurückhalten** — ignoriert eine plötzliche große Drehung,
+  bis sie einige Bilder lang anhält. Das entfernt Flackern; sehr schnelle echte
+  Bewegungen kommen einen Moment später an.
+
+Zum Vergleichen halte eine Pose, die Probleme macht (Finger zur Kamera eignet
+sich gut), und schalte jeweils eine Option um.
+
+## Gelerntes Tracking {#learned}
+
+Gelerntes Tracking schätzt **Oberkörper, Kopf, Schultern, Arme, Hände und
+Finger** sowie deine **Beine** per Webcam mit gelernten Modellen statt mit
+handgeschriebenen Regeln. Ziel ist ein ruhigeres Ergebnis als beim
+Kamera-Tracking, besonders wenn deine Arme unterhalb des Bildes ruhen. Sind deine
+Beine nicht im Bild (etwa am Schreibtisch), dreh den Einfluss der Beine im Mixer
+herunter. Deine **Mimik** kommt vorerst aus herkömmlichen Verfahren; sie wird wie
+beim [VMC-Empfänger](topic:behaviors#vmc) zugeordnet.
+
+Es läuft als eigenes Programm, die **motiontracker-Runtime**, die vspark für
+dich startet und beendet. Es braucht:
+
+- die Runtime selbst: **Runtime herunterladen** in den Eigenschaften des
+  Verhaltens holt die Version, mit der dieses vspark getestet wurde (etwa 18 MB,
+  Modelle inklusive), und startet sie. Eine lokale motiontracker-Kopie geht auch:
+  Ein Ordner `motiontracker` neben dem vspark-Ordner wird verwendet, solange
+  nichts heruntergeladen ist, und ein in der `config.json` gesetzter Pfad
+  `learnedTracker.runtimePath` hat immer Vorrang,
+- [uv](https://docs.astral.sh/uv/), das die Python-Umgebung der Runtime beim
+  ersten Start installiert (das dauert einmalig ein paar Minuten).
+
+Die Runtime öffnet die **Kamera** selbst, schalte also das Kamera-Tracking auf
+derselben Webcam aus. Wähle die Kamera aus der Liste; **Aktualisieren** fragt
+die Runtime erneut. Die Statuszeile zeigt, ob die Runtime startet, läuft (Bilder
+pro Sekunde, Latenz) oder mit einem Fehler gestoppt ist.
+
+Scheint die Runtime festzuhängen (etwa nachdem die Kamera abgesteckt war),
+beendet **Runtime neu starten** sie und startet sie neu. Nach einem Absturz
+versucht sie es außerdem alle paar Sekunden von selbst.
+
+**An die Proportionen des Avatars anpassen** (standardmäßig aus) passt die Arme
+so an, dass deine Hände ihre Lage zum Körper und zueinander behalten, auch wenn
+der Avatar anders proportioniert ist als du. Ohne diese Option übernimmt der
+Avatar deine Gelenkwinkel. Die Funktion ist experimentell: Hände, die sich
+berühren sollten, können dabei getrennt bleiben. Sie wirkt sofort, du kannst sie
+also zum Vergleichen ein- und ausschalten. Sie braucht einen Avatar aus einer
+VRM-Datei.
+
+**Kameravorschau** öffnet ein schwebendes Fenster mit dem, was die Kamera der
+Runtime sieht: das Bild, die erkannten Landmarks oder beides. Die Runtime sendet
+es nur, solange das Fenster offen ist.
+
+**Bildrate** legt fest, wie viele Kamerabilder pro Sekunde die Runtime
+verarbeitet. Höhere Raten reagieren schneller (mit 20 fps etwa doppelt so
+schnell wie mit 10), brauchen aber mehr CPU (bei 20 fps etwa doppelt so viel)
+und zeigen etwas mehr Zittern; die Voreinstellung Glatt im Bewegungsfilter des
+Avatars beruhigt das. **Verlaufsversatz** ist ein Experiment für 20 fps: Er
+verringert ein leichtes Flackern von einem Bild zum nächsten. Beides wirkt
+sofort.
+
+Der Avatar folgt nur, solange ein Körper im Bild ist; danach übernimmt die
+Leerlauf-Animation des Avatars. Die Kalibrierung funktioniert wie beim
+VMC-Empfänger.
+
 ## Lippensynchronisation {#lipsync}
 
 Die Lippensynchronisation hört auf dein **Mikrofon** und wandelt Sprache in
@@ -81,6 +220,25 @@ nicht vor der Kamera bist.
 
 Du kannst sie auf deine eigene Stimme kalibrieren, um schärfere Vokalformen zu
 erhalten.
+
+**Audioeingang** legt fest, woher die Stimme kommt:
+
+- **Browser-Mikrofon** — öffne das Medieneingabe-Fenster und wähle dort ein
+  Mikrofon. Der Browser-Tab muss geöffnet bleiben.
+- **Server (PipeWire-Quelle)** — der vSpark-Server hört selbst eine Audioquelle
+  auf diesem Rechner ab, ganz ohne Browser-Tab. Gib den Namen der Quelle ein,
+  zum Beispiel `mein_sink.monitor`, um allem zu folgen, was in den Sink
+  `mein_sink` abgespielt wird. So kann ein anderes Programm, etwa die Stimme
+  einer KI-Figur, den Mund steuern. Nimmt OBS dieselbe Quelle auf, bleiben Mund
+  und Stream-Ton synchron. Nur unter Linux mit PipeWire oder PulseAudio: Die
+  Option erscheint nur, wenn der Server Audio aufnehmen kann.
+
+  Unter der Quelle zeigt eine Statuszeile, was die Aufnahme gerade tut:
+  **Nimmt auf**, **Warte auf Audio** (die Quelle passt, aber es wird nichts
+  hineingespielt) oder **Aufnahme fehlgeschlagen** mit dem Grund, zum Beispiel
+  einem unbekannten Quellnamen. Eine fehlgeschlagene Aufnahme versucht es von
+  selbst erneut. Im Szenengraphen leuchtet der Punkt des Verhaltens, solange
+  Audio ankommt.
 
 ## Atmung {#breathing}
 
@@ -194,8 +352,8 @@ die Mischung.
 **Nachlauf** ist, wie weit der Körper den Steuerwerten hinterherläuft, in
 Sekunden. Größer ist lockerer und cartoonhafter; 0 lässt alles gleichzeitig
 laufen. Wenn die Bewegung *überschwingen* und ausschwingen soll, statt nur
-aufzuholen, schalte am Avatar selbst **Bewegungs-Schnappigkeit** ein — sie legt
-sich obendrauf.
+aufzuholen, wähle im [Bewegungsfilter](topic:avatar#motion-filter) des Avatars
+die Voreinstellung **Federnd**; sie legt sich obendrauf.
 
 **Nicht gesteuerte Knochen in Ruhelage** schickt alles außerhalb des Rigs
 (Finger, Beine) in seine neutrale Haltung zurück, statt das Tracking

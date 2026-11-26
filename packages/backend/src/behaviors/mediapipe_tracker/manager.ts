@@ -6,14 +6,20 @@ import { getDb } from '../../db/index.js';
 import { BehaviorKind } from '../decorator.js';
 import { trackingGraceMs } from '../tracking_grace.js';
 import {
-  makeMediapipeGraphDescriptor,
+  behaviorContextConfig,
+  behaviorDescriptorToRun,
+  programChanged,
+} from '../storedGraph.js';
+import {
   HEAD_CALIB_BONES,
+  HEAD_CALIB_PRESERVE,
   FINGER_CALIB_BONES,
   FINGER_MIRROR_PAIRS,
 } from './graph.js';
 import type { Landmark } from '@vspark/shared';
 import type { WSSync } from '../../ws/index.js';
 import { broadcastBus } from '../../broadcast/bus.js';
+import { publishTracking } from '../../mesh/status.js';
 
 /** Fallback grace period when the avatar node has no `trackingGracePeriod` set.
  *  No landmark frame for this long ⇒ the browser stopped tracking (camera off,
@@ -61,17 +67,6 @@ export class TrackingManager {
   constructor(private readonly ws?: WSSync) {
     // Poll for tracking loss (browser stopped sending).
     this.timer = setInterval(() => this.checkTimeouts(), SWEEP_MS);
-    // Re-send current tracking state to a freshly-connected client (refresh /
-    // new tab), mirroring the VMC receiver, so the SceneGraph indicator is right
-    // immediately.
-    this.ws?.onClientConnected((client) => {
-      for (const [behaviorId, active] of this.trackingActive) {
-        this.ws?.sendTo(client, 'vmc_tracking_state', {
-          behaviorId,
-          tracking: active,
-        });
-      }
-    });
   }
 
   private _setTracking(behaviorId: string, active: boolean): void {
@@ -80,7 +75,7 @@ export class TrackingManager {
     console.log(
       `[MediaPipe] Tracking ${active ? 'ACTIVE' : 'LOST'} (component ${behaviorId})`
     );
-    this.ws?.broadcast('vmc_tracking_state', { behaviorId, tracking: active });
+    publishTracking({ behaviorId, tracking: active });
     // On loss, drop the bus slot so the tracked pose falls out of the merge
     // (mirrors vmc_receiver). The next landmark frame re-creates it.
     if (!active) broadcastBus.removeBehavior(behaviorId);
@@ -111,7 +106,12 @@ export class TrackingManager {
   }
 
   private createGraph(behaviorId: string): SignalGraph {
-    const descriptor = makeMediapipeGraphDescriptor(behaviorId);
+    // The behavior's stored (editable) graph; the template if none is stored.
+    const descriptor = behaviorDescriptorToRun(
+      'mediapipe_tracker',
+      behaviorId,
+      this.configs.get(behaviorId)
+    );
     this.descriptors.set(behaviorId, descriptor);
     if (!this.nodeStates.has(behaviorId))
       this.nodeStates.set(behaviorId, new Map());
@@ -132,10 +132,11 @@ export class TrackingManager {
 
   private _getNodeConfig(behaviorId: string, nodeId: string): unknown {
     const cfg = this.configs.get(behaviorId) ?? {};
-    const nodeId_ = this.nodeIds.get(behaviorId) ?? '';
-    if (nodeId === 'scene_entity') return { nodeId: nodeId_ };
-    if (nodeId === 'comp_id') return { behaviorId };
-    if (nodeId === 'head_calib') return { boneFilter: HEAD_CALIB_BONES };
+    if (nodeId === 'head_calib')
+      return {
+        boneFilter: HEAD_CALIB_BONES,
+        preserveChildren: HEAD_CALIB_PRESERVE,
+      };
     if (nodeId === 'finger_calib')
       return {
         boneFilter: FINGER_CALIB_BONES,
@@ -146,14 +147,18 @@ export class TrackingManager {
     const nodeDef = descriptor?.nodes.find((n) => n.id === nodeId);
     const defaults = nodeDef?.defaultConfig ?? {};
 
-    // behavior_config nodes resolve dot-notation paths against the live component config.
+    // settings nodes resolve dot-notation paths against the live component config.
     // No other node type may reach into the component config — calibration values must flow
-    // through value-port edges from behavior_config nodes.
-    if (nodeDef?.kind === 'behavior_config') {
-      return { ...defaults, _behaviorConfig: cfg };
-    }
-
-    return defaults;
+    // through value-port edges from settings nodes. scene_entity / behavior_id
+    // get this behavior's ids (by node kind, so canvas-added ones work too).
+    return {
+      ...defaults,
+      ...behaviorContextConfig(nodeDef?.kind, {
+        behaviorId,
+        sceneNodeId: this.nodeIds.get(behaviorId) ?? '',
+        settings: cfg,
+      }),
+    };
   }
 
   fireGraphEvent(behaviorId: string, nodeId: string, port: string): void {
@@ -194,8 +199,20 @@ export class TrackingManager {
     console.log(`[Tracking] Started component ${behaviorId}`);
   }
 
+  /** Swap the running graph for one built from the current stored graph,
+   *  keeping the tracking state (an edit must not read as a tracking loss). */
+  private rebuild(behaviorId: string): void {
+    const old = this.graphs.get(behaviorId);
+    if (!old) return;
+    old.dispose();
+    this.graphs.set(behaviorId, this.createGraph(behaviorId));
+    console.log(`[Tracking] Rebuilt graph of component ${behaviorId}`);
+  }
+
   stop(behaviorId: string): void {
     if (!this.graphs.has(behaviorId)) return;
+    // Release the nodes' own resources (timers etc.) before dropping it.
+    this.graphs.get(behaviorId)?.dispose();
     this.graphs.delete(behaviorId);
     // Behaviour removed/disabled: fall out of the merge and signal loss.
     if (this.trackingActive.get(behaviorId)) this._setTracking(behaviorId, false);
@@ -226,6 +243,15 @@ export class TrackingManager {
       this.nodeStates.set(c.id, stateMap);
       this.configs.set(c.id, liveConfig);
       this.nodeIds.set(c.id, c.nodeId);
+      // Its stored graph was edited (or reset): rebuild the running one.
+      if (
+        this.graphs.has(c.id) &&
+        programChanged(
+          this.descriptors.get(c.id),
+          behaviorDescriptorToRun('mediapipe_tracker', c.id, liveConfig)
+        )
+      )
+        this.rebuild(c.id);
       this.start(c.id);
       active.add(c.id);
     }

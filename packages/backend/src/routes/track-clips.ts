@@ -1,20 +1,32 @@
 import { Router } from 'express';
 import { randomUUID } from 'crypto';
 import { getDb } from '../db/index.js';
-import { _ws, _trackClipPlayback, _clipPlaybackForwarder } from './shared.js';
+import {
+  clipExists,
+  removePlayback,
+  syncPlaybackLoop,
+  pauseClip,
+  resumeClip,
+  seekClip,
+  stopClip,
+  triggerClip,
+} from '../track_clips/playbackDoc.js';
 import { getMeshCollection } from '../mesh/index.js';
+import { byId, itemOf, type IdMap } from '@vspark/shared/idMap';
 
 const router: ReturnType<typeof Router> = Router();
 
 // Write-through (§10): a track clip is ONE aggregate document (clip + lanes +
-// keyframes + events). Mutation routes load the current DTO from the replica,
-// apply the change in memory, and set the whole aggregate; the onCommitted
-// tap persists it (delete-then-reinsert, started_at/created_at round-trip)
-// and emits sync.document. Playback control routes don't touch the document.
+// keyframes + events), and its children are keyed by id, so a mutation route
+// writes the ONE PATH it changes rather than re-setting the whole aggregate.
+// That is what lets two people edit different lanes of a clip at once; see
+// @vspark/shared/idMap. The onCommitted tap persists (delete-then-reinsert,
+// created_at round-trip) and emits sync.document. Playback control routes
+// don't touch the document.
 type ClipDto = {
   id: string;
-  lanes: LaneDto[];
-  events: EventDto[];
+  lanes: IdMap<LaneDto>;
+  events: IdMap<EventDto>;
   [k: string]: unknown;
 };
 type LaneDto = {
@@ -24,7 +36,7 @@ type LaneDto = {
   targetId: string;
   paramPath: string;
   defaultValue: number;
-  keyframes: KeyframeDto[];
+  keyframes: IdMap<KeyframeDto>;
 };
 type KeyframeDto = {
   id: string;
@@ -59,7 +71,6 @@ type ClipRow = {
   loop: number;
   mode: string;
   autoplay: number;
-  started_at: number | null;
   created_at: string;
 };
 
@@ -134,7 +145,7 @@ function mapLane(r: LaneRow, keyframes: KeyframeRow[]) {
     targetId: r.target_id,
     paramPath: r.param_path,
     defaultValue: r.default_value,
-    keyframes: keyframes.map(mapKeyframe),
+    keyframes: byId(keyframes.map(mapKeyframe)),
   };
 }
 
@@ -152,10 +163,12 @@ function mapClip(
     loop: r.loop === 1,
     mode: r.mode,
     autoplay: r.autoplay === 1,
-    startedAt: r.started_at,
     createdAt: r.created_at,
-    lanes: lanes.map(({ lane, kfs }) => mapLane(lane, kfs)),
-    events: events.map(mapEvent),
+    // Keyed, not listed: the rows come back ordered, but the document holds
+    // them by id so an edit addresses one element. Order is recovered from the
+    // data (keyframes and events sort by `t`).
+    lanes: byId(lanes.map(({ lane, kfs }) => mapLane(lane, kfs))),
+    events: byId(events.map(mapEvent)),
   };
 }
 
@@ -227,9 +240,8 @@ async function insertClip(
     loop: !!loop,
     mode: (mode as string) ?? 'override',
     autoplay: !!autoplay,
-    startedAt: null,
-    lanes: [],
-    events: [],
+    lanes: {},
+    events: {},
   }).ack;
   return loadClip(clipId);
 }
@@ -311,10 +323,12 @@ router.put('/track-clips/:id', async (req, res) => {
   }
   if (changed) {
     await col.set(id, '', next).ack;
-    _trackClipPlayback?.onClipUpdated(id);
+    // Keep the transport document's `loop` in step with the clip's. Every peer
+    // reads loop off the playback doc when deriving the playhead, so editing it
+    // on the clip alone would leave them wrapping (or not) against the old value.
+    if (patch.loop !== undefined) syncPlaybackLoop(id, !!patch.loop);
   }
   const data = loadClip(id);
-  _ws?.broadcast('track_clip_updated', data as Record<string, unknown>);
   res.json({ ok: true, data });
 });
 
@@ -327,13 +341,17 @@ router.put('/track-clips/:id', async (req, res) => {
  *     parameters:
  *       - { in: path, name: id, required: true, schema: { type: string } }
  *     responses:
- *       200: { description: Deleted; broadcast as track_clip_removed }
+ *       200: { description: Deleted; the change reaches clients through the mesh store }
  */
 router.delete('/track-clips/:id', async (req, res) => {
   const id = req.params.id;
   const col = clipsCol();
   if (!col) return storeNotReady(res);
-  _trackClipPlayback?.onClipDeleted(id);
+  // Remove the transport document through its collection, not by leaning on the
+  // FK cascade: a raw row delete leaves the DOCUMENT alive in every replica with
+  // no tombstone, so a tab subscribing afterwards would see playback state for a
+  // clip that no longer exists (the same gap fixed for scene deletes).
+  await removePlayback(id);
   await col.remove(id).ack;
   res.json({ ok: true, data: { id } });
 });
@@ -381,16 +399,9 @@ router.post('/track-clips/:clipId/lanes', async (req, res) => {
     targetId,
     paramPath,
     defaultValue: defaultValue ?? 0,
-    keyframes: [],
+    keyframes: {},
   };
-  await col.set(clipId, '', {
-    ...cur,
-    lanes: [...(cur.lanes ?? []), data],
-  }).ack;
-  _ws?.broadcast(
-    'track_clip_lane_added',
-    data as unknown as Record<string, unknown>
-  );
+  await col.set(clipId, `lanes.${data.id}`, data).ack;
   res.status(201).json({ ok: true, data });
 });
 
@@ -417,8 +428,10 @@ router.put('/track-clip-lanes/:id', async (req, res) => {
     .prepare('SELECT clip_id FROM track_clip_lanes WHERE id = ?')
     .get(id) as { clip_id: string } | undefined;
   const col = clipsCol();
-  const cur = owner ? (col?.get(owner.clip_id) as ClipDto | undefined) : undefined;
-  const lane = cur?.lanes?.find((l) => l.id === id);
+  const cur = owner
+    ? (col?.get(owner.clip_id) as ClipDto | undefined)
+    : undefined;
+  const lane = itemOf(cur?.lanes, id);
   if (!col || !cur || !lane)
     return res.status(404).json({
       ok: false,
@@ -433,14 +446,7 @@ router.put('/track-clip-lanes/:id', async (req, res) => {
   ] as const) {
     if (patch[k] !== undefined) (data as Record<string, unknown>)[k] = patch[k];
   }
-  await col.set(cur.id, '', {
-    ...cur,
-    lanes: cur.lanes.map((l) => (l.id === id ? data : l)),
-  }).ack;
-  _ws?.broadcast(
-    'track_clip_lane_updated',
-    data as unknown as Record<string, unknown>
-  );
+  await col.set(cur.id, `lanes.${id}`, data).ack;
   res.json({ ok: true, data });
 });
 
@@ -453,7 +459,7 @@ router.put('/track-clip-lanes/:id', async (req, res) => {
  *     parameters:
  *       - { in: path, name: id, required: true, schema: { type: string } }
  *     responses:
- *       200: { description: Deleted; broadcast as track_clip_lane_removed }
+ *       200: { description: Deleted; the change reaches clients through the mesh store }
  */
 router.delete('/track-clip-lanes/:id', async (req, res) => {
   const id = req.params.id;
@@ -462,15 +468,9 @@ router.delete('/track-clip-lanes/:id', async (req, res) => {
     .get(id) as { clip_id: string } | undefined;
   const col = clipsCol();
   const cur = row ? (col?.get(row.clip_id) as ClipDto | undefined) : undefined;
-  if (col && cur)
-    await col.set(cur.id, '', {
-      ...cur,
-      lanes: (cur.lanes ?? []).filter((l) => l.id !== id),
-    }).ack;
-  _ws?.broadcast('track_clip_lane_removed', {
-    id,
-    clipId: row?.clip_id ?? null,
-  });
+  // Deleting a key means writing a null over it — `set` can write a path but
+  // not remove one, and readers skip nulls (idMap.ts).
+  if (col && cur) await col.set(cur.id, `lanes.${id}`, null).ack;
   res.json({ ok: true, data: { id } });
 });
 
@@ -510,7 +510,7 @@ router.put('/track-clip-lanes/:id/keyframes', async (req, res) => {
   const cur = laneRow
     ? (col?.get(laneRow.clip_id) as ClipDto | undefined)
     : undefined;
-  if (!col || !cur || !cur.lanes?.some((l) => l.id === laneId)) {
+  if (!col || !cur || !itemOf(cur.lanes, laneId)) {
     return res.status(404).json({
       ok: false,
       error: { status: 404, message: 'lane not found', code: 'NOT_FOUND' },
@@ -528,15 +528,11 @@ router.put('/track-clip-lanes/:id/keyframes', async (req, res) => {
       outHandleVFraction: k.outHandleVFraction ?? null,
     }))
     .sort((a, b) => a.t - b.t);
-  await col.set(cur.id, '', {
-    ...cur,
-    lanes: cur.lanes.map((l) =>
-      l.id === laneId ? { ...l, keyframes: next } : l
-    ),
-  }).ack;
-  const data = { laneId, keyframes: next };
-  _ws?.broadcast('track_clip_keyframes_replaced', data);
-  res.json({ ok: true, data });
+  // Replaces the lane's whole keyframe map in one write. The endpoint is the
+  // drag-then-commit shape a REST caller has; a tab commits the single
+  // keyframe it moved instead (see the frontend clip write helpers).
+  await col.set(cur.id, `lanes.${laneId}.keyframes`, byId(next)).ack;
+  res.json({ ok: true, data: { laneId, keyframes: next } });
 });
 
 /**
@@ -544,25 +540,23 @@ router.put('/track-clip-lanes/:id/keyframes', async (req, res) => {
  * /api/track-clips/{id}/trigger:
  *   post:
  *     tags: [track_clips]
- *     summary: Start playback now. Broadcasts track_clip_started.
+ *     summary: Start playback now. Writes the clip_playback document.
  *     parameters:
  *       - { in: path, name: id, required: true, schema: { type: string } }
  *     responses:
  *       200: { description: Triggered }
  */
 router.post('/track-clips/:id/trigger', (req, res) => {
-  if (!_trackClipPlayback) {
+  if (!clipExists(req.params.id))
+    return res.status(404).json({
+      ok: false,
+      error: { status: 404, message: 'clip not found', code: 'NOT_FOUND' },
+    });
+  if (!triggerClip(req.params.id))
     return res.status(503).json({
       ok: false,
-      error: {
-        status: 503,
-        message: 'playback manager not ready',
-        code: 'NOT_READY',
-      },
+      error: { status: 503, message: 'store not ready', code: 'NOT_READY' },
     });
-  }
-  _trackClipPlayback.trigger(req.params.id);
-  _clipPlaybackForwarder?.(req.params.id, 'trigger');
   res.json({ ok: true, data: { id: req.params.id } });
 });
 
@@ -571,25 +565,23 @@ router.post('/track-clips/:id/trigger', (req, res) => {
  * /api/track-clips/{id}/stop:
  *   post:
  *     tags: [track_clips]
- *     summary: Stop playback. Broadcasts track_clip_stopped.
+ *     summary: Stop playback. Writes the clip_playback document.
  *     parameters:
  *       - { in: path, name: id, required: true, schema: { type: string } }
  *     responses:
  *       200: { description: Stopped }
  */
 router.post('/track-clips/:id/stop', (req, res) => {
-  if (!_trackClipPlayback) {
+  if (!clipExists(req.params.id))
+    return res.status(404).json({
+      ok: false,
+      error: { status: 404, message: 'clip not found', code: 'NOT_FOUND' },
+    });
+  if (!stopClip(req.params.id))
     return res.status(503).json({
       ok: false,
-      error: {
-        status: 503,
-        message: 'playback manager not ready',
-        code: 'NOT_READY',
-      },
+      error: { status: 503, message: 'store not ready', code: 'NOT_READY' },
     });
-  }
-  _trackClipPlayback.stop(req.params.id);
-  _clipPlaybackForwarder?.(req.params.id, 'stop');
   res.json({ ok: true, data: { id: req.params.id } });
 });
 
@@ -605,18 +597,16 @@ router.post('/track-clips/:id/stop', (req, res) => {
  *       200: { description: Paused }
  */
 router.post('/track-clips/:id/pause', (req, res) => {
-  if (!_trackClipPlayback) {
+  if (!clipExists(req.params.id))
+    return res.status(404).json({
+      ok: false,
+      error: { status: 404, message: 'clip not found', code: 'NOT_FOUND' },
+    });
+  if (!pauseClip(req.params.id))
     return res.status(503).json({
       ok: false,
-      error: {
-        status: 503,
-        message: 'playback manager not ready',
-        code: 'NOT_READY',
-      },
+      error: { status: 503, message: 'store not ready', code: 'NOT_READY' },
     });
-  }
-  _trackClipPlayback.pause(req.params.id);
-  _clipPlaybackForwarder?.(req.params.id, 'pause');
   res.json({ ok: true, data: { id: req.params.id } });
 });
 
@@ -632,18 +622,16 @@ router.post('/track-clips/:id/pause', (req, res) => {
  *       200: { description: Resumed }
  */
 router.post('/track-clips/:id/resume', (req, res) => {
-  if (!_trackClipPlayback) {
+  if (!clipExists(req.params.id))
+    return res.status(404).json({
+      ok: false,
+      error: { status: 404, message: 'clip not found', code: 'NOT_FOUND' },
+    });
+  if (!resumeClip(req.params.id))
     return res.status(503).json({
       ok: false,
-      error: {
-        status: 503,
-        message: 'playback manager not ready',
-        code: 'NOT_READY',
-      },
+      error: { status: 503, message: 'store not ready', code: 'NOT_READY' },
     });
-  }
-  _trackClipPlayback.resume(req.params.id);
-  _clipPlaybackForwarder?.(req.params.id, 'resume');
   res.json({ ok: true, data: { id: req.params.id } });
 });
 
@@ -667,18 +655,8 @@ router.post('/track-clips/:id/resume', (req, res) => {
  *       200: { description: Seeked }
  */
 router.post('/track-clips/:id/seek', (req, res) => {
-  if (!_trackClipPlayback) {
-    return res.status(503).json({
-      ok: false,
-      error: {
-        status: 503,
-        message: 'playback manager not ready',
-        code: 'NOT_READY',
-      },
-    });
-  }
   const t = Number(req.body?.t);
-  if (!Number.isFinite(t)) {
+  if (!Number.isFinite(t))
     return res.status(400).json({
       ok: false,
       error: {
@@ -687,9 +665,16 @@ router.post('/track-clips/:id/seek', (req, res) => {
         code: 'VALIDATION_ERROR',
       },
     });
-  }
-  _trackClipPlayback.seek(req.params.id, t);
-  _clipPlaybackForwarder?.(req.params.id, 'seek', t);
+  if (!clipExists(req.params.id))
+    return res.status(404).json({
+      ok: false,
+      error: { status: 404, message: 'clip not found', code: 'NOT_FOUND' },
+    });
+  if (!seekClip(req.params.id, t))
+    return res.status(503).json({
+      ok: false,
+      error: { status: 503, message: 'store not ready', code: 'NOT_READY' },
+    });
   res.json({ ok: true, data: { id: req.params.id, t } });
 });
 
@@ -732,10 +717,10 @@ router.put('/track-clips/:id/events', async (req, res) => {
       payload: e.payload ?? null,
     }))
     .sort((a, b) => a.t - b.t);
-  await col.set(clipId, '', { ...cur, events: next }).ack;
-  const data = { clipId, events: next };
-  _ws?.broadcast('track_clip_events_replaced', data);
-  res.json({ ok: true, data });
+  // The whole event map in one write, matching the endpoint's replace
+  // semantics; a tab commits the single marker it moved instead.
+  await col.set(clipId, 'events', byId(next)).ack;
+  res.json({ ok: true, data: { clipId, events: next } });
 });
 
 export default router;

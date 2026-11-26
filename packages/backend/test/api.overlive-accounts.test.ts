@@ -269,7 +269,8 @@ describe('overlive-accounts API', () => {
       expect(res.status).toBe(201);
       expect(res.body.data.broadcasterId).toBe('user123');
       expect(res.body.data.broadcasterLogin).toBe('streamer');
-      expect(res.body.data.credentials).toMatchObject({ accessToken: 'tok' });
+      // Tokens never leave the backend (see security.secrets.test.ts).
+      expect(res.body.data.credentials).toEqual({});
     });
   });
 });

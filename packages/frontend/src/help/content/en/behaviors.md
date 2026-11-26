@@ -8,6 +8,30 @@ You add behaviors from the **Behaviors** tab and attach them to a node. A single
 avatar can have several behaviors running at once — for example tracking *and*
 lip sync.
 
+## A behavior's graph {#graph}
+
+Under the hood every behavior (except **API control**) runs a
+[Logic graph](topic:logic): the nodes that turn tracking data, microphone
+input or a timer into motion. That graph belongs to the behavior and you can
+edit it like any other graph — the settings in the behavior's panel keep
+working, because the graph reads them through its **Settings** nodes.
+
+The **Graph** row at the top of a behavior's settings shows:
+
+- **Open graph** — opens the graph on the canvas. Changes take effect on the
+  running behavior straight away.
+- **Modified** — the graph differs from what the behavior's template
+  generated. Moving nodes around does not count as a change.
+- **Template update** — a newer version of vspark generates a different graph
+  for this behavior. Unchanged graphs are updated automatically when vspark
+  starts; a graph you edited is left alone and shows this badge instead.
+- **No graph** — the behavior has no stored graph and runs its template.
+- **Reset graph** — rebuilds the graph from the template. It asks first,
+  because your edits to the graph are discarded. **Undo** brings them back.
+
+Nodes that react to chat, hotkeys, OBS or triggers only receive those events
+in Logic graphs, not in a behavior's graph.
+
 ## VMC receiver {#vmc}
 
 **VMC** is a common standard that motion-capture apps use to send pose data over
@@ -15,7 +39,8 @@ your network. Tools like phone face-trackers and full-body suits can broadcast
 VMC; the VMC receiver behavior listens for it and feeds it to your avatar.
 
 You just tell it which port to listen on (the sending app shows this), and the
-motion flows in.
+motion flows in. If the avatar's eyes look too far, see
+[Gaze](topic:behaviors#eye-range).
 
 ## iFacialMocap receiver {#ifacialmocap}
 
@@ -55,6 +80,24 @@ becomes the avatar's resting posture.
 Expressions are mapped exactly like the [VMC receiver](topic:behaviors#vmc)'s —
 same three face mappers, same custom mapping editor.
 
+### Gaze: eyes looking too far {#eye-range}
+
+Every avatar model sets how far its eyes may turn — usually only around 10°,
+because anime-style eyes are large. iFacialMocap reports how far **your** eyes
+actually turn, which is up to about 30°. Applied directly, ordinary eye movement
+rolls the iris under the eyelids and the avatar shows the whites of its eyes.
+
+**Fit eye movement to the model's eye range** (under **Gaze**) fixes that: your
+eye rotation is scaled so that turning your eyes as far as **Physical eye range**
+(30° by default) reaches the model's own limit, and anything further stops
+there. Lower the range if the avatar's eyes feel sluggish; raise it if they still
+look too far.
+
+It is on by default for iFacialMocap. The [VMC receiver](topic:behaviors#vmc) has
+the same setting, off by default: most VMC senders already fit the eyes to your
+model, and fitting them twice would make them too small. Turn it on there only
+if your sender passes raw eye angles through.
+
 ## Camera tracking {#tracking}
 
 Camera tracking uses an ordinary **webcam** to estimate your face, hands, and
@@ -70,6 +113,89 @@ derives them cheaply from the face landmarks already being tracked, while on
 runs a dedicated high-quality face model for more accurate expressions at the
 cost of extra CPU — enable it only if your machine keeps a smooth framerate.
 
+### Arm solve options {#arm-solve}
+
+With **Use IK arms** off, the arms are calculated bone by bone from the
+camera's body and hand points. The **Arm solve (experimental)** section lets you
+switch the individual techniques on and off, so you can see what each one does
+while you move. Everything on is the recommended setting.
+
+- **Solve** — *Elbow hinge* treats the elbow as a hinge: the upper arm's
+  rotation comes from the angle your arm makes at the elbow, and only the
+  forearm turns with your hand. *Legacy* is the earlier method, which turns the
+  whole arm to follow the hand; it is kept for comparison and flips easily when
+  your fingers point at the camera.
+- **Keep estimated joints** — keeps the forearm and hand moving when the camera
+  can only guess where your wrist is (for example when it leaves the frame),
+  instead of letting them drop to the rest pose.
+- **Check elbow plane against wrist** — stops a guessed wrist position from
+  flipping your upper arm.
+- **No twist in the wrist** and **Ignore impossible wrist bends** — keep the
+  hand from twisting or bending in ways a real wrist can't.
+- **Distrust edge-on palms** and **Cross-check hand with body tracking** — the
+  camera reads your hand's rotation poorly when the palm faces sideways, and
+  sometimes mistakes the palm for the back of the hand. These make the forearm
+  and hand move more calmly in those moments instead of jumping.
+- **Confidence smoothing** — eases the parts the camera is unsure about toward
+  their new position rather than letting them jump.
+- **Hold single-frame jumps** — ignores a sudden large rotation until it has
+  lasted a few frames. This removes flicker; very fast real movements arrive a
+  moment later.
+
+To compare, hold a pose that gives you trouble (fingers toward the camera works
+well) and toggle one option at a time.
+
+## Learned tracking {#learned}
+
+Learned tracking estimates your **torso, head, shoulders, arms, hands and
+fingers**, and your **legs**, from a webcam with learned models instead of
+hand-written rules. It aims for a calmer result than camera tracking, especially
+with your arms resting below the frame. If your legs are out of view (at a desk,
+say), turn the legs' influence down in the mixer. Your **facial expressions**
+come, for now, from conventional methods; they are mapped like the
+[VMC receiver](topic:behaviors#vmc)'s.
+
+It runs as a separate program, the **motiontracker runtime**, which vspark
+starts and stops for you. It needs:
+
+- the runtime itself: **Download runtime** in the behavior's properties fetches
+  the version this vspark was tested with (about 18 MB, models included) and
+  starts it. A local motiontracker copy works too: a `motiontracker` folder next
+  to the vspark folder is used when nothing is downloaded, and a path set as
+  `learnedTracker.runtimePath` in `config.json` always wins,
+- [uv](https://docs.astral.sh/uv/), which installs the runtime's Python
+  environment on first start (this takes a few minutes once).
+
+The runtime opens the **camera** itself, so turn off camera tracking on the same
+webcam. Pick the camera from the list; **Refresh** asks the runtime again. The
+status line shows whether the runtime is starting, running (frames per second,
+latency) or stopped with an error.
+
+If the runtime seems stuck (for example after the camera was unplugged),
+**Restart runtime** stops it and starts it again. After a crash it also retries
+by itself every few seconds.
+
+**Fit to the avatar's proportions** (off by default) adjusts the arms so your
+hands keep their positions relative to your body and to each other, even when
+the avatar's proportions differ from yours. Without it the avatar copies your
+joint angles. It's experimental: it can keep hands apart when they should touch.
+It takes effect immediately, so you can switch it on and off to compare. It
+needs an avatar loaded from a VRM file.
+
+**Camera preview** opens a floating window with what the runtime's camera sees:
+the picture, the detected landmarks, or both. The runtime only sends it while
+the window is open.
+
+**Frame rate** sets how many camera frames per second the runtime processes.
+Higher rates respond faster (at 20 fps about twice as fast as at 10) but use
+more CPU (about twice as much at 20 fps) and show a little more shake; the
+Smooth preset of the avatar's motion filter calms that. **History shift** is an
+experiment for 20 fps: it reduces a slight flicker from one frame to the next.
+Both take effect immediately.
+
+The avatar follows only while a body is in view; the avatar's idle fallback
+takes over after that. Calibration works like the VMC receiver's.
+
 ## Lip sync {#lipsync}
 
 Lip sync listens to your **microphone** and turns speech into mouth shapes, so
@@ -77,6 +203,24 @@ your avatar's mouth moves in time with your voice. It works even without face
 tracking, which is handy if you'd rather not be on camera.
 
 You can calibrate it to your own voice for sharper vowel shapes.
+
+**Audio input** picks where the voice comes from:
+
+- **Browser microphone** — open the media input window and choose a mic there.
+  The browser tab has to stay open.
+- **Server (PipeWire source)** — the vSpark server listens to an audio source on
+  this computer by itself, with no browser tab needed. Enter the source's name,
+  for example `my_sink.monitor` to follow everything played into the sink
+  `my_sink`. This is how another program, such as an AI character's voice,
+  drives the mouth. If OBS captures the same source, mouth and stream audio stay
+  in sync. Linux with PipeWire or PulseAudio only: the option only appears
+  when the server can capture audio.
+
+  Below the source, a status line shows what the capture is doing:
+  **Capturing**, **Waiting for audio** (the source is fine but nothing is
+  playing into it), or **Capture failed** with the reason, for example an
+  unknown source name. A failed capture keeps retrying by itself. In the
+  scene graph, the behavior's dot lights up while audio arrives.
 
 ## Breathing {#breathing}
 
@@ -185,8 +329,9 @@ your own precision back, reach for Blend.
 
 **Follow-through** is how far the body trails behind the drivers, in seconds.
 Larger is looser and more cartoon-like; 0 makes everything move together. If you
-want the motion to *overshoot* and settle rather than just catch up, turn on
-**Motion Snappiness** on the avatar itself — it layers on top of this.
+want the motion to *overshoot* and settle rather than just catch up, pick the
+**Springy** preset of the avatar's [motion filter](topic:avatar#motion-filter);
+it layers on top of this.
 
 **Rest bones the rig doesn't drive** sends everything outside the rig (fingers,
 legs) back to its neutral pose instead of passing tracking through. Reach for it

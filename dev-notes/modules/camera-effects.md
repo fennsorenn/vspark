@@ -33,10 +33,7 @@ PUT    /camera-effects/:id             body: { kind?, enabled?, config? }
 DELETE /camera-effects/:id
 ```
 
-Every mutation broadcasts a WebSocket message:
-- `camera_effect_added` — full effect record
-- `camera_effect_updated` — updated fields
-- `camera_effect_removed` — `{ id }`
+Mutations are writes to the `camera_effect` mesh collection (tabs author them directly; the REST routes write through the mesh). No WebSocket messages are sent; every subscriber gets the document change.
 
 Frontend `useWsSync` applies these to the store in real time.
 

@@ -5,28 +5,56 @@ import { join, extname, dirname, basename } from 'path';
 import { getDb } from '../db/index.js';
 import { extractVrmMetadata } from '../vrm/metadata.js';
 import {
+  checkLive2dBundle,
+  isLive2dBundleBlocked,
+  type Live2dBundleReport,
+} from '@vspark/shared/live2d';
+import {
   UPLOADS_DIR,
   allocateFilename,
   assetSubfolder,
   discoverAssets,
   sanitizeStem,
   isLive2dManifest,
+  isSafeRelPath,
   LIVE2D_SUBFOLDER,
   LIVE2D_MODEL_MIME,
 } from './shared.js';
-
-/** Reject path-traversal / absolute / backslash segments in a bundle relPath. */
-function isSafeRelPath(p: string): boolean {
-  if (p.startsWith('/') || p.includes('\\') || p.includes('\0')) return false;
-  return p
-    .split('/')
-    .every((seg) => seg !== '' && seg !== '.' && seg !== '..');
-}
 
 function badReq(message: string) {
   return {
     ok: false as const,
     error: { status: 400, message, code: 'VALIDATION_ERROR' },
+  };
+}
+
+/** How many missing paths to name inline before the message says "and N more". */
+const MAX_LISTED = 5;
+
+/**
+ * A bundle whose manifest references files the upload does not contain, or
+ * whose manifest is itself malformed. Carries the full report as `details` so
+ * the UI can list what to supply — the message alone can't, and a bundle that
+ * uploads "successfully" and then renders nothing is the failure this check
+ * exists to replace.
+ */
+function incompleteBundle(report: Live2dBundleReport) {
+  const message = report.errors.length
+    ? `invalid ${report.manifest}: ${report.errors.join('; ')}`
+    : (() => {
+        const paths = report.missingRequired.map((r) => r.relPath);
+        const shown = paths.slice(0, MAX_LISTED).join(', ');
+        const rest = paths.length - MAX_LISTED;
+        return `bundle is missing ${paths.length} required file(s) referenced by ${report.manifest}: ${shown}${rest > 0 ? `, and ${rest} more` : ''}`;
+      })();
+  return {
+    ok: false as const,
+    error: {
+      status: 400,
+      message,
+      code: 'LIVE2D_BUNDLE_INCOMPLETE',
+      details: report,
+    },
   };
 }
 
@@ -141,6 +169,13 @@ router.post('/projects/:projectId/assets', (req, res) => {
  *       Files are written under uploads/{projectId}/live2d/{model}/… keeping their
  *       relative paths so the manifest's relative references resolve when served
  *       statically. One asset row is registered, pointing at the *.model3.json manifest.
+ *
+ *       The manifest's FileReferences are resolved against the uploaded file set
+ *       before anything is written. Missing `Moc`/`Textures` are load-blocking and
+ *       reject the upload with `LIVE2D_BUNDLE_INCOMPLETE`, whose `error.details`
+ *       carries the full report (`missingRequired`, `missingOptional`, `errors`).
+ *       Missing motions/expressions/physics still render, so the upload succeeds
+ *       and the report's `missingOptional` is returned alongside the asset row.
  *     parameters:
  *       - { in: path, name: projectId, required: true, schema: { type: string } }
  *     requestBody:
@@ -149,8 +184,8 @@ router.post('/projects/:projectId/assets', (req, res) => {
  *         application/json:
  *           schema: { $ref: '#/components/schemas/CreateAssetBundle' }
  *     responses:
- *       201: { description: Bundle stored; manifest registered in the DB }
- *       400: { description: Invalid bundle, content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+ *       201: { description: "Bundle stored; manifest registered in the DB. `data.missingOptional` lists non-blocking references with no file." }
+ *       400: { description: "Invalid, incomplete, or ambiguous bundle (`VALIDATION_ERROR`, `LIVE2D_BUNDLE_INCOMPLETE`, `LIVE2D_MULTIPLE_MANIFESTS`)", content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
  */
 router.post('/projects/:projectId/assets/bundle', (req, res) => {
   const { rootName, kind, files } = req.body ?? {};
@@ -170,13 +205,42 @@ router.post('/projects/:projectId/assets/bundle', (req, res) => {
     if (!isSafeRelPath(f.relPath))
       return res.status(400).json(badReq(`unsafe relPath: ${f.relPath}`));
   }
-  const manifestEntry = files.find((f: { relPath: string }) =>
+  const manifests = files.filter((f: { relPath: string }) =>
     isLive2dManifest(f.relPath)
   );
-  if (!manifestEntry)
+  if (manifests.length === 0)
     return res
       .status(400)
       .json(badReq('bundle must contain a *.model3.json manifest'));
+  // One bundle directory registers exactly one manifest as its asset row, so an
+  // archive holding several models is ambiguous. Silently taking the first would
+  // store the others as dead weight and register a model the user didn't pick.
+  if (manifests.length > 1)
+    return res.status(400).json({
+      ok: false as const,
+      error: {
+        status: 400,
+        message: `bundle contains ${manifests.length} model manifests; upload one model at a time: ${manifests
+          .map((f: { relPath: string }) => f.relPath)
+          .join(', ')}`,
+        code: 'LIVE2D_MULTIPLE_MANIFESTS',
+        details: {
+          manifests: manifests.map((f: { relPath: string }) => f.relPath),
+        },
+      },
+    });
+  const manifestEntry = manifests[0];
+
+  // Check the manifest's FileReferences against what actually arrived, BEFORE
+  // writing anything: a bundle missing its moc3 or a texture cannot render, and
+  // storing it would just recreate the silent-blank-model failure on disk.
+  const report = checkLive2dBundle(
+    manifestEntry.relPath,
+    Buffer.from(manifestEntry.data, 'base64').toString('utf8'),
+    files.map((f: { relPath: string }) => f.relPath)
+  );
+  if (isLive2dBundleBlocked(report))
+    return res.status(400).json(incompleteBundle(report));
 
   // Allocate a non-colliding bundle directory under live2d/.
   const stem = sanitizeStem(rootName) || 'model';
@@ -225,6 +289,10 @@ router.post('/projects/:projectId/assets/bundle', (req, res) => {
       stored_path: storedPath,
       mime_type: LIVE2D_MODEL_MIME,
       size: totalSize,
+      // The model renders, but these manifest references had no file — motions,
+      // expressions, physics. Attached so the UI can say so instead of leaving
+      // the user to discover a puppet that never moves.
+      missingOptional: report.missingOptional,
     },
   });
 });

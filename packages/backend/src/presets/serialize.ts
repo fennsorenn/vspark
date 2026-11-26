@@ -390,11 +390,36 @@ export function serializeComposeLayerSubtree(
       rotation: row.rotation,
       anchorH: row.anchor_h,
       anchorV: row.anchor_v,
-      sceneOrder: row.scene_order,
-      cameraOrder: row.camera_order,
+      // Filled in below: presets carry RELATIVE order only.
+      order: 0,
+      _srcKey: row.order_key,
       visible: (row.visible as number) === 1,
       cameraNodePresetId: null,
     });
+  }
+
+  // Presets must not carry absolute order keys — they'd collide with whatever
+  // is already in the scene they're instantiated into. Replace each layer's key
+  // with its ordinal inside its own sibling group; deserialize generates real
+  // keys against the target scene.
+  {
+    const byParent = new Map<string | null, Record<string, unknown>[]>();
+    for (const l of composeLayers as Record<string, unknown>[]) {
+      const k = (l.parentPresetId as string | null) ?? null;
+      const g = byParent.get(k);
+      if (g) g.push(l);
+      else byParent.set(k, [l]);
+    }
+    for (const group of byParent.values()) {
+      group.sort((a, b) =>
+        String(a._srcKey ?? '').localeCompare(String(b._srcKey ?? '')) ||
+        String(a.presetId).localeCompare(String(b.presetId))
+      );
+      group.forEach((l, i) => {
+        l.order = i;
+        delete l._srcKey;
+      });
+    }
   }
 
   // Graphs owned by layers in the subtree

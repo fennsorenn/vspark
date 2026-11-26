@@ -18,7 +18,17 @@
     "./feedValidation": "./src/feedValidation.ts",
     "./style_rig": "./src/style_rig.ts",
     "./blendshapeLimits": "./src/blendshapeLimits.ts",
-    "./sync": "./src/sync.ts"
+    "./trackingMix": "./src/trackingMix.ts",
+    "./sync": "./src/sync.ts",
+    "./models": "./src/models.ts",
+    "./fracIndex": "./src/fracIndex.ts",
+    "./clipPlayback": "./src/clipPlayback.ts",
+    "./idMap": "./src/idMap.ts",
+    "./live2d": "./src/live2d.ts",
+    "./actions": "./src/actions.ts",
+    "./composites": "./src/composites.ts",
+    "./variables": "./src/variables.ts",
+    "./visemes": "./src/visemes.ts"
   },
   "scripts": {
     "build": "tsc --noEmit",

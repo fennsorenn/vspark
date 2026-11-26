@@ -39,8 +39,8 @@ importers:
         specifier: ^1.29.0
         version: 1.29.0(zod@4.4.3)
       '@overlive/core':
-        specifier: ^0.3.0
-        version: 0.3.0
+        specifier: ^0.4.0
+        version: 0.4.0
       '@overlive/emotes':
         specifier: ^0.2.0
         version: 0.2.0
@@ -48,11 +48,11 @@ importers:
         specifier: ^0.2.0
         version: 0.2.0
       '@overlive/twitch':
+        specifier: ^0.4.0
+        version: 0.4.0
+      '@overlive/twitch-oauth':
         specifier: ^0.3.0
         version: 0.3.0
-      '@overlive/twitch-oauth':
-        specifier: ^0.2.0
-        version: 0.2.0
       '@vspark/mesh':
         specifier: workspace:*
         version: link:../mesh
@@ -74,6 +74,9 @@ importers:
       extract-zip:
         specifier: ^2.0.1
         version: 2.0.1
+      node-global-key-listener:
+        specifier: ^0.3.0
+        version: 0.3.0
       node-sqlite3-wasm:
         specifier: ^0.8.57
         version: 0.8.57
@@ -165,6 +168,9 @@ importers:
       dompurify:
         specifier: ^3.4.7
         version: 3.4.7
+      fflate:
+        specifier: ^0.8.2
+        version: 0.8.2
       htm:
         specifier: ^3.1.1
         version: 3.1.1
@@ -1054,8 +1060,8 @@ packages:
   '@overlive/core@0.2.0':
     resolution: {integrity: sha512-3ZZyXQ4cgS0hktddjKWtjjAibNvl/A32uwt8dee9EQBotU1U0J06Vbjbn+EJSQaZHhH1x5MfTeDk0tdpsojurw==}
 
-  '@overlive/core@0.3.0':
-    resolution: {integrity: sha512-Xz782WwFUeFfc9Z3WJOsghyL8rbcDqklkcD8+EHK6AERXqx25ML+Mi3qbqirh7UBhcmk8FOWRuJmy6KZ9LjDJQ==}
+  '@overlive/core@0.4.0':
+    resolution: {integrity: sha512-vf9QWlyhKiSY+Sl949r4hs+5FUjahKj04Q8GSjle7lckd6lvBZmioCzWF3EX+G3idm31DC2F7r+9Ud9uI9HPRQ==}
 
   '@overlive/emotes@0.2.0':
     resolution: {integrity: sha512-k+X2Jfn9rZxtwRaFmSyOe39JPpSag8jvOgIYgpEi/NTBtReGb2Ll+PGyOhh19Md7sAS0bsTzJAEabdGPumJ7pg==}
@@ -1063,11 +1069,11 @@ packages:
   '@overlive/se@0.2.0':
     resolution: {integrity: sha512-bjPl2Q0p4fx4uAbQdmKVuy8rm1Oh3TsNjBW3eTsNzg6ufF3DEoloUMpiqn7rtXE3gqsh/eGZ0vCJrmDvsUvu8w==}
 
-  '@overlive/twitch-oauth@0.2.0':
-    resolution: {integrity: sha512-ZPlTLGEx9y5Oy6l8KNQ0qMO6sq0ot1dP1tnDwREZu5PHHtGZ/9dKmJWb3xuMHZdAdmQ0J8iJWq+cuXuDHPYVjA==}
+  '@overlive/twitch-oauth@0.3.0':
+    resolution: {integrity: sha512-EkC1Dsqn4BdzSvbH4aif/0O6rt5tgmONEItZ3Bnyax4joIwgSREKNQa1a6qDreOsNSdNO1S+Qz5kfjQ9zF3iCg==}
 
-  '@overlive/twitch@0.3.0':
-    resolution: {integrity: sha512-KVnHWWr97WaXEgrQ/QrqbNez2rzwk8ufcvLynTm+VknXvoZ4LOzNbghwEf5j/HsJr8JEnADjKY+vteVz3CScuw==}
+  '@overlive/twitch@0.4.0':
+    resolution: {integrity: sha512-M75iRfbxF5bmupZtUks/a+UxpKsF60YC+u2pc/Xp/ZgQeyRYZPH1QA6Qx4R+xrpzK3aKlFadpJ/AXInop2dtkA==}
 
   '@paralleldrive/cuid2@2.3.1':
     resolution: {integrity: sha512-XO7cAxhnTZl0Yggq6jOgjiOHhbgcO4NqFqwSmQpjK3b6TEE6Uj/jfSk6wzYyemh3+I0sHirKSetjQwn5cZktFw==}
@@ -3018,6 +3024,9 @@ packages:
     resolution: {integrity: sha512-8Ofs/AUQh8MaEcrlq5xOX0CQ9ypTF5dl78mjlMNfOK08fzpgTHQRQPBxcPlEtIw0yRpws+Zo/3r+5WRby7u3Gg==}
     engines: {node: '>= 0.6'}
 
+  node-global-key-listener@0.3.0:
+    resolution: {integrity: sha512-yWB1OFrDlzXYm3+hYcE8xOscvclpBAQGXcBnc2ytenFLkZfxFipuCwhuIIlIKVtwBuDRkdXJVZMqN99cPVBFFA==}
+
   node-preload@0.2.1:
     resolution: {integrity: sha512-RM5oyBy45cLEoHqCeh+MNuFAxO0vTFBLskvQbOKnEE7YTTSN4tbN8QWDIPQ6L+WvKsB/qLEGpYe2ZZ9d4W9OIQ==}
     engines: {node: '>=8'}
@@ -3549,6 +3558,10 @@ packages:
 
   style-to-object@1.0.14:
     resolution: {integrity: sha512-LIN7rULI0jBscWQYaSswptyderlarFkjQ+t79nzty8tcIAceVomEVlLzH5VP4Cmsv6MtKhs7qaAiwlcp+Mgaxw==}
+
+  sudo-prompt@9.2.1:
+    resolution: {integrity: sha512-Mu7R0g4ig9TUuGSxJavny5Rv0egCEtpZRNMrZaYS1vxkiIxGiGUwoezU3LazIQ+KE04hTrTfNPgxU5gzi7F5Pw==}
+    deprecated: Package no longer supported. Contact Support at https://www.npmjs.com/support for more info.
 
   sumchecker@3.0.1:
     resolution: {integrity: sha512-MvjXzkz/BOfyVDkG0oFOtBxHX2u3gKbMHIF/dXblZsgD3BWOFLmHovIpZY7BykJdAjcqRCBi1WYBNdEC9yI7vg==}
@@ -4578,7 +4591,7 @@ snapshots:
 
   '@overlive/core@0.2.0': {}
 
-  '@overlive/core@0.3.0': {}
+  '@overlive/core@0.4.0': {}
 
   '@overlive/emotes@0.2.0':
     dependencies:
@@ -4593,12 +4606,12 @@ snapshots:
       - supports-color
       - utf-8-validate
 
-  '@overlive/twitch-oauth@0.2.0': {}
+  '@overlive/twitch-oauth@0.3.0': {}
 
-  '@overlive/twitch@0.3.0':
+  '@overlive/twitch@0.4.0':
     dependencies:
-      '@overlive/core': 0.3.0
-      '@overlive/twitch-oauth': 0.2.0
+      '@overlive/core': 0.4.0
+      '@overlive/twitch-oauth': 0.3.0
 
   '@paralleldrive/cuid2@2.3.1':
     dependencies:
@@ -6934,6 +6947,10 @@ snapshots:
 
   negotiator@1.0.0: {}
 
+  node-global-key-listener@0.3.0:
+    dependencies:
+      sudo-prompt: 9.2.1
+
   node-preload@0.2.1:
     dependencies:
       process-on-spawn: 1.1.0
@@ -7573,6 +7590,8 @@ snapshots:
   style-to-object@1.0.14:
     dependencies:
       inline-style-parser: 0.2.7
+
+  sudo-prompt@9.2.1: {}
 
   sumchecker@3.0.1:
     dependencies:

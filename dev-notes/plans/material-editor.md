@@ -1,6 +1,11 @@
 # Plan: Per-avatar Material Editor (MToon ⇄ PBR)
 
-> Branch: `feature/material-editor` · Status: ready-for-handoff
+> **Status:** shipped — `frontend/src/components/editor/materialOverrides.ts` applies the
+> overrides to the live three.js materials and the Material section lives in
+> `PropertiesPanel.tsx`. Module doc:
+> [`../modules/material-overrides.md`](../modules/material-overrides.md).
+
+> *(Historical.)* Branch: `feature/material-editor`
 > This plan is the seed context for a cloud worker. It is a starting point, not an
 > airtight spec — ask the user before guessing on anything underspecified.
 

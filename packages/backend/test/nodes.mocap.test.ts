@@ -393,15 +393,20 @@ describe('pose_arms_to_bones', () => {
     }
   });
 
-  it('skips lower arm when wrist is invisible (vis < 0.5)', () => {
+  it('keeps solving the lower arm when the wrist is invisible, flagged as unconfident', () => {
     const pose = makeTposePose();
     pose[15].visibility = 0; // left wrist invisible
     pose[16].visibility = 0; // right wrist invisible
     const out = pullValue('pose_arms_to_bones', 'pose', { pose }) as NormalizedPose;
-    expect(out.has('leftUpperArm')).toBe(true);
-    expect(out.has('rightUpperArm')).toBe(true);
-    expect(out.has('leftLowerArm')).toBe(false);
-    expect(out.has('rightLowerArm')).toBe(false);
+    const conf = pullValue('pose_arms_to_bones', 'confidence', {
+      pose,
+    }) as Record<string, number>;
+    expect(out.has('leftLowerArm')).toBe(true);
+    expect(out.has('rightLowerArm')).toBe(true);
+    expect(conf.leftLowerArm).toBe(0);
+    expect(conf.rightLowerArm).toBe(0);
+    expect(conf.leftUpperArm).toBe(1);
+    expect(conf.rightUpperArm).toBe(1);
   });
 
   it('returns empty when shoulders invisible', () => {

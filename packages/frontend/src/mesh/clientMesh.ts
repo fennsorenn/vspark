@@ -5,8 +5,9 @@
  * direct data channel to every other participant in the roster. Signaling is
  * relayed through the backend (WS `mesh_signal`); the bytes flow peer-to-peer.
  *
- * This slice only establishes channels + a per-peer clock offset (ping/pong);
- * routing live `stream`/`field` envelopes over the mesh is the next slice.
+ * Legacy: it now carries only object-share and blob envelopes. The mesh
+ * peer's direct links are its own (WebRtcTransport, set up through the mesh);
+ * this goes with mesh-sole-channel W7.
  *
  * Glare is avoided by a deterministic rule: the lexicographically smaller
  * participant id initiates; the larger only ever answers. See
@@ -44,6 +45,10 @@ class ClientMesh {
   private onEnvelope: (from: string, env: SyncEnvelope) => void = () => {};
   private iceServers: RTCIceServer[] = [];
   private readonly peers = new Map<string, MeshPeer>();
+  private changed(): void {
+    const ids = this.connectedIds();
+    this.onChange(ids);
+  }
 
   configure(opts: {
     selfId: string;
@@ -195,7 +200,7 @@ class ClientMesh {
     peer.dc = dc;
     dc.onopen = () => {
       peer.connected = true;
-      this.onChange(this.connectedIds());
+      this.changed();
       // Clock-sync: ping immediately + on an interval.
       const ping = () =>
         dc.readyState === 'open' &&
@@ -205,13 +210,18 @@ class ClientMesh {
     };
     dc.onclose = () => {
       peer.connected = false;
-      this.onChange(this.connectedIds());
+      this.changed();
     };
     dc.onmessage = (e) => this.onMessage(id, e.data as string);
   }
 
   private onMessage(id: string, raw: string): void {
-    let msg: { kind?: string; t0?: number; tr?: number; rtype?: string };
+    let msg: {
+      kind?: string;
+      t0?: number;
+      tr?: number;
+      rtype?: string;
+    };
     try {
       msg = JSON.parse(raw);
     } catch {
@@ -250,7 +260,7 @@ class ClientMesh {
     } catch {
       /* already closed */
     }
-    this.onChange(this.connectedIds());
+    this.changed();
   }
 
   private send(kind: string, payload: Record<string, unknown>): void {

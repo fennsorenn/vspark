@@ -10,6 +10,7 @@ import cameraEffects from './camera-effects.js';
 import composeLayers from './compose-layers.js';
 import trackClips from './track-clips.js';
 import logic from './logic.js';
+import actions from './actions.js';
 import presets from './presets.js';
 import overliveAccounts from './overlive-accounts.js';
 import overliveAuth from './overlive-auth.js';
@@ -18,6 +19,7 @@ import signal from './signal.js';
 import connections from './connections.js';
 import meta from './meta.js';
 import ui from './ui.js';
+import learnedTracker from './learned-tracker.js';
 
 const router: ReturnType<typeof Router> = Router();
 router.use(projects);
@@ -31,6 +33,7 @@ router.use(cameraEffects);
 router.use(composeLayers);
 router.use(trackClips);
 router.use(logic);
+router.use(actions);
 router.use(presets);
 router.use(overliveAccounts);
 router.use(overliveAuth);
@@ -39,6 +42,7 @@ router.use(signal);
 router.use(connections);
 router.use(meta);
 router.use(ui);
+router.use(learnedTracker);
 
 export { router as apiRoutes };
 export {
@@ -52,6 +56,4 @@ export {
   setTrackingManager,
   setApiControllerManager,
   setWsSync,
-  setTrackClipPlaybackManager,
-  setClipPlaybackForwarder,
 } from './shared.js';

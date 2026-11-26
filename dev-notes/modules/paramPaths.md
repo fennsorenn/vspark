@@ -32,11 +32,13 @@ Before this change, valid paramPaths were implicit: the track-clip evaluator har
 **Scene node** (`target_kind: 'scene_node'`):
 - `position.x|y|z`, `rotation.x|y|z` (radians), `scale.x|y|z` — `Float`, animatable.
 - `opacity` — `Float`, default 1, animatable. Lives on `components.transform.opacity`.
+- `visible` — `Bool`, default true, **not animatable**. A runtime-only show/hide override layered over the persisted per-node `hidden` flag (does not rewrite the saved scene). Consumed in `Viewport.tsx` (`renderNodeElement` / `effectiveVisible` fold the override in, override-wins; R3F group nesting cascades it to descendants).
 - `text.content` — `String`, default `''`, **not animatable**. Restricted to `kinds: ['text_troika', 'text_canvas']`.
 
 **Compose layer** (`target_kind: 'compose_layer'`):
 - `x`, `y`, `rotation` — `Float`, animatable.
 - `opacity`, `width`, `height` — `Float`, animatable.
+- `visible` — `Bool`, default true, **not animatable**. Runtime show/hide override, override-wins over the persisted `visible` field; consumed in `ComposeLayerStack.tsx` `layerStyle`.
 - `text.content` — `String`, default `''`, **not animatable**. Restricted to `kinds: ['text']`.
 
 ## Cross-references

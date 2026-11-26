@@ -6,22 +6,48 @@ import { useConnectionsStore } from '../../store/connectionsStore';
 import { api, getConnectionStatus, getConnectionPeers } from '../../api/client';
 import { useTranslation } from 'react-i18next';
 import { MediaInputWindow } from '../MediaInputWindow';
+import { LearnedPreviewWindow } from '../LearnedPreviewWindow';
 import { ConnectionsWindow } from '../ConnectionsWindow';
 import { UpdateDialog } from './UpdateDialog';
 import { OverliveAccountsModal } from './OverliveAccountsModal';
 import { LanguageSwitcher } from '../LanguageSwitcher';
 import { HelpButton } from '../../help/HelpButton';
 import { useAssistantStore } from '../../store/assistantStore';
+import {
+  meshUndo,
+  meshRedo,
+  onMeshUndoChange,
+  getMeshUndoStatus,
+} from '../../mesh/peer';
+
+/** Track the tab peer's undo/redo availability for button enablement. */
+function useMeshUndoStatus() {
+  const [status, setStatus] = useState(getMeshUndoStatus);
+  useEffect(() => onMeshUndoChange(setStatus), []);
+  return status;
+}
+
+const undoBtnStyle = (enabled: boolean): React.CSSProperties => ({
+  background: 'none',
+  border: 'none',
+  color: enabled ? '#ccc' : '#555',
+  cursor: enabled ? 'pointer' : 'default',
+  fontSize: 16,
+  lineHeight: 1,
+  padding: '2px 4px',
+});
 
 export function TopBar() {
   const navigate = useNavigate();
   const { t } = useTranslation('topbar');
+  const { canUndo, canRedo } = useMeshUndoStatus();
   const { projectId, projectName, updateAvailable, setUpdateAvailable } =
     useEditorStore();
   const [connected, setConnected] = useState(false);
   // Store-driven open flags so the assistant can open these via a ui_action;
   // the *mounted* flags stay local (lazy-mount, keep alive while hidden).
   const mediaOpen = useEditorStore((s) => s.mediaModalOpen);
+  const learnedPreview = useEditorStore((s) => s.learnedPreviewBehavior);
   const setMediaOpen = useEditorStore((s) => s.setMediaModalOpen);
   const [mediaMounted, setMediaMounted] = useState(false);
   const connectionsOpen = useEditorStore((s) => s.connectionsModalOpen);
@@ -128,6 +154,32 @@ export function TopBar() {
         <span style={{ color: '#e0e0e0', fontWeight: 500 }}>
           {projectName || t('loading')}
         </span>
+
+        {/* Undo / redo (mesh-native, this tab's actions) */}
+        <span style={{ color: '#444' }}>|</span>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+          <button
+            className="vs-topbar-undo"
+            style={undoBtnStyle(canUndo)}
+            disabled={!canUndo}
+            onClick={() => meshUndo()}
+            title={t('undo.title')}
+            aria-label={t('undo.label')}
+          >
+            ↶
+          </button>
+          <button
+            className="vs-topbar-redo"
+            style={undoBtnStyle(canRedo)}
+            disabled={!canRedo}
+            onClick={() => meshRedo()}
+            title={t('redo.title')}
+            aria-label={t('redo.label')}
+          >
+            ↷
+          </button>
+          <HelpButton topic="scene" anchor="undo" tip={t('undo.help')} />
+        </div>
 
         {/* Spacer */}
         <div style={{ flex: 1 }} />
@@ -318,6 +370,12 @@ export function TopBar() {
         </div>
       </div>
       {mediaMounted && <MediaInputWindow visible={mediaOpen} />}
+      {learnedPreview && (
+        <LearnedPreviewWindow
+          key={learnedPreview}
+          behaviorId={learnedPreview}
+        />
+      )}
       {connectionsMounted && <ConnectionsWindow visible={connectionsOpen} />}
       {updateOpen && (
         <UpdateDialog

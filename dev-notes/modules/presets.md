@@ -13,7 +13,7 @@ A preset payload (`format: 'vspark.preset.v2'`) is rooted at either a scene node
 - **Scene-node root** — recursive `scene_nodes`, plus per-node `behaviors` (table renamed from `node_components` in migration 022), `camera_effects`, owned logic (`logic` where `owner_kind = 'scene_node'`; table renamed from `graphs`), owned track clips (`track_clips` where `owner_node_id` is in the subtree), and `animation_clips`.
 - **Compose-layer root** — recursive `compose_layers` (via `parent_id`, migration 016), plus owned logic (`logic` where `owner_kind = 'compose_layer'`) and owned track clips.
 
-Track clips carry their **event/marker lane** as well as scalar lanes/keyframes: `serialize.ts`'s `serializeClipEvents()` emits an `events` array per clip (each: `presetId`, `t`, `action`, `targetKind`, `targetPresetId` remapped through the same `realToPreset` map as lanes, `payload`); `deserialize.ts` premints event presetIds and inserts `track_clip_events` rows (resolving `targetPresetId` via `resolveId`). See [track-clips.md](track-clips.md).
+Track clips carry their **event/marker lane** as well as scalar lanes/keyframes: `serialize.ts`'s `serializeClipEvents()` emits an `events` array per clip (each: `presetId`, `t`, `action`, `targetKind`, `targetPresetId` remapped through the same `realToPreset` map as lanes, `payload`); `deserialize.ts` premints event presetIds and carries the events into the clip document it commits (resolving `targetPresetId` via `resolveId`). See [track-clips.md](track-clips.md).
 - **Assets** — referenced files (avatar GLB, animation clip sources, etc.) are listed in an `assets[]` array. With `embedAssets: true` the file bytes are base64-inlined; without, only the SHA-256 hash + original path are recorded, and import attempts to match an existing asset by hash. See `presets/assets.ts`.
 
 `exportedFrom: { projectId, rootSceneNodeId, rootId }` is audit-trail metadata and is **deliberately excluded from id substitution** (replacing the source rootId with a placeholder would be misleading; the field is never read on import). See `fd6e6cb`.
@@ -80,7 +80,7 @@ Persisting a subtree requires solving a problem that wasn't visible until logic 
 Backend: `packages/backend/src/presets/substitute.ts`.
 
 - **Export pass** (`makeExportSubstituter`) builds a single regex of every real id being serialised (the same `realToPreset` map collected as rows are emitted with `presetId` tags like `n5`, `c3`, `g1`, `tc4`, `ln2`, `k7`, `ce2`, `ac4`). One walk over the payload replaces each match with `__preset:<tag>`. **Occurrence-based**, not per-kind whitelist — naturally covers any future node kind or config shape.
-- **Import pass** (`makeImportSubstituter`) builds the reverse `placeholderTag → newRealId` map after minting and walks the payload again before insert.
+- **Import pass** (`makeImportSubstituter`) builds the reverse `placeholderTag → newRealId` map after minting and walks the payload again before the documents are committed.
 
 Placeholders that don't match (e.g. a Twitch account id referenced from inside a graph node's `defaultConfig.account`) are left intact — the caller / runtime surfaces them as "external refs" the user may need to rebind. See `344de06`, `fd6e6cb`.
 
@@ -97,7 +97,13 @@ Placeholders that don't match (e.g. a Twitch account id referenced from inside a
 
 **Paste-onto-bone**: `instantiate` accepts a `boneAttachment` target field. When set, the root scene node is created as a child of `parentId` (typically the VRM avatar) with that bone name, so a user can paste a sword preset onto a hand bone in the scene tree.
 
-Instantiated logic are explicitly started after insert (`1a80383`) — without this fix the rows landed disabled-equivalent because the manager had been instantiated before they existed.
+**Instantiation writes through the mesh store.** `deserialize.ts` commits each entity to its collection — `scene_node`, `behavior`, `camera_effect`, `compose_layer`, `animation_clip`, `logic`, `track_clip` — and the persistence tap writes the rows, emits `sync.document`, and runs the lifecycle side effects. So an imported behavior's signal graph and an imported logic graph's running instance start immediately, and every connected tab sees the preset appear without reloading. Order matters: `persists` predicates gate a child on its parent's row existing, so nodes and layers are committed before the things attached to them. See [mesh.md](mesh.md).
+
+Two things are deliberately not documents on this path: assets are materialized into `asset_files` by `assets.ts` (no collection), and a graph's `node_state` is written to the row directly after the commit — it is runtime scratch owned by the running graph, which is why the `logic` DTO leaves it out.
+
+**Imported graphs are committed in document form.** `deserialize.ts` commits a logic graph's descriptor as `toDescriptorDoc(toGraphDescriptor(...))` — nodes keyed by id. Before this fix (on `feature/composites`) it committed the preset's list form, so per-element paths such as `descriptor.nodes.<id>…` (used by the graph editor and composite settings) addressed a list until a restart re-keyed the document from the row.
+
+Track-clip lanes, keyframes and events are **keyed children of the clip document**, not separate documents: the whole clip goes in as one commit and the tap writes the three tables from it. See [track-clips.md](track-clips.md).
 
 ## Frontend — `components/editor/PresetLibrary.tsx`
 
@@ -112,3 +118,4 @@ Preset payloads also flow through the clipboard for copy/paste of scene-node and
 - [project-graphs.md](project-graphs.md) — logic are nested into preset payloads at the right owner scope.
 - [track-clips.md](track-clips.md) — track clips owned by nodes / layers in the subtree are serialised with lanes + keyframes.
 - [clipboard.md](clipboard.md) — uses `presets/serialize` + `presets/instantiate` to copy/paste scene-node and compose-layer subtrees within and across projects.
+- [composites.md](composites.md) — built-in alert and chat templates packaged as one object with linked settings; their payloads (`builtin_presets/composites.ts`) are instantiated through this preset path and resolved by `getBuiltinPreset`, but listed by `GET /api/presets/composites`, not `GET /api/presets/builtin`.

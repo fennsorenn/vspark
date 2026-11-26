@@ -1,7 +1,13 @@
 -- 008_compose_layers: 2D overlay/underlay layers composited with the 3D scene render
--- See dev-notes for the ordering model. scene_order = 0 is the 3D render slot;
--- negative scene_order paints above the 3D, positive paints behind. Camera layers
--- carry a non-zero camera_order to interleave within a scene_order slot.
+--
+-- HISTORICAL — the ordering model described here is DEAD, and the columns that
+-- carried it no longer exist. As of this migration the model was signed:
+-- scene_order = 0 was the 3D render slot, negative painted above the 3D,
+-- positive behind, and camera_order interleaved camera layers within a slot.
+-- Migration 036 dropped both columns for a single string fractional order_key
+-- (packages/shared/src/fracIndex.ts), sorted (order_key, id) ascending =
+-- back->front, per sibling set. Do not read the columns below as current
+-- behaviour; see 036 for the live model.
 
 CREATE TABLE IF NOT EXISTS compose_layers (
   id              TEXT PRIMARY KEY,

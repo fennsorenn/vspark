@@ -8,11 +8,11 @@
  * See dev-notes/plans/multiplayer-phase5.md.
  */
 import { useEffect } from 'react';
-import { useEditorStore } from '../store/editorStore';
 import { useConnectionsStore } from '../store/connectionsStore';
 import { peerSubscribe } from '../api/client';
 import { REMOTE_OBJECT_KIND } from '../sync/sharedProjection';
 import { hasDirectEdge, subscribeDirect } from '../sync/shareDirect';
+import { useSceneNodes } from '../mesh/nodes';
 
 interface RemoteRef {
   ownerPeerId?: string;
@@ -20,7 +20,7 @@ interface RemoteRef {
 }
 
 export function useSharedSubscriptions(): void {
-  const nodes = useEditorStore((s) => s.nodes);
+  const nodes = useSceneNodes();
   const connectedIds = useConnectionsStore((s) => s.connectedIds);
   const meshConnected = useConnectionsStore((s) => s.meshConnected);
   const subscribed = useConnectionsStore((s) => s.subscribed);

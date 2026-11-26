@@ -6,7 +6,7 @@
  *   - PoseStylizerManager (graph + pose-interceptor registration)
  *   - LipsyncManager     (graph lifecycle + fireVisemes)
  *   - TrackingManager    (graph lifecycle + fireLandmarks)
- *   - ApiControllerManager (state-only, no graph)
+ *   - ApiControllerManager (graph lifecycle + REST blendshapes through it)
  *   - VmcManager         (UDP socket mocked via vi.mock)
  *   - IFacialMocapManager (same UDP mock; adds the device handshake)
  *
@@ -31,6 +31,18 @@ const { mockUnsubscribe, mockSubscribe, mockSend } = vi.hoisted(() => {
   const mockSend = vi.fn(() => true);
   return { mockUnsubscribe, mockSubscribe, mockSend };
 });
+
+// Receiver status is a mesh document now (mesh/status.ts). Report each
+// publish into a spy under the kind the old WS broadcast used, so the
+// assertions below keep checking the same behavior.
+const { statusEvents } = vi.hoisted(() => ({ statusEvents: vi.fn() }));
+vi.mock('../src/mesh/status.js', () => ({
+  publishTracking: (s: { behaviorId: string; tracking?: boolean }) =>
+    statusEvents(
+      s.tracking !== undefined ? 'vmc_tracking_state' : 'vmc_status',
+      s
+    ),
+}));
 
 vi.mock('../src/vmc/udp_socket_pool.js', () => ({
   udpSocketPool: {
@@ -67,20 +79,29 @@ vi.mock('../src/broadcast/bus.js', () => ({
 
 // ── Mock pose_broadcast / blendshapes_broadcast initializers (used by VmcManager) ─
 vi.mock('../src/signal/nodes/pose_broadcast.js', async (importOriginal) => {
-  const original = await importOriginal<typeof import('../src/signal/nodes/pose_broadcast.js')>();
+  const original =
+    await importOriginal<
+      typeof import('../src/signal/nodes/pose_broadcast.js')
+    >();
   return {
     ...original,
     initPoseBroadcast: vi.fn(),
   };
 });
 
-vi.mock('../src/signal/nodes/blendshapes_broadcast.js', async (importOriginal) => {
-  const original = await importOriginal<typeof import('../src/signal/nodes/blendshapes_broadcast.js')>();
-  return {
-    ...original,
-    initBlendshapesBroadcast: vi.fn(),
-  };
-});
+vi.mock(
+  '../src/signal/nodes/blendshapes_broadcast.js',
+  async (importOriginal) => {
+    const original =
+      await importOriginal<
+        typeof import('../src/signal/nodes/blendshapes_broadcast.js')
+      >();
+    return {
+      ...original,
+      initBlendshapesBroadcast: vi.fn(),
+    };
+  }
+);
 
 // ── Mock getMeshCollection (used by ApiControllerManager._writeSchedule) ─────
 vi.mock('../src/mesh/index.js', () => ({
@@ -181,7 +202,13 @@ describe('BreathingManager', () => {
 
   it('syncBehaviors() starts enabled breathing components', () => {
     manager.syncBehaviors([
-      { id: 'b1', nodeId: 'node1', kind: 'breathing', enabled: true, config: {} },
+      {
+        id: 'b1',
+        nodeId: 'node1',
+        kind: 'breathing',
+        enabled: true,
+        config: {},
+      },
     ]);
 
     expect(manager.getGraphDescriptor('b1')).not.toBeNull();
@@ -189,7 +216,13 @@ describe('BreathingManager', () => {
 
   it('syncBehaviors() skips disabled components', () => {
     manager.syncBehaviors([
-      { id: 'b1', nodeId: 'node1', kind: 'breathing', enabled: false, config: {} },
+      {
+        id: 'b1',
+        nodeId: 'node1',
+        kind: 'breathing',
+        enabled: false,
+        config: {},
+      },
     ]);
 
     expect(manager.getGraphDescriptor('b1')).toBeNull();
@@ -197,7 +230,13 @@ describe('BreathingManager', () => {
 
   it('syncBehaviors() skips components of the wrong kind', () => {
     manager.syncBehaviors([
-      { id: 'b1', nodeId: 'node1', kind: 'lipsync_processor', enabled: true, config: {} },
+      {
+        id: 'b1',
+        nodeId: 'node1',
+        kind: 'lipsync_processor',
+        enabled: true,
+        config: {},
+      },
     ]);
 
     expect(manager.getGraphDescriptor('b1')).toBeNull();
@@ -312,7 +351,13 @@ describe('LipsyncManager', () => {
 
   it('syncBehaviors() ignores disabled or wrong-kind components', () => {
     manager.syncBehaviors([
-      { id: 'ls1', nodeId: 'n', kind: 'lipsync_processor', enabled: false, config: {} },
+      {
+        id: 'ls1',
+        nodeId: 'n',
+        kind: 'lipsync_processor',
+        enabled: false,
+        config: {},
+      },
       { id: 'ls2', nodeId: 'n', kind: 'breathing', enabled: true, config: {} },
     ]);
 
@@ -342,7 +387,9 @@ describe('LipsyncManager', () => {
   it('fireVisemes() fires into the graph without throwing', () => {
     manager.start('ls1');
     // Visemes are fed through the graph; no exception means the wiring is valid.
-    expect(() => manager.fireVisemes('ls1', { aa: 0.8, ih: 0.2 })).not.toThrow();
+    expect(() =>
+      manager.fireVisemes('ls1', { aa: 0.8, ih: 0.2 })
+    ).not.toThrow();
   });
 
   it('close() stops all graphs', () => {
@@ -412,7 +459,13 @@ describe('TrackingManager', () => {
 
   it('syncBehaviors() ignores disabled or wrong-kind', () => {
     manager.syncBehaviors([
-      { id: 'mp1', nodeId: 'n', kind: 'mediapipe_tracker', enabled: false, config: {} },
+      {
+        id: 'mp1',
+        nodeId: 'n',
+        kind: 'mediapipe_tracker',
+        enabled: false,
+        config: {},
+      },
     ]);
     expect(manager.getGraphDescriptor('mp1')).toBeNull();
   });
@@ -443,7 +496,9 @@ describe('TrackingManager', () => {
   });
 
   it('fireGraphEvent() is a no-op when graph is absent', () => {
-    expect(() => manager.fireGraphEvent('nope', 'mp_source', 'face')).not.toThrow();
+    expect(() =>
+      manager.fireGraphEvent('nope', 'mp_source', 'face')
+    ).not.toThrow();
   });
 
   it('getAllGraphDescriptors() returns all started', () => {
@@ -471,6 +526,7 @@ describe('TrackingManager tracking-loss grace period', () => {
   const makeWs = () => ({
     broadcast: vi.fn(),
     onClientConnected: vi.fn(),
+    onMessage: vi.fn(),
     sendTo: vi.fn(),
   });
 
@@ -510,10 +566,11 @@ describe('TrackingManager tracking-loss grace period', () => {
     ]);
     manager.fireLandmarks('mp1', { face: [{ x: 0, y: 0, z: 0 }] });
     ws.broadcast.mockClear();
+    statusEvents.mockClear();
   };
 
   const trackingLost = () =>
-    ws.broadcast.mock.calls.some(
+    statusEvents.mock.calls.some(
       ([kind, payload]) =>
         kind === 'vmc_tracking_state' && payload.tracking === false
     );
@@ -531,7 +588,7 @@ describe('TrackingManager tracking-loss grace period', () => {
 
     vi.advanceTimersByTime(3500);
 
-    expect(ws.broadcast).toHaveBeenCalledWith('vmc_tracking_state', {
+    expect(statusEvents).toHaveBeenCalledWith('vmc_tracking_state', {
       behaviorId: 'mp1',
       tracking: false,
     });
@@ -557,7 +614,7 @@ describe('TrackingManager tracking-loss grace period', () => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// ApiControllerManager (no signal graph — pure state machine)
+// ApiControllerManager (REST state + a graph its blendshapes go through)
 // ─────────────────────────────────────────────────────────────────────────────
 
 describe('ApiControllerManager', () => {
@@ -573,7 +630,13 @@ describe('ApiControllerManager', () => {
 
   it('syncBehaviors() registers an enabled api_controller component', () => {
     manager.syncBehaviors([
-      { id: 'ac1', nodeId: 'nodeA', kind: 'api_controller', enabled: true, config: {} },
+      {
+        id: 'ac1',
+        nodeId: 'nodeA',
+        kind: 'api_controller',
+        enabled: true,
+        config: {},
+      },
     ]);
 
     const st = manager.getState('ac1');
@@ -587,7 +650,13 @@ describe('ApiControllerManager', () => {
 
   it('syncBehaviors() ignores disabled components', () => {
     manager.syncBehaviors([
-      { id: 'ac1', nodeId: 'n', kind: 'api_controller', enabled: false, config: {} },
+      {
+        id: 'ac1',
+        nodeId: 'n',
+        kind: 'api_controller',
+        enabled: false,
+        config: {},
+      },
     ]);
     expect(manager.getState('ac1')).toBeNull();
   });
@@ -601,7 +670,13 @@ describe('ApiControllerManager', () => {
 
   it('syncBehaviors() stops components removed from the next reconcile', () => {
     manager.syncBehaviors([
-      { id: 'ac1', nodeId: 'n', kind: 'api_controller', enabled: true, config: {} },
+      {
+        id: 'ac1',
+        nodeId: 'n',
+        kind: 'api_controller',
+        enabled: true,
+        config: {},
+      },
     ]);
     manager.syncBehaviors([]);
 
@@ -610,7 +685,13 @@ describe('ApiControllerManager', () => {
   });
 
   it('syncBehaviors() is idempotent for the same component', () => {
-    const comp = { id: 'ac1', nodeId: 'n', kind: 'api_controller', enabled: true, config: {} };
+    const comp = {
+      id: 'ac1',
+      nodeId: 'n',
+      kind: 'api_controller',
+      enabled: true,
+      config: {},
+    };
     manager.syncBehaviors([comp]);
     manager.syncBehaviors([comp]);
     expect(manager.getState('ac1')).not.toBeNull();
@@ -618,7 +699,13 @@ describe('ApiControllerManager', () => {
 
   it('findByNode() finds a component by its scene node id', () => {
     manager.syncBehaviors([
-      { id: 'ac1', nodeId: 'nodeA', kind: 'api_controller', enabled: true, config: {} },
+      {
+        id: 'ac1',
+        nodeId: 'nodeA',
+        kind: 'api_controller',
+        enabled: true,
+        config: {},
+      },
     ]);
 
     const result = manager.findByNode('nodeA');
@@ -632,8 +719,20 @@ describe('ApiControllerManager', () => {
 
   it('snapshotAll() returns all active state entries', () => {
     manager.syncBehaviors([
-      { id: 'ac1', nodeId: 'n1', kind: 'api_controller', enabled: true, config: {} },
-      { id: 'ac2', nodeId: 'n2', kind: 'api_controller', enabled: true, config: {} },
+      {
+        id: 'ac1',
+        nodeId: 'n1',
+        kind: 'api_controller',
+        enabled: true,
+        config: {},
+      },
+      {
+        id: 'ac2',
+        nodeId: 'n2',
+        kind: 'api_controller',
+        enabled: true,
+        config: {},
+      },
     ]);
 
     const snap = manager.snapshotAll();
@@ -644,7 +743,11 @@ describe('ApiControllerManager', () => {
 
   it('setExpressionsForNode() and getExpressionsForNode() round-trip', () => {
     manager.setExpressionsForNode('node1', ['happy', 'sad', 'surprised']);
-    expect(manager.getExpressionsForNode('node1')).toEqual(['happy', 'sad', 'surprised']);
+    expect(manager.getExpressionsForNode('node1')).toEqual([
+      'happy',
+      'sad',
+      'surprised',
+    ]);
   });
 
   it('setExpressionsForNode([]) clears the cache', () => {
@@ -654,15 +757,15 @@ describe('ApiControllerManager', () => {
   });
 
   it('setAnimationQueue() throws when component is not active', () => {
-    expect(() =>
-      manager.setAnimationQueue('ghost', [], 'none')
-    ).toThrow('not active');
+    expect(() => manager.setAnimationQueue('ghost', [], 'none')).toThrow(
+      'not active'
+    );
   });
 
   it('setBlendshapes() throws when component is not active', () => {
-    expect(() =>
-      manager.setBlendshapes('ghost', { happy: 1.0 })
-    ).toThrow('not active');
+    expect(() => manager.setBlendshapes('ghost', { happy: 1.0 })).toThrow(
+      'not active'
+    );
   });
 
   it('clearBlendshapes() throws when component is not active', () => {
@@ -671,7 +774,13 @@ describe('ApiControllerManager', () => {
 
   it('setBlendshapes() does not throw for an active component (bus call is mocked)', () => {
     manager.syncBehaviors([
-      { id: 'ac1', nodeId: 'n1', kind: 'api_controller', enabled: true, config: {} },
+      {
+        id: 'ac1',
+        nodeId: 'n1',
+        kind: 'api_controller',
+        enabled: true,
+        config: {},
+      },
     ]);
     expect(() => manager.setBlendshapes('ac1', { happy: 0.5 })).not.toThrow();
     expect(broadcastBus.publishBlendshapes).toHaveBeenCalledWith(
@@ -683,15 +792,48 @@ describe('ApiControllerManager', () => {
 
   it('clearBlendshapes() resets blendshapes on an active component', () => {
     manager.syncBehaviors([
-      { id: 'ac1', nodeId: 'n1', kind: 'api_controller', enabled: true, config: {} },
+      {
+        id: 'ac1',
+        nodeId: 'n1',
+        kind: 'api_controller',
+        enabled: true,
+        config: {},
+      },
     ]);
     manager.setBlendshapes('ac1', { happy: 0.9 });
     expect(() => manager.clearBlendshapes('ac1')).not.toThrow();
   });
 
-  it('close() removes all active components', () => {
+  it('runs a graph whose blendshapes_broadcast publishes the REST weights', () => {
     manager.syncBehaviors([
       { id: 'ac1', nodeId: 'n1', kind: 'api_controller', enabled: true, config: {} },
+    ]);
+    const d = manager.getGraphDescriptor('ac1');
+    expect(d!.id).toBe('api_controller:ac1');
+    expect(d!.nodes.map((n) => n.kind)).toContain('blendshapes_broadcast');
+    expect(manager.getStates('ac1')).not.toBeNull();
+
+    vi.mocked(broadcastBus.publishBlendshapes).mockClear();
+    manager.setBlendshapes('ac1', { happy: 0.7 });
+    const [nodeId, behaviorId, bs] = vi.mocked(broadcastBus.publishBlendshapes)
+      .mock.calls[0];
+    expect([nodeId, behaviorId]).toEqual(['n1', 'ac1']);
+    expect(bs.get('happy')).toBeCloseTo(0.7);
+
+    manager.clearBlendshapes('ac1');
+    const cleared = vi.mocked(broadcastBus.publishBlendshapes).mock.calls[1][2];
+    expect(cleared.size).toBe(0);
+  });
+
+  it('close() removes all active components', () => {
+    manager.syncBehaviors([
+      {
+        id: 'ac1',
+        nodeId: 'n1',
+        kind: 'api_controller',
+        enabled: true,
+        config: {},
+      },
     ]);
     manager.close();
     expect(manager.getState('ac1')).toBeNull();
@@ -707,6 +849,7 @@ describe('VmcManager (UDP mocked)', () => {
   const makeWs = () => ({
     broadcast: vi.fn(),
     onClientConnected: vi.fn(),
+    onMessage: vi.fn(),
     sendTo: vi.fn(),
   });
 
@@ -734,7 +877,11 @@ describe('VmcManager (UDP mocked)', () => {
 
   it('startReceiver() subscribes to the UDP pool', () => {
     manager.startReceiver('vmc1', 39539);
-    expect(mockSubscribe).toHaveBeenCalledWith(39539, expect.any(Function), expect.any(Function));
+    expect(mockSubscribe).toHaveBeenCalledWith(
+      39539,
+      expect.any(Function),
+      expect.any(Function)
+    );
   });
 
   it('startReceiver() builds a graph', () => {
@@ -783,10 +930,11 @@ describe('VmcManager (UDP mocked)', () => {
       }
     ).receivers.get('vmc1')!.trackingActive = true;
     ws.broadcast.mockClear();
+    statusEvents.mockClear();
 
     manager.stopReceiver('vmc1');
 
-    expect(ws.broadcast).toHaveBeenCalledWith('vmc_tracking_state', {
+    expect(statusEvents).toHaveBeenCalledWith('vmc_tracking_state', {
       behaviorId: 'vmc1',
       tracking: false,
     });
@@ -795,10 +943,11 @@ describe('VmcManager (UDP mocked)', () => {
   it('stopReceiver() does not broadcast tracking state when never tracking', () => {
     manager.startReceiver('vmc1', 39539); // trackingActive stays null
     ws.broadcast.mockClear();
+    statusEvents.mockClear();
 
     manager.stopReceiver('vmc1');
 
-    expect(ws.broadcast).not.toHaveBeenCalledWith(
+    expect(statusEvents).not.toHaveBeenCalledWith(
       'vmc_tracking_state',
       expect.anything()
     );
@@ -829,8 +978,20 @@ describe('VmcManager (UDP mocked)', () => {
 
   it('syncBehaviors() skips disabled or wrong-kind', () => {
     manager.syncBehaviors([
-      { id: 'vmc1', nodeId: 'n', kind: 'vmc_receiver', enabled: false, config: { port: 39539 } },
-      { id: 'vmc2', nodeId: 'n', kind: 'breathing', enabled: true, config: { port: 39539 } },
+      {
+        id: 'vmc1',
+        nodeId: 'n',
+        kind: 'vmc_receiver',
+        enabled: false,
+        config: { port: 39539 },
+      },
+      {
+        id: 'vmc2',
+        nodeId: 'n',
+        kind: 'breathing',
+        enabled: true,
+        config: { port: 39539 },
+      },
     ]);
 
     expect(manager.getGraphDescriptor('vmc1')).toBeNull();
@@ -871,9 +1032,12 @@ describe('VmcManager (UDP mocked)', () => {
     vi.advanceTimersByTime(4000);
 
     // The interval fired; since no packets arrived, nothing catastrophic happens.
-    // If the receiver was marked connected, it would call ws.broadcast('vmc_status', ...)
+    // If the receiver was marked connected, it would publish a 'vmc_status'
     // Here we can only verify no exception is thrown (receiver starts as connected=false).
-    expect(ws.broadcast).not.toHaveBeenCalledWith('vmc_status', expect.objectContaining({ connected: false }));
+    expect(statusEvents).not.toHaveBeenCalledWith(
+      'vmc_status',
+      expect.objectContaining({ connected: false })
+    );
   });
 
   it('close() unsubscribes all receivers and clears the interval', () => {
@@ -940,11 +1104,12 @@ describe('VmcManager (UDP mocked)', () => {
     info.lastSeen = Date.now();
     info.quietSince = null;
     ws.broadcast.mockClear();
+    statusEvents.mockClear();
     return info;
   };
 
   const trackingLost = () =>
-    ws.broadcast.mock.calls.some(
+    statusEvents.mock.calls.some(
       ([kind, payload]) =>
         kind === 'vmc_tracking_state' && payload.tracking === false
     );
@@ -964,7 +1129,7 @@ describe('VmcManager (UDP mocked)', () => {
 
     vi.advanceTimersByTime(2500);
 
-    expect(ws.broadcast).toHaveBeenCalledWith('vmc_tracking_state', {
+    expect(statusEvents).toHaveBeenCalledWith('vmc_tracking_state', {
       behaviorId: 'vmc1',
       tracking: false,
     });
@@ -979,7 +1144,7 @@ describe('VmcManager (UDP mocked)', () => {
     expect(trackingLost()).toBe(false);
 
     vi.advanceTimersByTime(1500);
-    expect(ws.broadcast).toHaveBeenCalledWith('vmc_tracking_state', {
+    expect(statusEvents).toHaveBeenCalledWith('vmc_tracking_state', {
       behaviorId: 'vmc1',
       tracking: false,
     });
@@ -1013,7 +1178,7 @@ describe('VmcManager (UDP mocked)', () => {
 
     vi.advanceTimersByTime(10_000);
 
-    const losses = ws.broadcast.mock.calls.filter(
+    const losses = statusEvents.mock.calls.filter(
       ([kind, payload]) =>
         kind === 'vmc_tracking_state' && payload.tracking === false
     );
@@ -1025,6 +1190,7 @@ describe('VmcManager (UDP mocked)', () => {
     // connect-time snapshot skips null for the same reason.
     manager.startReceiver('vmc1', 39539);
     ws.broadcast.mockClear();
+    statusEvents.mockClear();
 
     vi.advanceTimersByTime(10_000);
 
@@ -1038,7 +1204,7 @@ describe('VmcManager (UDP mocked)', () => {
 
     vi.advanceTimersByTime(4000);
 
-    expect(ws.broadcast).toHaveBeenCalledWith('vmc_status', {
+    expect(statusEvents).toHaveBeenCalledWith('vmc_status', {
       behaviorId: 'vmc1',
       connected: false,
     });
@@ -1054,6 +1220,7 @@ describe('IFacialMocapManager (UDP mocked)', () => {
   const makeWs = () => ({
     broadcast: vi.fn(),
     onClientConnected: vi.fn(),
+    onMessage: vi.fn(),
     sendTo: vi.fn(),
   });
 
@@ -1152,7 +1319,7 @@ describe('IFacialMocapManager (UDP mocked)', () => {
     manager.startReceiver('ifm1', 49983, '192.168.1.42');
     listener()(frame(10, 1), rinfo);
 
-    expect(ws.broadcast).toHaveBeenCalledWith('vmc_status', {
+    expect(statusEvents).toHaveBeenCalledWith('vmc_status', {
       behaviorId: 'ifm1',
       connected: true,
       remoteAddress: '192.168.1.42',
@@ -1163,7 +1330,7 @@ describe('IFacialMocapManager (UDP mocked)', () => {
     manager.startReceiver('ifm1', 49983, '192.168.1.42');
     listener()(Buffer.from('not an ifacialmocap frame', 'utf8'), rinfo);
 
-    expect(ws.broadcast).not.toHaveBeenCalledWith(
+    expect(statusEvents).not.toHaveBeenCalledWith(
       'vmc_status',
       expect.anything()
     );
@@ -1174,7 +1341,7 @@ describe('IFacialMocapManager (UDP mocked)', () => {
     listener()(frame(10, 1), rinfo);
     listener()(frame(40, 9), rinfo);
 
-    expect(ws.broadcast).toHaveBeenCalledWith('vmc_tracking_state', {
+    expect(statusEvents).toHaveBeenCalledWith('vmc_tracking_state', {
       behaviorId: 'ifm1',
       tracking: true,
     });
@@ -1185,14 +1352,15 @@ describe('IFacialMocapManager (UDP mocked)', () => {
     listener()(frame(10, 1), rinfo);
     listener()(frame(40, 9), rinfo);
     ws.broadcast.mockClear();
+    statusEvents.mockClear();
 
     vi.advanceTimersByTime(5000);
 
-    expect(ws.broadcast).toHaveBeenCalledWith('vmc_status', {
+    expect(statusEvents).toHaveBeenCalledWith('vmc_status', {
       behaviorId: 'ifm1',
       connected: false,
     });
-    expect(ws.broadcast).toHaveBeenCalledWith('vmc_tracking_state', {
+    expect(statusEvents).toHaveBeenCalledWith('vmc_tracking_state', {
       behaviorId: 'ifm1',
       tracking: false,
     });
@@ -1259,10 +1427,11 @@ describe('IFacialMocapManager (UDP mocked)', () => {
     listener()(frame(10, 1), rinfo);
     listener()(frame(40, 9), rinfo);
     ws.broadcast.mockClear();
+    statusEvents.mockClear();
 
     manager.stopReceiver('ifm1');
 
-    expect(ws.broadcast).toHaveBeenCalledWith('vmc_tracking_state', {
+    expect(statusEvents).toHaveBeenCalledWith('vmc_tracking_state', {
       behaviorId: 'ifm1',
       tracking: false,
     });
@@ -1315,6 +1484,7 @@ describe('IFacialMocapManager (UDP mocked)', () => {
     listener()(frame(10, 1), rinfo);
     listener()(frame(40, 9), rinfo);
     ws.broadcast.mockClear();
+    statusEvents.mockClear();
   };
 
   /** Advance `ms` while the device keeps streaming an unchanged frame. */
@@ -1326,7 +1496,7 @@ describe('IFacialMocapManager (UDP mocked)', () => {
   };
 
   const trackingLost = () =>
-    ws.broadcast.mock.calls.some(
+    statusEvents.mock.calls.some(
       ([kind, payload]) =>
         kind === 'vmc_tracking_state' && payload.tracking === false
     );
@@ -1344,7 +1514,7 @@ describe('IFacialMocapManager (UDP mocked)', () => {
 
     pumpStill(2500);
 
-    expect(ws.broadcast).toHaveBeenCalledWith('vmc_tracking_state', {
+    expect(statusEvents).toHaveBeenCalledWith('vmc_tracking_state', {
       behaviorId: 'ifm1',
       tracking: false,
     });
@@ -1386,7 +1556,7 @@ describe('IFacialMocapManager (UDP mocked)', () => {
 
     pumpStill(10_000);
 
-    const losses = ws.broadcast.mock.calls.filter(
+    const losses = statusEvents.mock.calls.filter(
       ([kind, payload]) =>
         kind === 'vmc_tracking_state' && payload.tracking === false
     );
@@ -1396,6 +1566,7 @@ describe('IFacialMocapManager (UDP mocked)', () => {
   it('never reports loss for a receiver that never tracked', () => {
     manager.startReceiver('ifm1', 49983, '192.168.1.42');
     ws.broadcast.mockClear();
+    statusEvents.mockClear();
 
     vi.advanceTimersByTime(10_000);
 
@@ -1408,7 +1579,7 @@ describe('IFacialMocapManager (UDP mocked)', () => {
 
     vi.advanceTimersByTime(4000); // no pump — the device went away
 
-    expect(ws.broadcast).toHaveBeenCalledWith('vmc_status', {
+    expect(statusEvents).toHaveBeenCalledWith('vmc_status', {
       behaviorId: 'ifm1',
       connected: false,
     });
@@ -1459,8 +1630,20 @@ describe('PoseStylizerManager', () => {
 
   it('syncBehaviors() starts enabled stylizers and skips other kinds', () => {
     manager.syncBehaviors([
-      { id: 's1', nodeId: 'n1', kind: 'pose_stylizer', enabled: true, config: {} },
-      { id: 's2', nodeId: 'n2', kind: 'pose_stylizer', enabled: false, config: {} },
+      {
+        id: 's1',
+        nodeId: 'n1',
+        kind: 'pose_stylizer',
+        enabled: true,
+        config: {},
+      },
+      {
+        id: 's2',
+        nodeId: 'n2',
+        kind: 'pose_stylizer',
+        enabled: false,
+        config: {},
+      },
       { id: 's3', nodeId: 'n3', kind: 'breathing', enabled: true, config: {} },
     ]);
     expect(manager.getStates('s1')).not.toBeNull();
@@ -1477,7 +1660,13 @@ describe('PoseStylizerManager', () => {
 
   it('registers into the pose interceptor chain for its scene node', () => {
     manager.syncBehaviors([
-      { id: 's1', nodeId: 'avatar-1', kind: 'pose_stylizer', enabled: true, config: {} },
+      {
+        id: 's1',
+        nodeId: 'avatar-1',
+        kind: 'pose_stylizer',
+        enabled: true,
+        config: {},
+      },
     ]);
     // A pose for this scene node is now claimed by the chain rather than broadcast.
     const claimed = poseInterceptorRegistry.start(
@@ -1489,7 +1678,13 @@ describe('PoseStylizerManager', () => {
 
   it('unregisters from the chain on stop()', () => {
     manager.syncBehaviors([
-      { id: 's1', nodeId: 'avatar-2', kind: 'pose_stylizer', enabled: true, config: {} },
+      {
+        id: 's1',
+        nodeId: 'avatar-2',
+        kind: 'pose_stylizer',
+        enabled: true,
+        config: {},
+      },
     ]);
     manager.stop('s1');
     expect(
@@ -1504,14 +1699,20 @@ describe('PoseStylizerManager', () => {
         nodeId: 'avatar-3',
         kind: 'pose_stylizer',
         enabled: true,
-        config: { amount: 1, lag: 0, response: { maxRate: 1e6, smoothing: 0, deadzone: 0 } },
+        config: {
+          amount: 1,
+          lag: 0,
+          response: { maxRate: 1e6, smoothing: 0, deadzone: 0 },
+        },
       },
     ]);
 
     // A head-only pose goes in…
     poseInterceptorRegistry.start(
       'avatar-3',
-      new NormalizedPose([['head', Quaternion.fromEuler(0, (45 * Math.PI) / 180, 0)]])
+      new NormalizedPose([
+        ['head', Quaternion.fromEuler(0, (45 * Math.PI) / 180, 0)],
+      ])
     );
 
     // …and a whole-body pose comes out the far end of the chain.
@@ -1530,11 +1731,23 @@ describe('PoseStylizerManager', () => {
 
   it('hot-applies config edits without rebuilding the graph', () => {
     manager.syncBehaviors([
-      { id: 's1', nodeId: 'n1', kind: 'pose_stylizer', enabled: true, config: { amount: 1 } },
+      {
+        id: 's1',
+        nodeId: 'n1',
+        kind: 'pose_stylizer',
+        enabled: true,
+        config: { amount: 1 },
+      },
     ]);
     const before = manager.getGraphDescriptor('s1');
     manager.syncBehaviors([
-      { id: 's1', nodeId: 'n1', kind: 'pose_stylizer', enabled: true, config: { amount: 0.2 } },
+      {
+        id: 's1',
+        nodeId: 'n1',
+        kind: 'pose_stylizer',
+        enabled: true,
+        config: { amount: 0.2 },
+      },
     ]);
     expect(manager.getGraphDescriptor('s1')).toBe(before);
     expect(manager.getStates('s1')).not.toBeNull();
@@ -1550,5 +1763,132 @@ describe('PoseStylizerManager', () => {
 
   it('exposes the stock rig for callers that want to seed or display it', () => {
     expect(manager.getDefaultRig().head.drivers.headYaw).toBeDefined();
+  });
+});
+
+// ── VmcManager: motiontracker's /MT/Present (Learned Tracking) ─────────────────
+// A plain /VMC/Ext/Bone/Pos stream carries no tracking signal (the /Body
+// frame-diff is RhyLive's), so the Learned Tracking runtime sends /MT/Present.
+
+describe('VmcManager /MT/Present', () => {
+  let manager: VmcManager;
+
+  /** One OSC message with a single int argument. */
+  const oscInt = (address: string, v: number): Buffer => {
+    const pad = (s: string) => {
+      const b = Buffer.from(s + '\0', 'utf8');
+      return Buffer.concat([b, Buffer.alloc((4 - (b.length % 4)) % 4)]);
+    };
+    const arg = Buffer.alloc(4);
+    arg.writeInt32BE(v);
+    return Buffer.concat([pad(address), pad(',i'), arg]);
+  };
+  const rinfo = { address: '127.0.0.1', port: 1, family: 'IPv4', size: 0 };
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    mockSubscribe.mockClear();
+    statusEvents.mockClear();
+    manager = new VmcManager({
+      broadcast: vi.fn(),
+      onClientConnected: vi.fn(),
+      onMessage: vi.fn(),
+      sendTo: vi.fn(),
+    } as never);
+  });
+
+  afterEach(() => {
+    manager.close();
+    vi.useRealTimers();
+  });
+
+  const listener = () =>
+    mockSubscribe.mock.calls.at(-1)![1] as unknown as (
+      b: Buffer,
+      r: typeof rinfo
+    ) => void;
+
+  it('present = 1 latches tracking on, present = 0 lets it lapse after the grace period', () => {
+    manager.startReceiver('lt1', 39541);
+    listener()(oscInt('/MT/Present', 1), rinfo);
+    expect(statusEvents).toHaveBeenCalledWith('vmc_tracking_state', {
+      behaviorId: 'lt1',
+      tracking: true,
+    });
+    listener()(oscInt('/MT/Present', 0), rinfo);
+    vi.advanceTimersByTime(500);
+    // packets keep arriving with nobody in view
+    listener()(oscInt('/MT/Present', 0), rinfo);
+    expect(statusEvents).not.toHaveBeenCalledWith('vmc_tracking_state', {
+      behaviorId: 'lt1',
+      tracking: false,
+    });
+    for (let i = 0; i < 12; i++) {
+      vi.advanceTimersByTime(250);
+      listener()(oscInt('/MT/Present', 0), rinfo);
+    }
+    expect(statusEvents).toHaveBeenCalledWith('vmc_tracking_state', {
+      behaviorId: 'lt1',
+      tracking: false,
+    });
+  });
+
+  /** An OSC bundle of messages, each [address, ...args] with string or float args. */
+  const oscBundle = (msgs: Array<[string, ...(string | number)[]]>): Buffer => {
+    const pad = (s: string) => {
+      const b = Buffer.from(s + '\0', 'utf8');
+      return Buffer.concat([b, Buffer.alloc((4 - (b.length % 4)) % 4)]);
+    };
+    const parts = msgs.map(([address, ...args]) => {
+      const tags =
+        ',' + args.map((a) => (typeof a === 'string' ? 's' : 'f')).join('');
+      const data = args.map((a) => {
+        if (typeof a === 'string') return pad(a);
+        const f = Buffer.alloc(4);
+        f.writeFloatBE(a);
+        return f;
+      });
+      const m = Buffer.concat([pad(address), pad(tags), ...data]);
+      const len = Buffer.alloc(4);
+      len.writeInt32BE(m.length);
+      return Buffer.concat([len, m]);
+    });
+    return Buffer.concat([pad('#bundle'), Buffer.alloc(8), ...parts]);
+  };
+
+  it('feeds /VMC/Ext/Blend/Val ARKit shapes into the arkit chain on Blend/Apply', () => {
+    manager.startReceiver('lt1', 39541);
+    const graph = (
+      manager as unknown as {
+        graphs: Map<string, { fire: (...a: unknown[]) => void }>;
+      }
+    ).graphs.get('lt1')!;
+    const fire = vi.spyOn(graph, 'fire');
+    const arkitFired = () =>
+      fire.mock.calls.filter((c) => c[0] === 'vmc' && c[1] === 'arkit');
+    // Values without Apply wait; a VRM clip name is ignored.
+    listener()(
+      oscBundle([
+        ['/VMC/Ext/Blend/Val', 'eyeBlinkLeft', 0.5],
+        ['/VMC/Ext/Blend/Val', 'Blink_L', 1],
+      ]),
+      rinfo
+    );
+    expect(arkitFired()).toHaveLength(0);
+    listener()(
+      oscBundle([
+        ['/VMC/Ext/Blend/Val', 'jawOpen', 0.25],
+        ['/VMC/Ext/Blend/Apply'],
+      ]),
+      rinfo
+    );
+    expect(arkitFired()).toHaveLength(1);
+    const ev = arkitFired()[0][2] as {
+      payload: { entries(): IterableIterator<[string, number]> };
+    };
+    expect(Object.fromEntries(ev.payload.entries())).toEqual({
+      eyeBlinkLeft: 0.5,
+      jawOpen: 0.25,
+    });
   });
 });

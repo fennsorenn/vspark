@@ -50,9 +50,18 @@ export const sceneNodeKindSchema = z
   ])
   .openapi('SceneNodeKind');
 
-const poseSectionInfluenceSchema = z.object({
-  anim: z.number().min(0).max(1),
-  track: z.number().min(0).max(1),
+const mixWeightSchema = z.number().min(0).max(2);
+const trackingMixSchema = z.object({
+  order: z.array(z.string()).optional(),
+  sources: z
+    .record(
+      z.string(),
+      z.object({
+        bones: z.record(z.string(), mixWeightSchema).optional(),
+        blendshapes: z.record(z.string(), mixWeightSchema).optional(),
+      })
+    )
+    .optional(),
 });
 
 // An animation clip slot (idle / base). `clipId` is the content-addressed form
@@ -70,29 +79,21 @@ export const sceneNodePropertiesSchema = z
     trackingGracePeriod: z.number().min(0.1).max(60).optional(),
     broadcastTickHz: z.number().min(1).max(240).optional(),
     sourceSceneId: z.string().optional(),
-    poseDynamics: z
+    poseFilter: z
       .object({
-        enabled: z.boolean(),
-        frequency: z.number().min(0.05).max(30),
-        damping: z.number().min(0).max(4),
-        response: z.number().min(-5).max(5),
+        preset: z.enum(['minimal', 'smooth', 'springy', 'custom']),
+        smoothing: z.number().min(0).max(1).optional(),
+        adaptation: z.number().min(0).max(6).optional(),
+        damping: z.number().min(0.1).max(3).optional(),
+        response: z.number().min(-2).max(4).optional(),
       })
       .optional(),
     forceTwistBone: z.boolean().optional(),
     excludeSleeves: z.boolean().optional(),
-    poseSource: z
-      .object({
-        // Every section is optional — only sections that deviate from the
-        // { anim: 1, track: 1 } default are stored. (An all-keys-required
-        // z.record would reject a partial map.)
-        legs: poseSectionInfluenceSchema.optional(),
-        body: poseSectionInfluenceSchema.optional(),
-        arms: poseSectionInfluenceSchema.optional(),
-        head: poseSectionInfluenceSchema.optional(),
-        gaze: poseSectionInfluenceSchema.optional(),
-        hands: poseSectionInfluenceSchema.optional(),
-      })
-      .optional(),
+    // Tracking Mix (replaced `poseSource`, migration 044): per-source weights
+    // on bones / blendshapes plus the tracking-source order. Only deviations
+    // from weight 1 are stored.
+    trackingMix: trackingMixSchema.optional(),
     // Animation clip slots (content-addressed). `idle` is the resting loop shown
     // when no tracking is active; `base` is the layer live tracking stacks onto
     // while a source is connected (falls back to `idle` when unset). `.loose`
@@ -331,8 +332,7 @@ export const createComposeLayerSchema = z
     rotation: z.number().optional(),
     anchorH: composeAnchorHSchema.optional(),
     anchorV: composeAnchorVSchema.optional(),
-    sceneOrder: z.number().int().optional(),
-    cameraOrder: z.number().int().optional(),
+    orderKey: z.string().optional(),
     visible: z.boolean().optional(),
   })
   .openapi('CreateComposeLayer');
@@ -350,25 +350,10 @@ export const updateComposeLayerSchema = z
     rotation: z.number().optional(),
     anchorH: composeAnchorHSchema.optional(),
     anchorV: composeAnchorVSchema.optional(),
-    sceneOrder: z.number().int().optional(),
-    cameraOrder: z.number().int().optional(),
+    orderKey: z.string().optional(),
     visible: z.boolean().optional(),
   })
   .openapi('UpdateComposeLayer');
-
-export const reorderComposeLayersSchema = z
-  .object({
-    updates: z
-      .array(
-        z.object({
-          id: z.string(),
-          sceneOrder: z.number().int(),
-          cameraOrder: z.number().int(),
-        })
-      )
-      .min(1),
-  })
-  .openapi('ReorderComposeLayers');
 
 // --- Track clips (timeline parameter animation) ---
 
@@ -444,7 +429,7 @@ export const replaceTrackClipKeyframesSchema = z
 // --- Graphs (generalized owner-scoped) ---
 
 export const graphOwnerKindSchema = z
-  .enum(['project', 'scene_node', 'compose_layer'])
+  .enum(['project', 'scene_node', 'compose_layer', 'action', 'behavior'])
   .openapi('LogicOwnerKind');
 
 export const createLogicSchema = z
@@ -462,6 +447,29 @@ export const updateLogicSchema = z
     descriptor: z.unknown().optional(),
   })
   .openapi('UpdateLogic');
+
+// --- Actions (project-level workflows; see @vspark/shared/actions) ---
+
+export const createActionSchema = z
+  .object({
+    id: z.string().min(1).optional(),
+    kind: z.string().min(1),
+    name: z.string().min(1).optional(),
+    enabled: z.boolean().optional(),
+    /** The kind's settings; missing fields take the kind's defaults. */
+    settings: z.record(z.string(), z.unknown()).optional(),
+  })
+  .openapi('CreateAction');
+
+export const updateActionSchema = z
+  .object({
+    name: z.string().min(1).optional(),
+    enabled: z.boolean().optional(),
+    /** Deep-merged into the stored settings. A change to a shape setting
+     *  rebuilds an unmodified graph; a modified graph is kept (use reset). */
+    settings: z.record(z.string(), z.unknown()).optional(),
+  })
+  .openapi('UpdateAction');
 
 // --- Presets ---
 
@@ -531,8 +539,10 @@ export const presetComposeLayerSchema = z
     rotation: z.number(),
     anchorH: z.string(),
     anchorV: z.string(),
-    sceneOrder: z.number().int(),
-    cameraOrder: z.number().int(),
+    /** Position within this preset's own sibling group, ascending = back→front.
+     *  Presets carry RELATIVE order only — absolute keys are generated against
+     *  the target scene at instantiate time. */
+    order: z.number().int(),
     visible: z.boolean(),
     cameraNodePresetId: z.string().nullable(),
   })
@@ -743,9 +753,6 @@ export type CreateCameraEffectInput = z.infer<typeof createCameraEffectSchema>;
 export type UpdateCameraEffectInput = z.infer<typeof updateCameraEffectSchema>;
 export type CreateComposeLayerInput = z.infer<typeof createComposeLayerSchema>;
 export type UpdateComposeLayerInput = z.infer<typeof updateComposeLayerSchema>;
-export type ReorderComposeLayersInput = z.infer<
-  typeof reorderComposeLayersSchema
->;
 export type FireGraphEventInput = z.infer<typeof fireGraphEventSchema>;
 export type PresenceStateInput = z.infer<typeof presenceStateSchema>;
 export type AnimationStateInput = z.infer<typeof animationStateSchema>;

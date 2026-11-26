@@ -14,6 +14,7 @@ import {
 import { ComposeSceneInteractions } from './ComposeSceneInteractions';
 import { FittedOrthoCamera } from './FittedOrthoCamera';
 import { useSceneFadeIn } from '../../hooks/useSceneFadeIn';
+import { FrameBudget } from '../frameBudget';
 
 function getT(components: Record<string, unknown> | undefined) {
   const t = components?.transform as
@@ -83,7 +84,8 @@ export function CameraCanvas({
 
   return (
     <Canvas
-      frameloop={active ? 'always' : 'never'}
+      // Rendered by the page's shared, budgeted loop (see frameBudget.tsx).
+      frameloop="never"
       // Measure the OFFSET (layout) size, not getBoundingClientRect: the compose
       // stage is CSS transform-scaled, so the bounding rect is the scaled size,
       // which R3F would then apply back as the canvas' layout size (leaving it
@@ -100,6 +102,7 @@ export function CameraCanvas({
       }}
       onCreated={({ gl }) => gl.setClearColor(0x000000, 0)}
     >
+      <FrameBudget active={active} />
       {projection === 'perspective' ? (
         <PerspectiveCamera
           makeDefault

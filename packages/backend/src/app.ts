@@ -8,7 +8,10 @@ import { configRoutes } from './routes/config.js';
 import { openApiDoc } from './routes/openapi.js';
 import swaggerUi from 'swagger-ui-express';
 import { getIdentity } from './multiplayer/identity.js';
+import { authRoutes } from './auth/routes.js';
 import type { WSSync } from './ws/index.js';
+import { localAccessGuard } from './localAccess.js';
+import { getMeshPeer } from './mesh/index.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -26,6 +29,7 @@ export interface CreateAppOptions {
  */
 export function createApp(opts: CreateAppOptions = {}): express.Express {
   const app = express();
+  app.use(localAccessGuard);
 
   const UPLOADS_DIR = join(process.cwd(), 'uploads');
   mkdirSync(UPLOADS_DIR, { recursive: true });
@@ -40,6 +44,7 @@ export function createApp(opts: CreateAppOptions = {}): express.Express {
   app.use('/api', apiRoutes);
   app.use('/api', updateRoutes);
   app.use('/api', configRoutes);
+  app.use('/api', authRoutes);
   app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(openApiDoc));
   app.get('/api-docs.json', (_req, res) => res.json(openApiDoc));
   app.get('/health', (_req, res) => {
@@ -49,6 +54,15 @@ export function createApp(opts: CreateAppOptions = {}): express.Express {
   // (`${serverPeerId}#${tabUuid}`) before opening the /mesh socket.
   app.get('/api/mesh/identity', (_req, res) => {
     res.json({ serverPeerId: getIdentity().peerId });
+  });
+  // Who this server is linked with, and which of its tabs get data from whom
+  // directly (principle 8) rather than through it.
+  app.get('/api/mesh/status', (_req, res) => {
+    const s = getMeshPeer()?.status();
+    res.json({
+      peers: s?.peers.map((p) => p.id) ?? [],
+      direct: s?.direct ?? {},
+    });
   });
 
   // Serve built frontend — only present in production bundle

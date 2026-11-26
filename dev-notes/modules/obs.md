@@ -57,7 +57,9 @@ Reconnection is owned by the manager so the client stays unit-testable.
 
 `ObsWsManager` owns per-project connect + auto-reconnect, a status state machine
 (`connecting`/`connected`/`reconnecting`/`disconnected`/`error`) persisted to the
-row and broadcast as `obs_connection_status`, inbound event fan-out, and the
+row and published as an `obs_connection` document in the `server_status` mesh
+collection (`publishStatus`, see [mesh.md](mesh.md#runtime-state-the-runtime-channel)),
+inbound event fan-out, and the
 outbound request methods the action nodes call.
 
 Credentials live in the Accounts UI (an **OBS Connections** section in
@@ -157,9 +159,10 @@ payload.
   bridge normalised `window.obsstudio` events into exactly this shape) and is
   kept verbatim so existing graphs still match.
 - `ObsConnectionStatus` — the connection state machine's vocabulary.
-- `WSMessageKind` extended with `client_hello` / `client_status` /
-  `obs_connection_status`. **`client_status` is declared but not yet emitted** —
-  reserved for a future backend→frontend client-roster push.
+- `WSMessageKind` extended with `client_hello` / `client_status`.
+  **`client_status` is declared but not yet emitted** — reserved for a future
+  backend→frontend client-roster push. (`obs_connection_status` was removed; the
+  connection status is a `server_status` mesh document.)
 
 ## Frontend i18n & help
 
@@ -168,8 +171,9 @@ payload.
 - Help page `help/content/{en,de}/obs.md`; `'obs'` added to `help/docs.ts`
   `TOPIC_ORDER`. See [i18n-help.md](i18n-help.md).
 - `editorStore.obsConnections` is the source of truth (so live
-  `obs_connection_status` patches reach the status pills via
-  `patchObsConnectionStatus` in `useWsSync`). The OBS Connections modal section
+  `server_status` documents of kind `obs_connection` reach the status pills via
+  `patchObsConnectionStatus`, called from `applyStatus` in
+  `sync/meshStoreFeeder.ts`). The OBS Connections modal section
   reads/writes it through the `api.getObsConnections`/`createObsConnection`/…
   helpers.
 

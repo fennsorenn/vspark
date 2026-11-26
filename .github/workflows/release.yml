@@ -230,6 +230,10 @@ jobs:
           # vspark/runtime/, which in-place updates leave untouched.
           mkdir -p release/vspark/output-window
           cp packages/output-window/main.cjs release/vspark/output-window/
+          # Global hotkeys: node-global-key-listener is external to bundle.cjs
+          # (it spawns a per-platform key-server binary), so it ships beside the
+          # bundle in node_modules/ — only this platform's binary, executable.
+          node packages/backend/scripts/stageKeyHook.mjs release/vspark ${{ matrix.platform }}
           cd release
           if [[ "${{ matrix.platform }}" == "win-x64" ]]; then
             powershell -Command "Compress-Archive -Path vspark -DestinationPath vspark-${{ matrix.platform }}.zip"

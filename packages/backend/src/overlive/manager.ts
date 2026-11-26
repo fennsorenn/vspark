@@ -7,7 +7,7 @@
  *  - Wire token-refresh callbacks back to the DB so rotated refresh tokens
  *    persist; surface adapter state changes as updates to the
  *    overlive_accounts.status / status_reason / status_message columns,
- *    broadcast over WebSocket as `overlive_account_status`.
+ *    published as an `overlive_account` status document (mesh/status.ts).
  *  - Route inbound events into project graphs by walking every running
  *    logic and firing the event into any overlive_<eventType> node
  *    whose `account` input matches the source account id and whose
@@ -25,12 +25,17 @@ import { OverliveKit, type AdapterStateSnapshot } from '@overlive/core';
 import { TwitchAdapter } from '@overlive/twitch';
 import { SEAdapter } from '@overlive/se';
 import { revokeAccessToken } from '@overlive/twitch-oauth';
-import type { AdapterEmittedEvent, ChatMessageEvent } from '@overlive/core';
+import type {
+  AdapterEmittedEvent,
+  ChatMessageEvent,
+  GoalEvent,
+} from '@overlive/core';
 import { tokensToHtml } from '@overlive/emotes';
 import { mkEvent } from '@vspark/shared/signal';
 import { getDb } from '../db/index.js';
 import { logicManager } from '../logic/manager.js';
 import type { WSSync } from '../ws/index.js';
+import { publishStatus } from '../mesh/status.js';
 
 /**
  * One accumulated chat message in the overlive chat ring-buffer. Mirrors the
@@ -314,6 +319,69 @@ export class OverliveManager {
     }
   }
 
+  // ─── Creator goals ──────────────────────────────────────────────────────────
+
+  private goalWarned = new Set<string>();
+
+  /**
+   * Fetch the account's active creator goals and route each into the
+   * project's `overlive_goal` nodes as a `progress` goal event. Called when an
+   * account connects and when a goal node starts or is refreshed. Quiet for
+   * accounts that can't have goals (not Twitch, not connected yet — connecting
+   * fetches anyway); a failed fetch (e.g. the token predates the
+   * `channel:read:goals` scope) is logged once per account.
+   */
+  async refreshGoals(accountId: string): Promise<void> {
+    if (!accountId) return;
+    const row = getDb()
+      .prepare(
+        'SELECT project_id, platform, broadcaster_login, broadcaster_id FROM overlive_accounts WHERE id = ?'
+      )
+      .get(accountId) as
+      | Pick<AccountRow, 'project_id' | 'platform' | 'broadcaster_login' | 'broadcaster_id'>
+      | undefined;
+    if (!row || row.platform !== 'twitch') return;
+    const adapter = this.projects.get(row.project_id)?.kit.adapter(accountId);
+    if (!(adapter instanceof TwitchAdapter)) return;
+    let goals;
+    try {
+      goals = await adapter.rest.getGoals();
+    } catch (e) {
+      if (!this.goalWarned.has(accountId)) {
+        this.goalWarned.add(accountId);
+        console.warn(
+          `[Overlive] could not fetch goals for ${accountId} (reconnect the account to grant goal access):`,
+          e instanceof Error ? e.message : e
+        );
+      }
+      return;
+    }
+    this.goalWarned.delete(accountId);
+    for (const g of goals) {
+      const event: GoalEvent = {
+        id: `goal-fetch-${g.id}-${Date.now()}`,
+        type: 'goal',
+        platform: 'twitch',
+        sourceInstanceId: accountId,
+        channel: row.broadcaster_login ?? '',
+        ...(row.broadcaster_id ? { channelId: row.broadcaster_id } : {}),
+        timestamp: new Date(),
+        raw: g,
+        data: {
+          goalId: g.id,
+          kind: g.kind,
+          description: g.description,
+          current: g.current,
+          target: g.target,
+          phase: 'progress',
+          achieved: false,
+          ...(g.startedAt ? { startedAt: g.startedAt } : {}),
+        },
+      };
+      this.routeEvent(row.project_id, event);
+    }
+  }
+
   // ─── Outbound actions ───────────────────────────────────────────────────────
   //
   // One method per Twitch action, each driven by a signal node. All are
@@ -581,6 +649,9 @@ export class OverliveManager {
         snap.reason ?? null,
         snap.message ?? null
       );
+      // Goals only arrive as events when they change; fetch where they
+      // stand now so goal nodes show them straight away.
+      if (status === 'connected') void this.refreshGoals(accountId);
     });
 
     // Subscribe to every event type so the manager can route them into
@@ -657,7 +728,7 @@ export class OverliveManager {
       if (gpId !== projectId) continue;
       if (node.kind !== expectedKind) continue;
       candidates++;
-      const cfg = (node.defaultConfig ?? {}) as Record<string, unknown>;
+      const cfg = routingConfig(graphId, node);
       if (!this.nodeAcceptsEvent(projectId, cfg, event)) continue;
       // Fire as an event on the node's `event` input port. The node helpers
       // unwrap `inputs.event.payload`, so wrap the overlive event in the
@@ -673,10 +744,8 @@ export class OverliveManager {
   }
 
   /**
-   * Resolve a node's `account` / `channel` config against an incoming event.
-   * The node's "account" config is the inline literal stored in defaultConfig
-   * (events arrive externally, so the node doesn't get to pull its inputs
-   * first). Empty config or an unresolved `__preset:*` placeholder both fall
+   * Resolve a node's `account` / `channel` (see {@link routingConfig}) against
+   * an incoming event. Empty or an unresolved `__preset:*` placeholder both fall
    * back to the project's default account; with no default we warn once and
    * reject rather than fanning out to every account.
    */
@@ -749,7 +818,7 @@ export class OverliveManager {
     } of logicManager.iterateNodes()) {
       if (gpId !== projectId) continue;
       if (node.kind !== 'overlive_chat_feed') continue;
-      const cfg = (node.defaultConfig ?? {}) as Record<string, unknown>;
+      const cfg = routingConfig(graphId, node);
       if (!this.nodeAcceptsEvent(projectId, cfg, event)) continue;
       // Deliver the buffer slice this node cares about. An empty channel filter
       // means "all channels for this account"; otherwise restrict to the match.
@@ -781,7 +850,7 @@ export class OverliveManager {
          WHERE id = ?`
         )
         .run(status, reason, message, accountId);
-      this.ws?.broadcast('overlive_account_status', {
+      publishStatus('overlive_account', accountId, {
         accountId,
         status,
         reason,
@@ -835,6 +904,25 @@ export class OverliveManager {
   }
 }
 
+const ROUTING_PORTS = ['account', 'channel'] as const;
+
+/** A trigger node's `account` / `channel` as the node would pull them: a wired
+ *  port (e.g. a `settings` node reading an Action's account) wins, an unwired
+ *  one falls back to the inline config — the engine's ordinary value-input
+ *  resolution (`SignalGraph.pullInput`, as the HotkeyManager does for combos).
+ *  Falls back to the descriptor config when the graph is not running. */
+function routingConfig(
+  graphId: string,
+  node: { id: string; defaultConfig?: Record<string, unknown> }
+): Record<string, unknown> {
+  const cfg = { ...((node.defaultConfig ?? {}) as Record<string, unknown>) };
+  for (const port of ROUTING_PORTS) {
+    const v = logicManager.pullInput(graphId, node.id, port);
+    if (v !== undefined) cfg[port] = v;
+  }
+  return cfg;
+}
+
 // Event-type → node-kind table. Keep in sync with Phase H node implementations.
 const OVERLIVE_KIND_BY_EVENT: Record<string, string> = {
   redemption: 'overlive_redemption',
@@ -850,6 +938,7 @@ const OVERLIVE_KIND_BY_EVENT: Record<string, string> = {
   ban: 'overlive_ban',
   'stream.online': 'overlive_stream_online',
   'stream.offline': 'overlive_stream_offline',
+  goal: 'overlive_goal',
 };
 
 function safeJson(raw: string): Record<string, unknown> {

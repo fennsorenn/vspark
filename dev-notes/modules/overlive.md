@@ -4,13 +4,13 @@
 
 Integrates the [`overlive`](https://github.com/) SDK (`~/projects/overlive`) into vspark so signal graphs can react to live-stream events from Twitch and StreamElements (subs, bits, chat, redemptions, raids, follows, ads, ban, stream online/offline, etc.).
 
-Depends on [project-graphs.md](project-graphs.md): the 13 Overlive event nodes are intended for project-scoped logic (they need no behavior context) and consume the `Account` port type.
+Depends on [project-graphs.md](project-graphs.md): the 14 Overlive event nodes are intended for project-scoped logic (they need no behavior context) and consume the `Account` port type.
 
 ## Overlive packages consumed
 
-- `@overlive/core` — shared kit / event bus (`OverliveKit`, `AdapterStateSnapshot`, `AdapterEmittedEvent`); `^0.3.0`
-- `@overlive/twitch` — Twitch EventSub / IRC adapter (`TwitchAdapter`); `^0.3.0` adds the `PlatformActions` capability interface that backs the outbound action nodes (see below)
-- `@overlive/twitch-oauth` — OAuth code flow, refresh, `revokeAccessToken`, `buildAuthorizeUrl`, `exchangeCode`, `fetchAuthorizedUser`, `DEFAULT_SCOPES`
+- `@overlive/core` — shared kit / event bus (`OverliveKit`, `AdapterStateSnapshot`, `AdapterEmittedEvent`); `^0.4.0` adds creator goals: `GoalEvent` (`type: 'goal'`, `phase` `begin | progress | end`), `Goal`, `GoalKind`, `UnifiedRestClient.getGoals()`
+- `@overlive/twitch` — Twitch EventSub / IRC adapter (`TwitchAdapter`); `0.3.0` added the `PlatformActions` capability interface that backs the outbound action nodes (see below); `^0.4.0` subscribes to `channel.goal.begin|progress|end` and adds `TwitchRestClient.getGoals()` (`GET /helix/goals`; Helix's goal type `follower` is normalized to `follow`)
+- `@overlive/twitch-oauth` — OAuth code flow, refresh, `revokeAccessToken`, `buildAuthorizeUrl`, `exchangeCode`, `fetchAuthorizedUser`, `DEFAULT_SCOPES`; `^0.3.0` adds `channel:read:goals` to `DEFAULT_SCOPES`
 - `@overlive/se` — StreamElements adapter (`SEAdapter`, JWT-authenticated)
 
 All four are published to npm and pinned via standard semver ranges in `packages/backend/package.json`. CI installs from the registry like any other dep.
@@ -118,17 +118,23 @@ Lifecycle hooks:
 
 State + token persistence:
 
-- `kit.on('adapter.state', snap => ...)` translates `AdapterStateSnapshot.state` (+`reason`) into the column-shaped `status` and writes `status` / `status_reason` / `status_message` back to `overlive_accounts`. Then broadcasts `overlive_account_status` over the WS bus (`{ accountId, status, reason, message }`).
+- `kit.on('adapter.state', snap => ...)` translates `AdapterStateSnapshot.state` (+`reason`) into the column-shaped `status` and writes `status` / `status_reason` / `status_message` back to `overlive_accounts`. Then publishes an `overlive_account` status document (`server_status`, `{ accountId, status, reason, message }`; see [mesh.md](mesh.md#runtime-state-the-runtime-channel)), which the frontend feeder applies to the account list.
 - `onTokenRefreshed` callback on `TwitchAdapter` persists rotated `{ accessToken, refreshToken, expiresAt }` back to `credentials` so refresh survives restarts.
 
 Event routing:
 
 - `kit.onAny(event => routeEvent(projectId, event))`.
-- `routeEvent` walks `logicManager.iterateNodes()`, skips logic from other projects, matches `node.kind` against the `OVERLIVE_KIND_BY_EVENT` table (e.g. `chat.message` → `overlive_chat_message`), then filters by the node's `defaultConfig.account` (must match `event.sourceInstanceId`) and optional `defaultConfig.channel` (lowercased, empty = any). Matching nodes get the event fired into their `event` input port via `logicManager.fire(graphId, nodeId, 'event', mkEvent(event))` (the `graphId` param keeps its substrate name).
+- `routeEvent` walks `logicManager.iterateNodes()`, skips logic from other projects, matches `node.kind` against the `OVERLIVE_KIND_BY_EVENT` table (e.g. `chat.message` → `overlive_chat_message`), then filters by the node's `account` (must match `event.sourceInstanceId`; empty or an unresolved `__preset:*` placeholder = the project's default account) and optional `channel` (lowercased, empty = any). Both are resolved as the node would pull them (`routingConfig` → `logicManager.pullInput`): a wired port wins — e.g. a `settings` node reading an Action's `account` setting — else the inline `defaultConfig` value, the same rule the HotkeyManager applies to combos. (Before the Actions chat kinds, routing read `defaultConfig` only, so a wired account was ignored.) Matching nodes get the event fired into their `event` input port via `logicManager.fire(graphId, nodeId, 'event', mkEvent(event))` (the `graphId` param keeps its substrate name).
 - The event MUST be wrapped with `mkEvent(event)` from `@vspark/shared/signal` before firing. The node helper `_helpers.ts handleOverliveEvent` reads `inputs.event.payload` (the signal engine's `Event<T>` envelope). Firing the raw overlive event (which has no `.payload`) made every node see `undefined` and emit empty outputs — the bug that `mkEvent` fixes.
 - Per-event filtering on top of this (command name, reward id, tier, etc.) happens inside the node's `execute()`.
 
-## Signal node kinds (13)
+Creator goals (`refreshGoals(accountId)`):
+
+- Goal events only arrive when a goal changes, so the manager also fetches the account's active goals (`adapter.rest.getGoals()`) and routes each into the project's `overlive_goal` nodes as a synthetic `goal` event with `phase: 'progress'`. This runs when an account's state becomes `connected`, and when an `overlive_goal` node binds (graph start) or its `refresh` input fires.
+- Quiet for non-Twitch accounts and adapters not registered yet. A failed fetch — e.g. a token issued before `channel:read:goals` was in `DEFAULT_SCOPES` — is warned once per account (until a fetch succeeds); the fix is to reconnect the account.
+- On the EventSub side, overlive's scope pre-flight skips the `channel.goal.*` subscriptions for tokens without the scope, so older accounts keep working and simply get no goal events until reconnected.
+
+## Signal node kinds (14)
 
 All live under `signal/nodes/overlive/`. Every node shares the same port shape:
 
@@ -140,19 +146,20 @@ The shared `handleOverliveEvent(...)` helper in `signal/nodes/overlive/_helpers.
 
 | Kind | Source event | Filter inputs (beyond account/channel) | Notable outputs |
 |---|---|---|---|
-| `overlive_redemption` | Channel-point redemption | `rewardId` | `username`, `displayName`, `rewardTitle`, `cost`, `userInput` |
-| `overlive_subscription` | New / resub | `tier`, `isGift` | `username`, `tier`, `months`, `isGift`, `message` |
-| `overlive_gift_bomb` | Multi-gift sub | `tier` | `gifter`, `count`, `tier` |
-| `overlive_raid` | Incoming raid | min viewers | `raider`, `viewers` |
-| `overlive_follow` | New follow | — | `username`, `displayName` |
-| `overlive_chat_message` | Chat message | (user/contains/badges via downstream nodes) | `username`, `displayName`, `text`, `isMod`, `isSub`, `isBroadcaster` |
+| `overlive_redemption` | Bits / channel points / tip / superchat | `currencyKind`, `rewardId` | `username`, `displayName`, `currencyKind`, `amount`, `rewardTitle`, `rewardId`, `redemptionId` (channel points: the event id, i.e. Twitch's redemption id), `message`, `data` (all outputs as one record) |
+| `overlive_subscription` | New / resub | `tier`, `isGift` | `username`, `tier`, `months`, `isGift`, `message`, `data` (all outputs as one record) |
+| `overlive_gift_bomb` | Multi-gift sub | `tier` | `gifterUsername`, `gifterDisplayName`, `count`, `tier`, `totalGifts`, `anonymous`, `data` (all outputs as one record, plus `username` / `displayName` aliases of the gifter) |
+| `overlive_raid` | Incoming raid | — | `fromUsername`, `fromDisplayName`, `viewerCount`, `data` (all outputs as one record, plus `username` / `displayName` aliases of the raider) |
+| `overlive_follow` | New follow | — | `username`, `displayName`, `data` (all outputs as one record) |
+| `overlive_chat_message` | Chat message | (user/contains/badges via downstream nodes) | `username`, `displayName`, `text`, `html`, `color`, `isMod`, `isSub`, `isBroadcaster`, `isAction`, `isHighlighted`, `cheerAmount`, `data` (all outputs as one record) |
 | `overlive_chat_command` | Chat message starting with the prefix | `command` (case-insensitive, no prefix; empty = any) | `command`, `args` (space-joined), `text`, `isMod`/`isSub`/`isBroadcaster` |
 | `overlive_chat_delete` | Message deletion | — | `messageId`, `username` |
-| `overlive_ad_start` | Ad break started | — | `duration` |
+| `overlive_ad_start` | Ad break started | — | `durationSeconds`, `isAutomatic` |
 | `overlive_ad_end` | Ad break ended | — | — |
 | `overlive_ban` | User banned/timed out | — | `username`, `isPermanent`, `duration` |
 | `overlive_stream_online` | EventSub `stream.online` | — | `startedAt` |
 | `overlive_stream_offline` | EventSub `stream.offline` | — | — |
+| `overlive_goal` | Twitch creator goal begin / progress / end, plus fetched current goals (see `refreshGoals` above) | `kind` (`follow`, `subscription`, `subscription_count`, `new_subscription`, `new_subscription_count`, `new_bit`, `new_cheerer`; empty = any); `refresh` event input re-fetches | `description`, `current`, `target`, `progress` (0–1), `active`, `achieved`, `kind`, `data`. An `end` for a different goal than the one shown doesn't clear it. |
 
 `overlive_*` event currency-kind / reward-id / command / tier / `isGift` filters are read from `config.<field>` on `execute()` and short-circuit before `setState`/emit. See `chat_command.ts` for the canonical pattern.
 
@@ -179,7 +186,10 @@ ports from `config.fields: string[]` — the dynamic-port shape is computed by
 `INFER_BY_KIND['overlive_send_chat']`, same `TRAILING_SLOT` mechanism). On fire
 it substitutes each `${field}` in the template with the current value of the
 like-named input (unknown placeholders → empty string), skips an empty result,
-then calls `OverliveManager.sendChat(accountId, channel, text)`. Ports:
+then calls `OverliveManager.sendChat(accountId, channel, text)`. The account
+is the `account` port, else `config.account`, else — when both are empty — the
+project's default account (`acctOrDefault` in `_actions.ts`, using the injected
+`_projectId`); with no default account nothing is sent. Ports:
 `fire` (Trigger), `account` (Account), `channel` (String), `template` (String),
 N dynamic fields, output `sent` (Trigger).
 
@@ -203,7 +213,10 @@ installs them from the registry.
 Backed by the `PlatformActions` capability interface introduced on the Twitch
 adapter in `@overlive/twitch` `0.3.0`. Each node is a simple **fire-triggered**
 node — `fire` (Trigger) in → `done` (Trigger) out — that reads its destination
-`account` (port → `config.account` fallback via `acct()` in `_actions.ts`),
+`account` (port → `config.account` fallback via `acct()` in `_actions.ts`;
+`overlive_redemption_status` alone also falls back to the project's default
+account via `acctOrDefault`, like `overlive_send_chat` — the two nodes the
+Actions templates send through; the others keep "no account → do nothing"),
 coerces its remaining value ports, and calls the matching best-effort
 `OverliveManager.<action>()` method. Action methods resolve the account's live
 Twitch adapter (`OverliveKit.adapter(instanceId)`) and call the SDK; **errors are

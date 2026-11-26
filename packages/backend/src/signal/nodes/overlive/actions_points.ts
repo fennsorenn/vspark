@@ -2,7 +2,7 @@ import { SignalNode } from '@vspark/shared/signal';
 import { Node, type Emitter } from '@vspark/shared/node';
 import { eventIn, valueIn, eventOut } from '@vspark/shared/node_decorators';
 import { getOverliveManager } from '../../../overlive/manager.js';
-import { acct, strOf } from './_actions.js';
+import { acctOrDefault, strOf } from './_actions.js';
 
 /**
  * Fulfil or cancel a channel-point redemption on `fire`. `status` is
@@ -27,7 +27,11 @@ export class OverliveRedemptionStatus extends Node {
 
   @eventIn('fire', 'Trigger')
   onFire(): void {
-    const accountId = acct(this.account, (this.config as { account?: string } | undefined)?.account);
+    // Empty account → the project's default account.
+    const accountId = acctOrDefault(
+      this.account,
+      this.config as { account?: string; _projectId?: unknown } | undefined
+    );
     if (!accountId) return;
     const cfg = (this.config ?? {}) as { rewardId?: string; redemptionId?: string; status?: string };
     const rewardId = strOf(this.rewardId, cfg.rewardId);

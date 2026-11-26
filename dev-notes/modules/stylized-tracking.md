@@ -19,7 +19,7 @@ off the performance and synthesize the skeleton back from them.**
 
 Status: implemented. Related: [component-managers.md](component-managers.md),
 [signal-graph.md](signal-graph.md), [animation.md](animation.md) (Motion
-snappiness, which composes on top of this).
+filter, which composes on top of this).
 
 ---
 
@@ -349,8 +349,8 @@ as a first-order lag on the summed Euler triple
 (`k = 1 - exp(-dt/tau)`, frame-rate independent). The stock rig staggers it down
 the chain — hips 2.6, spine 2.0, chest 1.5, upperChest 1.1, neck 0.5, head 0.2 —
 and that stagger is what produces the whip-and-settle that reads as alive.
-Overshoot is deliberately *not* done here; the avatar's frontend **Motion
-Snappiness** (second-order dynamics, see [animation.md](animation.md)) layers on
+Overshoot is deliberately *not* done here; the avatar's frontend **motion
+filter** (`poseFilter`, Springy preset; see [animation.md](animation.md)) layers on
 top if you want spring.
 
 ### Why the default rig is shaped the way it is
@@ -397,7 +397,7 @@ entirely — that is how the UI's "switch this bone off" round-trips.
 }
 ```
 
-Every field is surfaced through a `behavior_config` node wired into the graph
+Every field is surfaced through a `settings` node wired into the graph
 (visible on the canvas, not a hidden config read), and node config resolves live
 per access, so properties-panel edits hot-apply without a graph rebuild.
 
@@ -457,8 +457,10 @@ the drivers edge is typed rather than `Any`. Both nodes are ordinary static node
 
 ## Known limitations
 
-- **The behavior graph is `readonly: true`** — it cannot be rewired in the
-  substrate editor. Everything user-facing goes through the behavior config.
+- ~~The behavior graph is `readonly: true`~~ — no longer: since migration 047
+  a behavior's graph is stored and editable on the canvas (see
+  [component-managers.md](component-managers.md#stored-editable-graphs)).
+  Everything in the panel still goes through the behavior config.
 - **`energy` cannot leave the behavior.** There is no `set_data` node in the
   template and no other bridge, so it cannot currently drive a Logic graph,
   expressions, or particles — only bones, via a rig entry. Adding a `set_data`

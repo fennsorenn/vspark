@@ -9,7 +9,6 @@
  * authoritative echo (or a `_share_write_nak` → rollback) reconciles it. See
  * dev-notes/plans/multiplayer-phase6.md.
  */
-import { useEditorStore } from '../store/editorStore';
 import type { StageObject } from '../store/editorStore';
 import { canWriteObject } from '../store/connectionsStore';
 import { setRemoteWriteRouter } from '../api/client';
@@ -22,6 +21,7 @@ import {
   addProjectedNode,
 } from './sharedProjection';
 import { sendShareWriteDirect } from './shareDirect';
+import { sceneNodesNow } from '../mesh/nodes';
 
 /** A projected remote node the local user has *edit* rights on — selectable +
  *  editable in the tree (its commits route to the owner), unlike read-only
@@ -68,7 +68,7 @@ export function routeRemoteWrite(
   id: string,
   data?: Partial<StageObject>
 ): boolean {
-  const node = useEditorStore.getState().nodes.find((n) => n.id === id);
+  const node = sceneNodesNow().find((n) => n.id === id);
   if (!node?.remote || !node.remoteOwnerPeerId) return false;
   const owner = node.remoteOwnerPeerId;
   const root = owningProjectionRoot(owner, id);

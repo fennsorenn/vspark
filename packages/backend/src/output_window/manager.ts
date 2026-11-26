@@ -56,7 +56,8 @@ export function desiredWindows(
 const MAX_RESTART_MS = 30_000;
 const RETRY_AFTER_ERROR_MS = 30_000;
 
-/** Runtime state, broadcast to editors as `output_window_status`. */
+/** Runtime state, published as the `output_window:main` status document
+ *  (mesh/status.ts). */
 export type OutputRuntimeStatus =
   | { state: 'idle' }
   | { state: 'downloading'; progress: number }

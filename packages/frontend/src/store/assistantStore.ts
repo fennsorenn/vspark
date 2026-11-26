@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import type { AssistantAttachment } from '@vspark/shared';
+import { randomUUID } from '@vspark/shared/sync';
 
 /**
  * Standalone store for the in-app Assistant chat window (mirrors helpStore's
@@ -50,10 +51,7 @@ interface AssistantState {
   clear: () => void;
 }
 
-const uid = () =>
-  typeof crypto !== 'undefined' && 'randomUUID' in crypto
-    ? crypto.randomUUID()
-    : Math.random().toString(36).slice(2);
+const uid = () => randomUUID();
 
 export const useAssistantStore = create<AssistantState>((set) => ({
   open: false,

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { loneNode } from './helpers/nodeHarness.js';
+import { loneNode, pullValue } from './helpers/nodeHarness.js';
 
 /**
  * Overlive event nodes share a shape: an `@eventIn('event')` handler maps the
@@ -35,6 +35,14 @@ describe('overlive_subscription', () => {
       isGift: false,
       message: 'thanks for the streams!',
     });
+  });
+
+  it('hands the whole event over as one data record', () => {
+    const n = loneNode('overlive_subscription');
+    n.deliver('event', sub);
+    expect(
+      pullValue('overlive_subscription', 'data', {}, n.state())
+    ).toEqual(sub.data);
   });
 
   it('an undefined payload emits without setting state', () => {
@@ -131,6 +139,18 @@ describe('overlive_raid', () => {
     });
   });
 
+  it('hands the raid over as one data record, with displayName aliases', () => {
+    const n = loneNode('overlive_raid');
+    n.deliver('event', raid);
+    expect(pullValue('overlive_raid', 'data', {}, n.state())).toEqual({
+      fromUsername: 'cara',
+      fromDisplayName: 'Cara',
+      viewerCount: 42,
+      username: 'cara',
+      displayName: 'Cara',
+    });
+  });
+
   it('an undefined payload emits without setting state', () => {
     const n = loneNode('overlive_raid');
     n.deliver('event', undefined);
@@ -172,6 +192,12 @@ describe('overlive_chat_message', () => {
       cheerAmount: 0,
     });
     expect(typeof state.html).toBe('string');
+  });
+
+  it('exposes every output as one `data` record', () => {
+    const n = loneNode('overlive_chat_message');
+    n.deliver('event', msg);
+    expect(pullValue('overlive_chat_message', 'data', {}, n.state())).toEqual(n.state());
   });
 
   it('an undefined payload emits without setting state', () => {

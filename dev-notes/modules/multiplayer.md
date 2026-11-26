@@ -31,7 +31,7 @@ Design context: [plans/multiplayer-phase5.md](../plans/multiplayer-phase5.md),
 | `shares.ts` | `shares` table DAO + `gatherObjectSnapshot` / `findOwningRoot`. |
 | `blobs.ts`, `blobTransfer.ts` | Content-addressed asset transfer (`BlobManager`, `_blob_*` rtypes) over any `MeshTransport` — symmetric across server and browser receivers. |
 | `manager.ts` | `MultiplayerManager` singleton — wires identity → rendezvous → meshes → sharing; accept policy; broadcasts `mp_*` WS events; dispatches inbound `_blob_*` from browsers into the owner's `BlobManager`. |
-| `frontend .../mesh/clientMesh.ts` | Browser-side WebRTC mesh participant; envelope send/sink (`sendEnvelope` / `onEnvelope` / `isConnected`). |
+| `frontend .../mesh/clientMesh.ts` | Browser-side WebRTC mesh participant; envelope send/sink (`sendEnvelope` / `onEnvelope` / `isConnected`). Legacy: carries only object-share and blob envelopes; the `@vspark/mesh` peer's direct links use `WebRtcTransport` instead (see [mesh.md → Direct links](mesh.md#direct-links-tabs)). Goes with mesh-sole-channel W7. |
 | `frontend .../mesh/blobReceiver.ts` | Browser-side mirror of the backend blob receiver — same `_blob_*` protocol, caches to object URLs. |
 | `frontend .../sync/shareDirect.ts` | Receiver-side consumption of `_share_*` over the direct edge (mirrors the WS `mp_shared_*` path); browser-side asset localization via `blobReceiver`. |
 
@@ -64,7 +64,11 @@ varies:
 - **co-located client↔own-server** → WebSocket (never WebRTC). A browser reaches
   its own backend over WS, so the frontend skips its own server id when dialing.
 - **server↔server** → `ServerMesh` WebRTC.
-- **client↔remote-browser** → browser-to-browser WebRTC (`clientMesh`).
+- **client↔remote-browser** → browser-to-browser WebRTC (`clientMesh`, legacy
+  envelopes only). The `@vspark/mesh` peer has its own tab↔tab links
+  (`WebRtcTransport`), discovered through core `roster` messages and signaled
+  through the mesh, not through `clientMeshRelay` or the `/ws` `mesh_roster`
+  (mesh-store-surface step 4; see [mesh.md](mesh.md#direct-links-tabs)).
 - **client↔remote-server** → `BrowserPeerMesh` WebRTC (new).
 
 Signaling for all WebRTC edges is relayed through backends (`clientMeshRelay`);
@@ -150,11 +154,24 @@ participants (`serverId#tab`) go over `BrowserPeerMesh`, servers over
 
 ## Object sharing (`SharingManager`) — transport-agnostic
 
+**Not the same thing as a collab scene, on purpose.** An object share is a
+read-only ephemeral projection: the receiver holds a container node and the
+owner's subtree renders under it, dropped and restocked on (re)subscribe
+(`sync/sharedProjection.ts`). A collab scene is a real, persisted, **co-edited**
+scene in each peer's project, backed by an RUCD grant from the author (one way
+since 2026-10-04: the author decides every write, see mesh.md
+[Authority](mesh.md#authority)). Migration 031 drew
+that line and it is still the line — see principle 3 in [mesh.md](mesh.md),
+where the decision not to give collab scenes a container node is recorded.
+
 Protocol rtypes (`SHARE_RTYPES`): `_share_advertise` / `_subscribe` /
-`_unsubscribe` / `_snapshot` / `_update` / `_unshared` / `_stream` / `_override`
-/ `_datachannel`. The owner tracks subscribers, sends the snapshot on subscribe,
-forwards live document updates of shared subtrees, and advertises grants on
-connect/change.
+`_unsubscribe` / `_snapshot` / `_unshared` / `_write` / `_write_nak`, plus
+`_share_stream` on the lossy path. The owner tracks subscribers, sends the
+snapshot on subscribe, and advertises grants on connect/change. `_share_update`
+is gone (the document plane rides the mesh — step D below), and so are
+`_share_override` / `_share_datachannel`: runtime overrides and published data
+fields are mesh collections parented to their target, so an object-share subtree
+grant already routes them.
 
 ## Asset transfer is a symmetric mesh capability — IMPLEMENTED
 

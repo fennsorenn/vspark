@@ -20,7 +20,19 @@ import {
 } from '@vspark/shared/paramPaths';
 import { CAMERA_EFFECT_KINDS } from '@vspark/shared/cameraEffects';
 import { validateFeedTemplate } from '@vspark/shared/feedValidation';
+import { toGraphDescriptor } from '@vspark/shared/signal';
 import type { VsparkClient } from './client.js';
+
+/** Logic graphs are stored with nodes/edges keyed by id (so concurrent mesh
+ *  edits merge), but the MCP hands the model the list form — the same shape
+ *  set_logic_descriptor takes, so a read-modify-write round-trips unchanged.
+ *  **Decided:** the MCP surface deliberately differs from REST here. */
+function withListDescriptor(record: unknown): unknown {
+  if (!record || typeof record !== 'object') return record;
+  const r = record as { descriptor?: unknown };
+  if (r.descriptor === undefined) return record;
+  return { ...r, descriptor: toGraphDescriptor(r.descriptor as Parameters<typeof toGraphDescriptor>[0]) };
+}
 
 /** scene_node → /api/scene-nodes/:id, compose_layer → /api/compose-layers/:id */
 function ownerBase(ownerKind: unknown): string {
@@ -219,6 +231,36 @@ const UI_CONTROLS: Record<string, string[]> = {
     'vs-tab-presets',
   ],
 };
+
+/** MCP tool annotations, as the SDK's `registerTool` config takes them. */
+export interface ToolAnnotations {
+  readOnlyHint: boolean;
+  destructiveHint?: boolean;
+  openWorldHint: boolean;
+}
+
+const READ_ONLY_VERBS = ['list', 'get', 'lookup', 'view', 'render', 'screenshot'];
+/** Verbs that only add or play something; nothing existing is overwritten. */
+const ADDITIVE_VERBS = ['create', 'add', 'attach', 'instantiate', 'play', 'control', 'ui'];
+
+/**
+ * Behaviour hints for MCP clients, derived from the tool's leading verb so a new
+ * tool is classified by naming it. The MCP spec treats a tool that is not
+ * read-only as destructive unless it says otherwise, so additive verbs say so;
+ * everything else (delete, clear, update, set — anything that removes or
+ * overwrites) is marked destructive, so clients can ask before running it.
+ * All tools act only on this vspark instance, never the open world.
+ */
+export function toolAnnotations(name: string): ToolAnnotations {
+  const verb = name.split('_')[0];
+  if (READ_ONLY_VERBS.includes(verb))
+    return { readOnlyHint: true, openWorldHint: false };
+  return {
+    readOnlyHint: false,
+    destructiveHint: !ADDITIVE_VERBS.includes(verb),
+    openWorldHint: false,
+  };
+}
 
 export function buildToolSpecs(): ToolSpec[] {
   return [
@@ -579,7 +621,10 @@ export function buildToolSpecs(): ToolSpec[] {
       description:
         'List the project-scoped logic graphs (each with its full descriptor).',
       inputShape: { projectId: z.string() },
-      handler: (c, a) => c.get(`/api/projects/${a.projectId}/logic`),
+      handler: async (c, a) => {
+        const rows = await c.get(`/api/projects/${a.projectId}/logic`);
+        return Array.isArray(rows) ? rows.map(withListDescriptor) : rows;
+      },
     },
     {
       name: 'create_project_logic',
@@ -594,7 +639,8 @@ export function buildToolSpecs(): ToolSpec[] {
       name: 'get_logic',
       description: 'Read back a logic graph (descriptor + metadata) by id.',
       inputShape: { id: z.string() },
-      handler: (c, a) => c.get(`/api/logic/${a.id}`),
+      handler: async (c, a) =>
+        withListDescriptor(await c.get(`/api/logic/${a.id}`)),
     },
     {
       name: 'delete_logic',
@@ -624,8 +670,8 @@ export function buildToolSpecs(): ToolSpec[] {
         'Replace a logic graph descriptor (the nodes + edges). Shape:\n' +
         '{ id, label, readonly:false,\n' +
         '  nodes:[{ id, kind, position:{x,y}, defaultConfig:{...} }],\n' +
-        '  edges:[{ fromNodeId, fromPort, toNodeId, toPort, kind:"event"|"value" }] }\n' +
-        'Trigger/event ports connect with kind "event"; data ports with kind "value". Node `kind` must be a real ' +
+        '  edges:[{ fromNodeId, fromPort, toNodeId, toPort }] }\n' +
+        'Same shape get_logic returns. Node `kind` must be a real ' +
         'signal-node kind and port names must match lookup_node_kind exactly — neither is validated server-side, so ' +
         'verify them or the graph silently no-ops.',
       inputShape: {
@@ -1122,8 +1168,21 @@ export function buildToolSpecs(): ToolSpec[] {
         '(OAuth is user-only) — if none are connected, open the Accounts dialog (ui_open_window ' +
         'window:"accounts") and ask the user to connect.',
       inputShape: { projectId: z.string() },
-      handler: (c, a) =>
-        c.get(`/api/projects/${a.projectId}/overlive-accounts`),
+      // Exactly the fields the description promises. Tool results land in the
+      // LLM prompt, so nothing credential-shaped may pass through here even if
+      // the REST view grows a field.
+      handler: async (c, a) => {
+        const rows = (await c.get(
+          `/api/projects/${a.projectId}/overlive-accounts`
+        )) as Record<string, unknown>[];
+        return rows.map(({ id, platform, label, status, isDefault }) => ({
+          id,
+          platform,
+          label,
+          status,
+          isDefault,
+        }));
+      },
     },
 
     // ---- UI control (drive the user's editor; needs a sessionId) ----

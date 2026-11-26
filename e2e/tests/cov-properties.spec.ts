@@ -473,3 +473,46 @@ test('cov-properties: avatar tracking grace period persists via REST', async ({
     )
     .toBe(4.5);
 });
+
+// ---------------------------------------------------------------------------
+// 9. vs-pose-filter-* — the avatar's motion filter: a preset from the dropdown,
+// then a parameter under "Advanced", which switches the preset to Custom with
+// the preset's values plus the change.
+// ---------------------------------------------------------------------------
+test('cov-properties: avatar motion filter preset and advanced parameters persist via REST', async ({
+  page,
+  request,
+}) => {
+  const { projectId, sceneId } = await seedProjectScene(request);
+  const nodeId = await seedNode(request, sceneId, 'PropAvatarFilter', 'avatar');
+
+  await page.goto(`/editor/${projectId}`);
+  const row = page.getByText('PropAvatarFilter', { exact: true });
+  await expect(row).toBeVisible({ timeout: 30_000 });
+  await row.click();
+
+  const preset = page.locator('.vs-pose-filter-preset');
+  await expect(preset).toBeVisible({ timeout: 10_000 });
+  await expect(preset).toHaveValue('minimal'); // the default
+  await preset.selectOption('smooth');
+  const filter = async () =>
+    properties(await getNode(request, sceneId, nodeId)).poseFilter;
+  await expect.poll(filter, { timeout: 10_000 }).toMatchObject({
+    preset: 'smooth',
+  });
+
+  await expect(page.locator('.vs-pose-filter-damping')).toHaveCount(0);
+  await page.locator('.vs-pose-filter-advanced').click();
+  const damping = page.locator('.vs-pose-filter-damping input');
+  await expect(damping).toBeVisible();
+  await damping.fill('0.5');
+  await damping.press('Enter');
+  await expect.poll(filter, { timeout: 10_000 }).toEqual({
+    preset: 'custom',
+    smoothing: 0.9,
+    adaptation: 3,
+    damping: 0.5,
+    response: 0,
+  });
+  await expect(preset).toHaveValue('custom');
+});

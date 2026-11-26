@@ -6,7 +6,7 @@ First-class **video** and **audio** in vspark: a 3D `video` scene-node kind, an
 imperative frontend **media registry**, and a track-clip **event/marker lane** for
 timed triggers.
 
-**Status: Implemented.**
+**Status: Implemented** (including [media one-shots](#media-one-shots)).
 
 The defining design choice: media playback is **command-based**, not state-based.
 Play / pause / stop / restart / seek can't be expressed as a held scalar value
@@ -27,20 +27,31 @@ registry call.
 ### Backend — `packages/backend/src/media_control/manager.ts`
 
 `MediaControlManager` (singleton `mediaControlManager`) is a thin
-`dispatch(targetKind, targetId, command)` that broadcasts a `media_control` WS
-message. **Stateless by design**: no stored state, no snapshot-on-connect (a late
-joiner shouldn't replay past one-shots), no SQLite. Init'd in `index.ts` with the
-shared `WSSync`. Empty `targetId` is a no-op.
+`dispatch(targetKind, targetId, command)` that publishes into the mesh
+`media_control` collection (`packages/backend/src/mesh/runtime.ts`), keyed by
+target id and parented to the target. Empty `targetId` is a no-op; so is a
+dispatch before the mesh is up.
+
+**Stateless by design**, and the channel is what enforces it: commands ride the
+`control` channel — reliable but unstamped and **unretained** — not the retained
+`runtime` channel the override and data-field buses use. A subscription snapshot
+carries only a collection's retained channel, so a `play` from an hour ago
+cannot fire on a tab that opens now. Nothing reaches SQLite.
+
+One publish reaches local tabs, collab peers and object-share subscribers, since
+the command is parented to its target and rides the same subtree grants as
+everything else on that entity. The `media_control` WS kind and the collab
+`runtime_control` tap that used to carry it a second time are deleted.
 
 ### Shared types — `packages/shared/src/types.ts`
 
 - `MediaTargetKind = 'scene_node' | 'compose_layer'`.
 - `MediaAction = 'play' | 'pause' | 'stop' | 'restart' | 'seek' | 'setVolume' | 'mute' | 'unmute'`.
-- `MediaCommand = { action: MediaAction; t?: number; volume?: number }` (`t` only
-  for `seek`, `volume` only for `setVolume`).
-- `MediaControlMessage = { targetKind, targetId, command }` — payload of the
-  `media_control` WS message.
-- `'media_control'` added to `WSMessageKind`.
+- `MediaCommand = { action: MediaAction; t?: number; volume?: number; assetId?: string }`
+  (`t` only for `seek`, `volume` only for `setVolume`, `assetId` only for `play` /
+  `restart` — see [Media one-shots](#media-one-shots)).
+- `MediaControlMessage = { targetKind, targetId, command }` — the shape the
+  `media_control` document carries.
 
 ### Signal node — `media_control`
 
@@ -49,7 +60,10 @@ shared `WSSync`. Empty `targetId` is a no-op.
 colour `#7a3a6a`):
 
 - `@valueIn('target', 'SceneEntity')`, `@valueIn('t', 'Float')`,
-  `@valueIn('volume', 'Float')`.
+  `@valueIn('volume', 'Float')`, `@valueIn('action', 'String')` (falls back to
+  `config.action`), `@valueIn('assetId', 'String')` (falls back to
+  `config.assetId`; forwarded only on `play` / `restart` — see
+  [Media one-shots](#media-one-shots)).
 - `@eventIn('fire', 'Trigger')` → dispatches `config.action` (default `play`) to the
   target. Target id resolves from the wired `target` input, else `config.targetId`;
   `config.targetKind` (default `scene_node`) is informational only — the frontend
@@ -65,16 +79,95 @@ Ports are static (no dynamic ports), so no `infer_nodes.ts` entry is needed.
 Module-level `Map<id, MediaHandle>` keyed by scene-node / compose-layer id. Commands
 are imperative (no React re-render).
 
-- `MediaHandle = { play, pause, stop, restart, seek(t), setVolume(v), mute, unmute }`.
+- `MediaHandle = { play, pause, stop, restart, seek(t), setVolume(v), mute, unmute, playSource?(url) }`.
   `stop` resets to start (and, for a video node with `onEnd:'hide'`, hides it);
-  `restart` seeks to 0 and plays.
+  `restart` seeks to 0 and plays. `playSource` is optional and implemented only by
+  the video entities (see [Media one-shots](#media-one-shots)).
 - `registerMedia(id, handle)` returns an unregister fn safe for effect cleanup (only
   removes the handle if it's still the current one). `VideoNode`, the compose
   `VideoLayer`, and `AudioNode` each register on mount, unregister on unmount.
 - `dispatchMediaCommand(id, cmd)` looks up the handle and calls the matching method;
-  no-op when absent (entity not mounted on this client).
-- `useWsSync` routes the `media_control` message to `dispatchMediaCommand`; the
+  no-op when absent (entity not mounted on this client). A `play` / `restart`
+  carrying an `assetId` resolves the asset's URL from the editor store's `assets`
+  and calls `playSource(url)` instead; if the asset is unknown on this tab or the
+  handle has no `playSource`, it falls through to the plain action.
+- `sync/meshStoreFeeder.ts`'s `media_control` observer calls `dispatchMediaCommand`; the
   track-clip event evaluator calls it directly (client-side firing).
+
+## Media one-shots
+
+**Status: Implemented** (on `feature/media-oneshots`, based on
+`feature/actions`). Two additions next to the media-command bus: playing a
+sound with no entity in the scene, and playing an arbitrary collection video on
+an existing video node / layer, temporarily.
+
+### Play a sound without an entity — the `sound_cue` model
+
+- **Shared:** `SoundCue = { id, projectId, assetId, volume?, cueId }`
+  (`packages/shared/src/types.ts`). `id` is the project id; `volume` is 0..1
+  (default 1); `cueId` is fresh per cue so the same sound twice is still a
+  change. Mesh model `sound_cue` (`packages/shared/src/models.ts`): channel
+  `control` (unretained), no parent — there is no `project` rtype to hang it
+  off — and listed in `TAB_MODELS`.
+- **Backend:** `mesh/runtime.ts` registers the `sound_cue` collection with the
+  same tab read grant as the other runtime collections, exposed as
+  `soundCueCollection()` (null before the mesh is up).
+  `MediaControlManager.playSound(projectId, assetId, volume?)` publishes one
+  document per project (key = project id, so cues stay in order) with a fresh
+  `cueId`; volume is clamped to 0..1, and an empty project or asset is a no-op.
+  Being on the unretained `control` channel, a tab that connects later does not
+  replay an old cue, and nothing reaches SQLite.
+- **Signal node `play_sound`** (`signal/nodes/play_sound.ts`, label "Play
+  Sound", tags `['output']`): `@eventIn('fire')`, `@valueIn('assetId',
+  'String')`, `@valueIn('volume', 'Float')`, each falling back to config when
+  unwired. The project comes from the `_projectId` config field that
+  `LogicManager` injects; without it (or without an asset) the fire does nothing.
+- **Frontend:** `mesh/soundCues.ts` — `useSoundCues(projectId, audible)` observes
+  `sound_cue`, ignores other projects and removals, and while `audible` plays the
+  asset (URL looked up in the editor store's `assets`; unknown asset → silent) on
+  a transient `new Audio()` element at the cue's volume. Autoplay rejections are
+  swallowed. Mounted in `ViewerPage` (always audible) and `Editor` (audible only
+  with `editorAudioPreviewEnabled`) — the same gate as the media entities (see
+  [Audibility gate](#audibility-gate)).
+- The sound is **not positional**: a plain `HTMLAudioElement`, outside the
+  three.js `AudioListener` graph.
+
+### Play a collection video on an existing video entity
+
+- `MediaCommand.assetId` (only meaningful on `play` / `restart`). The
+  `media_control` node forwards its `assetId` input (config fallback) only for
+  those two actions.
+- `dispatchMediaCommand` turns such a command into `MediaHandle.playSource(url)`
+  (see [Frontend media registry](#frontend-media-registry--packagesfrontendsrccomponentseditormediaregistryts)).
+- `Viewport.tsx` `VideoNode` and `ComposeLayerStack.tsx` `VideoLayer` implement
+  `playSource` with a `swapUrl` state that overrides the entity's own source:
+  - the swapped video plays from the start, once (loop off), then the entity's
+    own `onEnd` applies (`hide` hides it; otherwise it stays on the last frame);
+  - `playSource` with the URL already loaded restarts it from 0;
+  - `stop` drops the swap and returns to the entity's own video, paused and not
+    autoplayed (and hidden if `onEnd` is `hide`);
+  - a change of the entity's own source clears the swap;
+  - `restart` while swapped restarts the swapped video — inferred from the code
+    (the `restart` handler seeks/plays the current element), not separately
+    specified.
+  - Nothing is written: the entity's saved settings are unchanged and a reload
+    shows its configured video. `VideoLayer` now drives autoplay from an effect
+    instead of the `autoPlay` attribute, so that the own video returning after
+    a `stop` is not autoplayed.
+- Audio entities (`AudioNode`) have no `playSource`, so an `assetId` on them
+  falls back to the plain action.
+
+### Exposure as Action responses
+
+`play_sound` and `play_video` response types — see [actions.md](actions.md)
+(Hotkey kind). The help page section is `actions#media` ("Sounds and videos",
+EN + DE).
+
+**Decided** (user, 2026-11-08):
+
+- Sound is a one-shot command, not a temporary audio entity.
+- The video swap is temporary and not saved.
+- Both features are available as Logic nodes and as Action responses.
 
 ## Video — 3D scene node (`video` kind)
 
@@ -224,10 +317,10 @@ lane evaluator untouched.
 ### Shared + routes
 
 - Shared: `TrackClipEvent { id, t, action, targetKind, targetId, payload }`;
-  `TrackClip.events: TrackClipEvent[]`; `WSMessageKind 'track_clip_events_replaced'`.
+  `TrackClip.events: TrackClipEvent[]`.
 - `routes/track-clips.ts`: events are loaded into the clip bundle
   (`loadClip`/`mapClip`/`mapEvent`); bulk-replace endpoint
-  `PUT /track-clips/:id/events` broadcasting `track_clip_events_replaced` (mirrors the
+  `PUT /track-clips/:id/events` writing the whole event map through the clip document (mirrors the
   keyframes bulk-replace pattern).
 - `spawn/manager.ts` clones + retargets event markers for `spawn_clip`. See
   [spawn.md](spawn.md).
@@ -236,7 +329,7 @@ lane evaluator untouched.
 
 - `api/client.ts`: `TrackClipEventRecord` + `mapTrackClipEvent` +
   `api.replaceTrackClipEvents`. Store: `replaceTrackClipEvents`; `useWsSync` handler
-  for `track_clip_events_replaced`.
+  for the clip document's `events` map.
 - `useTrackClipEvaluator.ts`: fires markers when the playhead crosses them. A
   module-level `lastTByClip` map + a `crossedMarker(prevT, t, markerT, duration, loop)`
   helper (handles loop wrap, re-armed per loop) drive firing. **Playing-only** (paused
@@ -274,7 +367,9 @@ Video/audio are first-class asset kinds. See [asset-management.md](asset-managem
 
 **Backend:**
 - `media_control/manager.ts` — `MediaControlManager` (stateless command bus)
-- `signal/nodes/media_control.ts` (registered in `signal/registry.ts`)
+- `media_control/manager.ts` `playSound` — one-shot sound cues
+- `mesh/runtime.ts` — the `control` channel + the `media_control` and `sound_cue` collections
+- `signal/nodes/media_control.ts`, `signal/nodes/play_sound.ts` (registered in `signal/registry.ts`)
 - `db/migrations/021_track_clip_events.{sql,ts}` (registered in `db/index.ts`)
 - `routes/track-clips.ts` — event load + `PUT /track-clips/:id/events`
 - `routes/shared.ts` — video/audio ext + MIME maps
@@ -282,13 +377,17 @@ Video/audio are first-class asset kinds. See [asset-management.md](asset-managem
 - `index.ts` — `mediaControlManager.init(ws)`
 
 **Shared:**
-- `types.ts` — `MediaTargetKind`, `MediaAction`, `MediaCommand`,
+- `types.ts` — `MediaTargetKind`, `MediaAction`, `MediaCommand` (incl. `assetId`), `SoundCue`,
   `MediaControlMessage`, `TrackClipEvent`, `TrackClip.events`, `WSMessageKind`
-  (`media_control`, `track_clip_events_replaced`), `NodeKind` (`video`/`audio`)
+  `MediaCommand` / `MediaControlMessage`, `NodeKind` (`video`/`audio`)
 - `schema.ts` — `sceneNodeKindSchema` (`video`/`audio`/`billboard`)
+- `models.ts` — `media_control` and `sound_cue` mesh models
+- `actions.ts` — `play_sound` / `play_video` in `RESPONSE_TYPES`
 
 **Frontend:**
 - `components/editor/mediaRegistry.ts` — `MediaHandle` registry + `dispatchMediaCommand`
+  (incl. the `assetId` → `playSource` path)
+- `mesh/soundCues.ts` — `useSoundCues` (mounted in `pages/ViewerPage.tsx` and `pages/Editor.tsx`)
 - `components/editor/videoFx.ts` — shared chroma GLSL + `ShaderMaterial` factory +
   3D blend mapping + `CSS_BLEND_MODES`
 - `components/editor/ChromaVideoCanvas.tsx` — WebGL2 per-frame chroma keying for the
@@ -305,7 +404,7 @@ Video/audio are first-class asset kinds. See [asset-management.md](asset-managem
 - `components/editor/SceneGraph.tsx` — `KIND_ICONS` for video/audio
 - `components/editor/AssetManager.tsx` + `AssetThumb.tsx` — Videos/Audio tabs + thumbs
 - `components/editor/TrackClipTimeline.tsx` — `EventLane` editor
-- `hooks/useWsSync.ts` — `media_control` + `track_clip_events_replaced` handlers
+- `sync/meshStoreFeeder.ts` — the `media_control` observer; clip events arrive with the clip document
 - `hooks/useTrackClipEvaluator.ts` — marker firing (`lastTByClip` / `crossedMarker`)
 - `api/client.ts` — asset kinds + `TrackClipEventRecord` + `replaceTrackClipEvents`
 - `store/editorStore.ts` — `editorAudioPreviewEnabled`, `BottomDockTab`,
@@ -316,7 +415,8 @@ Video/audio are first-class asset kinds. See [asset-management.md](asset-managem
 - [scene-graph.md](scene-graph.md) — `video` / `audio` node kinds, flat-mount, gizmos.
 - [compose.md](compose.md) — the finished `video` compose layer + `mode` threading.
 - [track-clips.md](track-clips.md) — the event/marker lane alongside scalar lanes.
-- [signal-graph.md](signal-graph.md) — the `media_control` node.
+- [signal-graph.md](signal-graph.md) — the `media_control` and `play_sound` nodes.
+- [actions.md](actions.md) — the `play_sound` / `play_video` response types.
 - [paramPaths.md](paramPaths.md) — why media playback is command-based and
   deliberately NOT in the (scalar-state-only) paramPath registry.
 - [spawn.md](spawn.md) — `spawnRef` retargeting on `media_control`; event-marker

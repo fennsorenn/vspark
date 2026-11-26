@@ -6,7 +6,7 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import type { VsparkClient } from './client.js';
-import { buildToolSpecs, isToolMediaResult } from './tools.js';
+import { buildToolSpecs, isToolMediaResult, toolAnnotations } from './tools.js';
 
 export const MCP_SERVER_INFO = {
   name: 'vspark',
@@ -33,7 +33,11 @@ export function createMcpServer(client: VsparkClient): McpServer {
 
     server.registerTool(
       spec.name,
-      { description: spec.description, inputSchema },
+      {
+        description: spec.description,
+        inputSchema,
+        annotations: toolAnnotations(spec.name),
+      },
       async (args: Record<string, unknown>) => {
         try {
           const result = await spec.handler(client, args ?? {});

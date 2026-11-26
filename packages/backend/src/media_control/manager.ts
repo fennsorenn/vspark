@@ -10,28 +10,61 @@
  * element.
  *
  * Stateless by design: no snapshot on connect (a late joiner shouldn't replay
- * past one-shots) and no SQLite.
+ * past one-shots) and no SQLite. That is why commands ride the mesh CONTROL
+ * channel — reliable but unstamped and UNRETAINED — rather than the retained
+ * `runtime` channel the override and data-field buses use. See mesh/runtime.ts.
+ *
+ * It used to broadcast on `/ws` and be relayed a second time to collab peers
+ * through `runtime_control`. One publish now reaches both: the command is
+ * parented to its target, so it rides the same subtree grants everything else
+ * on that entity does.
  *
  * See dev-notes/modules/media.md.
  */
-import type { WSSync } from '../ws/index.js';
+import { randomUUID } from 'node:crypto';
+import {
+  CONTROL_CHANNEL,
+  mediaControlCollection,
+  soundCueCollection,
+} from '../mesh/runtime.js';
 import type { MediaCommand, MediaTargetKind } from '@vspark/shared';
 
 export class MediaControlManager {
-  private _ws: WSSync | null = null;
-
-  init(ws: WSSync): void {
-    this._ws = ws;
-  }
-
-  /** Broadcast a media command to all clients. No-op without a target. */
+  /** Dispatch a media command to every peer holding the target. No-op without
+   *  a target, or before the mesh is up. */
   dispatch(
     targetKind: MediaTargetKind,
     targetId: string,
     command: MediaCommand
   ): void {
     if (!targetId) return;
-    this._ws?.broadcast('media_control', { targetKind, targetId, command });
+    mediaControlCollection()?.set(
+      targetId,
+      '',
+      { id: targetId, targetKind, targetId, command },
+      { channel: CONTROL_CHANNEL }
+    );
+  }
+
+  /** Play a collection sound once in every tab of the project that may play
+   *  audio — no entity needed. No-op without a project or asset, or before the
+   *  mesh is up. */
+  playSound(projectId: string, assetId: string, volume?: number): void {
+    if (!projectId || !assetId) return;
+    soundCueCollection()?.set(
+      projectId,
+      '',
+      {
+        id: projectId,
+        projectId,
+        assetId,
+        ...(typeof volume === 'number' && Number.isFinite(volume)
+          ? { volume: Math.max(0, Math.min(1, volume)) }
+          : {}),
+        cueId: randomUUID(),
+      },
+      { channel: CONTROL_CHANNEL }
+    );
   }
 }
 

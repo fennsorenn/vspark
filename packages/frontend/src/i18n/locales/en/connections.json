@@ -51,11 +51,9 @@
     "unshare": "Unshare"
   },
   "pairing": {
-    "label": "Pairing",
-    "create": "Create code",
-    "copyCode": "Copy",
-    "codePlaceholder": "Enter pairing code",
-    "join": "Join"
+    "title": "Connect this browser",
+    "message": "This browser is not on the computer running vspark. Enter the 6-digit device code shown in vspark's console window, or under Connections on that computer.",
+    "confirm": "Connect"
   },
   "contacts": {
     "label": "Contacts",
@@ -66,5 +64,9 @@
     "confirmRemove": "Unpair?",
     "connected": "Connected",
     "disconnected": "Offline"
+  },
+  "deviceCode": {
+    "label": "Device code:",
+    "tip": "Open vspark in a browser on another device with this code"
   }
 }

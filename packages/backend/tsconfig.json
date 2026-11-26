@@ -22,7 +22,13 @@
       "@vspark/shared/arkit": ["../shared/src/arkit_tables.ts"],
       "@vspark/shared/paramPaths": ["../shared/src/paramPaths.ts"],
       "@vspark/shared/blendshapeLimits": ["../shared/src/blendshapeLimits.ts"],
-      "@vspark/shared/style_rig": ["../shared/src/style_rig.ts"]
+      "@vspark/shared/trackingMix": ["../shared/src/trackingMix.ts"],
+      "@vspark/shared/style_rig": ["../shared/src/style_rig.ts"],
+      "@vspark/shared/live2d": ["../shared/src/live2d.ts"],
+      "@vspark/shared/actions": ["../shared/src/actions.ts"],
+      "@vspark/shared/composites": ["../shared/src/composites.ts"],
+      "@vspark/shared/variables": ["../shared/src/variables.ts"],
+      "@vspark/shared/visemes": ["../shared/src/visemes.ts"]
     }
   },
   "include": ["src/**/*"]
