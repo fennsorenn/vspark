@@ -30,6 +30,10 @@ current song on stream as a compound layer or as individual cover / title layers
     reorder queue items. Playlists *can* be edited.
   - No push/webhook for playback changes — the current track must be **polled**; rate
     limits answer 429 with `Retry-After`.
+- **[decided]** (user, 2026-11-26) Song-request moderation in v1: per-user request
+  limit, max track length, explicit filter, blocklist (tracks/artists), and cooldowns
+  both **per user** and **global**.
+- **[decided]** (user, 2026-11-26) The plugin's source lives in a separate repository.
 - **[decided]** (existing) No per-second updates from the backend; progress counts in the
   page (feed template helpers).
 
@@ -99,10 +103,16 @@ All sinks follow the Overlive outbound-node pattern (empty `account` = project d
 - **Action kind `spotify_song_request`** — "Song request". Shape setting `source`:
   `chat_command` (command + aliases, the query is the args) | `redemption` (reward title,
   the query is the message) | `trigger` (named trigger, the query is the payload).
-  Value settings: `account`, `minRank`, `cooldown`, max requests per user, max length,
-  block explicit, allow only from a playlist (optional), reply templates for
+  Value settings: `account`, `minRank`, global cooldown, per-user cooldown, max requests
+  per user (pending in the queue), max track length, block explicit, blocklist
+  (track / artist URIs or names), allow only from a playlist (optional), reply templates for
   queued / rejected (`${title}`, `${artist}`, `${position}`, `${reason}`, `${user}`).
-  Built from the shared chat helpers (`addRankGate`, `addCooldown`, `Tpl`).
+  Built from the shared chat helpers (`addRankGate`, `addCooldown`, `Tpl`). Per-user
+  cooldown: a second `cooldown` node whose `group` is rendered by `text_format`
+  from the username (the `derived.comboKey` trick); observed 2026-11-26 the `cooldown`
+  node has no per-key input, so this needs no node change. Track-dependent rules
+  (length, explicit, blocklist, duplicate) are checked in `spotify_request_add` after
+  the search and reported as `rejected` reasons.
 - **Action kind `spotify_chat_command`** — one chat command with an `operation`
   (shape): `current_song` (reply with title/artist/link), `wrong_song` (remove the
   user's last request), `remove` (mod: by position), `queue` (reply with the next N),
@@ -126,7 +136,7 @@ driven by `startedAt` / `durationMs` / `isPlaying`.
 
 ## Files in scope
 
-(Location depends on plugin-system open question 2; assuming `plugins/spotify/`.)
+In the separate plugin repository (decided), layout `spotify/`:
 
 - `plugins/spotify/plugin.json`, `src/backend/` (client with token refresh + 429 backoff,
   monitor, request queue, nodes, account provider), `src/shared/` (action kinds,
@@ -169,6 +179,4 @@ driven by `startedAt` / `durationMs` / `isPlaying`.
    all three as a setting?
 2. Should song requests also accept YouTube/Apple links (resolved via search) or only
    Spotify links + text search?
-3. Moderation extras for v1: blocklist of tracks/artists, max track length, explicit
-   filter, per-user limit — all of them, or a subset?
-4. Is one Spotify account per project enough, or do you need several at once?
+3. Is one Spotify account per project enough, or do you need several at once?

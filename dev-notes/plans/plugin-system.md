@@ -22,6 +22,11 @@ git repository.
   scope of the extension points below.
 - **[decided]** (user, 2026-11-26) For now the registry manifest lives in this repository;
   the registry URL is configurable in the app.
+- **[decided]** (user, 2026-11-26) Only the official registry is active by default;
+  a third-party registry needs an explicit "I trust this source" opt-in, and the install
+  dialog lists the network hosts the plugin declares. Plugins themselves run unsandboxed.
+- **[decided]** (user, 2026-11-26) First-party plugin source lives in a **separate
+  repository**, not in this monorepo. (The registry manifest stays here for now.)
 - **[decided]** (user, 2026-11-26) Accounts extend the existing accounts window
   (`OverliveAccountsModal`) — made generic enough for plugin providers — rather than a
   new window.
@@ -80,6 +85,9 @@ register in the host's WeakMaps. In the browser the SDK also carries `React`,
 `SettingCheck` inputs, account picker, `HelpButton`).
 
 A new `packages/plugin-sdk` workspace package is **types + build config only**
+(plugin repos are separate, so it must be consumable from outside: published to npm as
+`@vspark/plugin-sdk`, or a pnpm git dependency on this repo's subdirectory — the worker
+picks, publishing is preferred if the user agrees)
 (`.d.ts` of the injected SDK, an esbuild preset that emits the three ESM files). No
 runtime code ships from it, so version skew is detected by `apiVersion`, not by
 duplicated modules.
@@ -264,9 +272,10 @@ just says "restart the dev server".
    Accounts window.
 4. **Registry + manager UI** — manifest fetch, install/verify/unpack, enable/disable/
    update/uninstall, restart sentinel, Plugins window, help + i18n.
-5. **Registry repo + CI** — repo with `registry.json` and a workflow that builds plugin
-   zips on `<id>-v*` tags, uploads them as release assets, and opens a PR bumping the
-   manifest (url + sha256).
+5. **Plugin repo + CI** — the separate plugin repository gets a workflow that builds
+   plugin zips on `<id>-v*` tags and uploads them as release assets; bumping
+   `plugins/registry.json` here (url + sha256) is a PR to this repo (manual or
+   automated from the plugin repo's workflow).
 
 ## Acceptance / verification
 
@@ -281,12 +290,8 @@ just says "restart the dev server".
 
 ## Open questions (for the user)
 
-1. **Trust model.** Plugins run unsandboxed. Proposal: official registry only by
-   default, third-party registries behind an explicit "I trust this source" toggle,
-   install dialog lists the hosts the plugin declares.
-2. **Where first-party plugin *source* lives.** The registry is decided (this repo).
-   Proposal: `plugins/<id>/` here too (excluded from the app bundle; shares types; CI
-   builds zips on `<id>-v*` tags).
+1. Name of the separate plugin repository.
+2. How the SDK types reach it (npm publish vs git dependency).
 3. **Per-project enablement?** Proposal: install + enable per installation only; nodes
    are available in every project.
 4. **Accounts per project or per installation?** Overlive's are per project; following
