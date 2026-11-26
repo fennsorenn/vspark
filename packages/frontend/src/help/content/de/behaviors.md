@@ -221,6 +221,25 @@ nicht vor der Kamera bist.
 Du kannst sie auf deine eigene Stimme kalibrieren, um schärfere Vokalformen zu
 erhalten.
 
+**Audioeingang** legt fest, woher die Stimme kommt:
+
+- **Browser-Mikrofon** — öffne das Medieneingabe-Fenster und wähle dort ein
+  Mikrofon. Der Browser-Tab muss geöffnet bleiben.
+- **Server (PipeWire-Quelle)** — der vSpark-Server hört selbst eine Audioquelle
+  auf diesem Rechner ab, ganz ohne Browser-Tab. Gib den Namen der Quelle ein,
+  zum Beispiel `mein_sink.monitor`, um allem zu folgen, was in den Sink
+  `mein_sink` abgespielt wird. So kann ein anderes Programm, etwa die Stimme
+  einer KI-Figur, den Mund steuern. Nimmt OBS dieselbe Quelle auf, bleiben Mund
+  und Stream-Ton synchron. Nur unter Linux mit PipeWire oder PulseAudio: Die
+  Option erscheint nur, wenn der Server Audio aufnehmen kann.
+
+  Unter der Quelle zeigt eine Statuszeile, was die Aufnahme gerade tut:
+  **Nimmt auf**, **Warte auf Audio** (die Quelle passt, aber es wird nichts
+  hineingespielt) oder **Aufnahme fehlgeschlagen** mit dem Grund, zum Beispiel
+  einem unbekannten Quellnamen. Eine fehlgeschlagene Aufnahme versucht es von
+  selbst erneut. Im Szenengraphen leuchtet der Punkt des Verhaltens, solange
+  Audio ankommt.
+
 ## Atmung {#breathing}
 
 Die Atmung fügt ein dezentes, automatisches Heben und Senken von Brust und

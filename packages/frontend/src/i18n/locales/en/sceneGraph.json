@@ -160,5 +160,9 @@
     "avatar": "How to load and configure avatars",
     "camera": "Working with cameras in your scene",
     "lights": "Adding and configuring lights"
+  },
+  "lipsync": {
+    "audioArriving": "Server capture: audio arriving",
+    "noAudio": "Server capture: no audio"
   }
 }

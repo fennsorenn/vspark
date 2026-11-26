@@ -1113,12 +1113,18 @@ function BehaviorsSection({
         // its runtime sends VMC) have a connection dot; every tracking source
         // also has a tracking dot (MediaPipe is browser-driven, so it has no
         // connection concept).
-        const hasConnection =
+        // A lipsync behavior capturing server-side (PipeWire) has a connection
+        // dot too (audio arriving), but no tracking dot.
+        const lipsyncCapture =
+          comp.kind === 'lipsync_processor' &&
+          (comp.config as { inputMode?: string }).inputMode === 'pipewire';
+        const isReceiver =
           comp.kind === 'vmc_receiver' ||
           comp.kind === 'vmc_receiver_2d' ||
           comp.kind === 'ifacialmocap_receiver' ||
           comp.kind === 'learned_tracker';
-        const hasTracking = hasConnection || comp.kind === 'mediapipe_tracker';
+        const hasConnection = isReceiver || lipsyncCapture;
+        const hasTracking = isReceiver || comp.kind === 'mediapipe_tracker';
         const isConnected =
           hasConnection && receiverStatus[comp.id]?.connected === true;
         const isTracking =
@@ -1154,7 +1160,13 @@ function BehaviorsSection({
             {hasConnection && (
               <span
                 title={
-                  isConnected ? t('vmc.clientConnected') : t('vmc.noClient')
+                  lipsyncCapture
+                    ? isConnected
+                      ? t('lipsync.audioArriving')
+                      : t('lipsync.noAudio')
+                    : isConnected
+                      ? t('vmc.clientConnected')
+                      : t('vmc.noClient')
                 }
                 style={{
                   width: 6,

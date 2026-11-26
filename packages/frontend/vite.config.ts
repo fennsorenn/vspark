@@ -162,6 +162,7 @@ export default defineConfig({
         find: '@vspark/shared/variables',
         replacement: shared('variables.ts'),
       },
+      { find: '@vspark/shared/visemes', replacement: shared('visemes.ts') },
       { find: '@vspark/shared', replacement: shared('types.ts') },
     ],
   },

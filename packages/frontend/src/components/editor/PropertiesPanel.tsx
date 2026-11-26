@@ -125,6 +125,7 @@ import { useCollection, useMeshDoc } from '@vspark/mesh-react';
 import {
   useAnimationClips,
   useCameraEffects,
+  useServerCapabilities,
   useTrackingStatuses,
 } from '../../mesh/hooks';
 import { useComposeLayers, useComposeScenes } from '../../mesh/compose';
@@ -3293,12 +3294,31 @@ function LipsyncProcessorProps({ comp }: { comp: Behavior }) {
   const cfg = comp.config as {
     sensitivity?: number;
     vowelTemplates?: VowelTemplates;
+    inputMode?: 'browser' | 'pipewire';
+    pipewireSource?: string;
   };
   const [sensitivity, setSensitivity] = useState(cfg.sensitivity ?? 1.0);
+  const inputMode = cfg.inputMode === 'pipewire' ? 'pipewire' : 'browser';
+  const [pipewireSource, setPipewireSource] = useState(
+    cfg.pipewireSource ?? ''
+  );
+  // The PipeWire input is offered only where the server can capture (Linux
+  // with parec). A behavior already set to it keeps the option, with a warning.
+  const canPipewire = useServerCapabilities()?.pipewireLipsync === true;
+  const offerPipewire = canPipewire || inputMode === 'pipewire';
+  const capture = useTrackingStatuses()[comp.id]?.capture;
+  const savedSource = (cfg.pipewireSource ?? '').trim();
 
   const save = (patch: Record<string, unknown>) => {
     const config = { ...comp.config, ...patch };
     commitBehaviorPatch(comp.id, { config });
+  };
+
+  const captureColor: Record<string, string> = {
+    capturing: '#4ade80',
+    starting: '#facc15',
+    idle: '#888',
+    error: '#f87171',
   };
 
   const rowStyle: React.CSSProperties = {
@@ -3325,6 +3345,75 @@ function LipsyncProcessorProps({ comp }: { comp: Behavior }) {
   return (
     <div>
       <div style={rowStyle}>
+        <span style={labelStyle}>{t('lipsync.inputMode')}</span>
+        <HelpButton
+          topic="behaviors"
+          anchor="lipsync"
+          tip={t('lipsync.inputModeHelp')}
+          size={12}
+        />
+        <select
+          className="vs-lipsync-input-mode"
+          style={{ ...inputStyle, width: 'auto', cursor: 'pointer' }}
+          value={inputMode}
+          onChange={(e) => save({ inputMode: e.target.value })}
+        >
+          <option value="browser">{t('lipsync.modeBrowser')}</option>
+          {offerPipewire && (
+            <option value="pipewire">{t('lipsync.modePipewire')}</option>
+          )}
+        </select>
+      </div>
+      {inputMode === 'pipewire' && (
+        <div style={rowStyle}>
+          <span style={labelStyle}>{t('lipsync.pipewireSource')}</span>
+          <input
+            className="vs-lipsync-pipewire-source"
+            type="text"
+            style={{ ...inputStyle, width: 160 }}
+            placeholder={t('lipsync.pipewireSourcePlaceholder')}
+            value={pipewireSource}
+            onChange={(e) => setPipewireSource(e.target.value)}
+            onBlur={() => save({ pipewireSource: pipewireSource.trim() })}
+          />
+        </div>
+      )}
+      {inputMode === 'pipewire' && (
+        <div
+          className="vs-lipsync-capture-status"
+          style={{ fontSize: 11, lineHeight: 1.4, marginBottom: 6 }}
+        >
+          {!canPipewire ? (
+            <span style={{ color: '#f87171' }}>
+              {t('lipsync.pipewireUnavailable')}
+            </span>
+          ) : !savedSource ? (
+            <span style={{ color: '#888' }}>{t('lipsync.noSource')}</span>
+          ) : (
+            <>
+              <span
+                style={{
+                  color: captureColor[capture?.state ?? 'starting'] ?? '#888',
+                }}
+              >
+                ● {t(`lipsync.captureState.${capture?.state ?? 'starting'}`)}
+              </span>
+              {capture?.message && (
+                <div
+                  style={{
+                    color: capture.state === 'error' ? '#f87171' : '#888',
+                    fontSize: 10,
+                    wordBreak: 'break-word',
+                  }}
+                >
+                  {capture.message}
+                </div>
+              )}
+            </>
+          )}
+        </div>
+      )}
+      <div style={rowStyle}>
         <span style={labelStyle}>{t('lipsync.sensitivity')}</span>
         <input
           type="number"
@@ -3337,26 +3426,32 @@ function LipsyncProcessorProps({ comp }: { comp: Behavior }) {
           onBlur={() => save({ sensitivity })}
         />
       </div>
-      <div
-        style={{ marginTop: 8, borderTop: '1px solid #2a2a2a', paddingTop: 8 }}
-      >
-        <button
+      {inputMode === 'browser' && (
+        <div
           style={{
-            background: '#2a2a2a',
-            border: '1px solid #3a3a3a',
-            color: '#ccc',
-            borderRadius: 4,
-            padding: '4px 10px',
-            cursor: 'pointer',
-            fontSize: 12,
+            marginTop: 8,
+            borderTop: '1px solid #2a2a2a',
+            paddingTop: 8,
           }}
-          onClick={() =>
-            projectId && window.open(`/media-input/${projectId}`, '_blank')
-          }
         >
-          {t('lipsync.openMediaInput')}
-        </button>
-      </div>
+          <button
+            style={{
+              background: '#2a2a2a',
+              border: '1px solid #3a3a3a',
+              color: '#ccc',
+              borderRadius: 4,
+              padding: '4px 10px',
+              cursor: 'pointer',
+              fontSize: 12,
+            }}
+            onClick={() =>
+              projectId && window.open(`/media-input/${projectId}`, '_blank')
+            }
+          >
+            {t('lipsync.openMediaInput')}
+          </button>
+        </div>
+      )}
       <LipsyncCalibration
         templates={cfg.vowelTemplates}
         onSave={(t) => save({ vowelTemplates: t })}

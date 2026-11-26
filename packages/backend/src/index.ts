@@ -32,6 +32,7 @@ import { ManualCalibrationManager } from './behaviors/manual_calibration/manager
 import { PoseStylizerManager } from './behaviors/pose_stylizer/manager.js';
 import { BlendshapeLimiterManager } from './behaviors/blendshape_limiter/manager.js';
 import { LipsyncManager } from './behaviors/lipsync/manager.js';
+import { canCapturePipeWire } from './behaviors/lipsync/pipewireCapture.js';
 import { TrackingManager } from './behaviors/mediapipe_tracker/manager.js';
 import { ApiControllerManager } from './behaviors/api_controller/manager.js';
 import { initPoseBroadcast } from './signal/nodes/pose_broadcast.js';
@@ -273,6 +274,10 @@ async function start() {
 
   const lipsyncManager = new LipsyncManager();
   setLipsyncManager(lipsyncManager);
+  // Whether the lipsync behavior can offer its server-side PipeWire input.
+  publishStatus('capabilities', 'main', {
+    pipewireLipsync: canCapturePipeWire(),
+  });
 
   const trackingManager = new TrackingManager(wsSync);
   setTrackingManager(trackingManager);

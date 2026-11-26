@@ -507,7 +507,21 @@
     "vowelCalibHeader": "Vokal-Kalibrierung",
     "vowelCalibHint": "Halte jede Taste gedrückt, während du den Vokal aussprichst (~1 s).",
     "save": "Speichern",
-    "resetDefaults": "Auf Standardwerte zurücksetzen"
+    "resetDefaults": "Auf Standardwerte zurücksetzen",
+    "inputMode": "Audioeingang",
+    "inputModeHelp": "Woher die Stimme kommt: ein Mikrofon in einem Browser-Tab oder eine Audioquelle auf diesem Rechner, die der Server liest.",
+    "modeBrowser": "Browser-Mikrofon",
+    "modePipewire": "Server (PipeWire-Quelle)",
+    "pipewireSource": "Quelle",
+    "pipewireSourcePlaceholder": "z. B. mein_sink.monitor",
+    "noSource": "Gib einen Quellnamen ein, um die Aufnahme zu starten.",
+    "pipewireUnavailable": "Dieser Server kann kein Audio aufnehmen: Dafür braucht es Linux mit PipeWire oder PulseAudio (das Programm parec). Wechsle zu Browser-Mikrofon.",
+    "captureState": {
+      "starting": "Aufnahme startet…",
+      "capturing": "Nimmt auf",
+      "idle": "Warte auf Audio (in die Quelle wird nichts abgespielt)",
+      "error": "Aufnahme fehlgeschlagen – neuer Versuch läuft"
+    }
   },
   "mediapipe": {
     "faceLandmarks": "Gesichts-Landmarken",
