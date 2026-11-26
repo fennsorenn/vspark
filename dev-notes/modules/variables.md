@@ -7,8 +7,7 @@ timestamps. Read and written by the signal nodes `variable`, `set_variable`,
 [signal-graph.md](signal-graph.md#logic-helpers--conditions-text-variables-triggers-combos).
 Added in phase 1 of the Actions plan ([plans/actions.md](../plans/actions.md)).
 
-**Status:** implemented (store + nodes). Tab reads and writes are implemented on
-`feature/stream-widgets` (not yet merged to `dev`) for the stream-widget composites
+**Status:** implemented (store + nodes). Tab reads and writes are implemented for the stream-widget composites
 ([composites.md](composites.md)). No general variables UI yet — the plan's Actions
 panel is expected to list and reset variables.
 
