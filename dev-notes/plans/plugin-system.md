@@ -20,6 +20,11 @@ git repository.
   editor; the list comes from a manifest file in a git repository.
 - **[decided]** (user, 2026-11-26) The Spotify plugin is the first plugin and drives the
   scope of the extension points below.
+- **[decided]** (user, 2026-11-26) For now the registry manifest lives in this repository;
+  the registry URL is configurable in the app.
+- **[decided]** (user, 2026-11-26) Accounts extend the existing accounts window
+  (`OverliveAccountsModal`) — made generic enough for plugin providers — rather than a
+  new window.
 - **[observed]** The released app is `node.exe`/`node` + a single esbuild CJS bundle
   (`packages/backend/bundle.mjs` → `dist/bundle.cjs`) + the built frontend. There is no
   package manager on a user's machine, so plugins must arrive **prebuilt**.
@@ -116,14 +121,20 @@ duplicated modules.
 
 ### New core pieces the plugin system needs
 
-- **Named trigger Action kind** (`on_trigger` → response). Not plugin-specific; it is how
-  "generic trigger" fires a plugin response. Composites already consume named triggers.
-- **Generic account store**: `plugin_accounts` table (`id`, `project_id`, `plugin_id`,
+- **Named trigger Action kind** — a *receiver*: its trigger is an `on_trigger` node
+  (name ← settings), followed by the shared single-response block. Emitting named
+  triggers already works (`send_trigger`, the Actions' `trigger` setting, composites);
+  what is missing is an **Action** that starts on one — every current kind starts on a
+  hotkey, chat message or redemption. (Observed 2026-11-26: no kind in `ACTION_KINDS`
+  uses `on_trigger`.) Without it, "trigger X → Spotify skip" still works as a hand-wired
+  Logic graph, just not from the Actions panel. Not plugin-specific.
+- **Generic account store** (extends the existing accounts window): `plugin_accounts` table (`id`, `project_id`, `plugin_id`,
   `provider`, `label`, `credentials` JSON, `identity` JSON, `status`, `status_reason`,
   `status_message`, timestamps), REST under `/api/projects/:id/plugin-accounts`, OAuth
   routes `/api/plugin-auth/:pluginId/:provider/{start,callback}` (PKCE + state map, like
-  `overlive-auth.ts`), and an **Accounts** window that shows Overlive and plugin
-  providers side by side (replaces / extends `OverliveAccountsModal`).
+  `overlive-auth.ts`). `OverliveAccountsModal` is refactored into a provider-driven
+  window: Twitch / StreamElements become built-in providers next to plugin ones, each
+  contributing its add flow, row status and reconnect; the `vs-` handles stay.
 - **Missing-plugin placeholders**: a graph node / composite / Action whose plugin is not
   installed must load as an inert "missing: spotify_skip (plugin spotify)" instead of
   breaking the graph. The worker must check what `engine.ts` / `validateDescriptor` /
@@ -141,8 +152,13 @@ duplicated modules.
 
 ### Registry manifest (in git)
 
+Default: `plugins/registry.json` in this repository, read from `main` via its raw URL.
+The Plugins window has a registry setting (persisted in `config.json`
+`plugins.registries`, a list so a third-party registry can be added later; defaults to
+the official URL, with a "reset to default" action).
+
 ```jsonc
-// registry.json — fetched from a raw git URL; config.json plugins.registries is a list
+// registry.json
 {
   "schema": 1,
   "plugins": [{
@@ -164,6 +180,23 @@ duplicated modules.
 The newest version whose `apiVersion` and `vspark` range match the running build, on the
 user's update channel, is offered. Downloads reuse the redirect-following `httpsGet` from
 `routes/update.ts`; the zip's SHA-256 must equal the registry's before it is unpacked.
+
+### Why release zips (and not git)
+
+Comparable systems, for reference: Jellyfin (a manifest JSON with zip URL + checksum per
+version — closest to this design), Obsidian (a list in a git repo pointing at plugin
+repos; the app downloads the built `main.js` / `manifest.json` from each repo's GitHub
+Release), VS Code / Stream Deck / Grafana (a zip-format package from a catalog).
+Git-clone installs (Vim/Neovim plugin managers, HACS partly) fit plugins that run from
+source with no build. vspark plugins are TypeScript bundled with their dependencies, and
+the released app ships no `git` binary — cloning would mean bundling git or
+isomorphic-git *and* committing build output to plugin repos. So: build in CI, publish a
+release asset, pin it by SHA-256 in the manifest.
+
+Considered variant (Obsidian-style): the manifest only names a repo and the app reads
+versions from its GitHub Releases. Less manifest upkeep, but it hits the unauthenticated
+GitHub API rate limit (60/h) and loses the registry-pinned checksum. Not chosen; CI bumps
+the manifest instead.
 
 ### Lifecycle
 
@@ -207,7 +240,7 @@ just says "restart the dev server".
 - `packages/frontend/src/plugins/` (new) — loader (`import(/* @vite-ignore */ url)`),
   SDK object, i18n/help registration; mount before `Editor` renders.
 - `packages/frontend/src/components/editor/plugins/` (new) — Plugins window.
-- `packages/frontend/src/components/editor/AccountsWindow.tsx` (generalized accounts).
+- `packages/frontend/src/components/editor/OverliveAccountsModal.tsx` — generalized into a provider-driven accounts window (rename optional).
 - `components/editor/actions/` — `SchemaForm`, plugin response fields.
 - `.github/workflows/release.yml` — restart sentinel in start scripts.
 - i18n `plugins` namespace (en/de), help page `plugins.md` (en/de), `vs-` handles + bless.
@@ -251,10 +284,9 @@ just says "restart the dev server".
 1. **Trust model.** Plugins run unsandboxed. Proposal: official registry only by
    default, third-party registries behind an explicit "I trust this source" toggle,
    install dialog lists the hosts the plugin declares.
-2. **Where first-party plugins live.** Proposal: `plugins/<id>/` inside this monorepo
-   (excluded from the app bundle; shares types; CI builds zips) and `plugins/registry.json`
-   in the same repo, read from `main` via raw URL. Alternative: separate
-   `vspark-plugins` repo.
+2. **Where first-party plugin *source* lives.** The registry is decided (this repo).
+   Proposal: `plugins/<id>/` here too (excluded from the app bundle; shares types; CI
+   builds zips on `<id>-v*` tags).
 3. **Per-project enablement?** Proposal: install + enable per installation only; nodes
    are available in every project.
 4. **Accounts per project or per installation?** Overlive's are per project; following
