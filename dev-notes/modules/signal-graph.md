@@ -51,6 +51,7 @@ Toolchain: repo runs TC39 Stage-3 decorators (TS 5.9, **no** `experimentalDecora
 
 After the Phase 2 re-architecture the engine is **wiring + lifecycle** over Node instances, not a central dispatcher:
 
+- **Unknown kinds** (plugin-system phase 1): a node whose kind the registry does not know — typically a plugin node whose plugin is not installed — is instantiated as an inert `MissingNode` placeholder with no ports, instead of aborting the load. Edges touching it are skipped silently (not reported as dropped), one warning names the missing kinds, and `graph.missingKinds` lists them. The descriptor is not modified, so the node works again once its kind is registered.
 - `fromDescriptor` **instantiates + binds** each node, then replays the descriptor's edges through an embedded `InferGraph.tryAddEdge` (see below). Edges the inference rejects are **skipped with a console warning** rather than aborting the load. Accepted edges are routed by their **derived transport** (event → push subscription, value/list → pull thunk).
 - Instrumented `Emitter`/thunk wrappers preserve the existing `_edgeStates` flash/monitoring, the per-node `enabled` gate (skip when config disables a node), and per-node `try/catch` error isolation.
 - Public surface is preserved: `fire` / `deliverExternal` / `getStates` / `getNodeState` / `setNodeState` / `peekInput`.
@@ -86,6 +87,8 @@ Transport is folded **into** the type. The old `PortKind` / `PortDecl.kind` / `p
 `NODE_REGISTRY` maps kind string → node class. All 132 built-in node kinds are registered here. `getAllNodeKindMeta()` returns per-port `{name, resolved, typeTag, transport}` + `dynamic` flag and display metadata for each kind — this drives the UI node palette.
 
 To register a node: import the class and add it to the registry (and, if it has dynamic or non-trivial ports, add its `inferPorts` entry to `INFER_BY_KIND` in `infer_nodes.ts`).
+
+**Plugin kinds** (plugin-system phase 1, [plans/plugin-system.md](../plans/plugin-system.md)): `registerNodeKinds(pluginId, classes)` adds kinds to the same map (consumers hold the map, so they see later additions). Kinds must start with `<pluginId>_`, must not exist yet, and the class must carry the host's `@SignalNode` display metadata (a plugin that bundled its own copy of the decorators would produce classes whose ports the engine cannot see) — all-or-nothing. `unregisterNodeKinds(pluginId)` removes them; `pluginOfNodeKind(kind)` answers which plugin owns a kind, and `getAllNodeKindMeta()` sets `plugin` on those kinds' metadata. Behavior-graph writes keep an existing node of an unknown kind (same id and kind as in the previous document) and refuse only adding one (`validateBehaviorGraph(d, prev)`). The canvas renders an unknown kind as "Missing: <kind>" with the ports its stored edges use (`missingKindPorts`).
 
 ## Node Kinds — `signal/nodes/`
 

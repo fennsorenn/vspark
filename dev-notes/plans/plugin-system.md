@@ -1,6 +1,6 @@
 # Plan: Plugin system
 
-> **Status:** design-only
+> **Status:** in progress — phase 1 shipped (2026-11-27, branch `claude/sharp-davinci-ig0xws`); phases 2–5 open
 > Branch: `feature/plugin-system`
 > This plan is the seed context for a cloud worker. It is a starting point, not an
 > airtight spec — the worker is interactive and may ask to refine it.
@@ -309,6 +309,37 @@ just says "restart the dev server".
    `plugins.dev` at `dist/`, and the release workflow from step 5 (zip + sha256 as
    release assets, printing the registry entry to paste). `vspark_spotify` is created
    from it.
+
+## Phase 1 as shipped
+
+Implemented on `claude/sharp-davinci-ig0xws` (commits c57bd9c … 53ebbae):
+
+- Named trigger Action kind (`named_trigger`); template helpers exported.
+- Shared: `registerResponseType` / `registerActionKind` / `registerCompositeType`
+  + unregister counterparts; `FormField`; `responseTypeIds()`; plugin i18n keys
+  qualified as `plugin-<id>:<key>`.
+- Backend: `registerNodeKinds` (refuses undecorated classes), node meta `plugin`;
+  `registerBuiltinComposite` (ids `plugin:<id>:<name>`).
+- Editor: `SchemaForm` for plugin kinds, plugin response types in every picker,
+  `registerCompositeDef`, plugin composite labels from the plugin namespace.
+- Unknown node kinds: inert placeholders in the engine, kept on behavior-graph
+  writes, shown as "Missing: <kind>" on the canvas.
+
+Deviations from the draft SDK in the plugin zips (Claude's calls, to align with
+the host's existing conventions — the drafts need these changes):
+
+- Composite labels use the host keys in the plugin namespace: `type.<type>`,
+  `group.<group>`, `setting.<key>`, `option.<key>.<option>` (the drafts used
+  `composite.<type>.name`).
+- Select options of generated forms read `option.<path>.<value>` (the drafts'
+  `option.<last segment>.<value>` matches only for top-level paths).
+- Registration functions take the plugin id first (`registerActionKind(pluginId,
+  def)`); the SDK's `sdk.actions` maps to the exported helpers
+  (`normalizeRank` = `rankOf`).
+- Plugin Action kinds have no help button yet (plugin help pages come with the
+  loader).
+- `SchemaForm.tsx` is excluded from e2e control coverage until a fixture plugin
+  can be installed in e2e (`e2e/coverage-ignore.json`).
 
 ## Acceptance / verification
 

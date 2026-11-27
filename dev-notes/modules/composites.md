@@ -286,6 +286,18 @@ and Benannter Auslöser were chosen by Claude and are not yet confirmed.
   hand, list toggles; a second goal gets `goal 2` and its variable input suggests
   `goal`)
 
+## Plugin composites
+
+Plugin-system phase 1 ([plans/plugin-system.md](../plans/plugin-system.md)):
+`registerCompositeType(pluginId, def)` (shared; sets `def.plugin`),
+`registerBuiltinComposite(pluginId, payload)` (backend; payload id
+`plugin:<pluginId>:<name>`, listed by `GET /api/presets/composites` with
+`plugin`) and `registerCompositeDef(pluginId, def)` (frontend palette; default
+icon `Puzzle`). Each has an `unregister…` counterpart. A plugin type's labels
+live in its namespace under the same keys as built-ins: `type.<type>`,
+`group.<group>`, `setting.<key>`, `option.<key>.<option>`
+(`CompositeSettings.tsx` `labelKey`, `compositeLabelKey`).
+
 ## Adding a composite type
 
 1. Add a `CompositeTypeDef` to `packages/shared/src/composites.ts` and register it in

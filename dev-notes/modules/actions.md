@@ -1,7 +1,8 @@
 # Actions
 
-**Status: Implemented (core + all six kinds: Hotkey, Chat command, Chat
-pattern, Chat keyword, Keyword combo, Redemption).** See
+**Status: Implemented (core + seven kinds: Hotkey, Chat command, Chat
+pattern, Chat keyword, Keyword combo, Redemption, Named trigger).** Plugins can
+register kinds and response types (see [Plugin contributions](#plugin-contributions)). See
 [plans/actions.md](../plans/actions.md). The Hotkey kind replaced the Macros
 panel, which was removed on 2026-11-09. Behaviors getting the same stored-graph treatment
 (Phase 4) is implemented — see
@@ -409,6 +410,42 @@ markers `vs-action-row`, `vs-action-group-<kind>`, `vs-action-preview`,
 
 Changing a template is safe: unmodified graphs are regenerated at the next
 boot; modified ones show "Template update".
+
+### Named trigger kind
+
+`named_trigger` — the receiving end of named triggers in the Actions panel
+(added in plugin-system phase 1; the user asked for a way for Actions to be
+started by `send_trigger` and future trigger sources). Settings: `name` (value,
+trimmed), `cooldown` (value, default 0 s), `response` (**type shape**).
+Template: `on_trigger(name ← settings)` → `cooldown` → single response. Preview:
+the name (or `preview.noTriggerName`) + cooldown; response line. Form:
+`NamedTriggerForm` in `ChatForms.tsx` (`vs-action-trigger-name`, with trigger
+name suggestions). Not in the chat kinds' shared tests (no account).
+
+## Plugin contributions
+
+Plugin-system phase 1 ([plans/plugin-system.md](../plans/plugin-system.md)).
+The registries in `@vspark/shared/actions` are extended in place:
+
+- `registerResponseType(pluginId, id, def)` — the type is offered by every kind
+  with a response. `def.form` (declarative `FormField`s) describes its editor
+  fields (`responseFields.ts` `pluginResponseFields` maps them onto the
+  response-field controls); `def.label` is its i18n key. Read ids through
+  `responseTypeIds()`; `RESPONSE_TYPE_IDS` is the built-in snapshot.
+- `registerActionKind(pluginId, def)` — appended to `ACTION_KINDS`. A kind with
+  `form` gets the generated `SchemaForm` (`components/editor/actions/SchemaForm.tsx`;
+  `vs-action-schema-field-<path>` handles; `when` hides fields). Its label /
+  description are `plugin-<id>:kinds.<kind>.label|description`
+  (`actions/kindKeys.ts`); its preview `msg` keys and form labels are
+  qualified with the plugin namespace at registration (`pluginKey`). Plugin
+  kinds have no section on the Actions help page, so their group header has no
+  help button (their help comes with the plugin, phase 2).
+- Ids must start with `<pluginId>_` (`checkContributionId`); duplicates and
+  built-in ids are refused (`RegistrationError`).
+  `unregisterActionContributions(pluginId)` removes both; stored actions of a
+  removed kind remain and show as unknown kinds.
+- Exported for plugin templates: `Tpl`, `Out`, `addRankGate`, `addCooldown`,
+  `normalizeCooldown`, `rankOf` (plus the already exported matchers).
 
 ## Known gaps (observed, not decided)
 
