@@ -1,0 +1,27 @@
+# Publishes the @vspark/plugin-sdk typings to npm. Tag `plugin-sdk-v<version>`
+# matching packages/plugin-sdk/package.json. Needs the NPM_TOKEN repository
+# secret (an npm automation token with publish rights on the @vspark scope).
+name: Publish plugin SDK
+on:
+  push:
+    tags: ['plugin-sdk-v*']
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          registry-url: https://registry.npmjs.org
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @vspark/plugin-sdk lint
+      - name: Check tag matches package.json
+        run: |
+          v=$(node -p "require('./packages/plugin-sdk/package.json').version")
+          [ "plugin-sdk-v$v" = "$GITHUB_REF_NAME" ] || { echo "tag $GITHUB_REF_NAME != plugin-sdk-v$v"; exit 1; }
+      - run: npm publish --access public
+        working-directory: packages/plugin-sdk
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

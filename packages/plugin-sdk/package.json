@@ -1,0 +1,16 @@
+{
+  "name": "@vspark/plugin-sdk",
+  "version": "0.1.0",
+  "description": "Typings of the vspark plugin API (apiVersion 1). Types only — vspark injects the SDK at runtime.",
+  "license": "UNLICENSED",
+  "type": "module",
+  "types": "index.d.ts",
+  "files": ["index.d.ts", "README.md"],
+  "publishConfig": { "access": "public" },
+  "scripts": {
+    "lint": "tsc --noEmit -p ."
+  },
+  "devDependencies": {
+    "typescript": "^5.8.3"
+  }
+}
