@@ -125,5 +125,17 @@
   },
   "help": {
     "streamAccounts": "Connect Twitch or StreamElements here so vspark can react to live stream events in your Logic automations."
+  },
+  "plugins": {
+    "heading": "Plugin accounts",
+    "connect": "Connect",
+    "needsApp": "Enter the app details first",
+    "redirectUri": "Redirect URI to register:",
+    "showSetup": "How to set up",
+    "hideSetup": "Hide setup",
+    "empty": "No account connected yet.",
+    "removeConfirm": "Disconnect \"{{label}}\"? Actions and nodes that use it fall back to the project's default account.",
+    "connectFailed": "Could not connect the account.",
+    "help": "Accounts of plugins (for example Spotify)"
   }
 }

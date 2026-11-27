@@ -125,5 +125,17 @@
   },
   "help": {
     "streamAccounts": "Verbinde hier Twitch oder StreamElements, damit vspark in deinen Logik-Automatisierungen auf Live-Stream-Ereignisse reagieren kann."
+  },
+  "plugins": {
+    "heading": "Plugin-Konten",
+    "connect": "Verbinden",
+    "needsApp": "Trage zuerst die App-Daten ein",
+    "redirectUri": "Einzutragende Redirect-URI:",
+    "showSetup": "So richtest du es ein",
+    "hideSetup": "Anleitung ausblenden",
+    "empty": "Noch kein Konto verbunden.",
+    "removeConfirm": "„{{label}}“ trennen? Aktionen und Knoten, die es nutzen, verwenden dann das Standardkonto des Projekts.",
+    "connectFailed": "Das Konto konnte nicht verbunden werden.",
+    "help": "Konten von Plugins (zum Beispiel Spotify)"
   }
 }

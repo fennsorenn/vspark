@@ -15,6 +15,8 @@ import { join } from 'node:path';
 import type { Collection, MeshPeer } from '@vspark/mesh';
 import type { PluginDoc } from '@vspark/shared/types';
 import type { LoadedPlugin } from '../plugins/loader.js';
+import { PROVIDERS } from '../plugins/accounts/store.js';
+import { oauthRedirectUri } from '../plugins/accounts/oauth.js';
 
 export const PLUGIN_RTYPE = 'plugin';
 
@@ -92,6 +94,15 @@ export function pluginDoc(serverPeerId: string, p: LoadedPlugin): PluginDoc {
     entries: { shared: m.entries.shared ?? null, ui: m.entries.ui ?? null },
     locales,
     help,
+    providers: [...PROVIDERS.values()]
+      .filter((pr) => pr.pluginId === m.id)
+      .map((pr) => ({
+        id: pr.fullId,
+        label: pr.label,
+        appFields: pr.auth.appFields.map((f) => ({ path: f.path, label: f.label, ...(f.hint ? { hint: f.hint } : {}) })),
+        ...(pr.setupHelp ? { setupHelp: pr.setupHelp } : {}),
+        redirectUri: oauthRedirectUri(),
+      })),
   };
 }
 

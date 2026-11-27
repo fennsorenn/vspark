@@ -21,10 +21,12 @@ import meta from './meta.js';
 import ui from './ui.js';
 import learnedTracker from './learned-tracker.js';
 import plugins from './plugins.js';
+import pluginAuth from '../plugins/accounts/oauth.js';
 
 const router: ReturnType<typeof Router> = Router();
 router.use(projects);
 router.use(plugins);
+router.use(pluginAuth);
 router.use(scenes);
 router.use(sceneNodes);
 router.use(assets);

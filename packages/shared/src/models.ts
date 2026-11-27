@@ -162,6 +162,11 @@ export const MODELS = {
   // content with read only `name` (decided: user, 2026-11-27), so they can say
   // which plugin a node or object they cannot run needs.
   plugin: { channels: [RUNTIME] },
+  // A plugin provider's account in a project (no tokens — those never leave
+  // the server) and the provider's app credentials per project. Project-wide,
+  // no parent (there is no `project` rtype).
+  plugin_account: {},
+  plugin_app: {},
   // Server-to-server only: pose/blendshape/drag frames on collab nodes, and
   // runtime events per collab scene.
   node_stream: { channels: ['preview'] },
@@ -192,4 +197,6 @@ export const TAB_MODELS: readonly ModelName[] = [
   'variable',
   'runtime_variable',
   'plugin',
+  'plugin_account',
+  'plugin_app',
 ];

@@ -841,10 +841,46 @@ export interface PluginDoc {
   locales: Record<string, Record<string, unknown>>;
   /** Help pages per language: page name (without `.md`) → markdown. */
   help: Record<string, Record<string, string>>;
+  /** Account providers it defined. */
+  providers: PluginProviderInfo[];
 }
 
 /** Split a `plugin` document id into its server and plugin id. */
 export function splitPluginDocId(id: string): { server: string; pluginId: string } {
   const i = id.lastIndexOf(':');
   return i < 0 ? { server: '', pluginId: id } : { server: id.slice(0, i), pluginId: id.slice(i + 1) };
+}
+
+/** A `plugin_account` mesh document. Tokens are not part of it. */
+export interface PluginAccountDoc {
+  id: string;
+  projectId: string;
+  /** `<pluginId>:<provider>`. */
+  provider: string;
+  label: string;
+  identity: Record<string, unknown>;
+  isDefault: boolean;
+  createdAt?: string;
+}
+
+/** A `plugin_app` mesh document: a provider's app credentials in a project,
+ *  id `<projectId>:<provider>` (e.g. `{ clientId }`). Non-secret fields only. */
+export interface PluginAppDoc {
+  id: string;
+  projectId: string;
+  provider: string;
+  fields: Record<string, string>;
+}
+
+/** An account provider as the editor sees it (in its plugin's document). */
+export interface PluginProviderInfo {
+  /** `<pluginId>:<provider>`. */
+  id: string;
+  /** i18n key in the plugin namespace. */
+  label: string;
+  appFields: { path: string; label: string; hint?: string }[];
+  /** i18n key of a markdown walkthrough; `{{redirectUri}}` is filled in. */
+  setupHelp?: string;
+  /** The redirect URI to register with the provider. */
+  redirectUri: string;
 }

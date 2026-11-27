@@ -49,6 +49,8 @@ import {
   resetServerStatus,
 } from './status.js';
 import { initMeshPlugins, resetMeshPlugins } from './plugins.js';
+import { guardPluginAccount, guardPluginApp } from '../plugins/accounts/guards.js';
+import { appFieldsOf, pluginAccountLifecycle } from '../plugins/accounts/store.js';
 import { initRuntimeVariables, resetRuntimeVariables } from './variables.js';
 import {
   persistentVariableId,
@@ -474,6 +476,30 @@ const BINDINGS: RtypeBinding[] = [
     clients: TAB_AUTHORED,
     table: 'variables',
     validate: (data) => guardVariable(data as Dto, 'var'),
+    persists: (d) => ownProject(d.projectId),
+  },
+  {
+    // A plugin provider's account (plugin-system phase 3). Created by the
+    // server when an OAuth flow completes; tabs rename it, make it the
+    // default or delete it. Tokens are a server-only column (not in the doc).
+    rtype: 'plugin_account',
+    clients: { read: true, update: true, delete: true },
+    table: 'plugin_accounts',
+    validate: (data, { origin, prev }) =>
+      guardPluginAccount(data as Dto, prev as Dto | undefined, isClientParticipant(origin)),
+    onSaved: (d) => pluginAccountLifecycle.onSaved(d),
+    onRemoving: (id) => pluginAccountLifecycle.onRemoving(id),
+    persists: (d) => ownProject(d.projectId),
+  },
+  {
+    // A provider's app credentials in a project (e.g. a client id).
+    rtype: 'plugin_app',
+    clients: TAB_AUTHORED,
+    table: 'plugin_apps',
+    validate: (data) => {
+      const d = data as Dto;
+      return guardPluginApp(d, appFieldsOf(String(d.provider ?? '')));
+    },
     persists: (d) => ownProject(d.projectId),
   },
   {

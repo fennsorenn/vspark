@@ -6,6 +6,8 @@
  */
 import { useTranslation } from 'react-i18next';
 import type { FormField } from '@vspark/shared/actions';
+import type { PluginAccountDoc } from '@vspark/shared/types';
+import { useCollection, useMeshAll } from '@vspark/mesh-react';
 import type { ActionRecord } from '../../../mesh/actions';
 import { DraftNumber, DraftText, SettingCheck } from './draftInputs';
 import {
@@ -45,14 +47,48 @@ const retarget =
   (p, v) =>
     onSetting(path + p.slice(fixed.length), v);
 
+/** A plugin provider's accounts in this project; empty = the default one. */
+function PluginAccountSelect({
+  className,
+  provider,
+  projectId,
+  value,
+  onChange,
+}: {
+  className: string;
+  provider: string;
+  projectId: string;
+  value: string;
+  onChange: (v: string) => void;
+}) {
+  const { t } = useTranslation('actions');
+  const accounts = useMeshAll(useCollection<PluginAccountDoc>('plugin_account')).filter(
+    (a) => a.projectId === projectId && a.provider === provider
+  );
+  const known = !value || accounts.some((a) => a.id === value);
+  return (
+    <select className={className} value={value} onChange={(e) => onChange(e.target.value)} style={inputStyle}>
+      <option value="">{t('form.defaultAccount')}</option>
+      {accounts.map((a) => (
+        <option key={a.id} value={a.id}>
+          {a.label}
+        </option>
+      ))}
+      {!known && <option value={value}>{t('form.missingAccount')}</option>}
+    </select>
+  );
+}
+
 function SchemaRow({
   field,
   value,
   onSetting,
+  projectId,
 }: {
   field: FormField;
   value: unknown;
   onSetting: OnSetting;
+  projectId: string;
 }) {
   const { t } = useTranslation('actions');
   const label = t(field.label);
@@ -76,11 +112,15 @@ function SchemaRow({
     case 'account':
       if (!field.provider || field.provider === 'overlive')
         return <AccountField value={value} onSetting={retarget(onSetting, 'account', field.path)} />;
-      // Plugin account providers get their picker with the generic account
-      // store (plugin-system phase 3); until then the id is typed.
       return (
         <Field label={label} hint={hint || undefined}>
-          <DraftText className={handle(field.path)} value={str} onCommit={set} />
+          <PluginAccountSelect
+            className={handle(field.path)}
+            provider={field.provider}
+            projectId={projectId}
+            value={str}
+            onChange={set}
+          />
         </Field>
       );
     case 'toggle':
@@ -148,6 +188,7 @@ export function SchemaForm({
   action: ActionRecord;
   onSetting: OnSetting;
 }) {
+  const projectId = action.projectId;
   const s = action.settings;
   const read = (path: string) => readPath(s, path);
   return (
@@ -155,7 +196,7 @@ export function SchemaForm({
       {form
         .filter((f) => !f.when || f.when(read))
         .map((f) => (
-          <SchemaRow key={f.path} field={f} value={read(f.path)} onSetting={onSetting} />
+          <SchemaRow key={f.path} field={f} value={read(f.path)} onSetting={onSetting} projectId={projectId} />
         ))}
     </div>
   );

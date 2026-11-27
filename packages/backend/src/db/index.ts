@@ -67,6 +67,7 @@ import m044 from './migrations/044_pose_source_to_tracking_mix.js';
 import m045 from './migrations/045_actions.js';
 import m046 from './migrations/046_variables.js';
 import m047 from './migrations/047_behavior_graphs.js';
+import m048 from './migrations/048_plugin_accounts.js';
 
 const { Database } = nodeSqliteWasm as unknown as {
   Database: typeof DatabaseType;
@@ -137,6 +138,7 @@ const MIGRATIONS: Migration[] = [
   { name: '045_actions.sql', sql: m045 },
   { name: '046_variables.sql', sql: m046 },
   { name: '047_behavior_graphs.ts', run: m047 },
+  { name: '048_plugin_accounts.sql', sql: m048 },
 ];
 
 // Thin wrapper so call sites can use .run(a, b, c) spread syntax.

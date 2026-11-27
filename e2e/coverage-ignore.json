@@ -3,8 +3,10 @@
   "files": [
     "components/editor/numericInputs.tsx",
     "components/editor/actions/draftInputs.tsx",
-    "components/editor/actions/SchemaForm.tsx"
+    "components/editor/actions/SchemaForm.tsx",
+    "components/editor/PluginAccountsSection.tsx"
   ],
   "controls": [],
-  "_comment_SchemaForm": "SchemaForm.tsx renders only for plugin Action kinds, which e2e cannot install until the plugin loader exists (plugin-system phase 2); it is covered by frontend/test/plugins.registry.test.tsx. Remove this entry when a fixture plugin can be installed in e2e."
+  "_comment_SchemaForm": "SchemaForm.tsx renders only for plugin Action kinds, which e2e cannot install until the plugin loader exists (plugin-system phase 2); it is covered by frontend/test/plugins.registry.test.tsx. Remove this entry when a fixture plugin can be installed in e2e.",
+  "_comment_PluginAccountsSection": "PluginAccountsSection.tsx renders only when a plugin with an account provider is running; e2e has no fixture plugin yet (plugin-system phase 4 adds one). Covered by frontend/test/plugins.accounts.test.tsx. Remove this entry when the e2e fixture plugin lands."
 }

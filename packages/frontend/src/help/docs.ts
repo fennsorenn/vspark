@@ -57,6 +57,7 @@ const TOPIC_ORDER = [
   'obs',
   'multiplayer',
   'assistant',
+  'plugins',
   // Parameter-reference pages
   'transform',
   'camera',

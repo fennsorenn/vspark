@@ -12,6 +12,7 @@
  * Future Features → Multi-user usage.
  */
 import { useEffect, useState } from 'react';
+import { PluginAccountsSection } from './PluginAccountsSection';
 import { Circle } from 'lucide-react';
 import { useParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
@@ -517,6 +518,9 @@ export function OverliveAccountsModal({ onClose }: Props) {
             })
           )}
         </section>
+
+        {/* Accounts of plugin providers (e.g. Spotify) — mesh documents */}
+        {projectId && <PluginAccountsSection projectId={projectId} />}
 
         {/* OBS Connections section (obs-websocket power tier) */}
         <section style={sectionStyle}>
@@ -1249,11 +1253,11 @@ const closeBtnStyle: React.CSSProperties = {
   padding: 0,
   lineHeight: 1,
 };
-const sectionStyle: React.CSSProperties = {
+export const sectionStyle: React.CSSProperties = {
   padding: '12px 16px',
   borderBottom: '1px solid #2a2a2a',
 };
-const sectionHeaderStyle: React.CSSProperties = {
+export const sectionHeaderStyle: React.CSSProperties = {
   display: 'flex',
   alignItems: 'center',
   justifyContent: 'space-between',
@@ -1264,13 +1268,13 @@ const sectionHeaderStyle: React.CSSProperties = {
   letterSpacing: 0.5,
   marginBottom: 8,
 };
-const emptyStateStyle: React.CSSProperties = {
+export const emptyStateStyle: React.CSSProperties = {
   fontSize: 12,
   color: '#666',
   fontStyle: 'italic',
   padding: '8px 0',
 };
-const rowStyle: React.CSSProperties = {
+export const rowStyle: React.CSSProperties = {
   display: 'flex',
   alignItems: 'center',
   gap: 8,
@@ -1279,7 +1283,7 @@ const rowStyle: React.CSSProperties = {
   margin: '2px 0',
   background: '#202020',
 };
-const rowTitleStyle: React.CSSProperties = {
+export const rowTitleStyle: React.CSSProperties = {
   fontSize: 13,
   color: '#e0e0e0',
   fontWeight: 500,
@@ -1287,12 +1291,12 @@ const rowTitleStyle: React.CSSProperties = {
   textOverflow: 'ellipsis',
   whiteSpace: 'nowrap',
 };
-const rowSubStyle: React.CSSProperties = {
+export const rowSubStyle: React.CSSProperties = {
   fontSize: 11,
   color: '#777',
   marginTop: 2,
 };
-const primaryBtnStyle: React.CSSProperties = {
+export const primaryBtnStyle: React.CSSProperties = {
   background: '#2563eb',
   border: 'none',
   color: '#fff',
@@ -1302,7 +1306,7 @@ const primaryBtnStyle: React.CSSProperties = {
   fontSize: 12,
   fontWeight: 500,
 };
-const secondaryBtnStyle: React.CSSProperties = {
+export const secondaryBtnStyle: React.CSSProperties = {
   background: '#2a2a2a',
   border: '1px solid #3a3a3a',
   color: '#ccc',
@@ -1311,7 +1315,7 @@ const secondaryBtnStyle: React.CSSProperties = {
   cursor: 'pointer',
   fontSize: 12,
 };
-const dangerBtnStyle: React.CSSProperties = {
+export const dangerBtnStyle: React.CSSProperties = {
   background: 'none',
   border: 'none',
   color: '#666',
@@ -1320,12 +1324,12 @@ const dangerBtnStyle: React.CSSProperties = {
   padding: '2px 6px',
   lineHeight: 1,
 };
-const labelStyle: React.CSSProperties = {
+export const labelStyle: React.CSSProperties = {
   fontSize: 11,
   color: '#888',
   textAlign: 'right',
 };
-const inputStyle: React.CSSProperties = {
+export const inputStyle: React.CSSProperties = {
   background: '#0e0e0e',
   border: '1px solid #2a2a2a',
   color: '#e0e0e0',
@@ -1338,7 +1342,7 @@ const linkStyle: React.CSSProperties = {
   color: '#4a90d9',
   textDecoration: 'none',
 };
-const codeStyle: React.CSSProperties = {
+export const codeStyle: React.CSSProperties = {
   background: '#0a0a0a',
   padding: '1px 4px',
   borderRadius: 3,

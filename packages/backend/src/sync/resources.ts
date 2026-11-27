@@ -898,3 +898,115 @@ defineResource({
 defineResource({ rtype: 'vmc_pose', cls: 'stream' });
 defineResource({ rtype: 'vmc_blendshapes', cls: 'stream' });
 defineResource({ rtype: 'pose_ik_targets', cls: 'stream' });
+
+// ── Plugin accounts (plugin-system phase 3) ─────────────────────────────────
+
+interface PluginAccountRow {
+  id: string;
+  project_id: string;
+  provider: string;
+  label: string;
+  identity: string;
+  is_default: number;
+  created_at: string;
+}
+
+const parseObj = (s: string | null | undefined): Record<string, unknown> => {
+  try {
+    const v = JSON.parse(s || '{}');
+    return v && typeof v === 'object' && !Array.isArray(v) ? v : {};
+  } catch {
+    return {};
+  }
+};
+
+/** `plugin_account` — the `credentials` column (tokens) is deliberately not
+ *  part of the document: load never reads it, save never writes it. */
+defineResource({
+  rtype: 'plugin_account',
+  cls: 'document',
+  load: (id) => {
+    const r = getDb()
+      .prepare(
+        'SELECT id, project_id, provider, label, identity, is_default, created_at FROM plugin_accounts WHERE id = ?'
+      )
+      .get(id) as unknown as PluginAccountRow | undefined;
+    return r
+      ? {
+          id: r.id,
+          projectId: r.project_id,
+          provider: r.provider,
+          label: r.label,
+          identity: parseObj(r.identity),
+          isDefault: r.is_default === 1,
+          createdAt: r.created_at,
+        }
+      : undefined;
+  },
+  save: (dto) => {
+    const d = dto as {
+      id: string;
+      projectId: string;
+      provider: string;
+      label?: string;
+      identity?: unknown;
+      isDefault?: boolean;
+      createdAt?: string;
+    };
+    getDb()
+      .prepare(
+        `INSERT INTO plugin_accounts
+           (id, project_id, provider, label, identity, is_default, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, COALESCE(?, datetime('now')), datetime('now'))
+         ON CONFLICT(id) DO UPDATE SET
+           project_id = excluded.project_id,
+           provider   = excluded.provider,
+           label      = excluded.label,
+           identity   = excluded.identity,
+           is_default = excluded.is_default,
+           updated_at = datetime('now')`
+      )
+      .run(
+        d.id,
+        d.projectId,
+        d.provider,
+        d.label ?? '',
+        JSON.stringify(d.identity ?? {}),
+        d.isDefault ? 1 : 0,
+        d.createdAt ?? null
+      );
+  },
+  remove: (id) => {
+    getDb().prepare('DELETE FROM plugin_accounts WHERE id = ?').run(id);
+  },
+});
+
+defineResource({
+  rtype: 'plugin_app',
+  cls: 'document',
+  load: (id) => {
+    const r = getDb()
+      .prepare('SELECT id, project_id, provider, fields FROM plugin_apps WHERE id = ?')
+      .get(id) as unknown as
+      | { id: string; project_id: string; provider: string; fields: string }
+      | undefined;
+    return r
+      ? { id: r.id, projectId: r.project_id, provider: r.provider, fields: parseObj(r.fields) }
+      : undefined;
+  },
+  save: (dto) => {
+    const d = dto as { id: string; projectId: string; provider: string; fields?: unknown };
+    getDb()
+      .prepare(
+        `INSERT INTO plugin_apps (id, project_id, provider, fields, created_at, updated_at)
+         VALUES (?, ?, ?, ?, datetime('now'), datetime('now'))
+         ON CONFLICT(id) DO UPDATE SET
+           fields = excluded.fields,
+           updated_at = datetime('now')`
+      )
+      .run(d.id, d.projectId, d.provider, JSON.stringify(d.fields ?? {}));
+  },
+  remove: (id) => {
+    getDb().prepare('DELETE FROM plugin_apps WHERE id = ?').run(id);
+  },
+});

@@ -1,3 +1,5 @@
+# TO ENABLE: move this file to .github/workflows/plugin-sdk.yml (it could not be
+# pushed from the cloud session: the GitHub app lacks the `workflow` scope).
 # Publishes the @vspark/plugin-sdk typings to npm. Tag `plugin-sdk-v<version>`
 # matching packages/plugin-sdk/package.json. Needs the NPM_TOKEN repository
 # secret (an npm automation token with publish rights on the @vspark scope).

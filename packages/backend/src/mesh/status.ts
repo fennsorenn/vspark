@@ -32,7 +32,9 @@ export type StatusKind =
   /** a streaming account: status / reason / message. Key = account id. */
   | 'overlive_account'
   /** the OBS window-capture runtime (key 'main'). */
-  | 'output_window';
+  | 'output_window'
+  /** a plugin provider's account: status / message. Key = account id. */
+  | 'plugin_account';
 
 export interface StatusDoc {
   id: string;
