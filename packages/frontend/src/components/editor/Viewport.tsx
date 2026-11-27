@@ -161,7 +161,7 @@ import {
   useSceneNodes,
 } from '../../mesh/nodes';
 import {
-  useDataFields,
+  useFeedFields,
   useRuntimeOverrides,
   useSceneNodeVisibleOverrides,
 } from '../../mesh/runtime';
@@ -5194,14 +5194,9 @@ function FeedCanvasNode({
   const css = typeof cfg.css === 'string' ? cfg.css : '';
   const compiled = useMemo(() => compileTemplate(template), [template]);
 
-  // Fields visible to this node: GLOBAL ∪ its own id (own wins), mirroring the
-  // 2D feed layer's consumer-by-identity model.
-  const globalFields = useDataFields('');
-  const ownFields = useDataFields(node.id);
-  const channels = useMemo(
-    () => ({ ...(globalFields ?? {}), ...(ownFields ?? {}) }),
-    [globalFields, ownFields]
-  );
+  // Fields visible to this node: GLOBAL ∪ its project's ∪ its own id (later
+  // wins), mirroring the 2D feed layer's consumer-by-identity model.
+  const channels = useFeedFields(node.projectId, node.id);
   const scopeId = useMemo(
     () => `feed3d-${node.id.replace(/[^a-zA-Z0-9_-]/g, '')}`,
     [node.id]

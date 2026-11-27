@@ -1,3 +1,4 @@
+import { useMemo } from 'react';
 /**
  * Runtime state, read from the replica: graph-driven param overrides, the
  * published data fields that feed templates, and the server's live status
@@ -94,6 +95,25 @@ export function useDataFields(
         ? Object.fromEntries(mine.map((d) => [d.field, d.value]))
         : undefined;
     }
+  );
+}
+
+/** The data-field scope of a whole project: fields published there (e.g. by
+ *  a plugin) are seen by that project's feeds only, never another project's. */
+export const projectDataScope = (projectId: string): string => `project:${projectId}`;
+
+/** What a feed consumer sees: GLOBAL, then its PROJECT's fields, then its OWN
+ *  (later wins). */
+export function useFeedFields(
+  projectId: string | undefined,
+  ownId: string
+): Record<string, unknown> {
+  const globalFields = useDataFields('');
+  const projectFields = useDataFields(projectId ? projectDataScope(projectId) : '\u0000none');
+  const ownFields = useDataFields(ownId);
+  return useMemo(
+    () => ({ ...(globalFields ?? {}), ...(projectFields ?? {}), ...(ownFields ?? {}) }),
+    [globalFields, projectFields, ownFields]
   );
 }
 

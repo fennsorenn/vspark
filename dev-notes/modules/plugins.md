@@ -86,8 +86,9 @@ account (`overlive` or a plugin provider), rank, cooldown, list; `when` hides a 
   folder).
 - `context.ts` — `ctx`: `nodes.register`, `accounts` (below), `logic.routeEvent`
   (fires into running nodes of a kind in a project; `account` input matched like
-  Overlive routing, empty = any) and `hasConsumers`, `data.publish` (data fields, global
-  scope) and `isReferenced`, `storage` (JSON file in `<plugins>/<id>/data/`, plus
+  Overlive routing, empty = any) and `hasConsumers`, `data.publish` (data fields in the
+  project's scope `project:<id>` — **decided (user, 2026-11-27): plugin data is not
+  shared between projects**) and `isReferenced`, `storage` (JSON file in `<plugins>/<id>/data/`, plus
   per-project prefix), `projects` (from `projectEvents`, emitted by the project routes),
   `http.router()` (mounted at `/api/plugin/<id>/` — for outside callers only), `log`,
   `config` (config.json `plugins.settings[<id>]`), `onDispose`.
@@ -174,8 +175,6 @@ Backend: `plugins.registry.test.ts` (phase 1), `plugins.loader.test.ts`,
 
 ## Known gaps (observed, not decided)
 
-- Data fields a plugin publishes are global (scope `''`): two projects on one server
-  publishing the same field share it.
 - Plugin node kinds' inline `Account` dropdown on the canvas lists Overlive accounts;
   composite `account` settings do not take a plugin provider yet (empty = default works).
 - Behavior graphs using a newly installed plugin's nodes are not restarted live (Logic

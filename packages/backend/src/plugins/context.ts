@@ -11,7 +11,7 @@ import { mkEvent } from '@vspark/shared/signal';
 import type { SignalNodeClass } from '@vspark/shared/signal';
 import { getDb } from '../db/index.js';
 import { logicManager } from '../logic/manager.js';
-import { dataChannelManager } from '../data_channels/manager.js';
+import { dataChannelManager, projectDataScope } from '../data_channels/manager.js';
 import { getMeshCollection } from '../mesh/index.js';
 import { registerNodeKinds } from '../signal/registry.js';
 import { pluginDataDir } from './paths.js';
@@ -150,11 +150,10 @@ export function createContext(opts: {
       },
     },
     data: {
-      // Global scope: every feed layer sees the fields by bare name. Field
-      // names are expected to carry the plugin id (e.g. `spotifyNowPlaying`).
-      // Inferred choice: two projects publishing the same field on one server
-      // would share it — see plugins.md "Known gaps".
-      publish: (_projectId, fields) => dataChannelManager.set('', fields),
+      // The project's scope: that project's feeds see the fields by bare
+      // name, other projects never do (decided: user, 2026-11-27 — plugin
+      // data is not shared between projects).
+      publish: (projectId, fields) => dataChannelManager.set(projectDataScope(projectId), fields),
       isReferenced(projectId, field) {
         const layers = getMeshCollection('compose_layer')?.all() ?? [];
         return layers.some((l) => {

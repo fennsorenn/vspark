@@ -391,9 +391,10 @@ export interface LogicApi {
 }
 
 export interface DataApi {
-  /** Publish data fields every feed layer sees by bare name (mesh `data_field`
-   *  documents, global scope). Field names must be JS identifiers prefixed with
-   *  the plugin id (`spotifyNowPlaying`). */
+  /** Publish data fields the project's feed layers see by bare name (mesh
+   *  `data_field` documents in the project's scope — other projects never see
+   *  them). Field names must be JS identifiers prefixed with the plugin id
+   *  (`spotifyNowPlaying`). */
   publish(projectId: string, fields: Record<string, unknown>): void;
   /** Whether a feed layer in the project references `field` in its template. */
   isReferenced(projectId: string, field: string): boolean;

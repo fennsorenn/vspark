@@ -56,8 +56,11 @@ next message, so a reconcile that wipes node state self-heals.)
 ### `DataChannelManager` — `data_channels/manager.ts`
 Sibling of `RuntimeOverrideManager`. In-memory, keyed by **`(scope, field)`** —
 `scope → Map<field, value>`:
-- **scope** — a consumer's id (a compose layer / scene node id), or `''` for
-  GLOBAL (visible to every consumer). A consumer reads `global ∪ its-own-id`.
+- **scope** — a consumer's id (a compose layer / scene node id), `''` for
+  GLOBAL (visible to every consumer), or `project:<projectId>` (visible to that
+  project's consumers only — plugin data, `projectDataScope`). A consumer reads
+  `global ∪ its-project ∪ its-own-id`, later wins (`useFeedFields` in
+  `frontend/src/mesh/runtime.ts`).
 - **field** — one published value's label (the former "channel name"), referenced
   by bare name in templates.
 

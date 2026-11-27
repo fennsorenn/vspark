@@ -144,3 +144,7 @@ export class DataChannelManager {
 
 // Singleton wired in src/index.ts.
 export const dataChannelManager = new DataChannelManager();
+
+/** The scope of a whole project (plugin data): seen by that project's feed
+ *  layers / nodes between the global fields and their own. */
+export const projectDataScope = (projectId: string): string => `project:${projectId}`;

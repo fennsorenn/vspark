@@ -30,7 +30,7 @@ import {
   FeedErrorBoundary,
 } from '../../lib/feedTemplate';
 import { useComposeLayers } from '../../mesh/compose';
-import { useDataFields, useRuntimeOverrides } from '../../mesh/runtime';
+import { useFeedFields, useRuntimeOverrides } from '../../mesh/runtime';
 
 interface ComposeLayerStackProps {
   layers: ComposeLayerRecord[];
@@ -594,12 +594,8 @@ function TextLayer({ layer }: { layer: ComposeLayerRecord }) {
 function FeedLayer({ layer }: { layer: ComposeLayerRecord }) {
   const { t } = useTranslation('compose');
   const cfg = layer.config as { template?: string; css?: string };
-  const globalFields = useDataFields('');
-  const ownFields = useDataFields(layer.id);
-  const channels = useMemo(
-    () => ({ ...(globalFields ?? {}), ...(ownFields ?? {}) }),
-    [globalFields, ownFields]
-  );
+  // GLOBAL ∪ this project's fields ∪ the layer's own (later wins).
+  const channels = useFeedFields(layer.projectId, layer.id);
   const template = typeof cfg.template === 'string' ? cfg.template : '';
   const compiled = useMemo(() => compileTemplate(template), [template]);
   const rawScopeId = useId();

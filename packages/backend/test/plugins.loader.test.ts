@@ -144,7 +144,7 @@ describe('plugin context', () => {
       { g: { name: 'Bo', _projectId: 'p1' } }
     );
     graph.deliverExternal('g', 'fire', { payload: undefined, timestamp: 0 });
-    expect(set).toHaveBeenCalledWith('', { helloGreeting: 'Hello, Bo!' });
+    expect(set).toHaveBeenCalledWith('project:p1', { helloGreeting: 'Hello, Bo!' });
     const stored = JSON.parse(readFileSync(join(pluginsDir, 'hello', 'data', 'storage.json'), 'utf8'));
     expect(stored.greetings).toBe(1);
   });
