@@ -81,23 +81,41 @@ describe('SignalGraph engine', () => {
     expect(graph.peekInput('log', 'inputs')).toEqual([42]);
   });
 
-  it('throws on an unknown node kind', () => {
+  it('keeps an unknown node kind as an inert placeholder; the rest runs', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
     const descriptor: GraphDescriptor = {
-      id: 'bad',
-      label: 'bad',
+      id: 'g',
+      label: 'g',
       readonly: false,
-      nodes: [{ id: 'x', kind: 'no_such_kind', position: { x: 0, y: 0 } }],
-      edges: [],
+      nodes: [
+        { id: 'trig', kind: 'component_trigger', position: { x: 0, y: 0 } },
+        { id: 'x', kind: 'demo_missing', position: { x: 0, y: 0 } },
+        { id: 'mul', kind: 'multiply', position: { x: 0, y: 0 } },
+        { id: 'log', kind: 'log', position: { x: 0, y: 0 } },
+      ],
+      edges: [
+        { fromNodeId: 'trig', fromPort: 'trigger', toNodeId: 'x', toPort: 'fire' },
+        { fromNodeId: 'x', fromPort: 'out', toNodeId: 'log', toPort: 'inputs' },
+        { fromNodeId: 'mul', fromPort: 'value', toNodeId: 'log', toPort: 'inputs' },
+        { fromNodeId: 'trig', fromPort: 'trigger', toNodeId: 'log', toPort: 'trigger' },
+      ],
     };
-    expect(() =>
-      SignalGraph.fromDescriptor(
-        descriptor,
-        NODE_REGISTRY,
-        () => ({}),
-        () => undefined,
-        () => {}
-      )
-    ).toThrow(/Unknown kind/);
+    const graph = SignalGraph.fromDescriptor(
+      descriptor,
+      NODE_REGISTRY,
+      (id) => (id === 'mul' ? { a: 6, b: 7 } : {}),
+      () => undefined,
+      () => {}
+    );
+    expect([...graph.missingKinds]).toEqual(['demo_missing']);
+    vi.spyOn(console, 'log').mockImplementation(() => {});
+    graph.fire('trig', 'trigger', mkEvent(undefined));
+    expect(graph.peekInput('log', 'inputs')).toEqual([42]);
+    // One warning naming the kind; edges to the placeholder are not "dropped".
+    const msgs = warn.mock.calls.map((c) => String(c[0]));
+    expect(msgs.some((m) => m.includes('"demo_missing"'))).toBe(true);
+    expect(msgs.some((m) => m.includes('dropped edge'))).toBe(false);
+    vi.restoreAllMocks();
   });
 });
 

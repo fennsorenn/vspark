@@ -32,7 +32,11 @@ import type {
 } from '@vspark/shared/signal';
 import { InferGraph } from '@vspark/shared/inference';
 import { inferForKind } from '@vspark/shared/infer_nodes';
-import { transportOf, type ResolvedPort } from '@vspark/shared/signal_types';
+import {
+  transportOf,
+  typeTagToResolved,
+  type ResolvedPort,
+} from '@vspark/shared/signal_types';
 import type { PortMeta } from '@vspark/shared/node';
 import type { LogicOwnerKind } from '@vspark/shared/types';
 import {
@@ -149,6 +153,27 @@ function resolvedToPortMeta(p: ResolvedPort): NodePortMeta {
   return { name: p.name, resolved: p.type, typeTag, transport };
 }
 
+/** Ports for a node of an unknown kind: whatever its stored edges use, typed
+ *  Any (nothing is known about them). */
+export function missingKindPorts(
+  descriptor: GraphDescriptor,
+  nodeId: string
+): { inputPorts: ResolvedPort[]; outputPorts: ResolvedPort[] } {
+  const any = (name: string, transport: 'event' | 'value'): ResolvedPort => ({
+    name,
+    type: typeTagToResolved('Any', transport),
+  });
+  const ins = new Map<string, ResolvedPort>();
+  const outs = new Map<string, ResolvedPort>();
+  for (const e of descriptor.edges) {
+    if (e.toNodeId === nodeId && !ins.has(e.toPort))
+      ins.set(e.toPort, any(e.toPort, 'value'));
+    if (e.fromNodeId === nodeId && !outs.has(e.fromPort))
+      outs.set(e.fromPort, any(e.fromPort, 'value'));
+  }
+  return { inputPorts: [...ins.values()], outputPorts: [...outs.values()] };
+}
+
 function buildNodes(
   descriptor: GraphDescriptor,
   kindMap: Map<string, NodeKindMeta>,
@@ -179,7 +204,9 @@ function buildNodes(
     const state = nodeStates[n.id];
     // Resolved (dynamic) ports from the inference mirror — so pack_event grows
     // named-field slots and unpack_event grows one output per record field live.
-    const resolved = mirror.portsOf(n.id);
+    // A kind the catalog does not know (a plugin that is not installed) has no
+    // ports; it gets the ones its stored edges name, so they stay visible.
+    const resolved = meta ? mirror.portsOf(n.id) : missingKindPorts(descriptor, n.id);
     return {
       id: n.id,
       type: 'signalNode',
@@ -189,6 +216,7 @@ function buildNodes(
         graphId,
         kind: n.kind,
         display: meta?.display,
+        missing: !meta,
         inputPorts: resolved.inputPorts.map(resolvedToPortMeta),
         outputPorts: resolved.outputPorts.map(resolvedToPortMeta),
         connectedInputPorts: [...(connectedInputs.get(n.id) ?? [])],

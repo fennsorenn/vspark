@@ -54,7 +54,16 @@ interface RuntimeNode {
   lastExecutedAt: number | null;
 }
 
+/** Stand-in for a node kind the registry does not know: no ports, no
+ *  behaviour. See `SignalGraph.fromDescriptor`. */
+class MissingNode extends Node {
+  static readonly kind = '__missing__';
+}
+
 export class SignalGraph {
+  /** Kinds in the descriptor the registry did not know (placeholders). */
+  readonly missingKinds = new Set<string>();
+
   private _registry: ReadonlyMap<string, SignalNodeClass> = new Map();
   private readonly _nodes = new Map<string, RuntimeNode>();
   private readonly _infer: InferGraph;
@@ -118,12 +127,28 @@ export class SignalGraph {
     const graph = new SignalGraph(getConfig, getState, onSetState, ownerKind);
     graph._registry = registry;
 
-    // 1. Instantiate + bind every node.
+    // 1. Instantiate + bind every node. A kind the registry does not know —
+    //    typically a plugin node whose plugin is not installed (or a node from
+    //    a newer build) — becomes an inert placeholder with no ports, so the
+    //    rest of the graph still runs. The descriptor is left untouched: once
+    //    the kind is registered again the node and its edges work as before.
+    const missingIds = new Set<string>();
     for (const n of descriptor.nodes) {
       const cls = registry.get(n.kind);
-      if (!cls) throw new Error(`[SignalGraph] Unknown kind: "${n.kind}"`);
-      graph._addNode(n.id, n.kind, cls);
+      if (cls) {
+        graph._addNode(n.id, n.kind, cls);
+      } else {
+        graph._addNode(n.id, n.kind, MissingNode);
+        missingIds.add(n.id);
+        graph.missingKinds.add(n.kind);
+      }
     }
+    if (graph.missingKinds.size)
+      console.warn(
+        `[SignalGraph] ${descriptor.id}: unknown node kind(s) ${[...graph.missingKinds]
+          .map((k) => `"${k}"`)
+          .join(', ')} — kept as inert placeholders (is a plugin missing?)`
+      );
 
     // 2. Replay edges through inference; route accepted edges by derived transport.
     //    Iterate to a FIXPOINT: adding an edge can materialise new ports on the
@@ -131,7 +156,11 @@ export class SignalGraph {
     //    resolves to a record), which a previously-unaddable edge then needs. So we
     //    retry the pending set until a full pass adds nothing. Edges still failing
     //    after that are genuinely invalid (schema drift / type mismatch) and dropped.
-    let pending = descriptor.edges.slice();
+    // Edges touching a placeholder cannot attach (it has no ports); they stay
+    // in the descriptor and are not reported as dropped.
+    let pending = descriptor.edges.filter(
+      (e) => !missingIds.has(e.fromNodeId) && !missingIds.has(e.toNodeId)
+    );
     let lastResult = new Map<string, string>();
     for (;;) {
       const stillPending: typeof pending = [];

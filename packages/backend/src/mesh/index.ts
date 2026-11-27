@@ -417,13 +417,20 @@ const BINDINGS: RtypeBinding[] = [
     // commits `set(id, 'descriptor', …)`; the check sees the whole document.
     // A behavior's graph is checked on its own terms: it may use the
     // behavior-context nodes Logic refuses, and must still be buildable.
-    validate: (data) => {
+    validate: (data, { prev }) => {
       const d = data as Dto;
       if (d.descriptor) {
         const descriptor = toGraphDescriptor(
           d.descriptor as GraphDescriptorDoc
         );
-        if (d.ownerKind === 'behavior') validateBehaviorGraph(descriptor);
+        const prevDoc = (prev as Dto | undefined)?.descriptor;
+        if (d.ownerKind === 'behavior')
+          validateBehaviorGraph(
+            descriptor,
+            prevDoc
+              ? toGraphDescriptor(prevDoc as GraphDescriptorDoc)
+              : undefined
+          );
         else validateDescriptor(descriptor, String(d.ownerKind));
       }
       return d;

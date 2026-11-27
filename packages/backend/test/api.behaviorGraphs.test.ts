@@ -2,6 +2,14 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import request from 'supertest';
 import type { Express } from 'express';
 import { makeTestApp } from './helpers/testApp.js';
+import { SignalNode } from '@vspark/shared/signal';
+import { Node } from '@vspark/shared/node';
+import { registerNodeKinds, unregisterNodeKinds } from '../src/signal/registry.js';
+
+@SignalNode({ label: 'Demo probe', tags: ['demo'], color: '#333333' })
+class DemoProbe extends Node {
+  static readonly kind = 'demo_probe';
+}
 import { getMeshCollection } from '../src/mesh/index.js';
 import { getDb } from '../src/db/index.js';
 import { logicManager } from '../src/logic/manager.js';
@@ -280,6 +288,18 @@ describe('behavior graphs', () => {
       }),
     }).ack;
     expect(projectGraph.status).toBe('rejected');
+  });
+
+  it('keeps a node whose kind went missing (plugin removed); still refuses adding one', async () => {
+    await create('b1');
+    registerNodeKinds('demo', [DemoProbe]);
+    expect((await addNode('b1', 'probe', 'demo_probe')).status).not.toBe('rejected');
+    unregisterNodeKinds('demo');
+    // Editing the graph is still possible while the plugin is missing …
+    expect((await addNode('b1', 'bid', 'behavior_id')).status).not.toBe('rejected');
+    expect(graphOf('b1')?.nodes.some((n: { kind: string }) => n.kind === 'demo_probe')).toBe(true);
+    // … but a NEW node of an unknown kind is refused.
+    expect((await addNode('b1', 'probe2', 'demo_probe')).status).toBe('rejected');
   });
 
   it('every template passes the behavior-graph validation', async () => {

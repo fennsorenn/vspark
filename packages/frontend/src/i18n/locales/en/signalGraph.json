@@ -57,5 +57,9 @@
     "nodes": "Learn how to use nodes in the logic canvas",
     "automations": "Learn how to create and manage automations",
     "events": "Learn about event and value wiring between nodes"
+  },
+  "missingKind": {
+    "label": "⚠ Missing: {{kind}}",
+    "tip": "The node kind \"{{kind}}\" is not available — the plugin that provides it may not be installed. The node and its connections are kept and do nothing until the kind is available again."
   }
 }

@@ -17,6 +17,9 @@ export interface SignalNodeData extends Record<string, unknown> {
   graphId: string;
   kind: string;
   display: NodeDisplay | undefined;
+  /** The catalog does not know the kind (e.g. its plugin is not installed):
+   *  shown as a placeholder; the backend runs it as an inert node. */
+  missing?: boolean;
   inputPorts: NodePortMeta[];
   outputPorts: NodePortMeta[];
   connectedInputPorts: string[];
@@ -506,9 +509,11 @@ export function SignalNodeCard({
     portValues,
     config,
     scopeSource,
+    missing,
   } = data;
-  const headerColor = display?.color ?? '#2a2a3a';
-  const label = display?.label ?? kind;
+  const { t } = useTranslation('signalGraph');
+  const headerColor = missing ? '#6a2a2a' : (display?.color ?? '#2a2a3a');
+  const label = missing ? t('missingKind.label', { kind }) : (display?.label ?? kind);
   const maxPorts = Math.max(inputPorts.length, outputPorts.length);
   const connectedSet = new Set(connectedInputPorts);
   const configRecord =
@@ -608,7 +613,11 @@ export function SignalNodeCard({
           gap: 6,
         }}
       >
-        <span style={{ fontSize: 11, fontWeight: 600, color: '#fff', flex: 1 }}>
+        <span
+          className={missing ? 'vs-signal-node-missing' : undefined}
+          title={missing ? t('missingKind.tip', { kind }) : undefined}
+          style={{ fontSize: 11, fontWeight: 600, color: '#fff', flex: 1 }}
+        >
           {label}
         </span>
         <RelativeTime ts={lastExecutedAt} />

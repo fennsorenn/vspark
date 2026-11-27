@@ -80,10 +80,11 @@ describe('edge admission', () => {
     warnSpy.mockRestore();
   });
 
-  it('throws on an unknown node kind', () => {
-    expect(() => buildGraph([{ id: 'x', kind: 'no_such_kind' }], [])).toThrow(
-      /Unknown kind/
-    );
+  it('builds a graph with an unknown node kind (placeholder)', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const { graph } = buildGraph([{ id: 'x', kind: 'no_such_kind' }], []);
+    expect([...graph.missingKinds]).toEqual(['no_such_kind']);
+    warn.mockRestore();
   });
 });
 

@@ -33,10 +33,18 @@ import { behaviorGraphId, behaviorTemplateGraph } from './templates.js';
  * event sources, which LogicManager routes) are NOT rejected: they build and
  * run, they just never receive an event in a behavior graph.
  */
-export function validateBehaviorGraph(d: GraphDescriptor): void {
+export function validateBehaviorGraph(
+  d: GraphDescriptor,
+  prev?: GraphDescriptor
+): void {
+  // A node of an unknown kind that the graph already had (same id and kind)
+  // is kept: its plugin may simply not be installed right now, and refusing
+  // the write would make the rest of the graph uneditable. Only ADDING an
+  // unknown node is refused. The engine runs such nodes as inert placeholders.
+  const kept = new Set((prev?.nodes ?? []).map((n) => `${n.id}\u0000${n.kind}`));
   const ids = new Set<string>();
   for (const n of d.nodes) {
-    if (!NODE_REGISTRY.has(n.kind))
+    if (!NODE_REGISTRY.has(n.kind) && !kept.has(`${n.id}\u0000${n.kind}`))
       throw new Error(`Behavior graph uses unknown node kind "${n.kind}".`);
     ids.add(n.id);
   }
