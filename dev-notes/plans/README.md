@@ -205,3 +205,9 @@ left exactly four:
   semantics downgrade, not a core-extension cost.
 
 Everything else in the sweep — all 34 other paths — is _migrate_.
+
+## Handoffs
+
+| Plan | Status |
+| --- | --- |
+| [`mesh-secrets-handoff.md`](./mesh-secrets-handoff.md) | design-only — local session: check the mesh extraction repo for secrets (principle 9) |
