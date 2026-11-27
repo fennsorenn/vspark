@@ -22,7 +22,7 @@ function configPath(): string {
   return process.env.VSPARK_CONFIG_PATH ?? join(getInstallDir(), 'config.json');
 }
 
-async function readConfig(): Promise<AppConfig> {
+export async function readConfig(): Promise<AppConfig> {
   try {
     const raw = await readFile(configPath(), 'utf-8');
     return JSON.parse(raw) as AppConfig;
@@ -31,7 +31,7 @@ async function readConfig(): Promise<AppConfig> {
   }
 }
 
-async function writeConfig(cfg: AppConfig): Promise<void> {
+export async function writeConfig(cfg: AppConfig): Promise<void> {
   // config.json can hold the assistant apiKey: owner read/write only. `mode`
   // applies on creation; chmod covers a file that already existed.
   await writeFile(configPath(), JSON.stringify(cfg, null, 2), {

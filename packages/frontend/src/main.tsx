@@ -6,6 +6,7 @@ import i18n from './i18n';
 import { initMeshPeer } from './mesh/peer';
 import { startPreviewSmoothing } from './previewSmoother';
 import { startMediaCommands } from './mesh/mediaCommands';
+import { loadPlugins } from './plugins/loader';
 // Registers the dev-only `dev_facecal()` console command (face heuristic calibration).
 import './components/FaceCalibrationWindow';
 
@@ -19,6 +20,9 @@ async function boot(): Promise<void> {
   for (;;) {
     try {
       const { peer } = await initMeshPeer();
+      // Plugin kinds / response types / composites must be registered before
+      // the first render reads the registries. Failures are logged, not fatal.
+      await loadPlugins();
       startPreviewSmoothing(peer);
       startMediaCommands(peer);
       root.render(

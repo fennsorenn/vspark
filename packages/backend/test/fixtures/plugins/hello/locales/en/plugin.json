@@ -1,0 +1,1 @@
+{ "composite": { "banner": { "name": "Hello banner", "description": "Shows the greeting" } }, "field": { "name": "Name" }, "response": { "greet": "Hello: greet" } }

@@ -122,6 +122,17 @@ export function listDocTopics(lng: LanguageCode | string): DocTopic[] {
     });
 }
 
+/** Add (or replace) one locale of a help topic at runtime — plugin help pages,
+ *  loaded from the server at start (see plugins/loader.ts). */
+export function registerDocTopic(topic: string, lng: string, markdown: string): void {
+  let entry = docs.get(topic);
+  if (!entry) {
+    entry = { topic, byLang: {} };
+    docs.set(topic, entry);
+  }
+  entry.byLang[lng] = markdown;
+}
+
 export function docExists(topic: string): boolean {
   return docs.has(topic);
 }

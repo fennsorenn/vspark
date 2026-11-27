@@ -1,0 +1,10 @@
+{
+  "id": "broken",
+  "version": "0.1.0",
+  "apiVersion": 1,
+  "vspark": "*",
+  "name": { "en": "Broken" },
+  "description": { "en": "Activation throws after registering" },
+  "author": "vspark tests",
+  "entries": { "backend": "backend.mjs", "shared": "shared.mjs" }
+}

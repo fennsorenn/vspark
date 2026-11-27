@@ -20,9 +20,11 @@ import connections from './connections.js';
 import meta from './meta.js';
 import ui from './ui.js';
 import learnedTracker from './learned-tracker.js';
+import plugins from './plugins.js';
 
 const router: ReturnType<typeof Router> = Router();
 router.use(projects);
+router.use(plugins);
 router.use(scenes);
 router.use(sceneNodes);
 router.use(assets);

@@ -613,6 +613,16 @@ export interface AppConfig {
    */
   live2dLicenseAccepted?: boolean;
   assistant?: AssistantConfig;
+  /** Plugin settings (see dev-notes/plans/plugin-system.md). */
+  plugins?: PluginsConfig;
+}
+
+export interface PluginsConfig {
+  /** Absolute paths of unpacked plugin folders (a built `dist/`) loaded
+   *  without installing — for plugin development. */
+  dev?: string[];
+  /** Per-plugin settings, by plugin id (the plugin's `ctx.config`). */
+  settings?: Record<string, Record<string, unknown>>;
 }
 
 /** An editor element the user attached to an assistant message via the attach

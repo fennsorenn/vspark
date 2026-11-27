@@ -93,6 +93,11 @@ export default defineConfig({
         target: `http://localhost:${backendPort}`,
         configure: resilientProxy,
       },
+      // A plugin's editor files (shared / ui entries, locales, help).
+      '/plugin-files': {
+        target: `http://localhost:${backendPort}`,
+        configure: resilientProxy,
+      },
     },
   },
   build: {

@@ -1612,3 +1612,26 @@ export function actionGraphStatus(
     templateUpdateAvailable: generated !== target,
   };
 }
+
+// ── plugin SDK surface ───────────────────────────────────────────────────────
+
+/** The `sdk.actions` object handed to plugin factories (backend and editor
+ *  alike), so plugin Action kinds build graphs with the same helpers as the
+ *  built-in kinds. Part of the plugin API (`apiVersion` 1). */
+export const PLUGIN_ACTIONS_SDK = {
+  Tpl,
+  addRankGate,
+  addCooldown,
+  commandNames,
+  commandPattern,
+  escapeRegExp,
+  rewardPattern,
+  normalizeRank: rankOf,
+  normalizeCooldown,
+  sources: {
+    chatCommand: 'overlive_chat_command',
+    redemption: 'overlive_redemption',
+    namedTrigger: 'on_trigger',
+    sendChat: 'overlive_send_chat',
+  },
+} as const;

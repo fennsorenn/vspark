@@ -12,6 +12,7 @@ import { authRoutes } from './auth/routes.js';
 import type { WSSync } from './ws/index.js';
 import { localAccessGuard } from './localAccess.js';
 import { getMeshPeer } from './mesh/index.js';
+import { getPluginHost } from './plugins/loader.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -41,6 +42,23 @@ export function createApp(opts: CreateAppOptions = {}): express.Express {
   // whether to (re)generate; a 200-with-HTML miss made it treat every absent
   // thumbnail as present, so thumbnails never rendered in the bundled build.
   app.use('/uploads', express.static(UPLOADS_DIR, { fallthrough: false }));
+  // A plugin's own HTTP routes (ctx.http.router()), and the files its editor
+  // side loads (shared / ui entries, locales, help, assets — never the
+  // backend entry). Unknown or inactive plugins answer 404.
+  app.use('/api/plugin/:pluginId', (req, res, next) => {
+    const r = getPluginHost().routerOf(req.params.pluginId);
+    if (r) return r(req, res, next);
+    res.status(404).json({ ok: false, error: { status: 404, message: 'unknown plugin' } });
+  });
+  app.get('/plugin-files/:pluginId/*', (req, res) => {
+    const file = getPluginHost().browserFile(
+      req.params.pluginId,
+      String((req.params as unknown as Record<string, unknown>)[0] ?? '')
+    );
+    if (!file) return res.status(404).end();
+    res.setHeader('Cache-Control', 'no-cache');
+    res.sendFile(file);
+  });
   app.use('/api', apiRoutes);
   app.use('/api', updateRoutes);
   app.use('/api', configRoutes);

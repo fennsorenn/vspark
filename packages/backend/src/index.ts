@@ -314,6 +314,20 @@ async function start() {
 
   // Standalone project graphs — start every persisted-enabled graph on boot.
   // See dev-notes/modules/project-graphs.md.
+  // Plugins before anything that resolves node kinds, Action kinds or
+  // composite types: their contributions must be registered when graphs are
+  // built and action graphs are regenerated. A failing plugin never blocks
+  // boot. See dev-notes/modules/plugins.md.
+  {
+    const { getPluginHost } = await import('./plugins/loader.js');
+    const { readConfig } = await import('./routes/config.js');
+    const cfg = await readConfig();
+    await getPluginHost().loadAll({
+      dev: cfg.plugins?.dev,
+      settings: cfg.plugins?.settings,
+    });
+  }
+
   const { logicManager } = await import('./logic/manager.js');
   // Actions first: create missing action graphs and regenerate unmodified
   // ones whose template changed, so the graphs started below are current.

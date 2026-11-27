@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import { emitProjectCreated, emitProjectDeleted } from '../plugins/projectEvents.js';
 import { randomUUID } from 'crypto';
 import { getDb } from '../db/index.js';
 
@@ -65,6 +66,7 @@ router.post('/projects', (req, res) => {
   getDb()
     .prepare('INSERT INTO projects (id, name, description) VALUES (?, ?, ?)')
     .run(id, name, description ?? null);
+  emitProjectCreated(id);
   res.status(201).json({ ok: true, data: { id, name, description } });
 });
 
@@ -121,6 +123,7 @@ router.put('/projects/:id', (req, res) => {
  */
 router.delete('/projects/:id', (req, res) => {
   getDb().prepare('DELETE FROM projects WHERE id = ?').run(req.params.id);
+  emitProjectDeleted(req.params.id);
   res.json({ ok: true, data: {} });
 });
 
