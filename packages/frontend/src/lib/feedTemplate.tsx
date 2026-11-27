@@ -103,11 +103,66 @@ export function Countdown({
   return <span className={className}>{formatCountdown(left(), format)}</span>;
 }
 
+/** What a playing item looks like when published (e.g. a plugin's now-playing
+ *  field): when it started at its current position, how long it is, whether
+ *  it is playing. */
+export interface ProgressState {
+  /** Epoch ms at which the item would have started at its current position. */
+  startedAt?: number | null;
+  durationMs?: number | null;
+  isPlaying?: boolean;
+  /** Position while paused (ms). */
+  progressMs?: number | null;
+}
+
+/** The fraction (0–1) of `state` done at `nowMs`. */
+export function progressFraction(state: ProgressState | null | undefined, nowMs: number): number {
+  const d = state?.durationMs ?? 0;
+  if (!state || d <= 0) return 0;
+  const pos =
+    state.isPlaying && typeof state.startedAt === 'number'
+      ? nowMs - state.startedAt
+      : (state.progressMs ?? 0);
+  return Math.max(0, Math.min(1, pos / d));
+}
+
+/**
+ * Host-provided component for feed templates: a progress bar that advances on
+ * the page, so the publisher only sends when the item or its position changes
+ * (no per-second updates — the same rule as `Countdown`). Renders an outer
+ * element (`className`) holding one inner element whose width is the
+ * progress; style both from the template's CSS (`.bar > *`).
+ *
+ *   <${Progress} state=${spotifyNowPlaying} className="bar" />
+ */
+export function Progress({
+  state,
+  className,
+}: {
+  state?: ProgressState | null;
+  className?: string;
+}) {
+  const [, setTick] = useState(0);
+  const playing = state?.isPlaying === true;
+  useEffect(() => {
+    if (!playing) return;
+    const id = setInterval(() => setTick((n) => n + 1), 250);
+    return () => clearInterval(id);
+  }, [playing, state?.startedAt]);
+  const pct = progressFraction(state, Date.now()) * 100;
+  return (
+    <div className={className}>
+      <div style={{ width: `${pct}%`, height: '100%' }} />
+    </div>
+  );
+}
+
 export type FeedRender = (
   html: unknown,
   Emote: unknown,
   channels: Record<string, unknown>,
-  Countdown: unknown
+  Countdown: unknown,
+  Progress: unknown
 ) => ReactNode;
 
 export interface CompiledTemplate {
@@ -124,7 +179,7 @@ const _templateCache = new Map<string, CompiledTemplate>();
  * interpolated into an htm tagged-template literal and evaluated as JS via
  * `new Function` — htm has no build step. The published fields visible to this
  * consumer are exposed as BARE NAMES via `with(channels)` (so a field labeled
- * `chat` is referenced as `${chat.map(...)}`); the `Emote` and `Countdown`
+ * `chat` is referenced as `${chat.map(...)}`); the `Emote`, `Countdown` and `Progress`
  * helpers are also in scope. Field names must be valid JS identifiers to be referenced bare.
  *
  * NOTE: templates execute as code. This is acceptable under vspark's local /
@@ -145,6 +200,7 @@ export function compileTemplate(src: string): CompiledTemplate {
       'Emote',
       'channels',
       'Countdown',
+      'Progress',
       `with (channels) { return html\`${src}\`; }`
     ) as FeedRender;
     result = { render: fn, error: null };
@@ -171,7 +227,7 @@ export function FeedContent({
   channels: Record<string, unknown>;
 }) {
   try {
-    return <>{render(html, Emote, channels, Countdown)}</>;
+    return <>{render(html, Emote, channels, Countdown, Progress)}</>;
   } catch {
     return null;
   }

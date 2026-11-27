@@ -31,6 +31,7 @@ export function validateFeedTemplate(src: string): string | null {
       'Emote',
       'channels',
       'Countdown',
+      'Progress',
       'with (channels) { return html`' + src + '`; }'
     );
     return null;

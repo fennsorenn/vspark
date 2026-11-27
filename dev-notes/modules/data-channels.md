@@ -243,6 +243,14 @@ hour else `H:MM:SS`; `hh:mm:ss`; `mm:ss`) and `className`. While running it re-r
 every 250 ms from `endsAt`, corrected by the skew between the publisher's `now` and the
 viewer's clock; while paused it shows the frozen `remaining`. Usage:
 `<${Countdown} state=${timer} />`. `formatCountdown` is exported alongside.
+
+**`<Progress>` helper** (added for plugin now-playing widgets, plugin-system phase 4):
+a progress bar that advances on the page from `{ startedAt (epoch ms), durationMs,
+isPlaying, progressMs? }` — the same no-per-second-updates rule as `Countdown`.
+Renders an outer element (`className`) with one inner element whose width is the
+progress (style it as `.bar > *`). `<${Progress} state=${spotifyNowPlaying}
+className="bar" />`. `progressFraction` is exported alongside; the helper is in
+scope for both the renderer and `validateFeedTemplate`.
 `validateFeedTemplate` in `packages/shared/src/feedValidation.ts` mirrors the extra
 `Countdown` parameter, so templates using it validate.
 
