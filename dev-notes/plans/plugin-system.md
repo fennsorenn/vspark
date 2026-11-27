@@ -389,9 +389,9 @@ Deviations from the design above (Claude's calls unless marked):
   `.github/workflows/plugin-sdk.yml`; optionally make the start scripts skip the unzip
   when no update zip exists (`[ -f "$ZIP" ] && …` / `if exist`), so a plugin restart
   does not print an unzip error.
-- Update the `vspark_plugin_template` / `vspark_spotify` drafts to the shipped API
-  (composite label keys `type.` / `setting.` …, provider `appFields` without `control`
-  requirement, `@vspark/plugin-sdk` instead of `sdk-preview`).
+- The `vspark_plugin_template` / `vspark_spotify` drafts were updated to the shipped
+  API (2026-11-27; real SDK typings in `sdk-preview/`, host label keys) and loaded into
+  the real host; they still need repos, and Spotify a run against the live API.
 
 ## Open questions (for the user)
 
