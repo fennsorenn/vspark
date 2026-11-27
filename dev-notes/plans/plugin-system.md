@@ -1,6 +1,6 @@
 # Plan: Plugin system
 
-> **Status:** in progress — phase 1 shipped (2026-11-27, branch `claude/sharp-davinci-ig0xws`); phases 2–5 open
+> **Status:** phases 1–4 shipped (2026-11-27, branch `claude/sharp-davinci-ig0xws`); phase 5 (plugin repo CI) open. As built: [../modules/plugins.md](../modules/plugins.md)
 > Branch: `feature/plugin-system`
 > This plan is the seed context for a cloud worker. It is a starting point, not an
 > airtight spec — the worker is interactive and may ask to refine it.
@@ -360,6 +360,38 @@ the host's existing conventions — the drafts need these changes):
   window, see the plugin node in the palette and the composite in the layer palette;
   `controls.mjs bless`.
 - A graph using a plugin node survives the plugin being uninstalled (placeholder).
+
+## Phases 2–4 as shipped
+
+See [../modules/plugins.md](../modules/plugins.md) for the as-built description.
+Deviations from the design above (Claude's calls unless marked):
+
+- **Mesh instead of REST for the editor (decided: user, 2026-11-27).** The design's
+  `GET /api/plugins/active`, REST install / enable / uninstall routes and REST account
+  routes were replaced by mesh documents (`plugin`, `plugin_catalog`, `plugin_account`,
+  `plugin_app`) and `plugin_command` requests. Only `GET /api/plugins` (outside
+  callers), the OAuth popup routes and `/plugin-files` (code) remain HTTP.
+- Plugin routers mount at `/api/plugin/<id>/` (singular), not `/api/plugins/<id>/`, to
+  keep them apart from management.
+- Restart reuses exit code **42** (works with today's start scripts). A clean separate
+  code needs `release.yml` — see Open follow-ups.
+- Install / enable are live; disable / uninstall / update of a running plugin wait for
+  a restart (as designed; the user accepted restarts, 2026-11-26).
+- App credentials allow only non-secret fields (PKCE), because secrets would need the
+  write-only secret grant pattern (mesh principle 9), not built yet.
+- The registry is the official URL on `main`; the plugin repos use `v*` tags (one repo
+  per plugin), not `<id>-v*`.
+
+## Open follow-ups
+
+- **`.github/workflows` changes could not be pushed** (the GitHub app lacks the
+  `workflow` scope): move `packages/plugin-sdk/publish-workflow.example.yml` to
+  `.github/workflows/plugin-sdk.yml`; optionally make the start scripts skip the unzip
+  when no update zip exists (`[ -f "$ZIP" ] && …` / `if exist`), so a plugin restart
+  does not print an unzip error.
+- Update the `vspark_plugin_template` / `vspark_spotify` drafts to the shipped API
+  (composite label keys `type.` / `setting.` …, provider `appFields` without `control`
+  requirement, `@vspark/plugin-sdk` instead of `sdk-preview`).
 
 ## Open questions (for the user)
 

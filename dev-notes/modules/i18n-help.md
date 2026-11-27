@@ -25,11 +25,15 @@ Dependencies added: `i18next`, `react-i18next`, `i18next-browser-languagedetecto
 
 One namespace per component area. Namespace names match the component area they cover:
 
-`common`, `help`, `topbar`, `update`, `editor`, `home`, `sceneGraph`, `assets`, `properties`, `compose`, `signalGraph`, `clips`, `accounts`, `presets`, `media`, `assistant`, `misc`, `actions`, `composites`.
+`common`, `help`, `topbar`, `update`, `editor`, `home`, `sceneGraph`, `assets`, `properties`, `compose`, `signalGraph`, `clips`, `accounts`, `presets`, `media`, `assistant`, `misc`, `actions`, `composites`, `plugins`.
+
+Plugin strings are **not** in these files: each plugin ships its own `locales/<lng>/*.json`, registered at runtime as namespace `plugin-<id>` (and its help pages as topics `plugin-<id>` / `plugin-<id>-<page>`) — see [plugins.md](plugins.md).
 
 The `composites` namespace covers composite settings, tags and the Dissolve menu items (`components/editor/composites/`); its help page is `help/content/{en,de}/composites.md` (anchors `{#composites}` `{#settings}` `{#alert}` `{#chat}` `{#widgets}` — with per-widget sub-anchors `{#goal}` `{#countdown}` `{#subathon}` `{#recent}` `{#top}` `{#adbreak}`, targeted by the per-type `HelpButton` in each composite's Settings header (`TYPE_ANCHOR` in `CompositeSettings.tsx`) — `{#parts}` `{#dissolve}`, `'composites'` in `TOPIC_ORDER` after `presets`). See [composites.md](composites.md).
 
 The `actions` namespace covers the Actions panel (left-dock tab, `components/editor/actions/`); its help page is `help/content/{en,de}/actions.md` (anchors `{#overview}` `{#add}` `{#hotkey}` `{#chat_command}` `{#chat_pattern}` `{#chat_keyword}` `{#keyword_combo}` `{#redemption}` `{#named_trigger}` `{#placeholders}` `{#patterns}` `{#cooldown}` `{#counter}` `{#account}` `{#trigger}` `{#value-shape}` `{#modified}` `{#reset}` `{#graph}` — the kind anchors equal the kind ids because each group header's `HelpButton` targets `anchor={kind}`, `'actions'` in `TOPIC_ORDER` after `logic`). See [actions.md](actions.md).
+
+The `plugins` namespace covers the Plugins window (`components/editor/PluginsWindow.tsx`); the plugin block in the Accounts window uses `accounts:plugins.*`, the missing-kind note `signalGraph:missingKind.*`. Help page `help/content/{en,de}/plugins.md` (anchors `{#overview}` `{#manage}` `{#registries}` `{#accounts}` `{#missing}`, `'plugins'` in `TOPIC_ORDER` after `assistant`). See [plugins.md](plugins.md).
 
 The `assistant` namespace covers the in-app AI Assistant window; its help page (`help/content/{en,de}/assistant.md`, anchors `{#how-to-use}` `{#setup}` `{#capabilities}` `{#attach}` `{#limits}`, `'assistant'` in `TOPIC_ORDER`) documents the agent for end users; `{#attach}` covers the 📎 attach picker (attach editor elements so "this/that" resolves to a concrete id/url). See [mcp-assistant.md](mcp-assistant.md).
 

@@ -1363,6 +1363,8 @@ existing scene-subtree grants route them cross-type:
 | `data_field` | `${scope}:${field}` | one document per published field, which is what makes `set`'s merge structural; carries `scopeKind` so both peers derive the same parent without a DB lookup. Scope `''` is global and has no parent |
 | `server_status` | `${kind}:${key}` | server-authored status (`mesh/status.ts`), see below |
 | `runtime_variable` | `rvar:${projectId}:${scope}:${name}` (scope/name URI-encoded) | short-lived graph variables (`mesh/variables.ts`); the persistent ones are the committed `variable` collection. No parent — variables are project-wide. See [variables.md](variables.md) |
+| `plugin` | `${serverPeerId}:${pluginId}` | a loaded plugin (server-written, runtime): status, locales, help, providers. Own tabs read all; peers we share content with read `name` only. See [plugins.md](plugins.md) |
+| `plugin_catalog` | plugin id | Plugins window rows (server-written, runtime); commands are `plugin_command` requests on the control channel, answered by the server |
 
 The backend grants its tabs `{ read: true }` on all of them: tabs read them, only
 the server writes them.
