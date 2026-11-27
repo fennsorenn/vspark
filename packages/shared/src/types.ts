@@ -623,6 +623,9 @@ export interface PluginsConfig {
   dev?: string[];
   /** Per-plugin settings, by plugin id (the plugin's `ctx.config`). */
   settings?: Record<string, Record<string, unknown>>;
+  /** Registries the Plugins window lists (default: the official one). A
+   *  registry that is not `trusted` is listed but cannot be installed from. */
+  registries?: { url: string; trusted: boolean }[];
 }
 
 /** An editor element the user attached to an assistant message via the attach
@@ -884,3 +887,61 @@ export interface PluginProviderInfo {
   /** The redirect URI to register with the provider. */
   redirectUri: string;
 }
+
+/** A `plugin_catalog` mesh document (server-written, our tabs read): one
+ *  plugin as the Plugins window shows it — offered by a registry, installed,
+ *  or both. Id = plugin id. */
+export interface PluginCatalogDoc {
+  id: string;
+  pluginId: string;
+  name: Record<string, string>;
+  description: Record<string, string>;
+  author: string;
+  homepage: string | null;
+  tags: string[];
+  network: string[];
+  registry: { url: string; trusted: boolean; official: boolean } | null;
+  versions: { version: string; channel: string; compatible: boolean; notes: Record<string, string> }[];
+  /** Newest compatible version on the user's update channel. */
+  latest: string | null;
+  installed: { version: string; enabled: boolean; source: 'installed' | 'dev' } | null;
+  running: { version: string; status: 'active' | 'failed' | 'incompatible'; error: string | null } | null;
+  /** Takes effect at the next start. */
+  pending: { action: 'disable' | 'enable' | 'uninstall' | 'update'; version?: string } | null;
+  job: {
+    action: 'install' | 'update';
+    state: 'running' | 'done' | 'failed';
+    version: string;
+    error: string | null;
+    progress: number | null;
+  } | null;
+}
+
+/** The plugin host's state (`server_status` kind `plugins`, key `main`). */
+export interface PluginHostStatus {
+  registries: {
+    url: string;
+    trusted: boolean;
+    official: boolean;
+    ok: boolean;
+    error: string | null;
+    problems: string[];
+    checkedAt: string | null;
+    count: number;
+  }[];
+  /** Something changes only after a restart. */
+  restartRequired: boolean;
+  /** A packaged build (its start script relaunches); dev servers cannot. */
+  canRestart: boolean;
+  hostVersion: string;
+  channel: string;
+}
+
+/** A request on the `plugin_command` collection (control channel), from a
+ *  tab to its server; the reply is `{ ok, error? }`. */
+export type PluginCommand =
+  | { action: 'refresh' }
+  | { action: 'install' | 'update'; pluginId: string; version?: string }
+  | { action: 'enable' | 'disable' | 'uninstall' | 'cancel_pending'; pluginId: string }
+  | { action: 'set_registries'; registries: { url: string; trusted: boolean }[] }
+  | { action: 'restart' };

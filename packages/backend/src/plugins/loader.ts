@@ -126,6 +126,10 @@ export class PluginHost {
   /** Running vspark version (for `vspark` ranges); `0.0.0` in dev. */
   constructor(private readonly hostVersion: string = '0.0.0') {}
 
+  get version(): string {
+    return this.hostVersion;
+  }
+
   list(): LoadedPlugin[] {
     return [...this.plugins.values()];
   }

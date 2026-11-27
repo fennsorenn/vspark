@@ -10,6 +10,10 @@ import { LearnedPreviewWindow } from '../LearnedPreviewWindow';
 import { ConnectionsWindow } from '../ConnectionsWindow';
 import { UpdateDialog } from './UpdateDialog';
 import { OverliveAccountsModal } from './OverliveAccountsModal';
+import { PluginsWindow, updateAvailable as pluginUpdateAvailable } from './PluginsWindow';
+import { useCollection, useMeshAll } from '@vspark/mesh-react';
+import type { PluginCatalogDoc } from '@vspark/shared/types';
+import { useServerStatus } from '../../mesh/runtime';
 import { LanguageSwitcher } from '../LanguageSwitcher';
 import { HelpButton } from '../../help/HelpButton';
 import { useAssistantStore } from '../../store/assistantStore';
@@ -87,6 +91,12 @@ export function TopBar() {
   // Store-driven so the assistant can open it via a ui_action (open_window).
   const accountsOpen = useEditorStore((s) => s.accountsModalOpen);
   const setAccountsOpen = useEditorStore((s) => s.setAccountsModalOpen);
+  const pluginsOpen = useEditorStore((s) => s.pluginsModalOpen);
+  const setPluginsOpen = useEditorStore((s) => s.setPluginsModalOpen);
+  // Badge: an update is offered, or a change waits for a restart.
+  const pluginCatalog = useMeshAll(useCollection<PluginCatalogDoc>('plugin_catalog'));
+  const pluginHost = useServerStatus('plugins', 'main') as { restartRequired?: boolean } | undefined;
+  const pluginBadge = pluginHost?.restartRequired || pluginCatalog.some(pluginUpdateAvailable);
   // Anchor the Updates popover under whichever control opened it.
   const updateAnchorRef = useRef<HTMLButtonElement>(null);
 
@@ -326,6 +336,29 @@ export function TopBar() {
             />
             {t('accounts.label')}
           </button>
+          <button
+            className="vs-topbar-plugins"
+            style={{
+              background: '#2a2a2a',
+              border: '1px solid #3a3a3a',
+              color: '#ccc',
+              borderRadius: 5,
+              padding: '3px 10px',
+              cursor: 'pointer',
+              fontSize: 12,
+              position: 'relative',
+            }}
+            onClick={() => setPluginsOpen(true)}
+            title={t('plugins.title')}
+          >
+            {t('plugins.label')}
+            {pluginBadge && (
+              <span
+                aria-label={t('plugins.badge')}
+                style={{ position: 'absolute', top: -3, right: -3, width: 8, height: 8, borderRadius: 4, background: '#facc15' }}
+              />
+            )}
+          </button>
           {updateAvailable && (
             <button
               className="vs-topbar-update-available"
@@ -386,6 +419,7 @@ export function TopBar() {
       {accountsOpen && (
         <OverliveAccountsModal onClose={() => setAccountsOpen(false)} />
       )}
+      {pluginsOpen && <PluginsWindow onClose={() => setPluginsOpen(false)} />}
     </>
   );
 }

@@ -34,7 +34,9 @@ export type StatusKind =
   /** the OBS window-capture runtime (key 'main'). */
   | 'output_window'
   /** a plugin provider's account: status / message. Key = account id. */
-  | 'plugin_account';
+  | 'plugin_account'
+  /** the plugin host (key 'main'): registries, restart needed, … */
+  | 'plugins';
 
 export interface StatusDoc {
   id: string;

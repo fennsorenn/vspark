@@ -54,6 +54,7 @@
     "@types/ws": "^8.18.1",
     "@vitest/coverage-istanbul": "^3.2.6",
     "esbuild": "^0.28.0",
+    "fflate": "^0.8.2",
     "supertest": "^7.0.0",
     "tsx": "^4.20.3",
     "typescript": "^5.8.3",

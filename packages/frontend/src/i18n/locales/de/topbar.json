@@ -35,5 +35,10 @@
   },
   "help": {
     "tip": "Hilfe & Dokumentation öffnen"
+  },
+  "plugins": {
+    "label": "Plugins",
+    "title": "Plugins installieren und verwalten",
+    "badge": "Plugin-Updates oder ein Neustart warten"
   }
 }

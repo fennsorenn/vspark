@@ -1,6 +1,7 @@
 import { defineConfig, devices } from '@playwright/test';
 import { tmpdir } from 'os';
 import { join } from 'path';
+import { preparePluginFixture } from './fixtures/pluginFixture';
 
 /**
  * Functional UI regression suite. Boots the real backend + Vite frontend and
@@ -18,6 +19,8 @@ import { join } from 'path';
 const FRONTEND_PORT = Number(process.env.PW_FRONTEND_PORT) || 5173;
 const BACKEND_PORT = Number(process.env.PW_BACKEND_PORT) || 3001;
 const E2E_DB = join(tmpdir(), `vspark-e2e-${Date.now()}-${process.pid}.db`);
+// One fixture plugin (dev folder) so plugin UI is exercised; see the module.
+const PLUGINS = preparePluginFixture();
 
 export default defineConfig({
   testDir: './tests',
@@ -67,6 +70,8 @@ export default defineConfig({
         VSPARK_DB_PATH: E2E_DB,
         MULTIPLAYER_RENDEZVOUS_URL: '',
         PORT: String(BACKEND_PORT),
+        VSPARK_CONFIG_PATH: PLUGINS.configPath,
+        VSPARK_PLUGINS_DIR: PLUGINS.pluginsDir,
       },
     },
     {

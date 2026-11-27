@@ -35,5 +35,10 @@
   },
   "help": {
     "tip": "Open help & documentation"
+  },
+  "plugins": {
+    "label": "Plugins",
+    "title": "Install and manage plugins",
+    "badge": "Plugin updates or a restart are waiting"
   }
 }

@@ -1299,7 +1299,8 @@ export function buildToolSpecs(): ToolSpec[] {
         'Open or close a window in the user’s editor. window is one of: "assistant" (this chat), ' +
         '"accounts" (Twitch/StreamElements Accounts dialog — where the user connects an account via ' +
         'OAuth, which you cannot do yourself), "media" (mic/camera input window), "connections" ' +
-        '(multiplayer/peer connections), or "update" (app update dialog). `open` true/false (default true).',
+        '(multiplayer/peer connections), "update" (app update dialog), or "plugins" (install / manage ' +
+        'plugins — installing is the user’s decision). `open` true/false (default true).',
       inputShape: {
         sessionId: z.string(),
         window: z.enum([
@@ -1308,6 +1309,7 @@ export function buildToolSpecs(): ToolSpec[] {
           'media',
           'connections',
           'update',
+          'plugins',
         ]),
         open: z.boolean().optional(),
       },

@@ -1,0 +1,106 @@
+{
+  "title": "Plugins",
+  "close": "Schließen",
+  "trustNote": "Plugins laufen mit denselben Rechten wie vspark. Installiere nur Plugins, denen du vertraust.",
+  "tab": {
+    "installed": "Installiert ({{count}})",
+    "browse": "Verfügbar ({{count}})"
+  },
+  "empty": {
+    "installed": "Noch keine Plugins installiert – siehe „Verfügbar“.",
+    "browse": "Deine Quellen bieten keine weiteren Plugins an."
+  },
+  "action": {
+    "refresh": "Aktualisieren",
+    "install": "Installieren",
+    "update": "Aktualisieren",
+    "updateTo": "Auf {{version}} aktualisieren",
+    "uninstall": "Deinstallieren",
+    "enabled": "Aktiv",
+    "enabledTip": "Ein laufendes Plugin auszuschalten wirkt nach einem Neustart",
+    "cancel": "Änderung zurücknehmen",
+    "restart": "vspark neu starten"
+  },
+  "install": {
+    "confirm": "{{name}} {{version}} installieren? Es kann diese Dienste erreichen: {{hosts}}.",
+    "noHosts": "keine externen Dienste",
+    "done": "Installiert.",
+    "updateDone": "Heruntergeladen – das Update wird beim Neustart von vspark angewendet."
+  },
+  "uninstall": {
+    "confirm": "{{name}} deinstallieren? Knoten und Widgets, die es nutzen, bleiben in deinen Projekten und tun nichts, bis es wieder installiert ist."
+  },
+  "state": {
+    "downloading": "Wird heruntergeladen … {{progress}} %",
+    "failed": "Installation fehlgeschlagen: {{error}}",
+    "active": "Läuft",
+    "error": "Konnte nicht starten: {{error}}",
+    "incompatible": "Nicht kompatibel: {{error}}",
+    "disabled": "Ausgeschaltet",
+    "notRunning": "Installiert – läuft nicht",
+    "available": "Version {{version}} verfügbar",
+    "noCompatible": "Keine Version für dieses vspark"
+  },
+  "pending": {
+    "disable": "Wird beim Neustart ausgeschaltet",
+    "enable": "Wird beim Neustart eingeschaltet",
+    "uninstall": "Wird beim Neustart entfernt",
+    "update": "Wird beim Neustart auf {{version}} aktualisiert"
+  },
+  "restart": {
+    "needed": "Einige Änderungen wirken erst nach einem Neustart.",
+    "neededDev": "Einige Änderungen wirken erst nach einem Neustart – starte den Entwicklungsserver neu.",
+    "confirm": "vspark jetzt neu starten? Offene Editoren verbinden sich von selbst wieder.",
+    "restarting": "Wird neu gestartet …"
+  },
+  "source": {
+    "dev": "Entwicklungsordner",
+    "thirdParty": "Fremdquelle"
+  },
+  "detail": {
+    "homepage": "Website",
+    "author": "Von {{author}}",
+    "network": "Erreicht:",
+    "registry": "Aus:",
+    "notes": "Neu:",
+    "contributes": "Bringt {{nodes}} Knoten, {{actions}} Aktionsarten, {{responses}} Reaktionen, {{layers}} Widgets.",
+    "versions": "Versionen:",
+    "incompatible": "nicht kompatibel"
+  },
+  "registries": {
+    "heading": "Quellen",
+    "official": "offiziell",
+    "ok": "{{count}} Plugins",
+    "failed": "Konnte nicht geladen werden: {{error}}",
+    "loading": "Wird geladen …",
+    "problems": "{{count}} Einträge übersprungen",
+    "trusted": "Vertraut",
+    "trustConfirm": "{{url}} vertrauen? Du kannst dann seine Plugins installieren, die mit allen Rechten von vspark laufen.",
+    "add": "Hinzufügen",
+    "reset": "Auf Standard zurücksetzen",
+    "untrustedNote": "Plugins aus einer Quelle, der du nicht vertraust, werden angezeigt, lassen sich aber nicht installieren."
+  },
+  "error": {
+    "unknown": "Etwas ist schiefgelaufen.",
+    "busy": "An diesem Plugin wird schon gearbeitet.",
+    "not_in_registry": "Keine Quelle bietet dieses Plugin an.",
+    "untrusted_registry": "Vertraue zuerst dieser Quelle (Quellen, unten).",
+    "no_compatible_version": "Keine Version dieses Plugins funktioniert mit diesem vspark.",
+    "incompatible": "Diese Version funktioniert nicht mit diesem vspark.",
+    "already_installed": "Bereits installiert.",
+    "not_installed": "Nicht installiert.",
+    "dev_plugin": "Dieses Plugin wird aus einem Entwicklungsordner geladen (config.json).",
+    "invalid": "Ungültige Eingabe.",
+    "invalid_url": "Quellen-Adressen müssen mit https:// beginnen.",
+    "not_packaged": "Dieser Server kann sich nicht selbst neu starten – starte ihn von Hand neu.",
+    "not_ready": "Der Server startet noch.",
+    "timeout": "Der Server hat nicht rechtzeitig geantwortet.",
+    "unreachable": "Der Server ist nicht erreichbar.",
+    "offline": "Keine Verbindung zum Server.",
+    "unknown_action": "Unbekannter Befehl."
+  },
+  "help": {
+    "manage": "Plugins installieren und verwalten",
+    "registries": "Woher die Plugin-Liste kommt"
+  }
+}

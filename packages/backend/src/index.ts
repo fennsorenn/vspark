@@ -321,6 +321,11 @@ async function start() {
   {
     const { getPluginHost } = await import('./plugins/loader.js');
     const { readConfig } = await import('./routes/config.js');
+    const { applyPendingChanges, PluginManager, setPluginManager } = await import('./plugins/manager.js');
+    const { publishCatalog, setPluginCommandHandler } = await import('./mesh/pluginCatalog.js');
+    // What the Plugins window scheduled for this start (disable / uninstall /
+    // update) happens before anything loads.
+    applyPendingChanges();
     const cfg = await readConfig();
     await getPluginHost().loadAll({
       dev: cfg.plugins?.dev,
@@ -329,6 +334,16 @@ async function start() {
     // Tabs learn about plugins from `plugin` mesh documents (principle 7).
     const { publishPlugins } = await import('./mesh/plugins.js');
     publishPlugins(getPluginHost().list());
+    const manager = new PluginManager({
+      publish: publishCatalog,
+      publishPlugins: () => publishPlugins(getPluginHost().list()),
+      hostVersion: getPluginHost().version,
+    });
+    setPluginManager(manager);
+    setPluginCommandHandler((cmd) => manager.handle(cmd));
+    manager.publish();
+    // Registries are an outside service: never block boot on them.
+    void manager.refresh();
   }
 
   const { logicManager } = await import('./logic/manager.js');

@@ -167,6 +167,11 @@ export const MODELS = {
   // no parent (there is no `project` rtype).
   plugin_account: {},
   plugin_app: {},
+  // The Plugins window: what registries offer and what is installed
+  // (server-written), and the editor's commands to the server (install,
+  // enable, …) as requests on the control channel.
+  plugin_catalog: { channels: [RUNTIME] },
+  plugin_command: { channels: [CONTROL] },
   // Server-to-server only: pose/blendshape/drag frames on collab nodes, and
   // runtime events per collab scene.
   node_stream: { channels: ['preview'] },
@@ -199,4 +204,6 @@ export const TAB_MODELS: readonly ModelName[] = [
   'plugin',
   'plugin_account',
   'plugin_app',
+  'plugin_catalog',
+  'plugin_command',
 ];

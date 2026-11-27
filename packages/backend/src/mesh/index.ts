@@ -49,6 +49,7 @@ import {
   resetServerStatus,
 } from './status.js';
 import { initMeshPlugins, resetMeshPlugins } from './plugins.js';
+import { initMeshPluginCatalog, resetMeshPluginCatalog } from './pluginCatalog.js';
 import { guardPluginAccount, guardPluginApp } from '../plugins/accounts/guards.js';
 import { appFieldsOf, pluginAccountLifecycle } from '../plugins/accounts/store.js';
 import { initRuntimeVariables, resetRuntimeVariables } from './variables.js';
@@ -658,6 +659,7 @@ export function initBackendMesh(): MeshPeer {
   initMeshRuntime(peer);
   initServerStatus(peer);
   initMeshPlugins(peer);
+  initMeshPluginCatalog(peer);
   initRuntimeVariables(peer);
   // The animation-clip asset follow-up re-points sourceFilePath through the
   // store once a fetched blob lands.
@@ -688,6 +690,7 @@ export function resetBackendMesh(): void {
   resetMeshRuntime();
   resetServerStatus();
   resetMeshPlugins();
+  resetMeshPluginCatalog();
   resetRuntimeVariables();
 }
 

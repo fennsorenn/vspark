@@ -1,0 +1,106 @@
+{
+  "title": "Plugins",
+  "close": "Close",
+  "trustNote": "Plugins run with the same rights as vspark. Only install plugins you trust.",
+  "tab": {
+    "installed": "Installed ({{count}})",
+    "browse": "Available ({{count}})"
+  },
+  "empty": {
+    "installed": "No plugins installed yet — see “Available”.",
+    "browse": "No more plugins available from your registries."
+  },
+  "action": {
+    "refresh": "Refresh",
+    "install": "Install",
+    "update": "Update",
+    "updateTo": "Update to {{version}}",
+    "uninstall": "Uninstall",
+    "enabled": "Enabled",
+    "enabledTip": "Turning a running plugin off takes effect after a restart",
+    "cancel": "Undo change",
+    "restart": "Restart vspark"
+  },
+  "install": {
+    "confirm": "Install {{name}} {{version}}? It will be able to contact: {{hosts}}.",
+    "noHosts": "no outside services",
+    "done": "Installed.",
+    "updateDone": "Downloaded — the update is applied when vspark restarts."
+  },
+  "uninstall": {
+    "confirm": "Uninstall {{name}}? Nodes and widgets that use it stay in your projects and do nothing until it is installed again."
+  },
+  "state": {
+    "downloading": "Downloading… {{progress}} %",
+    "failed": "Installing failed: {{error}}",
+    "active": "Running",
+    "error": "Could not start: {{error}}",
+    "incompatible": "Not compatible: {{error}}",
+    "disabled": "Turned off",
+    "notRunning": "Installed — not running",
+    "available": "Version {{version}} available",
+    "noCompatible": "No version for this vspark"
+  },
+  "pending": {
+    "disable": "Turns off when vspark restarts",
+    "enable": "Turns on when vspark restarts",
+    "uninstall": "Is removed when vspark restarts",
+    "update": "Updates to {{version}} when vspark restarts"
+  },
+  "restart": {
+    "needed": "Some changes take effect after a restart.",
+    "neededDev": "Some changes take effect after a restart — restart the development server.",
+    "confirm": "Restart vspark now? Open editors reconnect by themselves.",
+    "restarting": "Restarting…"
+  },
+  "source": {
+    "dev": "development folder",
+    "thirdParty": "third-party registry"
+  },
+  "detail": {
+    "homepage": "Homepage",
+    "author": "By {{author}}",
+    "network": "Contacts:",
+    "registry": "From:",
+    "notes": "What's new:",
+    "contributes": "Adds {{nodes}} nodes, {{actions}} action kinds, {{responses}} responses, {{layers}} widgets.",
+    "versions": "Versions:",
+    "incompatible": "not compatible"
+  },
+  "registries": {
+    "heading": "Registries",
+    "official": "official",
+    "ok": "{{count}} plugins",
+    "failed": "Could not load: {{error}}",
+    "loading": "Loading…",
+    "problems": "{{count}} entries skipped",
+    "trusted": "Trusted",
+    "trustConfirm": "Trust {{url}}? You will be able to install its plugins, which run with vspark's full rights.",
+    "add": "Add",
+    "reset": "Reset to default",
+    "untrustedNote": "Plugins from a registry you do not trust are listed but cannot be installed."
+  },
+  "error": {
+    "unknown": "Something went wrong.",
+    "busy": "Already working on this plugin.",
+    "not_in_registry": "No registry offers this plugin.",
+    "untrusted_registry": "Trust this registry first (Registries, below).",
+    "no_compatible_version": "No version of this plugin works with this vspark.",
+    "incompatible": "This version does not work with this vspark.",
+    "already_installed": "Already installed.",
+    "not_installed": "Not installed.",
+    "dev_plugin": "This plugin is loaded from a development folder (config.json).",
+    "invalid": "Invalid input.",
+    "invalid_url": "Registry addresses must start with https://.",
+    "not_packaged": "This server cannot restart itself — restart it by hand.",
+    "not_ready": "The server is still starting.",
+    "timeout": "The server did not answer in time.",
+    "unreachable": "The server cannot be reached.",
+    "offline": "Not connected to the server.",
+    "unknown_action": "Unknown command."
+  },
+  "help": {
+    "manage": "Installing and managing plugins",
+    "registries": "Where the plugin list comes from"
+  }
+}

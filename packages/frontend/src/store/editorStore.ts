@@ -425,6 +425,8 @@ export interface EditorState {
    *  ui_action (open_window). */
   accountsModalOpen: boolean;
   setAccountsModalOpen: (open: boolean) => void;
+  pluginsModalOpen: boolean;
+  setPluginsModalOpen: (open: boolean) => void;
   mediaModalOpen: boolean;
   setMediaModalOpen: (open: boolean) => void;
   /** Learned Tracking behavior whose camera preview window is open, if any. */
@@ -681,6 +683,8 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   },
   accountsModalOpen: false,
   setAccountsModalOpen: (open) => set({ accountsModalOpen: open }),
+  pluginsModalOpen: false,
+  setPluginsModalOpen: (open) => set({ pluginsModalOpen: open }),
   mediaModalOpen: false,
   setMediaModalOpen: (open) => set({ mediaModalOpen: open }),
   learnedPreviewBehavior: null,
@@ -778,6 +782,8 @@ export const useEditorStore = create<EditorState>((set, get) => ({
           s.setConnectionsModalOpen(a.open !== false);
         } else if (a.window === 'update') {
           s.setUpdateDialogOpen(a.open !== false);
+        } else if (a.window === 'plugins') {
+          s.setPluginsModalOpen(a.open !== false);
         }
         break;
       }

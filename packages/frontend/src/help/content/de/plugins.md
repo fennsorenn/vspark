@@ -9,6 +9,30 @@ Namen.
 Plugins laufen mit denselben Rechten wie vspark selbst – installiere nur
 Plugins, denen du vertraust.
 
+## Plugins installieren und verwalten {#manage}
+
+Öffne **Plugins** in der oberen Leiste.
+
+- **Verfügbar** zeigt, was deine Quellen anbieten. **Installieren** zeigt, mit
+  welchen externen Diensten das Plugin sprechen wird, lädt es dann herunter,
+  prüft, dass es genau das veröffentlichte Paket ist, und startet es – ohne
+  Neustart.
+- **Installiert** zeigt deine Plugins. Ein Punkt am Knopf **Plugins** heißt:
+  Ein Update wartet oder eine Änderung braucht einen Neustart.
+- **Aktualisieren**, ein laufendes Plugin ausschalten und **Deinstallieren**
+  wirken beim nächsten Start von vspark; das Fenster bietet dann **vspark neu
+  starten** an. **Änderung zurücknehmen** bricht so eine Änderung ab.
+- Knoten und Widgets eines entfernten Plugins bleiben in deinen Projekten als
+  **⚠ Fehlt: …** und funktionieren wieder, sobald es zurück ist.
+
+## Quellen {#registries}
+
+Eine Quelle ist die Liste der Plugins, die das Fenster zeigt. vspark beginnt mit
+der offiziellen. Unter **Quellen** kannst du weitere hinzufügen (die Adresse
+muss mit `https://` beginnen). Plugins aus einer Quelle, die du nicht als
+**Vertraut** markiert hast, werden angezeigt, lassen sich aber nicht
+installieren. **Auf Standard zurücksetzen** kehrt zur offiziellen Liste zurück.
+
 ## Plugin-Konten {#accounts}
 
 Ein Plugin, das mit einem Dienst spricht, bringt einen eigenen Block im
