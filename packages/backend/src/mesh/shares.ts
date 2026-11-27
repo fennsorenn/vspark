@@ -18,6 +18,7 @@
  * advertise/unshared offer flow stay on the legacy `_share_*` protocol.
  */
 import type { Grant, MeshPeer, MeshSubscription } from '@vspark/mesh';
+import { holdPluginNameGrant, releasePluginNameGrant } from './plugins.js';
 import { listAllGrants } from '../sync/grants.js';
 import { getMeshPeer } from './index.js';
 
@@ -50,6 +51,8 @@ export function mirrorShareGrant(
       rights,
     })
   );
+  // The peer may lack a plugin the object uses: let it read our plugins' names.
+  holdPluginNameGrant(peer, grantee, `share:${objectId}`);
 }
 
 /** Owner: drop the mesh mirror of a revoked legacy share grant. */
@@ -59,6 +62,7 @@ export function dropShareGrant(grantee: string, objectId: string): void {
   if (!peer || !gid) return;
   gids.delete(key(grantee, objectId));
   peer.grants.revoke(gid);
+  releasePluginNameGrant(peer, grantee, `share:${objectId}`);
 }
 
 /** Hydrate mirrors for every persisted share grant (boot). Collab-scene

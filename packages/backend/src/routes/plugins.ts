@@ -1,7 +1,8 @@
 /**
- * Plugin host REST surface. Management routes live under `/api/plugins`;
- * a plugin's own routes are mounted at `/api/plugin/<id>/` (app.ts) and its
- * browser files are served from `/plugin-files/<id>/` (app.ts).
+ * Plugin host REST surface — for OUTSIDE callers (MCP, scripts) only. The
+ * editor reads `plugin` mesh documents (mesh principle 7). A plugin's own
+ * routes are mounted at `/api/plugin/<id>/` (app.ts; for outside callers such
+ * as OAuth redirects) and its code is served from `/plugin-files/<id>/`.
  * See dev-notes/modules/plugins.md.
  */
 import { Router } from 'express';
@@ -38,33 +39,6 @@ export function pluginRow(p: LoadedPlugin) {
  */
 router.get('/plugins', (_req, res) => {
   res.json({ ok: true, data: getPluginHost().list().map(pluginRow) });
-});
-
-/**
- * @openapi
- * /api/plugins/active:
- *   get:
- *     tags: [plugins]
- *     summary: What the editor loads at start — browser entries, locales and help pages of the active plugins
- *     responses:
- *       200: { description: Active plugin descriptors }
- */
-router.get('/plugins/active', (_req, res) => {
-  res.json({
-    ok: true,
-    data: getPluginHost()
-      .list()
-      .filter((p) => p.status === 'active')
-      .map((p) => ({
-        id: p.manifest.id,
-        version: p.manifest.version,
-        name: p.manifest.name,
-        baseUrl: `/plugin-files/${p.manifest.id}`,
-        entries: { shared: p.manifest.entries.shared ?? null, ui: p.manifest.entries.ui ?? null },
-        locales: p.locales,
-        help: p.help,
-      })),
-  });
 });
 
 export default router;

@@ -326,6 +326,9 @@ async function start() {
       dev: cfg.plugins?.dev,
       settings: cfg.plugins?.settings,
     });
+    // Tabs learn about plugins from `plugin` mesh documents (principle 7).
+    const { publishPlugins } = await import('./mesh/plugins.js');
+    publishPlugins(getPluginHost().list());
   }
 
   const { logicManager } = await import('./logic/manager.js');

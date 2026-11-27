@@ -40,6 +40,15 @@ git repository.
   point for new plugins.
 - **[decided]** (user, 2026-11-26) Plugins are installed and enabled **per
   installation**; their contributions are available in every project.
+- **[decided]** (user, 2026-11-27) Plugin **code** (`shared.mjs`, `ui.mjs`) reaches the
+  editor as static files from the plugin's own server (like the app bundle). Everything
+  else the editor needs about a plugin — list, status, locales, help — travels as mesh
+  documents (mesh principle 7); installing / enabling / removing are tab writes the
+  server validates and carries out, not REST calls.
+- **[decided]** (user, 2026-11-27) Installed plugins are shared with remote peers **by
+  name only** (id + name), so a peer missing a plugin can show a "plugin missing" note
+  for its nodes / objects instead of a bare unknown kind. Code, locales, help and status
+  are not shared.
 - **[decided]** (user, 2026-11-26) Requiring a restart is acceptable if live
   activation turns out too hacky. (Claude's proposal stays: load live on install /
   enable when it is clean; restart for disable / update / uninstall.)

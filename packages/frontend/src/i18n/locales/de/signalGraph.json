@@ -60,6 +60,7 @@
   },
   "missingKind": {
     "label": "⚠ Fehlt: {{kind}}",
-    "tip": "Die Knotenart „{{kind}}“ ist nicht verfügbar – das Plugin, das sie bereitstellt, ist vielleicht nicht installiert. Der Knoten und seine Verbindungen bleiben erhalten und tun nichts, bis die Art wieder verfügbar ist."
+    "tip": "Die Knotenart „{{kind}}“ ist nicht verfügbar – das Plugin, das sie bereitstellt, ist vielleicht nicht installiert. Der Knoten und seine Verbindungen bleiben erhalten und tun nichts, bis die Art wieder verfügbar ist.",
+    "tipPlugin": "Die Knotenart „{{kind}}“ braucht das Plugin „{{plugin}}“, das hier nicht installiert ist oder nicht läuft. Der Knoten und seine Verbindungen bleiben erhalten und tun nichts, bis es läuft."
   }
 }

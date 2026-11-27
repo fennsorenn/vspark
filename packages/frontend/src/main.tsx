@@ -3,10 +3,11 @@ import ReactDOM from 'react-dom/client';
 import { MeshProvider } from '@vspark/mesh-react';
 import App from './App';
 import i18n from './i18n';
-import { initMeshPeer } from './mesh/peer';
+import { initMeshPeer, pluginsSubscribed } from './mesh/peer';
 import { startPreviewSmoothing } from './previewSmoother';
 import { startMediaCommands } from './mesh/mediaCommands';
 import { loadPlugins } from './plugins/loader';
+import type { PluginDoc } from '@vspark/shared/types';
 // Registers the dev-only `dev_facecal()` console command (face heuristic calibration).
 import './components/FaceCalibrationWindow';
 
@@ -19,10 +20,16 @@ const root = ReactDOM.createRoot(document.getElementById('root')!);
 async function boot(): Promise<void> {
   for (;;) {
     try {
-      const { peer } = await initMeshPeer();
+      const { peer, serverPeerId, collections } = await initMeshPeer();
       // Plugin kinds / response types / composites must be registered before
       // the first render reads the registries. Failures are logged, not fatal.
-      await loadPlugins();
+      const plugins = collections.plugin!;
+      await loadPlugins({
+        serverPeerId,
+        ready: pluginsSubscribed,
+        all: () => plugins.all() as unknown as PluginDoc[],
+        observe: (cb) => plugins.observe('**', cb),
+      });
       startPreviewSmoothing(peer);
       startMediaCommands(peer);
       root.render(

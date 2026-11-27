@@ -156,6 +156,12 @@ export const MODELS = {
   // has a parent: variables are project-wide and there is no `project` rtype.
   variable: {},
   runtime_variable: { channels: [RUNTIME] },
+  // Plugins a server has loaded (one document per server × plugin, id
+  // `${serverPeerId}:${pluginId}`), written only by that server. Its own tabs
+  // read all of it (status, locales, help, contributions); peers it shares
+  // content with read only `name` (decided: user, 2026-11-27), so they can say
+  // which plugin a node or object they cannot run needs.
+  plugin: { channels: [RUNTIME] },
   // Server-to-server only: pose/blendshape/drag frames on collab nodes, and
   // runtime events per collab scene.
   node_stream: { channels: ['preview'] },
@@ -185,4 +191,5 @@ export const TAB_MODELS: readonly ModelName[] = [
   // them (Start / Pause, a goal set by hand).
   'variable',
   'runtime_variable',
+  'plugin',
 ];

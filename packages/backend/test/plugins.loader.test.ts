@@ -13,6 +13,14 @@ import { writeState } from '../src/plugins/state.js';
 import { PROVIDERS } from '../src/plugins/accounts/store.js';
 import { dataChannelManager } from '../src/data_channels/manager.js';
 import { makeTestApp } from './helpers/testApp.js';
+import { getMeshPeer } from '../src/mesh/index.js';
+import {
+  holdPluginNameGrant,
+  pluginCollection,
+  publishPlugins,
+  releasePluginNameGrant,
+} from '../src/mesh/plugins.js';
+import { projectValue, readScope } from '@vspark/mesh';
 import { buildFixturePlugin } from './helpers/plugins.js';
 import { pullValue } from './helpers/nodeHarness.js';
 
@@ -122,13 +130,8 @@ describe('plugin context', () => {
 
     const list = await request(app).get('/api/plugins');
     expect(list.body.data[0]).toMatchObject({ id: 'hello', status: 'active', source: 'dev' });
-    const active = await request(app).get('/api/plugins/active');
-    expect(active.body.data[0]).toMatchObject({
-      id: 'hello',
-      baseUrl: '/plugin-files/hello',
-      entries: { shared: 'shared.mjs', ui: null },
-      help: { en: ['index.md'] },
-    });
+    // The editor does not read plugins over REST (mesh principle 7).
+    expect((await request(app).get('/api/plugins/active')).status).not.toBe(200);
   });
 
   it('nodes publish data and use storage persisted in the plugin data folder', async () => {
@@ -168,3 +171,49 @@ describe('manifest', () => {
   });
 });
 
+
+describe('plugin mesh documents', () => {
+  it('publishes one document per loaded plugin with locales and help; drops unloaded ones', async () => {
+    await makeTestApp({ mesh: true });
+    const peerId = getMeshPeer()!.id;
+    await host.load(await buildFixturePlugin('hello'), 'dev');
+    publishPlugins(host.list());
+    const doc = pluginCollection()!.get(`${peerId}:hello`)!;
+    expect(doc).toMatchObject({
+      pluginId: 'hello',
+      server: peerId,
+      status: 'active',
+      baseUrl: '/plugin-files/hello',
+      entries: { shared: 'shared.mjs', ui: null },
+      name: { en: 'Hello', de: 'Hallo' },
+    });
+    expect((doc.locales.de as { field: { name: string } }).field.name).toBe('Name');
+    expect(doc.help.en!.index).toContain('Fixture help');
+    expect(doc.contributes.nodes).toEqual(['hello_greet']);
+    publishPlugins([]);
+    expect(pluginCollection()!.get(`${peerId}:hello`)).toBeUndefined();
+  });
+
+  it('peers we share with read plugin names only, while a share exists', async () => {
+    await makeTestApp({ mesh: true });
+    const peer = getMeshPeer()!;
+    await host.load(await buildFixturePlugin('hello'), 'dev');
+    publishPlugins(host.list());
+    const id = `${peer.id}:hello`;
+    const scopeFor = (grantee: string) =>
+      readScope(
+        peer.grants.list().filter((g) => g.grantee === grantee),
+        'plugin',
+        id,
+        () => false
+      );
+    holdPluginNameGrant(peer, 'remote-1', 'collab:s1');
+    holdPluginNameGrant(peer, 'remote-1', 'share:o1');
+    const seen = projectValue(pluginCollection()!.get(id), scopeFor('remote-1'));
+    expect(seen).toEqual({ name: { en: 'Hello', de: 'Hallo' } });
+    releasePluginNameGrant(peer, 'remote-1', 'collab:s1');
+    expect(scopeFor('remote-1').kind).not.toBe('none');
+    releasePluginNameGrant(peer, 'remote-1', 'share:o1');
+    expect(scopeFor('remote-1').kind).toBe('none');
+  });
+});

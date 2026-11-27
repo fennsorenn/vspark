@@ -48,6 +48,7 @@ import {
   initServerStatus,
   resetServerStatus,
 } from './status.js';
+import { initMeshPlugins, resetMeshPlugins } from './plugins.js';
 import { initRuntimeVariables, resetRuntimeVariables } from './variables.js';
 import {
   persistentVariableId,
@@ -630,6 +631,7 @@ export function initBackendMesh(): MeshPeer {
   // collection is silent, and the overrides simply stop arriving.
   initMeshRuntime(peer);
   initServerStatus(peer);
+  initMeshPlugins(peer);
   initRuntimeVariables(peer);
   // The animation-clip asset follow-up re-points sourceFilePath through the
   // store once a fetched blob lands.
@@ -659,6 +661,7 @@ export function resetBackendMesh(): void {
   COLLECTIONS.clear();
   resetMeshRuntime();
   resetServerStatus();
+  resetMeshPlugins();
   resetRuntimeVariables();
 }
 

@@ -52,6 +52,13 @@ export function meshTabUuid(): string {
  *  on the id outliving the page (grants cover the server's prefix). */
 let _tabUuid: string | undefined;
 
+/** Resolves once the `plugin` subscription is admitted (its snapshot is in
+ *  the replica) — the plugin loader waits for it before the first render. */
+let _pluginsSubscribed: Promise<void> = Promise.resolve();
+export function pluginsSubscribed(): Promise<void> {
+  return _pluginsSubscribed;
+}
+
 function tabUuid(): string {
   return (_tabUuid ??= randomUUID());
 }
@@ -251,13 +258,15 @@ async function doInit(): Promise<MeshHandles> {
   // One subscription per document type. The mesh serves each from whoever
   // granted it — our server, and over a direct link the tabs of a server that
   // shared with ours — and renews it after a reconnect.
-  for (const rtype of RTYPES)
-    void peer.subscribe({
+  for (const rtype of RTYPES) {
+    const sub = peer.subscribe({
       entityRtype: rtype,
       entityId: '*',
       includeDescendants: false,
       pathPrefix: '',
     });
+    if (rtype === 'plugin') _pluginsSubscribed = sub.then(() => undefined);
+  }
 
   // The app renders only once this resolves (main.tsx), so everything reads a
   // peer that exists.

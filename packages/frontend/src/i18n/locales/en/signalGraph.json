@@ -60,6 +60,7 @@
   },
   "missingKind": {
     "label": "⚠ Missing: {{kind}}",
-    "tip": "The node kind \"{{kind}}\" is not available — the plugin that provides it may not be installed. The node and its connections are kept and do nothing until the kind is available again."
+    "tip": "The node kind \"{{kind}}\" is not available — the plugin that provides it may not be installed. The node and its connections are kept and do nothing until the kind is available again.",
+    "tipPlugin": "The node kind \"{{kind}}\" needs the plugin \"{{plugin}}\", which is not installed or not running here. The node and its connections are kept and do nothing until it is."
   }
 }

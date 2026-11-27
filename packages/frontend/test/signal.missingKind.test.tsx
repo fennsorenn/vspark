@@ -6,6 +6,7 @@ import { describe, expect, it } from 'vitest';
 import { ReactFlowProvider } from '@xyflow/react';
 import type { GraphDescriptor } from '@vspark/shared/signal';
 import { renderWithProviders } from './helpers/render';
+import { testPeer } from './helpers/mesh';
 import { SignalNodeCard, type SignalNodeData } from '../src/components/editor/signal/SignalNodeCard';
 import { missingKindPorts } from '../src/components/editor/signal/SignalGraphCanvas';
 
@@ -56,5 +57,22 @@ describe('missing node kind', () => {
     const header = container.querySelector('.vs-signal-node-missing')!;
     expect(header.textContent).toContain('demo_gone');
     expect(header.getAttribute('title')).toContain('plugin');
+  });
+
+  it('names the plugin when a document (ours or a peer\'s, name only) knows it', () => {
+    testPeer()
+      .collection<Record<string, unknown>>('plugin')
+      .put({ id: 'peer-2:demo', name: { en: 'Demo Plugin' } }, { v: { t: 1, c: 0, n: 'seed' } });
+    const data = {
+      nodeId: 'x', graphId: 'g', kind: 'demo_gone', display: undefined, missing: true,
+      inputPorts: [], outputPorts: [], connectedInputPorts: [], readonly: false,
+      lastExecutedAt: null, portValues: {}, config: null,
+    } as SignalNodeData;
+    const { container } = renderWithProviders(
+      <ReactFlowProvider>
+        <SignalNodeCard {...({ id: 'x', data, selected: false } as never)} />
+      </ReactFlowProvider>
+    );
+    expect(container.querySelector('.vs-signal-node-missing')!.getAttribute('title')).toContain('Demo Plugin');
   });
 });

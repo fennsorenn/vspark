@@ -2,11 +2,13 @@ import { useId, useState } from 'react';
 import { commitBehaviorPatch } from '../../../mesh/behaviorWrites';
 import { X } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
+import type { PluginDoc } from '@vspark/shared/types';
+import { pluginForKind } from '../../../plugins/loader';
 import { Handle, Position, type NodeProps } from '@xyflow/react';
 import { SIGNAL_TYPE_COLORS } from '@vspark/shared/signal';
 import type { NodeDisplay, NodePortMeta } from '@vspark/shared/signal';
 import { useEditorStore, type Behavior } from '../../../store/editorStore';
-import { useCollection } from '@vspark/mesh-react';
+import { useCollection, useMeshAll } from '@vspark/mesh-react';
 import { useComposeLayers } from '../../../mesh/compose';
 import { useSceneNodes } from '../../../mesh/nodes';
 import { nodePortNameSpec, useNameSuggestions } from '../../../mesh/names';
@@ -511,7 +513,7 @@ export function SignalNodeCard({
     scopeSource,
     missing,
   } = data;
-  const { t } = useTranslation('signalGraph');
+  const { t, i18n } = useTranslation('signalGraph');
   const headerColor = missing ? '#6a2a2a' : (display?.color ?? '#2a2a3a');
   const label = missing ? t('missingKind.label', { kind }) : (display?.label ?? kind);
   const maxPorts = Math.max(inputPorts.length, outputPorts.length);
@@ -522,6 +524,12 @@ export function SignalNodeCard({
       : {};
 
   const behaviorCol = useCollection<Behavior>('behavior');
+  // A missing kind may belong to a plugin we (or a peer we share with) know
+  // by name: say which one is needed.
+  const pluginDocs = useMeshAll(useCollection<PluginDoc>('plugin'));
+  const neededPlugin = missing
+    ? pluginForKind(pluginDocs, kind, i18n.resolvedLanguage)
+    : undefined;
   const nameCtx: NameCtx = {
     kind,
     scope:
@@ -615,7 +623,13 @@ export function SignalNodeCard({
       >
         <span
           className={missing ? 'vs-signal-node-missing' : undefined}
-          title={missing ? t('missingKind.tip', { kind }) : undefined}
+          title={
+            missing
+              ? neededPlugin
+                ? t('missingKind.tipPlugin', { kind, plugin: neededPlugin })
+                : t('missingKind.tip', { kind })
+              : undefined
+          }
           style={{ fontSize: 11, fontWeight: 600, color: '#fff', flex: 1 }}
         >
           {label}

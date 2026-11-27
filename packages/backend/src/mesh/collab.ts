@@ -19,6 +19,7 @@
  */
 import type { Grant, MeshPeer, MeshSubscription } from '@vspark/mesh';
 import { listAllCollabScenes } from '../multiplayer/collabScene.js';
+import { holdPluginNameGrant, releasePluginNameGrant } from './plugins.js';
 
 const RUCD = { read: true, update: true, create: true, delete: true };
 
@@ -45,6 +46,8 @@ export function grantCollabScene(
   const key = `${granteePeerId}:${sceneId}`;
   if (granted.has(key)) return;
   granted.set(key, peer.grants.grant(sceneGrant(granteePeerId, sceneId)));
+  // The peer may lack a plugin this scene uses: let it read our plugins' names.
+  holdPluginNameGrant(peer, granteePeerId, `collab:${sceneId}`);
 }
 
 /** Mounting peer: subscribe to the scene (idempotent; held by the mesh across
@@ -82,6 +85,7 @@ export function teardownCollabScene(
   if (gid) {
     peer.grants.revoke(gid);
     granted.delete(key);
+    releasePluginNameGrant(peer, remotePeerId, `collab:${sceneId}`);
   }
   const sub = subs.get(key);
   if (sub) {

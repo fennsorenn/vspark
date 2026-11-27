@@ -814,3 +814,37 @@ export interface APIError {
 export type APIResponse<T> =
   | { ok: true; data: T }
   | { ok: false; error: APIError };
+
+/** A `plugin` mesh document: one plugin as one server loaded it. Its own tabs
+ *  see every field; remote peers only `name` (the id carries server + plugin). */
+export interface PluginDoc {
+  /** `${serverPeerId}:${pluginId}`. */
+  id: string;
+  /** Localized names (`{ en, de, … }`). The only field remote peers read. */
+  name: Record<string, string>;
+  pluginId: string;
+  server: string;
+  version: string;
+  description: Record<string, string>;
+  author: string;
+  homepage: string | null;
+  network: string[];
+  source: 'installed' | 'dev';
+  status: 'active' | 'failed' | 'incompatible';
+  error: string | null;
+  contributes: { nodes: string[]; actionKinds: string[]; responseTypes: string[]; composites: string[] };
+  /** Browser entries, served as static files under `baseUrl` (decided: user,
+   *  2026-11-27 — plugin code travels like the app bundle, not over the mesh). */
+  baseUrl: string;
+  entries: { shared: string | null; ui: string | null };
+  /** Merged locale bundle per language (i18n namespace `plugin-<id>`). */
+  locales: Record<string, Record<string, unknown>>;
+  /** Help pages per language: page name (without `.md`) → markdown. */
+  help: Record<string, Record<string, string>>;
+}
+
+/** Split a `plugin` document id into its server and plugin id. */
+export function splitPluginDocId(id: string): { server: string; pluginId: string } {
+  const i = id.lastIndexOf(':');
+  return i < 0 ? { server: '', pluginId: id } : { server: id.slice(0, i), pluginId: id.slice(i + 1) };
+}
